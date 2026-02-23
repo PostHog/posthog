@@ -21,7 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
+import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
 import { surveysSdkLogic } from './surveysSdkLogic'
@@ -50,6 +50,7 @@ function hasMorePages(surveys: any[], count: number): boolean {
 
 export interface SurveysFilters {
     status: string
+    type: SurveyType | 'any'
     created_by: null | number
     archived: boolean
 }
@@ -316,6 +317,7 @@ export const surveysLogic = kea<surveysLogicType>([
         filters: [
             {
                 archived: false,
+                type: 'any',
                 status: 'any',
                 created_by: null,
             } as Partial<SurveysFilters>,
@@ -421,9 +423,12 @@ export const surveysLogic = kea<surveysLogicType>([
                     }
                 }
 
-                const { status, created_by, archived } = filters
+                const { status, type, created_by, archived } = filters
                 if (status !== 'any') {
                     searchedSurveys = searchedSurveys.filter((survey: Survey) => getSurveyStatus(survey) === status)
+                }
+                if (type !== 'any') {
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => survey.type === type)
                 }
                 if (created_by) {
                     searchedSurveys = searchedSurveys.filter((survey: Survey) => survey.created_by?.id === created_by)

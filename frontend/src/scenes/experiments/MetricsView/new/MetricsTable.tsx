@@ -33,7 +33,7 @@ export function MetricsTable({
     getInsightType,
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
-    const { experiment, hasMinimumExposureForResults, exposuresLoading } = useValues(experimentLogic)
+    const { experiment, exposuresLoading } = useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics, updateMetricBreakdown, removeMetricBreakdown } =
         useActions(experimentLogic)
 
@@ -151,7 +151,6 @@ export function MetricsTable({
                                 }}
                                 error={error}
                                 isLoading={isLoading}
-                                hasMinimumExposureForResults={hasMinimumExposureForResults}
                                 exposuresLoading={exposuresLoading}
                                 showDetailsModal={showDetailsModal}
                             />

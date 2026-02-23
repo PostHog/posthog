@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
+import { IconSparkles } from '@posthog/icons'
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
@@ -55,8 +57,24 @@ import {
     LegacyResultsQuery,
     LoadingState,
     PageHeaderCustom,
-    StopExperimentModal,
 } from './components'
+
+const AiAnalysisTab = (): JSX.Element => {
+    const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
+
+    return (
+        <div className="flex flex-row gap-2">
+            <SummarizeExperimentButton
+                disabledReason={
+                    !hasMinimumExposureForResults
+                        ? 'Experiment needs at least 50 exposures to summarize results.'
+                        : undefined
+                }
+            />
+            <SummarizeSessionReplaysButton experiment={experiment} />
+        </div>
+    )
+}
 
 const MetricsTab = (): JSX.Element => {
     const {
@@ -66,7 +84,6 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
-        featureFlags,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -96,21 +113,23 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
-    const isAiSummaryEnabled =
-        featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test' &&
-        usesNewQueryRunner &&
-        hasMinimumExposureForResults
-
-    const isSessionReplaySummaryEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENTS_SESSION_REPLAY_SUMMARY]
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
 
     return (
         <>
-            {(isAiSummaryEnabled || isSessionReplaySummaryEnabled) && (
+            {usesNewQueryRunner && !isAiAnalysisTabEnabled && (
                 <div className="mt-1 mb-4 flex justify-start gap-2">
-                    {isAiSummaryEnabled && <SummarizeExperimentButton />}
-                    {isSessionReplaySummaryEnabled && <SummarizeSessionReplaysButton experiment={experiment} />}
+                    <SummarizeExperimentButton
+                        disabledReason={
+                            !hasMinimumExposureForResults
+                                ? `Experiment needs at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures to summarize results.`
+                                : undefined
+                        }
+                    />
+                    <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
             )}
+
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />
@@ -198,6 +217,7 @@ const MetricsTab = (): JSX.Element => {
         </>
     )
 }
+
 const CodeTab = (): JSX.Element => {
     const { experiment } = useValues(experimentLogic)
 
@@ -237,6 +257,8 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
+
     /**
      * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
      * we show the experiment view.
@@ -274,6 +296,20 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
+                            ...(isAiAnalysisTabEnabled && usesNewQueryRunner
+                                ? [
+                                      {
+                                          key: 'ai_analysis',
+                                          label: (
+                                              <div className="flex items-center gap-1">
+                                                  <IconSparkles />
+                                                  <span>AI analysis</span>
+                                              </div>
+                                          ),
+                                          content: <AiAnalysisTab />,
+                                      },
+                                  ]
+                                : []),
                             ...(!isExperimentDraft
                                 ? [
                                       {
@@ -377,7 +413,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <DistributionModal />
                     <ReleaseConditionsModal />
 
-                    <StopExperimentModal />
                     <EditConclusionModal />
 
                     <VariantDeltaTimeseries />

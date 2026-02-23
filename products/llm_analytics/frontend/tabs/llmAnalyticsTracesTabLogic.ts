@@ -91,6 +91,7 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.TracesQuery,
+                        limit: 100,
                         dateRange: {
                             date_from: dateFilter.dateFrom || undefined,
                             date_to: dateFilter.dateTo || undefined,

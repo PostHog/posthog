@@ -261,6 +261,7 @@ export const clustersLogic = kea<clustersLogicType>([
                     key: 'LLMAnalyticsClusters',
                     name: 'Clusters',
                     path: urls.llmAnalyticsClusters(),
+                    iconType: 'llm_clusters',
                 },
             ],
         ],

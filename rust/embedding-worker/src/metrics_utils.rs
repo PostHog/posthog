@@ -13,6 +13,7 @@ pub const EMBEDDING_TOTAL_TIME: &str = "embedding_worker_embedding_total_time";
 pub const EMBEDDING_REQUEST_TIME: &str = "embedding_worker_embedding_request_time";
 pub const EMBEDDING_TOTAL_TOKENS: &str = "embedding_worker_embedding_total_tokens";
 
+#[derive(Debug, Clone, Default)]
 pub struct RequestLabels {
     labels: Vec<(String, String)>,
 }

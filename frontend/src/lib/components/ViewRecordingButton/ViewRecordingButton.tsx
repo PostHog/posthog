@@ -53,12 +53,16 @@ export default function ViewRecordingButton({
     hasRecording,
     checkRecordingExists = false,
     variant = ViewRecordingButtonVariant.Button,
+    iconOnly = false,
+    noPadding = false,
     ...props
 }: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
     ViewRecordingProps & {
         checkIfViewed?: boolean
         label?: ReactNode
         variant?: ViewRecordingButtonVariant
+        iconOnly?: boolean
+        noPadding?: boolean
     }): JSX.Element {
     const { checkRecordingExists: registerCheck } = useActions(sessionRecordingExistsLogic)
     const { getRecordingExists } = useValues(sessionRecordingExistsLogic)
@@ -136,6 +140,20 @@ export default function ViewRecordingButton({
                 {sideIcon}
                 {maybeUnwatchedIndicator}
             </Link>
+        )
+    }
+
+    if (iconOnly) {
+        return (
+            <LemonButton
+                disabledReason={disabledReason}
+                onClick={onClick}
+                icon={sideIcon}
+                tooltip="View recording"
+                aria-label="View recording"
+                noPadding={noPadding}
+                {...props}
+            />
         )
     }
 

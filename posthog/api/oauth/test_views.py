@@ -1161,6 +1161,7 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @freeze_time("2025-01-01 00:00:00")
     def test_userinfo_endpoint_with_expired_token(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -1943,6 +1944,7 @@ class TestOAuthAPI(APIBaseTest):
         assert location
         self.assertIn("error=invalid_scope", location)
 
+    @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_with_json_payload(self):
         grant = OAuthGrant.objects.create(
             application=self.confidential_application,
@@ -2031,6 +2033,7 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
         self.assertEqual(data["client_id"], "test_confidential_client_id")
+        self.assertEqual(data["client_name"], "Test Confidential App")
         self.assertIn("scoped_teams", data)
         self.assertIn("scoped_organizations", data)
 
@@ -2258,8 +2261,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
 
     @freeze_time("2025-01-01 00:00:00")
-    def test_self_introspection_with_expired_token_fails(self):
-        """An expired token cannot self-introspect."""
+    def test_self_introspection_with_expired_token_returns_inactive(self):
+        """An expired token can self-introspect and gets active: false per RFC 7662."""
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
         access_token.expires = timezone.now() - timedelta(hours=1)
         access_token.save()
@@ -2270,7 +2273,22 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
 
-        # Falls back to standard behavior which requires introspection scope
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+
+    def test_self_introspection_with_revoked_token_fails(self):
+        """A revoked (deleted) token cannot self-introspect."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+        token_value = access_token.token
+        access_token.delete()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token_value},
+            headers={"Authorization": f"Bearer {token_value}"},
+        )
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_introspecting_different_token_still_requires_introspection_scope(self):
@@ -2302,6 +2320,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
 
+    @freeze_time("2025-01-01 00:00:00")
     def test_dcr_client_gets_extended_token_expiry(self):
         self.public_application.is_dcr_client = True
         self.public_application.save()

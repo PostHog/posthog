@@ -191,6 +191,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "is_used_in_replay_settings": False,
         }
 
         flag_response = response.json()["success"][0]
@@ -276,6 +277,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "is_used_in_replay_settings": False,
         }
 
         flag_response = response.json()["success"][0]
@@ -298,8 +300,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             team=self.team_1,
             created_by=self.user,
             key="flag-to-copy-here",
-            filters={},
-            rollout_percentage=self.rollout_percentage_to_copy,
+            filters={"groups": [{"properties": [], "rollout_percentage": self.rollout_percentage_to_copy}]},
         )
 
         data = {
@@ -408,6 +409,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "is_used_in_replay_settings": False,
         }
         flag_response = response.json()["success"][0]
 

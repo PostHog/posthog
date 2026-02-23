@@ -1,4 +1,4 @@
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconCheckCircle, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
@@ -24,8 +24,9 @@ export function EvalsTabContent({
     distinctId?: string
 }): JSX.Element {
     const generationRunsLogic = generationEvaluationRunsLogic({ generationEventId })
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
 
-    useAttachedLogic(generationRunsLogic, llmAnalyticsTraceLogic)
+    useAttachedLogic(generationRunsLogic, traceLogic)
 
     return (
         <EvalsTabContentInner

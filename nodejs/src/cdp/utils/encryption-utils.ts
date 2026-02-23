@@ -5,19 +5,20 @@ export class EncryptedFields {
 
     constructor(encryptionSaltKeys: string) {
         const saltKeys = encryptionSaltKeys.split(',').filter((key) => key)
-
-        if (!saltKeys.length) {
-            throw new Error('Encryption keys are not set')
-        }
-
         this.fernets = saltKeys.map((key) => new Fernet(Buffer.from(key, 'utf-8').toString('base64')))
     }
 
     encrypt(value: string): string {
+        if (!this.fernets.length) {
+            throw new Error('Encryption keys are not set')
+        }
         return this.fernets[0].encrypt(value)
     }
 
     decrypt(value: string, options?: { ignoreDecryptionErrors: boolean }): string | undefined {
+        if (!this.fernets.length) {
+            throw new Error('Encryption keys are not set')
+        }
         let error: Error | undefined
         // Iterate over all keys and try to decrypt the value
         for (const fernet of this.fernets) {

@@ -82,6 +82,11 @@ function ChoosePathStep(): JSX.Element {
                             placeholder="e.g., I want to understand why users drop off during checkout and run experiments to improve conversion..."
                             value={aiDescription}
                             onChange={(value) => setAiDescription(value)}
+                            onPressEnter={() => {
+                                if (aiDescription.trim()) {
+                                    submitAiRecommendation()
+                                }
+                            }}
                             rows={3}
                         />
                         <div className="flex items-center justify-between mt-3">

@@ -14,7 +14,7 @@ jest.mock('scenes/surveys/SurveyAppearancePreview', () => ({
     SurveyAppearancePreview: () => <div data-testid="preview">Preview</div>,
 }))
 jest.mock('scenes/surveys/SurveySettings', () => ({
-    SurveyPopupToggle: () => null,
+    SurveyEnableToggle: () => null,
 }))
 
 const mockFlag = {

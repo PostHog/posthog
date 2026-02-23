@@ -12,6 +12,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -44,13 +45,14 @@ import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
-import { truncateValue } from './utils'
+import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -139,7 +141,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
             date_to: externalFilters?.date_to ?? null,
             properties: externalFilters?.properties ?? null,
         }),
-        [externalFilters]
+        [externalFilters?.date_from, externalFilters?.date_to, externalFilters?.properties]
     )
 
     // Set filters using useLayoutEffect to ensure they're set before Dashboard's afterMount event fires
@@ -169,6 +171,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 function LLMAnalyticsGenerations(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { searchParams } = useValues(router)
     const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
         useActions(llmAnalyticsGenerationsLogic)
     const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } =
@@ -178,7 +181,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
 
     // Helper to safely extract uuid and traceId from a result row based on current column configuration
-    const getRowIds = (result: unknown): { uuid: string; traceId: string } | null => {
+    const getRowIds = (result: unknown): { uuid: string; traceId: string; traceTimestamp?: string } | null => {
         if (!Array.isArray(result) || !isEventsQuery(generationsQuery.source)) {
             return null
         }
@@ -189,6 +192,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
         const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
+        const timestampIndex = columns.findIndex((col) => col === 'timestamp')
 
         if (uuidIndex < 0 || traceIdIndex < 0) {
             return null
@@ -196,9 +200,14 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
         const uuid = result[uuidIndex]
         const traceId = result[traceIdIndex]
+        const timestampValue = timestampIndex >= 0 ? result[timestampIndex] : null
 
         if (typeof uuid === 'string' && typeof traceId === 'string') {
-            return { uuid, traceId }
+            const parsedTimestamp =
+                timestampValue != null && dayjs(String(timestampValue)).isValid()
+                    ? getTraceTimestamp(String(timestampValue))
+                    : undefined
+            return { uuid, traceId, traceTimestamp: parsedTimestamp }
         }
 
         return null
@@ -243,6 +252,9 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
                             const ids = getRowIds(record)
                             const visualValue = truncateValue(value)
+                            const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, {
+                                removeSearch: true,
+                            })
 
                             return !ids ? (
                                 <strong>{visualValue}</strong>
@@ -250,7 +262,14 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 <strong>
                                     <Tooltip title={value}>
                                         <Link
-                                            to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}
+                                            to={
+                                                combineUrl(urls.llmAnalyticsTrace(ids.traceId), {
+                                                    ...nonTraceSearchParams,
+                                                    event: value,
+                                                    timestamp: ids.traceTimestamp,
+                                                    back_to: 'generations',
+                                                }).url
+                                            }
                                             data-attr="generation-id-link"
                                         >
                                             {visualValue}
@@ -373,14 +392,16 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
 
     return (
         <BindLogic logic={llmAnalyticsSharedLogic} props={{ tabId }}>
-            <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-                <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
-                    <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
-                        <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
-                            <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
-                                <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
-                                    <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
-                                        <LLMAnalyticsSceneContent />
+            <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
+                <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                    <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
+                        <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
+                            <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
+                                <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
+                                    <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
+                                        <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
+                                            <LLMAnalyticsSceneContent />
+                                        </BindLogic>
                                     </BindLogic>
                                 </BindLogic>
                             </BindLogic>
@@ -525,28 +546,41 @@ function LLMAnalyticsSceneContent(): JSX.Element {
 
     const availableItemsInSidebar = useMemo(() => {
         return [
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ? (
-                <Link to={urls.llmAnalyticsClusters()} onClick={() => toggleProduct('Clusters', true)}>
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
+                <Link
+                    to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
+                    onClick={() => toggleProduct('Clusters', true)}
+                >
                     clusters
                 </Link>
             ) : null,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
-                <Link to={urls.llmAnalyticsDatasets()} onClick={() => toggleProduct('Datasets', true)}>
+                <Link
+                    to={combineUrl(urls.llmAnalyticsDatasets(), searchParams).url}
+                    onClick={() => toggleProduct('Datasets', true)}
+                >
                     datasets
                 </Link>
             ) : null,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS] ? (
-                <Link to={urls.llmAnalyticsEvaluations()} onClick={() => toggleProduct('Evaluations', true)}>
+                <Link
+                    to={combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url}
+                    onClick={() => toggleProduct('Evaluations', true)}
+                >
                     evaluations
                 </Link>
             ) : null,
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS] ? (
-                <Link to={urls.llmAnalyticsPrompts()} onClick={() => toggleProduct('Prompts', true)}>
+            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ? (
+                <Link
+                    to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
+                    onClick={() => toggleProduct('Prompts', true)}
+                >
                     prompts
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, toggleProduct])
+    }, [featureFlags, searchParams, toggleProduct])
 
     return (
         <SceneContent>

@@ -37,7 +37,7 @@ interface SceneTabContextMenuProps {
 
 export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: SceneTabContextMenuProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
-    const { setTabs, removeTab, duplicateTab, startTabEdit, pinTab, unpinTab } = useActions(sceneLogic)
+    const { setTabs, removeTab, freezeTabWidths, duplicateTab, startTabEdit, pinTab, unpinTab } = useActions(sceneLogic)
 
     const openInNewWindow = (): void => {
         const fullUrl = `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
@@ -114,7 +114,13 @@ export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: Sc
                     )}
                     <ContextMenuSeparator />
                     <ContextMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={() => removeTab(tab, { source: 'context_menu' })}>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => {
+                                freezeTabWidths()
+                                removeTab(tab, { source: 'context_menu' })
+                            }}
+                        >
                             <IconX /> Close tab <KeyboardShortcut command option w />
                         </ButtonPrimitive>
                     </ContextMenuItem>

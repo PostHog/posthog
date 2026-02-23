@@ -14,7 +14,7 @@ import {
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
-import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
+import { SurveyEnableToggle } from 'scenes/surveys/SurveySettings'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
@@ -213,7 +213,7 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
             <div className="flex flex-col gap-3 mt-4">
                 {shouldShowSurveyToggle && (
                     <div className="p-4 border rounded bg-warning-highlight">
-                        <SurveyPopupToggle />
+                        <SurveyEnableToggle />
                     </div>
                 )}
 

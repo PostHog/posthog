@@ -6,6 +6,10 @@
     "$schema": "node_modules/wrangler/config-schema.json",
     "name": "mcp1",
     "main": "src/index.ts",
+    "build": {
+        "command": "tsx scripts/copy-instructions.ts",
+        "watch_dir": "src"
+    },
     "compatibility_date": "2025-03-10",
     "compatibility_flags": [
         "nodejs_compat"

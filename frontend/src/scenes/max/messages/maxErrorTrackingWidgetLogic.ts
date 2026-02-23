@@ -76,7 +76,17 @@ export const maxErrorTrackingWidgetLogic = kea<maxErrorTrackingWidgetLogicType>(
                         volumeResolution: 1,
                     }
 
-                    const response = await performQuery(query)
+                    const response = await performQuery(
+                        query,
+                        undefined,
+                        undefined,
+                        undefined,
+                        undefined,
+                        undefined,
+                        undefined,
+                        false,
+                        'posthog_ai'
+                    )
                     const results = (response.results ?? []) as any[]
 
                     const newIssues: MaxErrorTrackingIssuePreview[] = results.map((issue) => ({

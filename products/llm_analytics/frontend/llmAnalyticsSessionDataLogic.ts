@@ -32,18 +32,21 @@ export interface SessionDataLogicProps {
     sessionId: string
     query: DataTableNode
     cachedResults?: AnyResponseType | null
+    tabId?: string
 }
 
-function getDataNodeLogicProps({ sessionId, query, cachedResults }: SessionDataLogicProps): DataNodeLogicProps {
+function getDataNodeLogicProps({ sessionId, query, cachedResults, tabId }: SessionDataLogicProps): DataNodeLogicProps {
+    const tabScope = tabId ?? 'default'
+    const scopedSessionId = `${sessionId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
-        dashboardItemId: `new-Session.${sessionId}`,
-        dataNodeCollectionId: sessionId,
+        dashboardItemId: `new-Session.${scopedSessionId}`,
+        dataNodeCollectionId: scopedSessionId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: vizKey,
-        dataNodeCollectionId: sessionId,
+        dataNodeCollectionId: scopedSessionId,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
@@ -52,18 +55,19 @@ function getDataNodeLogicProps({ sessionId, query, cachedResults }: SessionDataL
 export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsSessionDataLogic']),
     props({} as SessionDataLogicProps),
-    key((props) => props.sessionId),
+    key((props) => `${props.sessionId}:${props.tabId ?? 'default'}`),
     connect((props: SessionDataLogicProps) => ({
         values: [
-            llmAnalyticsSessionLogic,
+            llmAnalyticsSessionLogic({ tabId: props.tabId }),
             ['sessionId'],
             dataNodeLogic(getDataNodeLogicProps(props)),
-            ['response', 'responseLoading', 'responseError'],
+            ['response', 'responseLoading', 'responseError', 'canLoadNextData', 'hasMoreData', 'nextDataLoading'],
             maxGlobalLogic,
             ['dataProcessingAccepted'],
             teamLogic,
             ['currentTeamId'],
         ],
+        actions: [dataNodeLogic(getDataNodeLogicProps(props)), ['loadNextData']],
     })),
 
     actions({
@@ -172,7 +176,8 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
             (s) => [s.response],
             (response: AnyResponseType | null): LLMTrace[] => {
                 const tracesResponse = response as TracesQueryResponse | null
-                return tracesResponse?.results || []
+                // Reverse to chronological order (oldest first) for session view
+                return [...(tracesResponse?.results || [])].reverse()
             },
         ],
         summariesLoading: [

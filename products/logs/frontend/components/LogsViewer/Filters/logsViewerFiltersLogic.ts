@@ -109,7 +109,7 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
     }),
 
     selectors({
-        tabId: [(_, p) => [p.id], (id: string) => id],
+        id: [(_, p) => [p.id], (id: string) => id],
         filters: [
             (s) => [s.dateRange, s.searchTerm, s.severityLevels, s.serviceNames, s.filterGroup],
             (

@@ -118,7 +118,7 @@ export function Navigation({
                             '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative',
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
-                                'lg:mr-2': isRemovingSidePanelFlag,
+                                'lg:mr-1 lg:mb-1': isRemovingSidePanelFlag,
                                 'rounded-r-none': isRemovingSidePanelFlag && sidePanelOpen,
                             }
                         )}
@@ -129,7 +129,7 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 transition-[width] duration-300 rounded-t',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||

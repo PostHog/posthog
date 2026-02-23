@@ -1,16 +1,9 @@
-import threading
-
 import pytest
-from posthog.test.base import failhard_threadhook_context
+from posthog.test.base import run_clickhouse_statement_in_parallel
+
+from clickhouse_driver.errors import ServerException
 
 
-@pytest.mark.xfail(strict=True, reason="verifies thread exceptions propagate as test failures")
-def test_failhard_threadhook_propagates_thread_exceptions():
-    with failhard_threadhook_context():
-        thread = threading.Thread(target=_raise_value_error)
-        thread.start()
-        thread.join()
-
-
-def _raise_value_error():
-    raise ValueError("boom")
+def test_run_clickhouse_statement_in_parallel_propagates_errors():
+    with pytest.raises(ServerException):
+        run_clickhouse_statement_in_parallel(["SELECT invalid syntax!!!"])

@@ -44,10 +44,10 @@ describe('logsExportLogic', () => {
             initKeaTests()
             jest.clearAllMocks()
 
-            viewerLogic = logsViewerLogic({ tabId: 'test-tab' })
+            viewerLogic = logsViewerLogic({ id: 'test-tab' })
             viewerLogic.mount()
 
-            exportLogic = logsExportLogic({ tabId: 'test-tab' })
+            exportLogic = logsExportLogic({ id: 'test-tab' })
             exportLogic.mount()
         })
 

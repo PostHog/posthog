@@ -4983,7 +4983,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_device_id_bucketing_falls_back_to_distinct_id_when_missing_device() {
+    async fn test_device_id_bucketing_returns_false_when_missing_device() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
@@ -4993,8 +4993,7 @@ mod tests {
         let team = context.insert_new_team(None).await.unwrap();
         let flag = build_device_bucketing_flag(team.id);
 
-        // Without a device_id, the matcher should fall back to the distinct_id hash.
-        // distinct-foo hashes to ~0.32 (< 0.5) so it should match.
+        // Without a device_id, the flag should evaluate to false (no distinct_id fallback).
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "distinct-foo".to_string(),
@@ -5009,17 +5008,17 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let match_from_distinct = matcher.get_match(&flag, None, None, &None).unwrap();
+        let match_without_device = matcher.get_match(&flag, None, None, &None).unwrap();
         assert!(
-            match_from_distinct.matches,
-            "fallback distinct hash should fall inside rollout"
+            !match_without_device.matches,
+            "missing device_id should always evaluate to false for device_id bucketing"
         );
 
-        // distinct-high hashes to ~0.94 (> 0.5) so it should not match.
+        // Empty string device_id should also evaluate to false.
         let router = context.create_postgres_router();
         let mut matcher_high = FeatureFlagMatcher::new(
             "distinct-high".to_string(),
-            None,
+            Some(String::new()),
             team.id,
             router,
             cohort_cache,
@@ -5033,7 +5032,7 @@ mod tests {
         let high_distinct_result = matcher_high.get_match(&flag, None, None, &None).unwrap();
         assert!(
             !high_distinct_result.matches,
-            "fallback distinct hash should fall outside rollout"
+            "empty device_id should evaluate to false for device_id bucketing"
         );
     }
 

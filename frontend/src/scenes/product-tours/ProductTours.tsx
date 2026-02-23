@@ -25,8 +25,11 @@ export const scene: SceneExport = {
 }
 
 function NewTourButton(): JSX.Element {
-    const { createAnnouncement, createBanner } = useActions(productToursLogic)
+    const { productTours } = useValues(productToursLogic)
+    const { createAnnouncement, createBanner, createTour } = useActions(productToursLogic)
     const [isModalOpen, setIsModalOpen] = useState(false)
+
+    const existingTourNames = new Set(productTours.map((tour) => tour.name).filter(Boolean))
 
     return (
         <>
@@ -38,6 +41,8 @@ function NewTourButton(): JSX.Element {
                 onClose={() => setIsModalOpen(false)}
                 onCreateAnnouncement={createAnnouncement}
                 onCreateBanner={createBanner}
+                onCreateTour={createTour}
+                existingTourNames={existingTourNames}
             />
         </>
     )

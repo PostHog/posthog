@@ -1,5 +1,4 @@
-import { createPageview, resetMeta } from '@posthog/plugin-scaffold/test/utils'
-
+import { createPageview, resetMeta } from '../../test-utils'
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 

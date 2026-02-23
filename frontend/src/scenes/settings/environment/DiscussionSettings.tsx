@@ -2,6 +2,7 @@ import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { urls } from 'scenes/urls'
 
 export function DiscussionMentionNotifications(): JSX.Element {
     return (
@@ -25,6 +26,9 @@ export function DiscussionMentionNotifications(): JSX.Element {
                 type="internal_destination"
                 subTemplateIds={['discussion-mention']}
                 emptyText="No notifications configured"
+                queryParams={{
+                    returnTo: urls.settings('environment-discussions', 'discussion-mention-integrations'),
+                }}
             />
         </div>
     )

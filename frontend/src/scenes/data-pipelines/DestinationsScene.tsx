@@ -54,7 +54,11 @@ export function DestinationsScene(): JSX.Element {
             key: 'all',
             label: 'All destinations',
             content: (
-                <DataPipelinesHogFunctions kind="destination" additionalKinds={['site_destination']} action={action} />
+                <DataPipelinesHogFunctions
+                    kind="destination"
+                    additionalKinds={['site_destination', 'internal_destination']}
+                    action={action}
+                />
             ),
         },
         {

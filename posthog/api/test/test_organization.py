@@ -16,6 +16,7 @@ from posthog.api.organization import OrganizationSerializer
 from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal
 from posthog.user_permissions import UserPermissions
 
@@ -494,6 +495,49 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
         self.assertEqual(response_patch.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "Admin Updated Name PATCH")
+
+    def test_cannot_set_logo_media_from_another_organization(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_media = UploadedMedia.objects.create(
+            team=other_team,
+            created_by=self.user,
+            media_location="http://example.com/other.png",
+            content_type="image/png",
+            file_name="other.png",
+        )
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"logo_media_id": str(other_media.id)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "logo_media_id")
+
+    def test_can_set_logo_media_from_own_organization(self):
+        media = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            media_location="http://example.com/own.png",
+            content_type="image/png",
+            file_name="own.png",
+        )
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"logo_media_id": str(media.id)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.logo_media_id, media.id)
 
     def test_idor_protection_patch(self):
         """Test that users cannot modify organizations they don't belong to using PATCH."""
