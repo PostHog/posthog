@@ -248,7 +248,12 @@ const isTimeSeriesVisualizationType = (visualizationType: ChartDisplayType): boo
 }
 
 const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayType => {
+    const stringColumns = columns.filter((column) => column.type.name === 'STRING')
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
+
+    if (stringColumns.length >= 2 && numericalColumns.length >= 1) {
+        return ChartDisplayType.TwoDimensionalHeatmap
+    }
 
     if (numericalColumns.length === 1 && columns.length === 1) {
         return ChartDisplayType.BoldNumber
@@ -296,6 +301,25 @@ const getHeatmapAutoSettings = (columns: Column[], heatmapSettings: HeatmapSetti
     }
 
     return nextSettings
+}
+
+const applyAutoHeatmapSettings = (
+    actions: { updateChartSettings: (settings: ChartSettings) => void },
+    columns: Column[],
+    heatmapSettings: HeatmapSettings
+): void => {
+    const autoSettings = getHeatmapAutoSettings(columns, heatmapSettings)
+
+    if (Object.keys(autoSettings).length === 0) {
+        return
+    }
+
+    actions.updateChartSettings({
+        heatmap: {
+            ...heatmapSettings,
+            ...autoSettings,
+        },
+    })
 }
 
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
@@ -1079,19 +1103,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return
             }
 
-            const heatmapSettings = values.chartSettings.heatmap ?? {}
-            const autoSettings = getHeatmapAutoSettings(values.columns, heatmapSettings)
-
-            if (Object.keys(autoSettings).length === 0) {
-                return
-            }
-
-            actions.updateChartSettings({
-                heatmap: {
-                    ...heatmapSettings,
-                    ...autoSettings,
-                },
-            })
+            applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
         },
         clearAxis: [sharedListeners.axesChanged],
         updateXSeries: [sharedListeners.axesChanged],
@@ -1164,19 +1176,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             if (
                 values.isChartSettingsPanelOpen &&
-                values.visualizationType === ChartDisplayType.TwoDimensionalHeatmap
+                values.effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap
             ) {
-                const heatmapSettings = values.chartSettings.heatmap ?? {}
-                const autoSettings = getHeatmapAutoSettings(value, heatmapSettings)
-
-                if (Object.keys(autoSettings).length > 0) {
-                    actions.updateChartSettings({
-                        heatmap: {
-                            ...heatmapSettings,
-                            ...autoSettings,
-                        },
-                    })
-                }
+                applyAutoHeatmapSettings(actions, value, values.chartSettings.heatmap ?? {})
             }
         },
     })),

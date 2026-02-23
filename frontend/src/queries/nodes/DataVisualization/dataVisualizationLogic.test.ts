@@ -75,6 +75,19 @@ describe('dataVisualizationLogic', () => {
             expected: ChartDisplayType.ActionsBar,
         },
         {
+            name: 'shows a 2d heatmap for two string columns and one numeric column',
+            response: {
+                columns: ['region', 'segment', 'count'],
+                types: [
+                    ['region', 'String'],
+                    ['segment', 'String'],
+                    ['count', 'Int64'],
+                ],
+                results: [['US', 'Enterprise', 10]],
+            },
+            expected: ChartDisplayType.TwoDimensionalHeatmap,
+        },
+        {
             name: 'shows a bar chart for non-time-series numeric data',
             response: {
                 columns: ['group', 'value'],
@@ -186,6 +199,31 @@ describe('dataVisualizationLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             effectiveVisualizationType: ChartDisplayType.ActionsBar,
+        })
+    })
+
+    it('auto-fills 2d heatmap columns when auto resolves to heatmap', async () => {
+        logic.actions.toggleChartSettingsPanel(true)
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['region', 'segment', 'count'],
+            types: [
+                ['region', 'String'],
+                ['segment', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [['US', 'Enterprise', 10]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            effectiveVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
+            chartSettings: {
+                heatmap: {
+                    xAxisColumn: 'region',
+                    yAxisColumn: 'segment',
+                    valueColumn: 'count',
+                },
+            },
         })
     })
 })
