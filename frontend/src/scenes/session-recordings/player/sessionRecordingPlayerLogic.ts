@@ -1481,14 +1481,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
 
-                const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
-                if (useStoreBasedLoading) {
-                    // The store path loads sources incrementally (not all at once),
-                    // so we need timestamp-based diffing to find truly new events.
-                    eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
-                } else {
-                    eventsToAdd.push(...allSnapshots.slice(currentEvents.length))
-                }
+                // Sources load incrementally, so use timestamp-based diffing to find truly new events.
+                eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots.
@@ -1629,11 +1623,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
-            // For store-based loading: set target timestamp so scheduler can seek
-            const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
-            if (useStoreBasedLoading) {
-                actions.setTargetTimestamp(timestamp)
-            }
+            actions.setTargetTimestamp(timestamp)
 
             // Check if we're seeking to a new segment
             const segment = values.segmentForTimestamp(timestamp)
@@ -1855,11 +1845,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
 
-            // Throttled position update for store-based loading (every 5s)
-            if (
-                values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test' &&
-                (!cache.lastPlaybackPositionUpdate || newTimestamp - cache.lastPlaybackPositionUpdate > 5000)
-            ) {
+            // Throttled position update for buffer-ahead loading (every 5s)
+            if (!cache.lastPlaybackPositionUpdate || newTimestamp - cache.lastPlaybackPositionUpdate > 5000) {
                 cache.lastPlaybackPositionUpdate = newTimestamp
                 actions.updatePlaybackPosition(newTimestamp)
             }

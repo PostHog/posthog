@@ -24,10 +24,9 @@ import { sessionRecordingCommentsLogic } from './sessionRecordingCommentsLogic'
 import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordingDataCoordinatorLogicType'
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
-import { processAllSnapshots } from './snapshot-processing/process-all-snapshots'
 import { SnapshotStore } from './snapshot-store/SnapshotStore'
 import { snapshotDataLogic } from './snapshotDataLogic'
-import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
+import { createSegments } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -80,6 +79,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 ],
                 eventsLogic,
                 ['loadEvents', 'loadFullEventData', 'loadEventsSuccess'],
+                snapLogic,
+                ['setViewportCallback'],
                 commentsLogic,
                 [
                     'loadRecordingComments',
@@ -96,7 +97,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'isNotFound',
                     'trackedWindow',
                     'snapshotSources',
-                    'snapshotsBySources',
                     'snapshotsLoading',
                     'snapshotsLoaded',
                     'currentTeam',
@@ -132,8 +132,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         loadRecordingData: true,
         reportUsageIfFullyLoaded: true,
         setRecordingReportedLoaded: true,
-        processSnapshotsAsync: true,
-        setProcessedSnapshots: (snapshots: RecordingSnapshot[]) => ({ snapshots }),
     }),
     reducers(() => ({
         reportedLoaded: [
@@ -142,14 +140,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 setRecordingReportedLoaded: () => true,
             },
         ],
-        processedSnapshots: [
-            [] as RecordingSnapshot[],
-            {
-                setProcessedSnapshots: (_, { snapshots }) => snapshots,
-            },
-        ],
     })),
-    listeners(({ values, actions, props, cache }) => ({
+    listeners(({ values, actions, props }) => ({
         loadRecordingData: () => {
             actions.loadRecordingMeta()
         },
@@ -166,15 +158,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         loadEventsSuccess: () => {
+            actions.setViewportCallback(values.viewportForTimestamp)
             actions.reportUsageIfFullyLoaded()
         },
 
         loadSnapshotsForSourceSuccess: () => {
             actions.reportUsageIfFullyLoaded()
-            // Skip legacy processing when SnapshotStore handles snapshots directly
-            if (!values.snapshotStore) {
-                actions.processSnapshotsAsync()
-            }
         },
 
         loadRecordingCommentsSuccess: () => {
@@ -183,25 +172,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         loadRecordingNotebookCommentsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
-        },
-
-        setProcessedSnapshots: () => {
-            actions.reportUsageIfFullyLoaded()
-        },
-
-        processSnapshotsAsync: async (_, breakpoint) => {
-            cache.processingCache = cache.processingCache || { snapshots: {} }
-
-            const result = await processAllSnapshots(
-                values.snapshotSources,
-                values.snapshotsBySources,
-                cache.processingCache,
-                values.viewportForTimestamp,
-                props.sessionRecordingId
-            )
-
-            breakpoint()
-            actions.setProcessedSnapshots(result)
         },
 
         reportUsageIfFullyLoaded: (_, breakpoint) => {
@@ -214,12 +184,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
     })),
     selectors(({ cache }) => ({
         snapshots: [
-            (s) => [s.processedSnapshots, s.snapshotStore, s.storeVersion],
-            (processedSnapshots: RecordingSnapshot[], snapshotStore: SnapshotStore | null): RecordingSnapshot[] => {
-                if (snapshotStore) {
-                    return snapshotStore.getAllLoadedSnapshots()
-                }
-                return processedSnapshots
+            (s) => [s.snapshotStore, s.storeVersion],
+            (snapshotStore: SnapshotStore | null): RecordingSnapshot[] => {
+                return snapshotStore?.getAllLoadedSnapshots() ?? []
             },
         ],
 
@@ -304,12 +271,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         snapshotsByWindowId: [
-            (s) => [s.snapshots, s.snapshotStore, s.storeVersion],
-            (snapshots: RecordingSnapshot[], snapshotStore: SnapshotStore | null): Record<number, eventWithTime[]> => {
-                if (snapshotStore) {
-                    return snapshotStore.getSnapshotsByWindowId()
-                }
-                return mapSnapshotsToWindowId(snapshots || [])
+            (s) => [s.snapshotStore, s.storeVersion],
+            (snapshotStore: SnapshotStore | null): Record<number, eventWithTime[]> => {
+                return snapshotStore?.getSnapshotsByWindowId() ?? {}
             },
         ],
 
@@ -529,18 +493,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             }),
         ],
     })),
-    beforeUnmount(({ cache, actions, values }) => {
+    beforeUnmount(({ cache }) => {
         cache.windowIdForTimestamp = undefined
-        cache.processingCache = undefined
-        // Force clear processedSnapshots to release memory immediately
-        // This breaks the reference chain in selector memoization cache
-        if (actions) {
-            actions.setProcessedSnapshots([])
-            // Force selectors to recompute with empty snapshots by reading them
-            // This updates the reselect cache with empty values instead of leaving old data cached
-            void values.snapshotsByWindowId
-            void values.sessionPlayerData
-        }
     }),
     subscriptions(({ values }) => ({
         isRecentAndInvalid: (prev: boolean, next: boolean) => {

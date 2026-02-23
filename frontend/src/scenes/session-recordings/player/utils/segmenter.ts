@@ -33,18 +33,6 @@ const isActiveEvent = (event: eventWithTime): boolean => {
     )
 }
 
-export const mapSnapshotsToWindowId = (snapshots: RecordingSnapshot[]): Record<number, eventWithTime[]> => {
-    const snapshotsByWindowId: Record<number, eventWithTime[]> = {}
-    snapshots.forEach((snapshot) => {
-        if (!snapshotsByWindowId[snapshot.windowId]) {
-            snapshotsByWindowId[snapshot.windowId] = []
-        }
-        snapshotsByWindowId[snapshot.windowId].push(snapshot)
-    })
-
-    return snapshotsByWindowId
-}
-
 export const createSegments = (
     snapshots: RecordingSnapshot[],
     start: Dayjs | null,
