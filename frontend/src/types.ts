@@ -2599,7 +2599,7 @@ export type BreakdownType =
 export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
-export type InsightSceneSource = 'web-analytics' | 'llm-analytics'
+export type InsightSceneSource = 'web-analytics' | 'llm-analytics' | 'endpoints'
 
 export enum InsightType {
     TRENDS = 'TRENDS',
@@ -3444,6 +3444,19 @@ export interface ProductTourStep {
     buttons?: ProductTourStepButtons
     /** Banner configuration (only for banner steps) */
     bannerConfig?: ProductTourBannerConfig
+    /** translation data for this tour step, keyed on BCP 47 language code. */
+    translations?: Record<string, ProductTourStepTranslation>
+}
+
+/** all translatable content for a given tour step */
+export interface ProductTourStepTranslation {
+    content?: ProductTourStep['content']
+    contentHtml?: ProductTourStep['contentHtml']
+    buttons?: {
+        primary?: Pick<ProductTourStepButton, 'text'>
+        secondary?: Pick<ProductTourStepButton, 'text'>
+    }
+    survey?: Pick<ProductTourSurveyQuestion, 'questionText' | 'lowerBoundLabel' | 'upperBoundLabel'>
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
@@ -3513,6 +3526,13 @@ export interface ProductTourContent {
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
     displayFrequency?: ProductTourDisplayFrequency
+    /**
+     * list of supported languages (BCP 47 syntax).
+     *
+     * only used for the builder UX.
+     * sdk reads ProductTourStep.translations[langCode]
+     * */
+    languages?: string[]
 }
 
 export type ProductTourDraftContent = Partial<
