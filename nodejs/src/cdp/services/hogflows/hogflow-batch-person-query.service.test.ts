@@ -153,7 +153,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        Authorization: 'Bearer internal-secret',
+                        'X-Internal-Secret': 'posthog123',
                     },
                     body: JSON.stringify({
                         filters,
@@ -168,7 +168,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        Authorization: 'Bearer internal-secret',
+                        'X-Internal-Secret': 'posthog123',
                     },
                     body: JSON.stringify({
                         filters,
@@ -199,7 +199,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        Authorization: 'Bearer internal-secret',
+                        'x-internal-secret': 'posthog123',
                     },
                     body: JSON.stringify({
                         filters,
