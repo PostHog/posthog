@@ -9,6 +9,7 @@ from typing import cast
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
+import requests as http_requests
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -37,6 +38,8 @@ from .serializers import (
     TaskRunArtifactPresignResponseSerializer,
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
+    TaskRunCommandRequestSerializer,
+    TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -229,6 +232,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "set_output",
             "append_log",
             "session_logs",
+            "command",
         ]
     }
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -561,6 +565,104 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response(ConnectionTokenResponseSerializer({"token": token}).data)
+
+    @validated_request(
+        request_serializer=TaskRunCommandRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunCommandResponseSerializer, description="Agent server response"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid command or no active sandbox"),
+            404: OpenApiResponse(description="Task run not found"),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Agent server unreachable"),
+        },
+        summary="Send command to agent server",
+        description="Forward a JSON-RPC command to the agent server running in the sandbox. "
+        "Supports user_message, cancel, and close commands.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="command", required_scopes=["task:write"])
+    def command(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        state = task_run.state or {}
+
+        sandbox_url = state.get("sandbox_url")
+        if not sandbox_url:
+            return Response(
+                ErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        connection_token = create_sandbox_connection_token(
+            task_run=task_run,
+            user_id=request.user.id,
+            distinct_id=request.user.distinct_id,
+        )
+
+        sandbox_connect_token = state.get("sandbox_connect_token")
+
+        command_payload: dict = {
+            "jsonrpc": request.validated_data["jsonrpc"],
+            "method": request.validated_data["method"],
+        }
+        if request.validated_data.get("params"):
+            command_payload["params"] = request.validated_data["params"]
+        if request.validated_data.get("id") is not None:
+            command_payload["id"] = request.validated_data["id"]
+
+        try:
+            agent_response = self._proxy_command_to_agent_server(
+                sandbox_url=sandbox_url,
+                connection_token=connection_token,
+                sandbox_connect_token=sandbox_connect_token,
+                payload=command_payload,
+            )
+            return Response(agent_response.json(), status=agent_response.status_code)
+        except http_requests.ConnectionError:
+            logger.warning(
+                f"Agent server unreachable for task run {task_run.id} at {sandbox_url}",
+            )
+            return Response(
+                ErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except http_requests.Timeout:
+            logger.warning(
+                f"Agent server request timed out for task run {task_run.id} at {sandbox_url}",
+            )
+            return Response(
+                ErrorResponseSerializer({"error": "Agent server request timed out"}).data,
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+        except Exception as e:
+            logger.exception(f"Failed to send command to agent server for task run {task_run.id}: {e}")
+            return Response(
+                ErrorResponseSerializer({"error": f"Failed to send command: {str(e)}"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+    @staticmethod
+    def _proxy_command_to_agent_server(
+        sandbox_url: str,
+        connection_token: str,
+        sandbox_connect_token: str | None,
+        payload: dict,
+    ) -> http_requests.Response:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {connection_token}",
+        }
+
+        command_url = f"{sandbox_url.rstrip('/')}/command"
+
+        if sandbox_connect_token:
+            separator = "&" if "?" in command_url else "?"
+            command_url = f"{command_url}{separator}_modal_connect_token={sandbox_connect_token}"
+
+        return http_requests.post(
+            command_url,
+            json=payload,
+            headers=headers,
+            timeout=600,
+        )
 
     @validated_request(
         query_serializer=TaskRunSessionLogsQuerySerializer,
