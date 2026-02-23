@@ -12,6 +12,8 @@ import {
     DataTableNode,
     LLMTrace,
     LLMTraceEvent,
+    NodeKind,
+    TraceQuery,
     TraceQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
@@ -30,13 +32,22 @@ import { formatLLMUsage, getEventType, isLLMEvent, normalizeMessages } from './u
 
 export interface TraceDataLogicProps {
     traceId: string
-    query: DataTableNode
+    query?: DataTableNode | null
     cachedResults?: AnyResponseType | null
     searchQuery: string
     tabId?: string
 }
 
 function getDataNodeLogicProps({ traceId, query, cachedResults, tabId }: TraceDataLogicProps): DataNodeLogicProps {
+    const fallbackTraceQuery: TraceQuery = {
+        kind: NodeKind.TraceQuery,
+        traceId,
+        // Match trace logic defaults so we still fetch data if query is briefly undefined.
+        dateRange: {
+            date_from: dayjs.utc().subtract(1, 'year').startOf('day').toISOString(),
+        },
+    }
+
     const tabScope = tabId ?? 'default'
     const scopedTraceId = `${traceId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
@@ -45,7 +56,7 @@ function getDataNodeLogicProps({ traceId, query, cachedResults, tabId }: TraceDa
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query.source,
+        query: query?.source ?? fallbackTraceQuery,
         key: vizKey,
         dataNodeCollectionId: scopedTraceId,
         cachedResults: cachedResults || undefined,
@@ -403,7 +414,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             })
         },
     })),
-    subscriptions(({ props }) => ({
+    subscriptions(({ props, actions }) => ({
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic({ tabId: props.tabId }).actions.loadNeighbors(props.traceId, trace.createdAt)
@@ -413,7 +424,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
 
-            llmAnalyticsTraceDataLogic(props).actions.reportSingleTraceLoadIfReady()
+            actions.reportSingleTraceLoadIfReady()
         },
     })),
 ])
