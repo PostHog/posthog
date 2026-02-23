@@ -12,9 +12,9 @@
             "required": true
         },
         {
-            "key": "project_api_key",
+            "key": "project_token",
             "hint": "Grab it from e.g. https://posthog.yourcompany.com/project/settings",
-            "name": "Project API Key",
+            "name": "Project token",
             "type": "string",
             "required": true
         },

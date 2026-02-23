@@ -43,7 +43,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     class SampleApp : Application() {
 
                                         companion object {
-                                            const val POSTHOG_API_KEY = "<ph_project_api_key>"
+                                            const val POSTHOG_API_KEY = "<ph_project_token>"
                                             const val POSTHOG_HOST = "<ph_client_api_host>"
                                         }
 

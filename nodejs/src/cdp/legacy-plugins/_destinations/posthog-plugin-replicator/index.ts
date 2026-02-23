@@ -5,7 +5,7 @@ import { LegacyDestinationPluginMeta } from '../../types'
 export interface ReplicatorMetaInput {
     config: {
         host: string
-        project_api_key: string
+        project_token: string
         replication: string
         events_to_ignore: string
         disable_geoip: 'Yes' | 'No'
@@ -57,7 +57,7 @@ export const onEvent = async (
         return
     }
 
-    const { team_id, person: _, ...sendableEvent } = { ...event, token: config.project_api_key }
+    const { team_id, person: _, ...sendableEvent } = { ...event, token: config.project_token }
 
     if (config.disable_geoip === 'Yes') {
         sendableEvent.properties.$geoip_disable = true

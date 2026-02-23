@@ -48,7 +48,7 @@ export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <>
                     <Markdown>
-                        In your `src/main.ts`, initialize PostHog using your project API key and instance address:
+                        In your `src/main.ts`, initialize PostHog using your project token and instance address:
                     </Markdown>
                     <Tab.Group tabs={['Angular 17+', 'Angular 16 and below']}>
                         <Tab.List>

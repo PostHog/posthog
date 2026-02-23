@@ -28,8 +28,8 @@ export const replicatorPlugin: LegacyDestinationPlugin = {
             },
             {
                 templating: false,
-                key: 'project_api_key',
-                label: 'Project API Key',
+                key: 'project_token',
+                label: 'Project token',
                 type: 'string',
                 description: 'Grab it from e.g. https://posthog.yourcompany.com/project/settings',
                 required: true,
