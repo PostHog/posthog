@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
+import { LLMProviderKey } from './settings/llmProviderKeysLogic'
 import { normalizeRole } from './utils'
 
 export interface ModelOption {
@@ -410,6 +411,17 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 return options
             },
         },
+        providerKeys: {
+            __default: [] as LLMProviderKey[],
+            loadProviderKeys: async () => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return []
+                }
+                const response = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
+                return response.results ?? []
+            },
+        },
     })),
     listeners(({ actions, values }) => ({
         finalizeAssistantMessage: () => {
@@ -473,6 +485,9 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     model: selectedModel.id,
                     provider: selectedModel.provider.toLowerCase(),
                     thinking: values.thinking,
+                    ...(values.providerKeyForCurrentModel
+                        ? { provider_key_id: values.providerKeyForCurrentModel.id }
+                        : {}),
                 }
 
                 const providerKeyId = selectedModel.providerKeyId ?? (await loadActiveProviderKeyId())
@@ -674,6 +689,20 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
     })),
     afterMount(({ actions }) => {
         actions.loadModelOptions()
+        actions.loadProviderKeys()
     }),
-    selectors({}),
+    selectors({
+        providerKeyForCurrentModel: [
+            (s) => [s.model, s.modelOptions, s.providerKeys],
+            (model: string, modelOptions: ModelOption[], providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
+                const selectedModel = modelOptions.find((m) => m.id === model)
+                if (!selectedModel) {
+                    return null
+                }
+                const provider = selectedModel.provider.toLowerCase()
+                return providerKeys.find((k) => k.provider === provider && k.state !== 'invalid') ?? null
+            },
+        ],
+        hasProviderKey: [(s) => [s.providerKeyForCurrentModel], (key: LLMProviderKey | null): boolean => key !== null],
+    }),
 ])

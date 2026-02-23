@@ -7,12 +7,14 @@ members = [
     "capture",
     "capture-logs",
     "common/alloc",
+    "common/assignment-coordination",
     "common/cache",
     "common/cookieless",
     "common/database",
     "common/dns",
     "common/health",
     "common/kafka",
+    "common/lifecycle",
     "common/limiters",
     "common/metrics",
     "common/profiler",
@@ -36,6 +38,8 @@ members = [
     "embedding-worker",
     "common/geoip",
     "common/hogvm",
+    "kafka-assigner",
+    "kafka-assigner-proto",
     "kafka-deduplicator",
     "personhog-coordination",
     "personhog-proto",
@@ -119,6 +123,7 @@ time = { version = "0.3.36", features = [
 ] }
 thiserror = { version = "2.0" }
 tokio = { version = "1.34.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["time"] }
 tower = { version = "0.4.13", features = ["default", "limit", "util"] }
 tower-http = { version = "0.5.2", features = ["cors", "decompression-br", "decompression-deflate", "decompression-gzip", "decompression-zstd", "limit", "trace"] }
 tracing = "0.1.40"
@@ -140,6 +145,7 @@ fancy-regex = "0.17"
 lz-str = "0.2.1"
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
 tonic = "0.12.3"
+tonic-build = "0.12"
 clickhouse = { version = "0.13.2", features = [
     "uuid",
     "time",

@@ -1,9 +1,11 @@
+import time
 import types
 import logging
 import threading
 import traceback
 from collections.abc import Sequence
 from contextlib import contextmanager
+from enum import StrEnum
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
@@ -72,6 +74,50 @@ CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
 ]
 
 is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
+
+
+class KillSwitchLevel(StrEnum):
+    OFF = "off"
+    LIGHT = "light"
+    FULL = "full"
+
+
+_KILL_SWITCH_EXEMPT_USERS = frozenset(
+    {
+        ClickHouseUser.BATCH_EXPORT,
+        ClickHouseUser.MIGRATIONS,
+        ClickHouseUser.OPS,
+    }
+)
+
+_KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
+    KillSwitchLevel.LIGHT: {
+        "max_execution_time": 30,
+        "max_threads": 45,
+        "max_bytes_to_read": 5_000_000_000_000,  # 5TB
+    },
+    KillSwitchLevel.FULL: {
+        "max_execution_time": 15,
+        "max_memory_usage": 30_000_000_000,  # 30GB
+        "max_threads": 30,
+        "max_bytes_to_read": 1_000_000_000_000,  # 1TB
+    },
+}
+
+
+def get_kill_switch_level() -> KillSwitchLevel:
+    return _get_kill_switch_level(round(time.time() / 60))
+
+
+@lru_cache(maxsize=1)
+def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
+    from posthog.models.instance_setting import get_instance_setting
+
+    value = get_instance_setting("CLICKHOUSE_KILL_SWITCH")
+    try:
+        return KillSwitchLevel(value)
+    except ValueError:
+        return KillSwitchLevel.OFF
 
 
 @lru_cache(maxsize=1)
@@ -212,6 +258,12 @@ def sync_execute(
         **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
         **(settings or {}),
     }
+
+    kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
+    if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
+        overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
+        core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
+
     tags.query_settings = core_settings
     query_type = tags.query_type or "Other"
     if ch_user == ClickHouseUser.DEFAULT:
@@ -263,7 +315,10 @@ def sync_execute(
         # these disruptions
         settings["use_hedged_requests"] = "0"
     elif workload == Workload.ONLINE and ch_user == ClickHouseUser.APP:
-        settings["use_hedged_requests"] = "1"
+        if kill_switch_level != KillSwitchLevel.OFF:
+            settings["use_hedged_requests"] = "0"
+        else:
+            settings["use_hedged_requests"] = "1"
     start_time = perf_counter()
 
     try:

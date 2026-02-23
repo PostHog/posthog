@@ -23,6 +23,7 @@ export const signalsDebugLogic = kea<signalsDebugLogicType>([
         setReportSearch: (search: string) => ({ search }),
         setStatusFilter: (status: string | null) => ({ status }),
         loadMoreReports: true,
+        deleteReport: (reportId: string) => ({ reportId }),
     }),
 
     loaders(({ values }) => ({
@@ -169,6 +170,21 @@ export const signalsDebugLogic = kea<signalsDebugLogicType>([
     listeners(({ actions, values }) => ({
         selectReport: ({ reportId }) => {
             actions.loadReportSignals(reportId)
+        },
+        deleteReport: async ({ reportId }) => {
+            try {
+                await api.signalReports.delete(reportId)
+                lemonToast.success('Report deleted')
+                // Clear current view if we just deleted the loaded report
+                if (values.reportId === reportId) {
+                    actions.setReportId('')
+                    actions.loadReportSignalsSuccess({ report: null, signals: [] })
+                }
+                actions.loadReports()
+            } catch (e) {
+                lemonToast.error('Failed to delete report')
+                throw e
+            }
         },
         setStatusFilter: () => {
             actions.loadReports()

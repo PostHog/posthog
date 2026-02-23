@@ -1,4 +1,4 @@
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { logger } from '../../../utils/logger'
 import { resolveModelCostForProvider } from './provider-matching'
