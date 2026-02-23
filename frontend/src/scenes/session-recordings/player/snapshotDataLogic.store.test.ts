@@ -206,6 +206,25 @@ describe('snapshotDataLogic (store-based loading)', () => {
             expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
         })
 
+        it('does not override load_all mode', async () => {
+            mountWithStoreFlag()
+
+            logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B, SOURCE_C])
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.values.snapshotStore!.setSources([SOURCE_A, SOURCE_B, SOURCE_C])
+
+            // Enter load_all mode (as export would)
+            logic.actions.loadAllSources()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Attempt to seek to unloaded data — should NOT demote to seek mode
+            logic.actions.setTargetTimestamp(tsMs(2))
+            await expectLogic(logic).toDispatchActions(['loadNextSnapshotSource'])
+
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
+        })
+
         it('does not enter seek for source 0 when already in buffer_ahead', async () => {
             mountWithStoreFlag()
 
@@ -249,6 +268,39 @@ describe('snapshotDataLogic (store-based loading)', () => {
             expect(logic.values.snapshotStore).toBeNull()
 
             logic.actions.updatePlaybackPosition(tsMs(0))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.snapshotStore).toBeNull()
+            expect(logic.values.snapshotsForSourceLoading).toBe(false)
+        })
+    })
+
+    describe('loadAllSources', () => {
+        it('switches scheduler to load_all mode and kicks off loading', async () => {
+            mountWithStoreFlag()
+
+            logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B, SOURCE_C])
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.values.snapshotStore!.setSources([SOURCE_A, SOURCE_B, SOURCE_C])
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAllSources()
+            }).toDispatchActions(['loadNextSnapshotSource'])
+        })
+
+        it('is a no-op when store is not enabled', async () => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            logic = snapshotDataLogic({
+                sessionRecordingId: 'no-store-loadall-test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            expect(logic.values.snapshotStore).toBeNull()
+
+            logic.actions.loadAllSources()
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.snapshotStore).toBeNull()

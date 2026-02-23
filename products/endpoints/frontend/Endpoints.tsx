@@ -12,7 +12,6 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -78,7 +77,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
 
     const handleDuplicate = (endpoint: EndpointType): void => {
         if (isHogQLQuery(endpoint.query)) {
-            router.actions.push(urls.sqlEditor({ query: endpoint.query.query, outputTab: OutputTab.Endpoint }))
+            router.actions.push(urls.sqlEditor({ query: endpoint.query.query }))
         } else {
             setDuplicateEndpoint(endpoint)
         }

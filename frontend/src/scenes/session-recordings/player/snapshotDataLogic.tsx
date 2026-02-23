@@ -65,6 +65,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         setTargetTimestamp: (timestamp: number | null) => ({ timestamp }),
         updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
         setPlayerActive: (active: boolean) => ({ active }),
+        loadAllSources: true,
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
@@ -233,6 +234,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 cache.playbackPosition = timestamp
 
                 const currentMode = cache.scheduler.currentMode
+                // Don't interrupt load_all (e.g. during export)
+                if (currentMode.kind === 'load_all') {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
                 // Don't re-seek to the same target
                 if (currentMode.kind === 'seek' && currentMode.targetTimestamp === timestamp) {
                     return
@@ -268,6 +274,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         setPlayerActive: ({ active }) => {
             cache.playerActive = active
             if (active && cache.useSnapshotStore) {
+                actions.loadNextSnapshotSource()
+            }
+        },
+
+        loadAllSources: () => {
+            if (cache.useSnapshotStore && cache.scheduler) {
+                cache.scheduler.loadAll()
                 actions.loadNextSnapshotSource()
             }
         },

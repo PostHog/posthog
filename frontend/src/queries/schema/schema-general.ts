@@ -1546,8 +1546,9 @@ export type RetentionFilter = {
 }
 
 export interface RetentionValue {
-    count: integer
+    count: number
     label?: string
+    aggregation_value?: number
 }
 
 export interface RetentionResult {
@@ -3750,7 +3751,8 @@ export interface BreakdownFilter {
     breakdown_normalize_url?: boolean
     breakdown_path_cleaning?: boolean
     /**
-     * @maxLength 3
+     * @type array
+     * @maxItems 3
      */
     breakdowns?: Breakdown[] // We want to limit maximum count of breakdowns avoiding overloading.
     breakdown_group_type_index?: integer | null
