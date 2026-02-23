@@ -856,7 +856,7 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
 
     return (
         <span
-            className="inline-flex"
+            className="inline-flex min-w-0 max-w-full"
             style={{
                 animation: 'shimmer-opacity 3s linear infinite',
             }}
@@ -925,7 +925,7 @@ function AssistantActionComponent({
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
-                    'transition-all duration-500 flex select-none',
+                    'transition-all duration-500 flex select-none min-w-0',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
                     !showSubstepsChevron ? 'cursor-default' : 'cursor-pointer'
@@ -951,7 +951,7 @@ function AssistantActionComponent({
                     </div>
                 )}
                 <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
-                    <div>
+                    <div className="min-w-0">
                         {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
