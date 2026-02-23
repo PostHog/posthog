@@ -222,6 +222,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["id"] == str(prompt.id)
         assert response.json()["name"] == "test-prompt"
         assert response.json()["prompt"] == "You are a helpful assistant."
+        assert "created_by" not in response.json()
 
     def test_fetch_prompt_by_name_uses_cached_result_after_first_load(self, mock_feature_enabled):
         LLMPrompt.objects.create(
@@ -328,6 +329,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["id"] == str(prompt.id)
         assert response.json()["name"] == "test-prompt"
         assert response.json()["prompt"] == "You are a helpful assistant."
+        assert "created_by" in response.json()
 
     def test_resolve_prompt_by_name_does_not_use_hypercache(self, mock_feature_enabled):
         LLMPrompt.objects.create(

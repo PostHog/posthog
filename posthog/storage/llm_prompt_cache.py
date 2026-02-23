@@ -5,24 +5,7 @@ from django.conf import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.models.llm_prompt import LLMPrompt
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
-
-
-def _serialize_created_by(user: User | None) -> dict[str, Any] | None:
-    if user is None:
-        return None
-
-    return {
-        "id": user.id,
-        "uuid": str(user.uuid),
-        "distinct_id": user.distinct_id,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "email": user.email,
-        "is_email_verified": user.is_email_verified,
-        "role_at_organization": user.role_at_organization,
-    }
 
 
 def _serialize_prompt(prompt: LLMPrompt) -> dict[str, Any]:
@@ -31,7 +14,6 @@ def _serialize_prompt(prompt: LLMPrompt) -> dict[str, Any]:
         "name": prompt.name,
         "prompt": prompt.prompt,
         "version": prompt.version,
-        "created_by": _serialize_created_by(prompt.created_by),
         "created_at": prompt.created_at.isoformat().replace("+00:00", "Z"),
         "updated_at": prompt.updated_at.isoformat().replace("+00:00", "Z"),
         "deleted": prompt.deleted,
@@ -46,7 +28,6 @@ def _load_team_prompts_by_name_cache(team_key: KeyType) -> dict[str, Any] | Hype
 
     prompts = (
         LLMPrompt.objects.filter(team=team, deleted=False)
-        .select_related("created_by")
         .order_by("created_at", "id")
     )
     prompts_by_name = {prompt.name: _serialize_prompt(prompt) for prompt in prompts}
@@ -74,7 +55,6 @@ def get_prompt_by_name_from_cache(team: Team, prompt_name: str) -> dict[str, Any
 
     db_prompt = (
         LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False)
-        .select_related("created_by")
         .order_by("created_at", "id")
         .first()
     )

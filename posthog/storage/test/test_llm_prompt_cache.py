@@ -35,7 +35,7 @@ class TestLLMPromptCache(BaseTest):
         self.assertEqual(cached_prompt["prompt"], prompt.prompt)
         self.assertEqual(cached_prompt["version"], prompt.version)
         self.assertEqual(cached_prompt["deleted"], prompt.deleted)
-        self.assertNotIn("hedgehog_config", cached_prompt["created_by"])
+        self.assertNotIn("created_by", cached_prompt)
 
     def test_get_prompt_by_name_from_cache_returns_none_for_missing_prompt_name(self):
         LLMPrompt.objects.create(
