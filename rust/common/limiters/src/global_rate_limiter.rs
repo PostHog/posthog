@@ -549,10 +549,12 @@ impl GlobalRateLimiterImpl {
             })
             .sum();
 
-        // expires_at = timestamp + (bucket_interval / 2)
-        let half_bucket =
-            chrono::Duration::milliseconds(self.config.bucket_interval.as_millis() as i64 / 2);
-        let expires_at = timestamp + half_bucket;
+        // Refresh from Redis at most once per bucket interval — the read window
+        // only includes completed buckets so more frequent checks add overhead
+        // without improving accuracy.
+        let staleness =
+            chrono::Duration::milliseconds(self.config.bucket_interval.as_millis() as i64);
+        let expires_at = timestamp + staleness;
 
         Ok(CacheEntry {
             count,
