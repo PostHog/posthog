@@ -261,10 +261,16 @@ const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayT
     return ChartDisplayType.ActionsTable
 }
 
-const getAutoVisualizationType = (columns: Column[]): ChartDisplayType => {
+const hasTimeSeriesData = (columns: Column[], response: AnyResponseType | null): boolean => {
     const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
+    const hasNumericColumn = columns.some((column) => column.type.isNumerical)
+    const results = response?.['results'] ?? response?.['result'] ?? []
 
-    if (hasDateColumn) {
+    return hasDateColumn && hasNumericColumn && results.length > 1
+}
+
+const getAutoVisualizationType = (columns: Column[], response: AnyResponseType | null): ChartDisplayType => {
+    if (hasTimeSeriesData(columns, response)) {
         return ChartDisplayType.ActionsLineGraph
     }
 
@@ -935,15 +941,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         effectiveVisualizationType: [
-            (s) => [s.visualizationType, s.columns],
-            (visualizationType, columns): ChartDisplayType => {
-                const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
+            (s) => [s.visualizationType, s.columns, s.response],
+            (visualizationType, columns, response): ChartDisplayType => {
+                const isTimeSeriesData = hasTimeSeriesData(columns, response)
 
                 if (visualizationType === ChartDisplayType.Auto) {
-                    return getAutoVisualizationType(columns)
+                    return getAutoVisualizationType(columns, response)
                 }
 
-                if (!hasDateColumn && isTimeSeriesVisualizationType(visualizationType)) {
+                if (!isTimeSeriesData && isTimeSeriesVisualizationType(visualizationType)) {
                     return resolveNonTimeSeriesVisualizationType(columns)
                 }
 

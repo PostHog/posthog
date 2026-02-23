@@ -55,9 +55,24 @@ describe('dataVisualizationLogic', () => {
                     ['timestamp', 'DateTime'],
                     ['value', 'Int64'],
                 ],
-                results: [['2025-01-01 00:00:00', 1]],
+                results: [
+                    ['2025-01-01 00:00:00', 1],
+                    ['2025-01-02 00:00:00', 2],
+                ],
             },
             expected: ChartDisplayType.ActionsLineGraph,
+        },
+        {
+            name: 'shows a bar chart when only one timeseries point is present',
+            response: {
+                columns: ['timestamp', 'value'],
+                types: [
+                    ['timestamp', 'DateTime'],
+                    ['value', 'Int64'],
+                ],
+                results: [['2025-01-01 00:00:00', 1]],
+            },
+            expected: ChartDisplayType.ActionsBar,
         },
         {
             name: 'shows a bar chart for non-time-series numeric data',
@@ -89,6 +104,23 @@ describe('dataVisualizationLogic', () => {
                 ['second_value', 'Int64'],
             ],
             results: [[1, 2]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            effectiveVisualizationType: ChartDisplayType.ActionsBar,
+        })
+    })
+
+    it('does not resolve to a time-series chart when there is only one row', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['timestamp', 'value'],
+            types: [
+                ['timestamp', 'DateTime'],
+                ['value', 'Int64'],
+            ],
+            results: [['2025-01-01 00:00:00', 1]],
         })
 
         await expectLogic(logic).toMatchValues({
