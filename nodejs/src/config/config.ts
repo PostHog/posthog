@@ -256,8 +256,9 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
         CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
         CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
-        CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 0.01,
         CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
+        CDP_CYCLOTRON_TEST_FETCH_COUNT: 50,
+        CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 10,
         CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: '',
 
         // New IngestionConsumer config
