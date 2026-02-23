@@ -439,6 +439,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         },
         submitPrompt: async (_, breakpoint) => {
             const requestSystemPrompt = values.systemPrompt
+            const requestModel = values.model
             const messagesToSend = values.messages.filter(
                 (m) => (m.role === 'user' || m.role === 'assistant' || m.role === 'system') && m.content.trim()
             )
