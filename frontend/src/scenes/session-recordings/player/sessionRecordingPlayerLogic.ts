@@ -1824,14 +1824,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentSegment && newTimestamp > values.currentSegment.endTimestamp) {
                 const nextSegment = values.segmentForTimestamp(newTimestamp)
 
-                if (nextSegment && !objectsEqual(nextSegment, values.currentSegment)) {
+                if (nextSegment) {
                     // NOTE: confusingly this setCurrentTimestamp call is essential to playback
                     // we rely on the segmentation to travel smoothly through the recording
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
                     actions.setCurrentSegment(nextSegment)
                 } else {
-                    // No next segment, or segmentForTimestamp returned the same segment
-                    // (timestamp is beyond all segments). Either way, we've reached the end.
+                    // At the end of the recording. Pause the player and set fully to the end
                     actions.setEndReached()
                 }
 
