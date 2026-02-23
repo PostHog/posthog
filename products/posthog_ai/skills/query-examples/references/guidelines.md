@@ -1,15 +1,10 @@
----
-name: query-data
-description: 'MANDATORY first step before any PostHog data retrieval. Must be invoked before using any PostHog MCP data tools. Provides querying guidelines, schema references, and HogQL syntax. Retrieve system data (insights, dashboards, cohorts, feature flags, experiments, surveys, groups, group type mappings, data warehouse tables, teams), analytics data captured with SDKs (events, properties, property values), and connected data warehouse.'
----
+### Querying data in PostHog
 
-# Querying data in PostHog
-
-Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably.
+Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably. References mentioned in this file are relevant to PostHog's skill `query-examples`.
 
 Do not assume that data exists. Use the SQL tool proactively to find the right data.
 
-## Search types
+#### Search types
 
 Proactively use different search types depending on a task:
 
@@ -17,11 +12,11 @@ Proactively use different search types depending on a task:
 - Full-text search with `hasToken`, `hasTokenCaseInsensitive`, etc. Make sure you pass string constants to `hasToken*` functions.
 - Dumping results to a file and using bash commands to process potentially large outputs.
 
-## Data Groups
+#### Data Groups
 
 PostHog has two distinct groups of data you can query:
 
-### 1. System Data (PostHog-Created Data)
+##### 1. System Data (PostHog-Created Data)
 
 Data created directly in PostHog by users - metadata about PostHog setup.
 
@@ -52,7 +47,7 @@ Table | Description
 SELECT id, name, short_id FROM system.insights WHERE NOT deleted LIMIT 10
 ```
 
-#### System Models Reference
+**System Models Reference**
 
 Schema reference for PostHog's core system models, organized by domain:
 
@@ -67,7 +62,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Surveys](references/models-surveys.md)
 - [SQL Variables](references/models-variables.md)
 
-#### Entity Relationships
+**Entity Relationships**
 
 From | Relation | To | Join
 Experiment | 1:1 | FeatureFlag | `feature_flag_id`
@@ -80,7 +75,7 @@ Person | 1:N | PersonDistinctId | `person_id`
 
 All entities are scoped by a team by default. You cannot access data of another team unless you switch a team.
 
-### 2. Captured Data (Analytics Data)
+##### 2. Captured Data (Analytics Data)
 
 Data collected via the PostHog SDK - used for analytics.
 
@@ -111,9 +106,9 @@ GROUP BY week
 ORDER BY week DESC
 ```
 
-## Querying guidelines
+#### Querying guidelines
 
-### Schema verification
+##### Schema verification
 
 Before writing analytical queries, always verify that:
 
@@ -141,15 +136,15 @@ Assistant:
 
 This prevents wasted API calls and gives users immediate feedback when the data they're looking for doesn't exist.
 
-### Skipping index
+##### Skipping index
 
 You should use the skipping index signature to write optimized analytical queries.
 
-### Time ranges
+##### Time ranges
 
 All analytical queries and subqueries must always have time ranges set for supported tables (events). If the user doesn't state it, assume default time range based on the data volume, like a day, week, or month.
 
-#### How you should use time ranges
+**How you should use time ranges**
 
 <example>
 User: Find events from returning browsers - browsers that appeared both yesterday and today
@@ -159,7 +154,7 @@ SELECT event FROM events WHERE timestamp >= now() - INTERVAL 1 DAY and propertie
 ```
 </example>
 
-#### How you should NOT write queries
+**How you should NOT write queries**
 
 <example>
 User: List 10 events with SQL
@@ -169,9 +164,9 @@ SELECT event, timestamp, distinct_id, properties FROM events ORDER BY timestamp 
 ```
 </example>
 
-### JOINs
+##### JOINs
 
-#### General guidelines
+**General guidelines**
 
 Keep in mind that the right expression is loaded in memory when joining data in ClickHouse, so the joining query or table must always fit in memory. Common strategies:
 
@@ -179,15 +174,15 @@ Keep in mind that the right expression is loaded in memory when joining data in 
 - Subqueries as a source or filter.
 - Arrays (arrayMap, arrayJoin) and ARRAY JOIN.
 
-#### System data
+**System data**
 
 You are allowed joining system data. Insights are the most used entity, so keep it on the left.
 
-#### Analytical data
+**Analytical data**
 
 Prefer using analytical functions and subqueries for joins. Do not use raw joins on the events table.
 
-##### How you should join data
+**How you should join data**
 
 <example>
 User: Find ai traces with feedback
@@ -204,7 +199,7 @@ WHERE
 <reasoning>A subquery is used instead of a JOIN clause. Both queries have the timestamp filters.</reasoning>
 </example>
 
-##### How you should NOT join data
+**How you should NOT join data**
 
 <example>
 User: Find ai traces with feedback
@@ -220,17 +215,15 @@ WHERE g.event = '$ai_generation'
 <reasoning>Join is not necessary here. The assistant could've used a subquery.</reasoning>
 </example>
 
-### Other constraints
+##### Other constraints
 
 - Your query results are capped at 100 rows by default. You can request up to 500 rows using a LIMIT clause. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
 - You should cherry-pick `properties` of events, persons, or groups, so we don't get OOMs. **Never select the full `properties` object** (e.g., `SELECT properties FROM events`) and dump it into the conversation output. Instead, select only the specific properties you need (e.g., `properties.$browser`, `properties.$os`). If you must inspect the full properties object, dump the query results to a file and use bash commands to explore it.
 - When query results contain large JSON blobs (e.g., AI trace inputs/outputs, full property objects), always dump them to a file rather than outputting them directly. Use bash commands to process the file.
 
----
+#### HogQL Differences from Standard SQL
 
-## HogQL Differences from Standard SQL
-
-### Property access
+##### Property access
 
 ```sql
 -- Simple keys
@@ -240,7 +233,7 @@ properties.foo.bar
 properties.foo['bar-baz']
 ```
 
-### Unsupported/changed functions
+##### Unsupported/changed functions
 
 Don't use | Use instead
 `toFloat64OrNull()`, `toFloat64()` | `toFloat()`
@@ -250,7 +243,7 @@ Don't use | Use instead
 `cardinality(bitmap)` | `bitmapCardinality(bitmap)`
 `split()` | `splitByChar()`, `splitByString()`
 
-### JOIN constraints
+##### JOIN constraints
 
 Relational operators (`>`, `<`, `>=`, `<=`) are **forbidden** in JOIN clauses. Use CROSS JOIN with WHERE:
 
@@ -262,11 +255,11 @@ JOIN persons p ON e.person_id = p.id AND e.timestamp > p.created_at
 CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at
 ```
 
-### Syntax extensions and HogQL functions
+##### Syntax extensions and HogQL functions
 
 Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation, HTML tags and links, Text effects, and more](./references/hogql-extensions.md).
 
-### Other rules
+##### Other rules
 
 - WHERE clause must come after all JOINs
 - No semicolons at end of queries
@@ -274,17 +267,15 @@ Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation
 - Always handle nulls before array functions: `splitByChar(',', coalesce(field, ''))`
 - Performance: always filter `events` by timestamp
 
-### SQL Variables
+##### SQL Variables
 
 Review the [reference](./references/models-variables.md) for SQL variables and dashboard filters.
 
-### Available HogQL functions
+##### Available HogQL functions
 
 Verify what functions are available using [the reference list](./references/available-functions.md) with suitable bash commands.
 
----
-
-## Examples
+#### Examples
 
 **Weekly active users with activation event:**
 
@@ -318,25 +309,3 @@ WHERE NOT deleted
 ORDER BY created_at DESC
 LIMIT 20
 ```
-
-## Examples reference
-
-Use the examples below to create optimized queries.
-
-- [Trends (unique users, specific time range, single series)](./references/example-trends-unique-users.md)
-- [Trends (total count with multiple breakdowns)](./references/example-trends-breakdowns.md)
-- [Funnel (two steps, aggregated by unique users, broken down by the person's role, sequential, 14-day conversion window)](./references/example-funnel-breakdown.md)
-- [Conversion trends (funnel, two steps, aggregated by unique groups, 1-day conversion window)](./references/example-funnel-trends.md)
-- [Retention (unique users, returned to perform an event in the next 12 weeks, recurring)](./references/example-retention.md)
-- [User paths (pageviews, three steps, applied path cleaning and filters, maximum 50 paths)](./references/example-paths.md)
-- [Lifecycle (unique users by pageviews)](./references/example-lifecycle.md)
-- [Stickiness (counted by pageviews from unique users, defined by at least one event for the interval, non-cumulative)](./references/example-stickiness.md)
-- [LLM trace (generations, spans, embeddings, human feedback, captured AI metrics)](./references/example-llm-trace.md)
-- [Web path stats (paths, visitors, views, bounce rate)](./references/example-web-path-stats.md)
-- [Web traffic channels (direct, organic search, etc)](./references/example-web-traffic-channels.md)
-- [Web views by devices](./references/example-web-traffic-by-device-type.md)
-- [Web overview](./references/example-web-overview.md)
-- [Error tracking (search for a value in an error and filtering by custom properties)](./references/example-error-tracking.md)
-- [Logs (filtering by severity and searching for a term)](./references/example-logs.md)
-- [Sessions (listing sessions with duration, pageviews, and bounce rate)](./references/example-sessions.md)
-- [Session replay (listing recordings with activity filters)](./references/example-session-replay.md)
