@@ -26,10 +26,7 @@ def _load_team_prompts_by_name_cache(team_key: KeyType) -> dict[str, Any] | Hype
     except Team.DoesNotExist:
         return HyperCacheStoreMissing()
 
-    prompts = (
-        LLMPrompt.objects.filter(team=team, deleted=False)
-        .order_by("created_at", "id")
-    )
+    prompts = LLMPrompt.objects.filter(team=team, deleted=False).order_by("created_at", "id")
     prompts_by_name = {prompt.name: _serialize_prompt(prompt) for prompt in prompts}
     return {"prompts_by_name": prompts_by_name}
 
@@ -54,9 +51,7 @@ def get_prompt_by_name_from_cache(team: Team, prompt_name: str) -> dict[str, Any
         return prompt
 
     db_prompt = (
-        LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False)
-        .order_by("created_at", "id")
-        .first()
+        LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).order_by("created_at", "id").first()
     )
     if db_prompt is None:
         return None
