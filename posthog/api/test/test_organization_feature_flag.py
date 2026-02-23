@@ -749,7 +749,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             key="remote-config-flag",
             filters={"groups": [{"rollout_percentage": 100}], "payloads": {"true": '{"key": "value"}'}},
-            rollout_percentage=100,
             is_remote_configuration=True,
             has_encrypted_payloads=False,
         )
@@ -794,7 +793,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             key="encrypted-flag",
             filters=flag_data,
-            rollout_percentage=100,
             is_remote_configuration=True,
             has_encrypted_payloads=True,
         )
@@ -849,7 +847,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             key="encrypted-multi-flag",
             filters=flag_data,
-            rollout_percentage=100,
             is_remote_configuration=True,
             has_encrypted_payloads=True,
         )
