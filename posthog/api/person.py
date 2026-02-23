@@ -18,7 +18,6 @@ from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -1221,7 +1220,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     {"error": f"Person with {identifier_type} '{identifier}' not found"},
                     status=404,
                 )
-
 
             # Build point-in-time properties using the pre-fetched distinct_ids
             point_in_time_properties = build_person_properties_at_time(
