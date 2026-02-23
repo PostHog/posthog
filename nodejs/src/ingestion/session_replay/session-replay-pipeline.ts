@@ -87,7 +87,6 @@ export function createSessionReplayPipeline(
                         // Validate team ownership and enrich with team context
                         .pipe(createTeamFilterStep(teamService))
                 )
-                .gather()
                 // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
                 .filterMap(
                     (element) => ({
