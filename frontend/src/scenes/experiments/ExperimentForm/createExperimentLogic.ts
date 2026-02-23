@@ -150,7 +150,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             ],
             actions: [
                 eventUsageLogic,
-                ['reportExperimentCreated', 'reportExperimentUpdated', 'reportExperimentCreationFormSwitched'],
+                ['reportExperimentCreated', 'reportExperimentUpdated'],
                 featureFlagsLogic,
                 ['updateFlag'],
                 teamLogic,

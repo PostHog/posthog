@@ -60,11 +60,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
             eventUsageLogic,
-            [
-                'reportExperimentWizardStarted',
-                'reportExperimentWizardGuideToggled',
-                'reportExperimentCreationFormSwitched',
-            ],
+            ['reportExperimentWizardStarted', 'reportExperimentWizardGuideToggled'],
         ],
     })),
 
