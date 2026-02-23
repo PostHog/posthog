@@ -329,6 +329,20 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["name"] == "test-prompt"
         assert response.json()["prompt"] == "You are a helpful assistant."
 
+    def test_resolve_prompt_by_name_does_not_use_hypercache(self, mock_feature_enabled):
+        LLMPrompt.objects.create(
+            team=self.team,
+            name="test-prompt",
+            prompt="You are a helpful assistant.",
+            created_by=self.user,
+        )
+
+        with patch("posthog.api.llm_prompt.get_prompt_by_name_from_cache") as mock_get_from_cache:
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/test-prompt/")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_get_from_cache.assert_not_called()
+
     def test_resolve_prompt_by_name_forbidden_for_personal_api_key_auth(self, mock_feature_enabled):
         LLMPrompt.objects.create(
             team=self.team,

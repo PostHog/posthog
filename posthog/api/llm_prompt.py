@@ -110,6 +110,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             **validated_data,
         )
 
+
 class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "llm_prompt"
     queryset = LLMPrompt.objects.all()
@@ -126,8 +127,19 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
 
         return super().get_throttles()
 
-    def _get_prompt_by_name(self, prompt_name: str) -> dict[str, Any] | None:
+    def _get_prompt_by_name_from_cache(self, prompt_name: str) -> dict[str, Any] | None:
         return get_prompt_by_name_from_cache(self.team, prompt_name)
+
+    def _get_prompt_by_name_from_db(self, prompt_name: str) -> LLMPrompt | None:
+        return (
+            LLMPrompt.objects.filter(
+                team=self.team,
+                name=prompt_name,
+                deleted=False,
+            )
+            .select_related("created_by")
+            .first()
+        )
 
     def perform_create(self, serializer):
         instance = serializer.save()
@@ -181,7 +193,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
     @llma_track_latency("llma_prompts_get_by_name")
     @monitor(feature=None, endpoint="llma_prompts_get_by_name", method="GET")
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        prompt = self._get_prompt_by_name(prompt_name)
+        prompt = self._get_prompt_by_name_from_cache(prompt_name)
         if prompt is None:
             return Response(
                 {"detail": f"Prompt with name '{prompt_name}' not found."},
@@ -230,14 +242,15 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        prompt = self._get_prompt_by_name(prompt_name)
+        prompt = self._get_prompt_by_name_from_db(prompt_name)
         if prompt is None:
             return Response(
                 {"detail": f"Prompt with name '{prompt_name}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        return Response(prompt)
+        serializer = self.get_serializer(prompt)
+        return Response(serializer.data)
 
     @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
