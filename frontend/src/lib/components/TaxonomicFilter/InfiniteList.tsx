@@ -523,7 +523,11 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                         <>
                             <IconSearch className="text-5xl text-tertiary" />
                             <span className="text-secondary text-center">
-                                Search for {group?.searchPlaceholder || group?.name?.toLowerCase() || 'items'}
+                                Search for{' '}
+                                {group?.searchDescription ||
+                                    group?.searchPlaceholder ||
+                                    group?.name?.toLowerCase() ||
+                                    'items'}
                             </span>
                             <span className="text-center text-secondary italic">
                                 Type at least {minSearchQueryLength} characters to search
