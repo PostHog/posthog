@@ -1,9 +1,11 @@
 from types import SimpleNamespace
+from typing import cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
+from rest_framework.request import Request
 
 from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
 
@@ -32,7 +34,7 @@ class TestLLMProxyThrottles(APIBaseTest):
 
     def _set_request(self, action: str, data: dict) -> None:
         self.viewset.action = action
-        self.viewset.request = SimpleNamespace(data=data, user=self.user)
+        self.viewset.request = cast(Request, SimpleNamespace(data=data, user=self.user))
 
     # Params: (provider_key_id, key_provider, encrypted_config, request_provider, has_team, expect_throttled)
     @parameterized.expand(
