@@ -1574,6 +1574,7 @@ async fn test_parallel_path_matches_sequential_results() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4()).await;
 
@@ -1596,6 +1597,7 @@ async fn test_parallel_path_matches_sequential_results() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 1,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4()).await;
 
