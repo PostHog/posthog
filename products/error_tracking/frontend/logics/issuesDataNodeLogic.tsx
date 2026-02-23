@@ -43,7 +43,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
 
     actions({
         reloadData: () => ({}),
-        setLoadStartTime: (startTime: number) => ({ startTime }),
+        setLoadStartTime: (startTime: number | null) => ({ startTime }),
     }),
 
     reducers({
@@ -51,8 +51,6 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             null as number | null,
             {
                 setLoadStartTime: (_, { startTime }) => startTime,
-                loadDataSuccess: () => null,
-                loadDataFailure: () => null,
             },
         ],
     }),
@@ -72,7 +70,9 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             actions.setLoadStartTime(performance.now())
         },
         loadDataSuccess: () => {
-            const durationMs = values.loadStartTime ? Math.round(performance.now() - values.loadStartTime) : null
+            const durationMs =
+                values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
+            actions.setLoadStartTime(null)
 
             const response = values.response as Record<string, any> | null
             const results = response && 'results' in response ? response.results : []

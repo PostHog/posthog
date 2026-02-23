@@ -67,7 +67,8 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
             actions.setLoadStartTime(performance.now())
         },
         loadFromRawIdsSuccess: ({ stackFrameRecords }) => {
-            const durationMs = values.loadStartTime ? Math.round(performance.now() - values.loadStartTime) : null
+            const durationMs =
+                values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
             actions.setLoadStartTime(null)
 
             const recordsWithContext = Object.values(stackFrameRecords).filter((record) => record.context)
