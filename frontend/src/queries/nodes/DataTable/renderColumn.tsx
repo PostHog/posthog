@@ -6,6 +6,7 @@ import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -45,7 +46,7 @@ import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llm
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
-const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'session_start', 'session_end']
+const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
 
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
@@ -193,6 +194,15 @@ export function renderColumn(
             </Link>
         ) : (
             content
+        )
+    } else if ((isActorsQuery(query.source) || isActorsQuery(query)) && key === 'last_seen_at') {
+        const isWithinLastHour = dayjs().diff(dayjs(value), 'hour', true) < 1
+        return (
+            <TZLabel time={value} showSeconds>
+                {isWithinLastHour ? (
+                    <span className="whitespace-nowrap align-middle border-dotted border-b">last hour</span>
+                ) : undefined}
+            </TZLabel>
         )
     } else if (DATETIME_KEYS.includes(key)) {
         return <TZLabel time={value} showSeconds />

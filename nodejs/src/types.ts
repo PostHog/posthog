@@ -3,9 +3,8 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { Element, PluginEvent, Properties } from '@posthog/plugin-scaffold'
-
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
@@ -23,7 +22,7 @@ import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositorie
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
-export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+export { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
@@ -217,7 +216,7 @@ export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
 
 export type IngestionConsumerConfig = {
     /** The lane this consumer is processing (e.g. main, overflow, historical, async) */
-    INGESTION_LANE?: IngestionLane
+    INGESTION_LANE: IngestionLane | null
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
@@ -280,6 +279,7 @@ export type IngestionConsumerConfig = {
 
     // Pipeline step config
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+    EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
@@ -477,6 +477,7 @@ export interface PluginsServerConfig
     /** Comma-separated list of capability groups for local dev: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags */
     NODEJS_CAPABILITY_GROUPS: string | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
+    INGESTION_PIPELINE: string | null
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
@@ -667,6 +668,13 @@ export interface RawOrganization {
 
 // NOTE: We don't need to list all options here - only the ones we use
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
+
+/** Event schema with enforcement enabled. Only includes required properties since optional properties are not validated. */
+export interface EventSchemaEnforcement {
+    event_name: string
+    /** Map from property name to accepted types (multiple types when property groups disagree) */
+    required_properties: Map<string, string[]>
+}
 
 /** Usable Team model. */
 export interface LogsSettings {
@@ -1246,7 +1254,6 @@ export enum OrganizationMembershipLevel {
 
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
-    token?: string
 }
 
 export interface EventHeaders {

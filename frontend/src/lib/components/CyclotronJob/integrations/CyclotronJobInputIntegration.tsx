@@ -17,7 +17,7 @@ export function CyclotronJobInputIntegration({
             {...props}
             schema={schema}
             integration={schema.integration}
-            redirectUrl={`${window.location.pathname}?integration_target=${schema.key}`}
+            redirectUrl={`${window.location.pathname}?integration_target=${schema.key}${window.location.hash}`}
             beforeRedirect={() => persistForUnload?.()}
         />
     )

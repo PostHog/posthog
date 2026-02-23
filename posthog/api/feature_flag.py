@@ -735,6 +735,13 @@ class FeatureFlagSerializer(
 
             for property in condition.get("properties", []):
                 prop = Property(**property)
+
+                if prop.operator is not None and prop.operator not in PropertyOperator.__members__.values():
+                    raise serializers.ValidationError(
+                        detail=f"Invalid operator: {prop.operator}",
+                        code="invalid_operator",
+                    )
+
                 if isinstance(prop.value, list):
                     upper_limit = MAX_PROPERTY_VALUES
                     if settings.TEST:
@@ -799,16 +806,24 @@ class FeatureFlagSerializer(
         if not isinstance(payloads, dict):
             raise serializers.ValidationError("Payloads must be passed as a dictionary")
 
-        for value in payloads.values():
-            try:
-                if isinstance(value, str):
-                    json_value = json.loads(value)
-                else:
-                    json_value = value
-                json.dumps(json_value)
-
-            except json.JSONDecodeError:
-                raise serializers.ValidationError("Payload value is not valid JSON")
+        for key, value in payloads.items():
+            if isinstance(value, dict):
+                # Normalize JSON object payloads (e.g. from the API) to strings,
+                # matching what the UI sends.
+                try:
+                    payloads[key] = json.dumps(value)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError("Payload value is not valid JSON")
+            elif isinstance(value, str):
+                try:
+                    json.loads(value)
+                except json.JSONDecodeError:
+                    raise serializers.ValidationError("Payload value is not valid JSON")
+            else:
+                try:
+                    json.dumps(value)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError("Payload value is not valid JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):
@@ -1765,7 +1780,7 @@ class FeatureFlagViewSet(
             200: OpenApiResponse(response=MyFlagsResponseListSerializer),
         },
     )
-    @action(methods=["GET"], detail=False, pagination_class=None)
+    @action(methods=["GET"], detail=False, pagination_class=None, required_scopes=["feature_flag:read"])
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
@@ -2495,7 +2510,7 @@ class FeatureFlagViewSet(
             )
         ],
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
     def evaluation_reasons(self, request: request.Request, **kwargs):
         distinct_id = request.validated_query_data["distinct_id"]
         groups = request.validated_query_data.get("groups", {})

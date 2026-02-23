@@ -65,7 +65,7 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
                                         closeTabId(tabId, { source: 'open_in_side_panel' })
                                     }}
                                 >
-                                    Open in side panel
+                                    Open in context panel
                                 </LemonButton>
                             ) : undefined}
                         </div>

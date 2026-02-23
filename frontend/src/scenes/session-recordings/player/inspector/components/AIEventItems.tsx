@@ -35,6 +35,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
                     errorData={event.properties.$ai_error}
                     httpStatus={event.properties.$ai_http_status}
                     raisedError={raisedError}
+                    traceId={event.properties.$ai_trace_id}
                 />
             ) : (
                 <LLMInputOutput

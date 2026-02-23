@@ -3,7 +3,7 @@ from typing import Any, Optional
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS
+from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
     ExportSignalMessage,
@@ -124,7 +124,7 @@ class KafkaBatchProducer:
         )
 
         future = self._producer.produce(
-            topic=KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS,
+            topic=KAFKA_WAREHOUSE_SOURCES_JOBS,
             data=message.to_dict(),
             key=self._get_key(),
         )

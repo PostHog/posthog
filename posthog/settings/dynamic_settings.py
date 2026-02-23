@@ -165,6 +165,11 @@ CONSTANCE_CONFIG = {
         "Whether rate limiting is enabled",
         bool,
     ),
+    "CLICKHOUSE_KILL_SWITCH": (
+        get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
+        "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
+        str,
+    ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
@@ -223,6 +228,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
+    "CLICKHOUSE_KILL_SWITCH",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",

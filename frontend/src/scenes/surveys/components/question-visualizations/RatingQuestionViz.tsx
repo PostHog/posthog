@@ -1,12 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { dayjs } from 'lib/dayjs'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
@@ -21,9 +22,10 @@ import {
 } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { NPSBreakdown, calculateNpsBreakdownFromProcessedData, isThumbQuestion } from 'scenes/surveys/utils'
+import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import {
     ChartDisplayType,
     ChoiceQuestionProcessedResponses,
@@ -223,6 +225,41 @@ function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: numbe
         useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
+    const trendsQuery: TrendsQuery = {
+        kind: NodeKind.TrendsQuery,
+        interval: interval ?? defaultInterval,
+        compareFilter: compareFilter,
+        dateRange: dateRange ?? {
+            date_from: dayjs((survey as Survey).created_at).format('YYYY-MM-DD'),
+            date_to: survey.end_date
+                ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+        },
+        series: [
+            createNPSTrendSeries(NPS_PROMOTER_VALUES, NPS_PROMOTER_LABEL, questionIndex, questionId),
+            createNPSTrendSeries(NPS_PASSIVE_VALUES, NPS_PASSIVE_LABEL, questionIndex, questionId),
+            createNPSTrendSeries(NPS_DETRACTOR_VALUES, NPS_DETRACTOR_LABEL, questionIndex, questionId),
+        ],
+        properties: [
+            {
+                type: PropertyFilterType.Event,
+                key: SurveyEventProperties.SURVEY_ID,
+                operator: PropertyOperator.Exact,
+                value: survey.id,
+            },
+            ...archivedResponsesPropertyFilter,
+        ],
+        trendsFilter: {
+            formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+            display: ChartDisplayType.ActionsBar,
+        },
+    }
+
+    const insightVizQuery: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: trendsQuery,
+    }
+
     return (
         <div className="bg-surface-primary rounded">
             <LemonCollapse
@@ -254,57 +291,16 @@ function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: numbe
                                             updateCompareFilter={(compareFilter) => setCompareFilter(compareFilter)}
                                         />
                                     </div>
+                                    <LemonButton
+                                        to={urls.insightNew({ query: insightVizQuery })}
+                                        icon={<IconOpenInNew />}
+                                        size="small"
+                                        type="secondary"
+                                    >
+                                        Open as new insight
+                                    </LemonButton>
                                 </div>
-                                <Query
-                                    query={{
-                                        kind: NodeKind.InsightVizNode,
-                                        source: {
-                                            kind: NodeKind.TrendsQuery,
-                                            interval: interval ?? defaultInterval,
-                                            compareFilter: compareFilter,
-                                            dateRange: dateRange ?? {
-                                                date_from: dayjs((survey as Survey).created_at).format('YYYY-MM-DD'),
-                                                date_to: survey.end_date
-                                                    ? dayjs(survey.end_date).format('YYYY-MM-DD')
-                                                    : dayjs().add(1, 'day').format('YYYY-MM-DD'),
-                                            },
-                                            series: [
-                                                createNPSTrendSeries(
-                                                    NPS_PROMOTER_VALUES,
-                                                    NPS_PROMOTER_LABEL,
-                                                    questionIndex,
-                                                    questionId
-                                                ),
-                                                createNPSTrendSeries(
-                                                    NPS_PASSIVE_VALUES,
-                                                    NPS_PASSIVE_LABEL,
-                                                    questionIndex,
-                                                    questionId
-                                                ),
-                                                createNPSTrendSeries(
-                                                    NPS_DETRACTOR_VALUES,
-                                                    NPS_DETRACTOR_LABEL,
-                                                    questionIndex,
-                                                    questionId
-                                                ),
-                                            ],
-                                            properties: [
-                                                {
-                                                    type: PropertyFilterType.Event,
-                                                    key: SurveyEventProperties.SURVEY_ID,
-                                                    operator: PropertyOperator.Exact,
-                                                    value: survey.id,
-                                                },
-                                                ...archivedResponsesPropertyFilter,
-                                            ],
-                                            trendsFilter: {
-                                                formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
-                                                display: ChartDisplayType.ActionsBar,
-                                            },
-                                        },
-                                    }}
-                                    readOnly
-                                />
+                                <Query query={insightVizQuery} readOnly />
                             </div>
                         ),
                     },
@@ -381,6 +377,37 @@ function RatingScoreOverTime({
     // This calculates: (sum of rating_value * count_for_that_rating) / total_responses
     const formula = `(${formulaNumeratorParts.join('+')}) / (${formulaDenominatorParts.join('+')})`
 
+    const trendsQuery: TrendsQuery = {
+        kind: NodeKind.TrendsQuery,
+        interval: interval ?? defaultInterval,
+        compareFilter: compareFilter,
+        dateRange: dateRange ?? {
+            date_from: dayjs((survey as Survey).created_at).format('YYYY-MM-DD'),
+            date_to: survey.end_date
+                ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+        },
+        series: series,
+        properties: [
+            {
+                type: PropertyFilterType.Event,
+                key: SurveyEventProperties.SURVEY_ID,
+                operator: PropertyOperator.Exact,
+                value: survey.id,
+            },
+            ...archivedResponsesPropertyFilter,
+        ],
+        trendsFilter: {
+            formula: formula,
+            display: ChartDisplayType.ActionsBar,
+        },
+    }
+
+    const insightVizQuery: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: trendsQuery,
+    }
+
     return (
         <div className="bg-surface-primary rounded">
             <LemonCollapse
@@ -412,38 +439,16 @@ function RatingScoreOverTime({
                                             updateCompareFilter={(compareFilter) => setCompareFilter(compareFilter)}
                                         />
                                     </div>
+                                    <LemonButton
+                                        to={urls.insightNew({ query: insightVizQuery })}
+                                        icon={<IconOpenInNew />}
+                                        size="small"
+                                        type="secondary"
+                                    >
+                                        Open as new insight
+                                    </LemonButton>
                                 </div>
-                                <Query
-                                    query={{
-                                        kind: NodeKind.InsightVizNode,
-                                        source: {
-                                            kind: NodeKind.TrendsQuery,
-                                            interval: interval ?? defaultInterval,
-                                            compareFilter: compareFilter,
-                                            dateRange: dateRange ?? {
-                                                date_from: dayjs((survey as Survey).created_at).format('YYYY-MM-DD'),
-                                                date_to: survey.end_date
-                                                    ? dayjs(survey.end_date).format('YYYY-MM-DD')
-                                                    : dayjs().add(1, 'day').format('YYYY-MM-DD'),
-                                            },
-                                            series: series,
-                                            properties: [
-                                                {
-                                                    type: PropertyFilterType.Event,
-                                                    key: SurveyEventProperties.SURVEY_ID,
-                                                    operator: PropertyOperator.Exact,
-                                                    value: survey.id,
-                                                },
-                                                ...archivedResponsesPropertyFilter,
-                                            ],
-                                            trendsFilter: {
-                                                formula: formula,
-                                                display: ChartDisplayType.ActionsBar,
-                                            },
-                                        },
-                                    }}
-                                    readOnly
-                                />
+                                <Query query={insightVizQuery} readOnly />
                             </div>
                         ),
                     },

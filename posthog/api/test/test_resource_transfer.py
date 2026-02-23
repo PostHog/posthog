@@ -119,7 +119,7 @@ class TestResourceTransferPreview(APIBaseTest):
         assert insight_resource["suggested_substitution"]["display_name"] == "Copied insight"
 
     def test_preview_no_substitution_without_previous_transfer(self) -> None:
-        insight = Insight.objects.create(team=self.team, name="My insight")
+        insight = Insight.objects.create(team=self.team, name="My insight - Unique name")
         response = self.client.post(
             self._preview_url(),
             {

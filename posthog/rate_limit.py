@@ -465,6 +465,16 @@ class LLMAnalyticsTranslationDailyThrottle(PersonalApiKeyRateThrottle):
     rate = "500/day"
 
 
+class LLMAnalyticsSentimentBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_burst"
+    rate = "60/minute"
+
+
+class LLMAnalyticsSentimentSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_sustained"
+    rate = "600/hour"
+
+
 class LLMAnalyticsSummarizationBurstThrottle(PersonalApiKeyRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
@@ -624,3 +634,37 @@ class WidgetTeamThrottle(SimpleRateThrottle):
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "symbol_set_upload_sustained"
     rate = "12000/hour"
+
+
+class RestoreRequestThrottle(SimpleRateThrottle):
+    """Rate limit restore link requests per email hash to prevent abuse."""
+
+    scope = "widget_restore_request"
+    rate = "3/hour"
+
+    def get_cache_key(self, request, view):
+        # Throttle by email hash
+        email = request.data.get("email", "") if isinstance(request.data, dict) else ""
+        if email:
+            ident = hashlib.sha256(email.lower().strip().encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class RestoreRedeemThrottle(SimpleRateThrottle):
+    """Rate limit restore token redemption per IP to prevent brute force."""
+
+    scope = "widget_restore_redeem"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        # Throttle by IP
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class ToolbarOAuthRefreshThrottle(IPThrottle):
+    """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
+
+    scope = "toolbar_oauth_refresh"
+    rate = "30/minute"

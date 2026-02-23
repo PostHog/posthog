@@ -4,6 +4,7 @@ import { ToastOptions, ToastContentProps as ToastifyRenderProps, toast } from 'r
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
 import { isChristmas } from 'lib/holidays'
+import { hashCodeForString } from 'lib/utils'
 
 import { LemonButton } from '../LemonButton'
 import { Spinner } from '../Spinner'
@@ -69,22 +70,29 @@ export function ToastContent({ type, message, button, id }: ToastContentProps): 
     )
 }
 
-function ensureToastId(toastOptions: ToastOptions): ToastOptions {
-    return toastOptions.toastId
-        ? toastOptions
-        : { ...toastOptions, toastId: `lemon-${Math.round(Math.random() * 10000000)}` }
+function ensureToastId(toastOptions: ToastOptions, type: string, message?: string | JSX.Element): ToastOptions {
+    if (toastOptions.toastId) {
+        return toastOptions
+    }
+    // Use a deterministic ID based on type + message so that react-toastify
+    // will skip showing a duplicate toast if one with the same type and message is already visible.
+    const toastId =
+        typeof message === 'string'
+            ? `lemon-${type}-${hashCodeForString(message)}`
+            : `lemon-${Math.round(Math.random() * 10000000)}`
+    return { ...toastOptions, toastId }
 }
 
 export const lemonToast = {
     info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
-        toastOptions = ensureToastId(toastOptions)
+        toastOptions = ensureToastId(toastOptions, 'info', message)
         toast.info(<ToastContent type="info" message={message} button={button} id={toastOptions.toastId} />, {
             icon: <IconInfo />,
             ...toastOptions,
         })
     },
     success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
-        toastOptions = ensureToastId(toastOptions)
+        toastOptions = ensureToastId(toastOptions, 'success', message)
         toast.success(<ToastContent type="success" message={message} button={button} id={toastOptions.toastId} />, {
             icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
             ...toastOptions,
@@ -96,7 +104,7 @@ export const lemonToast = {
             button: button?.label,
             toastId: toastOptions.toastId,
         })
-        toastOptions = ensureToastId(toastOptions)
+        toastOptions = ensureToastId(toastOptions, 'warning', message)
         toast.warning(<ToastContent type="warning" message={message} button={button} id={toastOptions.toastId} />, {
             icon: <IconWarning />,
             ...toastOptions,
@@ -113,7 +121,7 @@ export const lemonToast = {
             })
         }
 
-        toastOptions = ensureToastId(toastOptions)
+        toastOptions = ensureToastId(toastOptions, 'error', message)
         toast.error(
             <ToastContent
                 type="error"
@@ -133,7 +141,9 @@ export const lemonToast = {
         messages: { pending: string | JSX.Element; success: string | JSX.Element; error: string | JSX.Element },
         { button, ...toastOptions }: ToastOptionsWithButton = {}
     ): Promise<any> {
-        toastOptions = ensureToastId(toastOptions)
+        // Promise toasts always get random IDs (unless explicitly provided) because
+        // different operations often share identical pending text like "Saving..."
+        toastOptions = ensureToastId(toastOptions, 'promise')
         // see https://fkhadra.github.io/react-toastify/promise
         return toast.promise(
             promise,

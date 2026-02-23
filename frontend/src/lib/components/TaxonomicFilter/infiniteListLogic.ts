@@ -131,11 +131,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         excludedProperties,
                         listGroupType,
                         propertyAllowList,
+                        minSearchQueryLength,
                     } = values
 
                     if (!remoteEndpoint) {
-                        // should not have been here in the first place!
                         return createEmptyListStorage(swappedInQuery || searchQuery)
+                    }
+
+                    const effectiveQuery = swappedInQuery || searchQuery
+                    if (minSearchQueryLength > 0 && effectiveQuery.length < minSearchQueryLength) {
+                        return createEmptyListStorage(effectiveQuery)
                     }
 
                     const searchParams = {
@@ -299,6 +304,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
+        minSearchQueryLength: [(s) => [s.group], (group) => group?.minSearchQueryLength ?? 0],
         excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
         propertyAllowList: [(s) => [s.group], (group) => group?.propertyAllowList],
         scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],

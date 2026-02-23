@@ -9,6 +9,7 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models.comment import Comment
 
+from .cache import invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent
 from .models import Ticket
 
@@ -33,7 +34,6 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     to widget via last_message_text and to keep message_count accurate for customers.
 
     Uses transaction.on_commit() to defer work and avoid blocking the request.
-    Cache invalidation not needed - short TTLs handle staleness.
     """
     if instance.scope != "conversations_ticket":
         return
@@ -73,9 +73,12 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
-        # Emit analytics events for workflow triggers
+        # Emit analytics events and invalidate cache
         try:
             ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
+            # Invalidate widget tickets cache so list shows updated last_message
+            if ticket.widget_session_id:
+                invalidate_tickets_cache(team_id, ticket.widget_session_id)
             if is_team_message:
                 capture_message_sent(ticket, comment_id, content or "", created_by_id)
             else:

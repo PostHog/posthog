@@ -1,0 +1,13 @@
+{
+  "ignore_dirs": [
+    ".git",
+    "node_modules",
+    "rust/target",
+    ".mypy_cache",
+    "__pycache__",
+    ".pytest_cache",
+    ".dagster_home",
+    ".posthog",
+    ".flox"
+  ]
+}

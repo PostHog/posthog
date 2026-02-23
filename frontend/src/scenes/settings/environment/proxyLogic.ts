@@ -5,8 +5,8 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
-import { SetupTaskId } from 'lib/components/ProductSetup/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -55,6 +55,7 @@ export const proxyLogic = kea<proxyLogicType>([
         maybeRefreshRecords: true,
         acknowledgeCloudflareOptIn: true,
         setCloudflareOptInChecked: (checked: boolean) => ({ checked }),
+        setMaxProxyRecords: (maxProxyRecords: number) => ({ maxProxyRecords }),
     })),
     reducers(() => ({
         formState: [
@@ -75,12 +76,20 @@ export const proxyLogic = kea<proxyLogicType>([
                 acknowledgeCloudflareOptIn: () => false, // Reset when acknowledged
             },
         ],
+        maxProxyRecords: [
+            2 as number, // default matching backend DEFAULT_MAX_PROXY_RECORDS
+            {
+                setMaxProxyRecords: (_, { maxProxyRecords }) => maxProxyRecords,
+            },
+        ],
     })),
     loaders(({ values, actions }) => ({
         proxyRecords: {
             __default: [] as ProxyRecord[],
             loadRecords: async () => {
-                return await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                const response = await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                actions.setMaxProxyRecords(response.max_proxy_records)
+                return response.results
             },
             createRecord: async ({ domain }: { domain: string }) => {
                 const response = await api.create(`api/organizations/${values.currentOrganization?.id}/proxy_records`, {

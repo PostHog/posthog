@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -18,11 +19,16 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
     const { querySource, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
+    const { hasPageview, hasScreen } = getProjectEventExistence()
+
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.EventMetadata,
+        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+        TaxonomicFilterGroupType.EmailAddresses,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
