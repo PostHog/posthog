@@ -66,12 +66,21 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
         description = record["description"]
     except KeyError as e:
         msg = f"Zendesk ticket record missing required field {e}"
-        logger.exception(msg, record=record, team_id=team_id)
+        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg) from e
-    if not ticket_id or not subject or not description:
-        msg = f"Zendesk ticket record has empty required field: id={ticket_id!r}, subject={subject!r}, description={description!r}"
-        logger.exception(msg, record=record, team_id=team_id)
+    if not ticket_id or not description:
+        msg = f"Zendesk ticket record has empty required field: id={ticket_id!r}, description={description!r}"
+        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
+    if not subject:
+        # Ignore tickets without a subject
+        logger.info(
+            "Ignoring Zendesk ticket without a subject",
+            record=record,
+            team_id=team_id,
+            signals_type="data-import-signals",
+        )
+        return None
     signal_description = f"{subject}\n{description}"
     return SignalEmitterOutput(
         source_product="zendesk",
