@@ -48,7 +48,6 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
         description:
             "These properties aren't immediately available on first page load for unidentified persons. This feature flag requires that at least one event is sent prior to becoming available to your product or website.",
         severity: 'info',
-        slot: 'non-instant-properties',
         docs: [
             {
                 label: 'Learn more about how to make feature flags available instantly',
@@ -67,7 +66,7 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
         description:
             'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: is_not_set operator. The flag will still evaluate correctly when not using local evaluation.',
         severity: 'warning',
-        slot: 'local-evaluation-warning',
+
         docs: LOCAL_EVAL_DOCS,
     },
     {
@@ -90,7 +89,7 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
         description:
             'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: static cohorts. The flag will still evaluate correctly when not using local evaluation.',
         severity: 'warning',
-        slot: 'local-evaluation-warning',
+
         docs: LOCAL_EVAL_DOCS,
     },
     {
@@ -107,7 +106,7 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
         description:
             'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: lookahead in regex. The flag will still evaluate correctly when not using local evaluation.',
         severity: 'warning',
-        slot: 'local-evaluation-warning',
+
         docs: LOCAL_EVAL_DOCS,
     },
     {
@@ -124,7 +123,7 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
         description:
             'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: lookbehind in regex. The flag will still evaluate correctly when not using local evaluation.',
         severity: 'warning',
-        slot: 'local-evaluation-warning',
+
         docs: LOCAL_EVAL_DOCS,
     },
     {
@@ -141,7 +140,7 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
         description:
             'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: backreferences in regex. The flag will still evaluate correctly when not using local evaluation.',
         severity: 'warning',
-        slot: 'local-evaluation-warning',
+
         docs: LOCAL_EVAL_DOCS,
     },
 ]

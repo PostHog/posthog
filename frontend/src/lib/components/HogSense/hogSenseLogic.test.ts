@@ -50,7 +50,6 @@ describe('hogSenseLogic', () => {
                     description: 'This is active',
                     severity: 'warning',
                     docs: [{ label: 'Learn more', url: 'https://example.com' }],
-                    slot: undefined,
                     entityType: undefined,
                     entityId: undefined,
                 },
@@ -66,7 +65,6 @@ describe('hogSenseLogic', () => {
                 summary: 'Over threshold',
                 description: 'Value exceeds 100',
                 severity: 'error',
-                slot: 'metrics',
             },
         ]
 
@@ -83,7 +81,6 @@ describe('hogSenseLogic', () => {
             findings: [
                 expect.objectContaining({
                     id: 'threshold',
-                    slot: 'metrics',
                     entityType: 'feature_flag',
                     entityId: 42,
                 }),

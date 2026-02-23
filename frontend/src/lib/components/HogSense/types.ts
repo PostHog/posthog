@@ -13,7 +13,6 @@ export interface DetectionEntry<T> {
     description: string
     severity: HogSenseSeverity
     docs?: GuidanceDoc[]
-    slot?: string
 }
 
 export interface Finding {
@@ -22,7 +21,6 @@ export interface Finding {
     description: string
     severity: HogSenseSeverity
     docs?: GuidanceDoc[]
-    slot?: string
     entityType?: string
     entityId?: string | number
 }

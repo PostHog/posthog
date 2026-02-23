@@ -20,6 +20,7 @@ import { clamp } from 'lib/utils'
 
 import { AnyPropertyFilter, FeatureFlagGroupType, MultivariateFlagVariant, PropertyFilterType } from '~/types'
 
+import { FF_DETECTION_GROUPS } from './featureFlagDetectionConfig'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
@@ -412,11 +413,23 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                                     taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                                     hasRowOperator={false}
+                                                    sendAllKeyUpdates
                                                 />
-                                                <HogSenseRenderer findings={findings} slot="non-instant-properties">
-                                                    {(matched) => <HogSenseHint finding={matched[0]} />}
+                                            </div>
+
+                                            <div className="flex flex-col gap-1">
+                                                <HogSenseRenderer
+                                                    findings={findings}
+                                                    ids={FF_DETECTION_GROUPS.PROPERTY_HINTS}
+                                                >
+                                                    {(matched) =>
+                                                        matched.map((f) => <HogSenseHint key={f.id} finding={f} />)
+                                                    }
                                                 </HogSenseRenderer>
-                                                <HogSenseRenderer findings={findings} slot="local-evaluation-warning">
+                                                <HogSenseRenderer
+                                                    findings={findings}
+                                                    ids={FF_DETECTION_GROUPS.LOCAL_EVAL_WARNINGS}
+                                                >
                                                     {(matched) =>
                                                         matched.map((f) => <HogSenseHint key={f.id} finding={f} />)
                                                     }

@@ -24,7 +24,6 @@ export function evaluateDetections<T>(
             description: entry.description,
             severity: entry.severity,
             docs: entry.docs,
-            slot: entry.slot,
             entityType: meta?.entityType,
             entityId: meta?.entityId,
         }))

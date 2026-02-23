@@ -24,7 +24,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { HogSenseRenderer } from 'lib/components/HogSense'
+import { HogSenseBanner, HogSenseRenderer } from 'lib/components/HogSense'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -109,6 +109,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
+import { FF_DETECTION_GROUPS } from './featureFlagDetectionConfig'
 import { featureFlagDetectionLogic } from './featureFlagDetectionLogic'
 import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
@@ -1133,17 +1134,8 @@ function FeatureFlagRollout({
         <SceneContent>
             {readOnly ? (
                 <>
-                    <HogSenseRenderer findings={findings} slot="local-evaluation-warning">
-                        {(matched) => (
-                            <LemonBanner type="warning" className="mb-4">
-                                This flag cannot be locally evaluated by server-side SDKs due to unsupported features:{' '}
-                                {matched.map((f) => f.summary.toLowerCase()).join(', ')}. The flag will still evaluate
-                                correctly when not using local evaluation.{' '}
-                                <Link to="https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation">
-                                    Learn more
-                                </Link>
-                            </LemonBanner>
-                        )}
+                    <HogSenseRenderer findings={findings} ids={FF_DETECTION_GROUPS.LOCAL_EVAL_WARNINGS}>
+                        {(matched) => matched.map((f) => <HogSenseBanner key={f.id} finding={f} />)}
                     </HogSenseRenderer>
                     <div className="flex flex-col">
                         <div className="grid grid-cols-2">
