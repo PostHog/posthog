@@ -521,6 +521,8 @@ async def _emit_signals(
         for i, output in enumerate(outputs):
             results[i] = tg.create_task(_bounded_emit(output))
     succeeded = sum(1 for task in results.values() if task.result())
+    if succeeded == 0 and len(outputs) > 0:
+        raise RuntimeError(f"All {len(outputs)} signal emissions failed")
     return succeeded
 
 
