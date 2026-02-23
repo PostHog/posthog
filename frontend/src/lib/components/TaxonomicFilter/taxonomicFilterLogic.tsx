@@ -754,7 +754,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Pageview URL`,
                         minSearchQueryLength: 3,
-                        searchDescription: 'URLs from pageview events',
+                        searchDescription: 'URLs seen on pageview events',
                     },
                     {
                         name: 'Pageview events',
@@ -781,7 +781,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Screen`,
                         minSearchQueryLength: 3,
-                        searchDescription: 'screen names from screen events',
+                        searchDescription: 'screen names seen on screen events',
                     },
                     {
                         name: 'Screen events',
@@ -805,7 +805,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Email address`,
                         minSearchQueryLength: 5,
-                        searchDescription: 'person email addresses',
+                        searchDescription: 'email addresses seen in person properties',
                     },
                     {
                         name: 'Autocapture events',
@@ -817,7 +817,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Autocapture event`,
                         minSearchQueryLength: 3,
-                        searchDescription: 'autocapture events filtered by element text',
+                        searchDescription: 'element text seen on autocapture events',
                     },
                     {
                         name: 'Custom Events',
