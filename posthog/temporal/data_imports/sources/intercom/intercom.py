@@ -13,7 +13,7 @@ from posthog.temporal.data_imports.sources.intercom.settings import INTERCOM_END
 logger = logging.getLogger(__name__)
 
 INTERCOM_BASE_URL = "https://api.intercom.io"
-INTERCOM_VERSION = "2.11"
+INTERCOM_VERSION = "2.15"
 
 
 class IntercomCursorPaginator(BasePaginator):
