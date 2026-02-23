@@ -82,7 +82,6 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
     if config is None:
         log.warning(f"No signal emitter config registered for {inputs.source_type}/{inputs.schema_name}")
         return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
-
     async with Heartbeater():
         # Fetch schema and team
         schema, team = await _fetch_schema_and_team(inputs.schema_id, inputs.team_id)
@@ -179,6 +178,17 @@ def _query_new_records(
         WHERE {where_sql}
         LIMIT {config.max_records}
     """
+    logger.info(
+        "Querying new records for signal emission",
+        sync_type="continuous" if last_synced_at is not None else "first",
+        last_synced_at=last_synced_at,
+        lookback_days=config.first_sync_lookback_days if last_synced_at is None else None,
+        table_name=table_name,
+        where_clause=where_sql,
+        max_records=config.max_records,
+        signals_type="data-import-signals",
+        **extra,
+    )
     parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)
     try:
         result = execute_hogql_query(query=parsed, team=team, query_type="EmitSignalsNewRecords")
@@ -410,7 +420,7 @@ async def _filter_actionable(
             actionable.append(output)
         else:
             filtered_count += 1
-            logger.debug(
+            logger.info(
                 "Filtered non-actionable signal",
                 signal_source_type=output.source_type,
                 signal_source_id=output.source_id,
