@@ -27,6 +27,7 @@ export const ToolConfigSchema = z
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
         param_overrides: z.record(z.object({ description: z.string().optional() }).strict()).optional(),
+        mcp_version: z.number().int().positive().optional(),
     })
     .strict()
 

@@ -19,6 +19,7 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         list: true
+        mcp_version: 1
         title: Get all actions
         description: >
             Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger
@@ -57,6 +58,7 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}'
+        mcp_version: 1
         title: Get action
         description: >
             Get a specific action by ID. Returns the action configuration including all steps and their trigger
