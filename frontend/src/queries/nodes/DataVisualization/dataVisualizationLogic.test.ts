@@ -111,6 +111,38 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('fills x-axis labels with empty values when no x-axis is selected', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['first_value', 'second_value', 'third_value'],
+            types: [
+                ['first_value', 'Int64'],
+                ['second_value', 'Int64'],
+                ['third_value', 'Int64'],
+            ],
+            results: [
+                [1, 2, 3],
+                [4, 5, 6],
+            ],
+        })
+
+        logic.actions.clearAxis()
+
+        await expectLogic(logic).toMatchValues({
+            xData: {
+                column: {
+                    name: 'None',
+                    type: {
+                        name: 'STRING',
+                        isNumerical: false,
+                    },
+                    label: 'None',
+                    dataIndex: -1,
+                },
+                data: ['', ''],
+            },
+        })
+    })
+
     it('does not resolve to a time-series chart when there is only one row', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 

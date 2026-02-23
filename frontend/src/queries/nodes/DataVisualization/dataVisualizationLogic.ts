@@ -816,7 +816,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         xData: [
             (s) => [s.selectedXAxis, s.response, s.columns],
             (xSeries, response, columns): AxisSeries<string> | null => {
-                if (!response || xSeries === null) {
+                if (!response) {
                     return {
                         column: {
                             name: 'None',
@@ -832,6 +832,21 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
 
                 const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+
+                if (xSeries === null) {
+                    return {
+                        column: {
+                            name: 'None',
+                            type: {
+                                name: 'STRING',
+                                isNumerical: false,
+                            },
+                            label: 'None',
+                            dataIndex: -1,
+                        },
+                        data: data.map(() => ''),
+                    }
+                }
 
                 const column = columns.find((n) => n.name === xSeries)
                 if (!column) {
