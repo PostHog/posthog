@@ -1229,8 +1229,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         titleSectionProps: [
-            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading],
-            (editingInsight, insightLoading, editingView, viewLoading) => {
+            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editorSource],
+            (editingInsight, insightLoading, editingView, viewLoading, editorSource) => {
                 if (editingInsight) {
                     const forceBackTo: Breadcrumb = {
                         key: editingInsight.short_id,
@@ -1280,6 +1280,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return {
                         name: 'Loading insight...',
                         resourceType: { type: 'insight/hog' },
+                    }
+                }
+
+                if (editorSource === 'endpoint') {
+                    return {
+                        forceBackTo: {
+                            key: 'endpoints',
+                            name: 'Back to endpoints',
+                            path: urls.endpoints(),
+                            iconType: 'endpoint',
+                        },
+                        name: 'New endpoint',
+                        resourceType: { type: 'sql_editor' },
                     }
                 }
 

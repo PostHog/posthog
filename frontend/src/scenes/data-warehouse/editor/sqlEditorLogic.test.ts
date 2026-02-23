@@ -223,5 +223,25 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.q).toEqual('SELECT 2')
             expect(logic.values.editorSource).toEqual('endpoint')
         })
+
+        it('shows back button to endpoints when endpoint source is active', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'endpoint' })
+
+            await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
+
+            expect(logic.values.titleSectionProps.forceBackTo).toEqual({
+                key: 'endpoints',
+                name: 'Back to endpoints',
+                path: urls.endpoints(),
+                iconType: 'endpoint',
+            })
+        })
     })
 })
