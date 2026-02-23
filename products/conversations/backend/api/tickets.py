@@ -266,7 +266,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {
                     "channel_source": instance.channel_source,
                     "ticket_status": instance.status,
-                    "is_assigned": hasattr(instance, "assignment"),
+                    "is_assigned": getattr(instance, "assignment", None) is not None,
                 },
                 self.team,
             )
@@ -334,7 +334,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     {
                         "channel_source": instance.channel_source,
                         "ticket_status": instance.status,
-                        "is_assigned": hasattr(instance, "assignment"),
+                        "is_assigned": getattr(instance, "assignment", None) is not None,
                     },
                     self.team,
                 )
