@@ -140,7 +140,6 @@ def fetch_entities(
     while True:
         params: dict[str, Any] = {
             "page_size": PAGE_SIZE,
-            "entity_statuses": "ACTIVE,PAUSED",
         }
         if bookmark:
             params["bookmark"] = bookmark
