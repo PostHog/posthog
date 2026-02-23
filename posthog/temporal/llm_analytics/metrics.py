@@ -24,6 +24,7 @@ EVAL_ACTIVITY_TYPES = {
     "emit_internal_telemetry_activity",
     "increment_trial_eval_count_activity",
     "update_key_state_activity",
+    "emit_eval_signal_activity",
 }
 
 EVAL_WORKFLOW_TYPES = {
@@ -89,6 +90,13 @@ def increment_errors(error_type: str) -> None:
         return
     meter = get_metric_meter({"error_type": error_type})
     counter = meter.create_counter("llma_eval_errors", "Error counts by type")
+    counter.add(1)
+
+
+def increment_eval_signal_outcome(outcome: str) -> None:
+    """Track eval signal activity outcomes (skipped_config_disabled, skipped_org_not_approved, skipped_low_significance, emitted, summarization_failed)."""
+    meter = get_metric_meter({"outcome": outcome})
+    counter = meter.create_counter("llma_eval_signal_outcome", "Eval signal activity outcome distribution")
     counter.add(1)
 
 

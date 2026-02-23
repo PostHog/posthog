@@ -1862,8 +1862,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
-                // Reset editing state when navigating to prevent it from persisting across flags
-                actions.editFeatureFlag(false)
+                // Set editing state based on URL parameter, or reset to prevent persisting across flags
+                actions.editFeatureFlag(searchParams.edit === true || searchParams.edit === 'true')
 
                 if (props.id) {
                     // When there is sourceId, we load the feature flag (for duplicating)
