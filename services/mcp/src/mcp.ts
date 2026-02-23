@@ -5,7 +5,8 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
-import instructionsV2 from '@/instructions/instructions-v2.md'
+import INSTRUCTIONS_TEMPLATE_V1 from '@/instructions/instructions-v1.md'
+import INSTRUCTIONS_TEMPLATE_V2 from '@/instructions/instructions-v2.md'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { AnalyticsEvent, getPostHogClient } from '@/lib/analytics'
@@ -19,6 +20,7 @@ import {
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
 import { formatResponse } from '@/lib/response'
+import { formatPrompt } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -26,23 +28,7 @@ import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-const SHARED_PROMPT = `
-- If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
-- If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
-`
-
-const INSTRUCTIONS_V1 = `
-- You are a helpful assistant that can query PostHog API.
-${SHARED_PROMPT}
-`.trim()
-
-const INSTRUCTIONS_V2 = `
-${instructionsV2.trim()}
-
-${guidelines.trim()}
-
-${SHARED_PROMPT}
-`.trim()
+const INSTRUCTIONS_V2 = formatPrompt(INSTRUCTIONS_TEMPLATE_V2, { guidelines: guidelines.trim() })
 
 export type RequestProperties = {
     userHash: string
@@ -56,7 +42,7 @@ export type RequestProperties = {
 }
 
 export class MCP extends McpAgent<Env> {
-    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_V1 })
+    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_TEMPLATE_V1 })
 
     initialState: State = {
         projectId: undefined,
