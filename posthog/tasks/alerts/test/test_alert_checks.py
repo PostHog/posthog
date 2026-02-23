@@ -691,29 +691,37 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_errors.call_count == 0
         assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).count() == 0
 
-    def test_empty_results_returns_value_zero_not_error(
-        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
-    ) -> None:
-        self.set_thresholds(lower=0, upper=100)
-
+    def _check_alert_with_empty_results(self) -> None:
         with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
             from posthog.caching.fetch_from_cache import InsightResult
 
             mock_calculate.return_value = InsightResult(
-                result=[],
-                last_refresh=None,
-                cache_key=None,
-                is_cached=False,
-                timezone=None,
+                result=[], last_refresh=None, cache_key=None, is_cached=False, timezone=None
             )
-
             check_alert(self.alert["id"])
 
+    def test_empty_results_within_bounds_does_not_fire(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=0, upper=100)
+        self._check_alert_with_empty_results()
+
         assert mock_send_notifications_for_breaches.call_count == 0
-        assert mock_send_errors.call_count == 0
 
         alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
         assert alert_check.state == AlertState.NOT_FIRING
+        assert alert_check.calculated_value == 0
+
+    def test_empty_results_below_threshold_fires(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+        self._check_alert_with_empty_results()
+
+        assert mock_send_notifications_for_breaches.call_count == 1
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert alert_check.state == AlertState.FIRING
         assert alert_check.calculated_value == 0
 
 

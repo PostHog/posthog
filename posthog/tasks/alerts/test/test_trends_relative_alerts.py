@@ -2109,3 +2109,38 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             assert alert_check.state == AlertState.FIRING
 
             mock_send_breaches.assert_called_once()
+
+    def _check_empty_results_does_not_fire(
+        self, condition_type: AlertConditionType, mock_send_breaches: MagicMock
+    ) -> None:
+        insight = self.create_time_series_trend_insight(interval=IntervalType.WEEK)
+        alert = self.create_alert(
+            insight,
+            series_index=0,
+            condition_type=condition_type,
+            threshold_type=InsightThresholdType.ABSOLUTE,
+            upper=1,
+        )
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            from posthog.caching.fetch_from_cache import InsightResult
+
+            mock_calculate.return_value = InsightResult(
+                result=[], last_refresh=None, cache_key=None, is_cached=False, timezone=None
+            )
+            check_alert(alert["id"])
+
+        assert mock_send_breaches.call_count == 0
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.state == AlertState.NOT_FIRING
+        assert alert_check.calculated_value == 0
+
+    def test_empty_results_does_not_fire_for_relative_increase(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self._check_empty_results_does_not_fire(AlertConditionType.RELATIVE_INCREASE, mock_send_breaches)
+
+    def test_empty_results_does_not_fire_for_relative_decrease(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self._check_empty_results_does_not_fire(AlertConditionType.RELATIVE_DECREASE, mock_send_breaches)
