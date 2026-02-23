@@ -346,9 +346,9 @@ mod tests {
         let elapsed = start.elapsed();
 
         let mut total_busy_delta = Duration::ZERO;
-        for i in 0..num_workers {
+        for (i, &before) in busy_before.iter().enumerate().take(num_workers) {
             let busy_now = metrics.worker_total_busy_duration(i);
-            total_busy_delta += busy_now.saturating_sub(busy_before[i]);
+            total_busy_delta += busy_now.saturating_sub(before);
         }
 
         let ratio = total_busy_delta.as_secs_f64() / (elapsed.as_secs_f64() * num_workers as f64);
