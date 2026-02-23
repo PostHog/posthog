@@ -207,6 +207,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         titleSectionProps,
         updateInsightButtonEnabled,
         saveAsMenuItems,
+        isSourceQueryLastRun,
     } = useValues(sqlEditorLogic)
     const {
         updateView,
@@ -218,7 +219,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
     } = useActions(sqlEditorLogic)
-    const { response } = useValues(dataNodeLogic)
+    const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
     const secondarySaveMenuItems = useMemo(
@@ -250,6 +251,22 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
         saveAsInsight()
     }
+
+    const saveAsDisabledReason = useMemo(() => {
+        if (!isSourceQueryLastRun) {
+            return 'Run latest query changes before saving'
+        }
+
+        if (responseLoading) {
+            return 'Running query...'
+        }
+
+        if (responseError || !response) {
+            return 'Run query successfully before saving'
+        }
+
+        return undefined
+    }, [isSourceQueryLastRun, responseLoading, responseError, response])
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -339,14 +356,17 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     items={[
                                                         {
                                                             label: 'Save as new insight...',
+                                                            disabledReason: saveAsDisabledReason,
                                                             onClick: () => saveAsInsight(),
                                                         },
                                                         {
                                                             label: 'Save as new view...',
+                                                            disabledReason: saveAsDisabledReason,
                                                             onClick: () => saveAsView(),
                                                         },
                                                         {
                                                             label: 'Save as endpoint...',
+                                                            disabledReason: saveAsDisabledReason,
                                                             onClick: () => saveAsEndpoint(),
                                                         },
                                                     ]}
@@ -374,14 +394,17 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                 items={[
                                                     {
                                                         label: 'Save as new insight...',
+                                                        disabledReason: saveAsDisabledReason,
                                                         onClick: () => saveAsInsight(),
                                                     },
                                                     {
                                                         label: 'Save as new view...',
+                                                        disabledReason: saveAsDisabledReason,
                                                         onClick: () => saveAsView(),
                                                     },
                                                     {
                                                         label: 'Save as endpoint...',
+                                                        disabledReason: saveAsDisabledReason,
                                                         onClick: () => saveAsEndpoint(),
                                                     },
                                                 ]}
@@ -397,12 +420,20 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 type="primary"
                                 size="small"
                                 onClick={onPrimarySaveClick}
+                                disabledReason={saveAsDisabledReason}
                                 sideAction={{
                                     icon: <IconChevronDown />,
                                     'data-attr': 'sql-editor-save-options-button',
                                     dropdown: {
                                         placement: 'bottom-end',
-                                        overlay: <LemonMenuOverlay items={secondarySaveMenuItems} />,
+                                        overlay: (
+                                            <LemonMenuOverlay
+                                                items={secondarySaveMenuItems.map((item) => ({
+                                                    ...item,
+                                                    disabledReason: saveAsDisabledReason,
+                                                }))}
+                                            />
+                                        ),
                                     },
                                 }}
                             >
