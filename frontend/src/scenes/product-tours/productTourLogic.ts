@@ -181,14 +181,15 @@ export const productTourLogic = kea<productTourLogicType>([
         editingProductTour: (editing: boolean) => ({ editing }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setEditTab: (tab: ProductTourEditTab) => ({ tab }),
+        setSelectedLanguage: (langCode: string) => ({ langCode }),
         setSelectedStepIndex: (index: number) => ({ index }),
         updateSelectedStep: (updates: Partial<ProductTourStep>) => ({ updates }),
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
-        publishDraft: true,
         discardDraft: true,
         draftAutoSave: true,
+        setDraftSaveStatus: (status: 'unsaved' | 'saving' | 'saved' | null) => ({ status }),
         setDraftActionInProgress: (action: 'publish' | 'discard' | null) => ({ action }),
         openToolbarModal: (toolbarMode?: 'preview' | 'edit') => ({ toolbarMode: toolbarMode ?? 'edit' }),
         closeToolbarModal: true,
@@ -319,7 +320,7 @@ export const productTourLogic = kea<productTourLogicType>([
             },
         },
     })),
-    forms(({ props }) => ({
+    forms(({ values, actions }) => ({
         productTourForm: {
             defaults: NEW_PRODUCT_TOUR as ProductTourForm,
             alwaysShowErrors: true,
@@ -389,9 +390,14 @@ export const productTourLogic = kea<productTourLogicType>([
                 return errors
             },
             submit: async (formValues: ProductTourForm) => {
-                if (props.id && props.id !== 'new') {
-                    await api.productTours.saveDraft(props.id, buildDraftPayload(formValues))
+                if (!values.productTour) {
+                    return
                 }
+                await api.productTours.publishDraft(values.productTour.id, buildDraftPayload(formValues))
+                lemonToast.success('Product tour saved')
+                actions.editingProductTour(false)
+                actions.loadProductTour()
+                actions.loadProductTours()
             },
         },
     })),
@@ -427,6 +433,12 @@ export const productTourLogic = kea<productTourLogicType>([
                 setSelectedStepIndex: (_, { index }) => index,
             },
         ],
+        _selectedLanguage: [
+            null as string | null,
+            {
+                setSelectedLanguage: (_, { langCode }) => langCode,
+            },
+        ],
         isToolbarModalOpen: [
             false,
             {
@@ -444,9 +456,7 @@ export const productTourLogic = kea<productTourLogicType>([
             null as 'unsaved' | 'saving' | 'saved' | null,
             {
                 draftAutoSave: () => 'unsaved' as const,
-                submitProductTourForm: () => 'saving' as const,
-                submitProductTourFormSuccess: () => 'saved' as const,
-                submitProductTourFormFailure: () => null,
+                setDraftSaveStatus: (_, { status }) => status,
                 editingProductTour: () => null,
             },
         ],
@@ -470,29 +480,11 @@ export const productTourLogic = kea<productTourLogicType>([
                 })
             }
         },
-        submitProductTourFormFailure: () => {
-            const errorMessage =
-                values.productTourFormAllErrors._form ||
-                values.productTourFormAllErrors.name ||
-                'Failed to save product tour'
+        submitProductTourFormFailure: ({ error }) => {
+            const apiDetail = (error as any)?.detail || (error as any)?.data?.content?.[0]
+            const formErrors = values.productTourFormAllErrors
+            const errorMessage = apiDetail || formErrors._form || formErrors.name || 'Failed to save product tour'
             lemonToast.error(errorMessage)
-        },
-        publishDraft: async () => {
-            if (!values.productTour) {
-                return
-            }
-            actions.setDraftActionInProgress('publish')
-            try {
-                await api.productTours.publishDraft(values.productTour.id, buildDraftPayload(values.productTourForm))
-                lemonToast.success('Product tour saved')
-                actions.editingProductTour(false)
-                actions.loadProductTour()
-                actions.loadProductTours()
-            } catch (e: any) {
-                lemonToast.error(e.detail || 'Failed to save product tour')
-            } finally {
-                actions.setDraftActionInProgress(null)
-            }
         },
         discardDraft: async () => {
             if (!values.productTour) {
@@ -585,8 +577,14 @@ export const productTourLogic = kea<productTourLogicType>([
         },
         draftAutoSave: async (_, breakpoint) => {
             await breakpoint(1000)
-            if (values.isEditingProductTour && values.productTourForm.name) {
-                actions.submitProductTourForm()
+            if (values.isEditingProductTour && values.productTourForm.name && props.id && props.id !== 'new') {
+                actions.setDraftSaveStatus('saving')
+                try {
+                    await api.productTours.saveDraft(props.id, buildDraftPayload(values.productTourForm))
+                    actions.setDraftSaveStatus('saved')
+                } finally {
+                    actions.setDraftActionInProgress(null)
+                }
             }
         },
         setDateRange: () => {
@@ -648,6 +646,12 @@ export const productTourLogic = kea<productTourLogicType>([
             (s) => [s.targetingFlagFilters],
             (targetingFlagFilters: FeatureFlagFilters | undefined): boolean => {
                 return !!targetingFlagFilters && !isEqual(targetingFlagFilters, DEFAULT_TARGETING_FILTERS)
+            },
+        ],
+        selectedLanguage: [
+            (s) => [s._selectedLanguage, s.productTourForm],
+            (_selectedLanguage: string | null, productTourForm: ProductTourForm): string | null => {
+                return _selectedLanguage ?? productTourForm.content.languages?.[0] ?? null
             },
         ],
         entityKeyword: [
