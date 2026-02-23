@@ -484,8 +484,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
     scope_object = "INTERNAL"
     authentication_classes = [InternalAPIAuthentication]
 
-    PERSON_BATCH_SIZE = 500
-
     # Internal service-to-service endpoints (authenticated with INTERNAL_API_SECRET)
     def internal_user_blast_radius(self, request: Request, team_id: str) -> Response:
         """
@@ -547,7 +545,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 {
                     "users_affected": users_affected,
                     "cursor": users_affected[-1] if users_affected else None,
-                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,  # Assuming page size of 100
+                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,
                 }
             )
         except Exception as e:
