@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { USER_AGENT } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import {
@@ -56,7 +57,6 @@ import { type Project, ProjectSchema } from '@/schema/projects'
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
-import packageJson from '../../package.json'
 import type { ActionResponse, CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
 import { ActionResponseSchema } from '../schema/actions.js'
 import type {
@@ -146,7 +146,7 @@ export class ApiClient {
         return {
             Authorization: `Bearer ${this.config.apiToken}`,
             'Content-Type': 'application/json',
-            'User-Agent': `posthog/mcp-server; version: ${packageJson.version}`,
+            'User-Agent': USER_AGENT,
         }
     }
 
