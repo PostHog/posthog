@@ -178,7 +178,7 @@ class EventViewSet(
         if self.action != "values":
             return super().check_throttles(request_to_check)
 
-        has_event_name = bool(request_to_check.GET.getlist("event_name", None))
+        has_event_name = bool(request_to_check.GET.getlist("event_name", None) and len(request_to_check.GET.getlist("event_name", None)) > 0)
         if has_event_name:
             throttles = [EventValuesBurstThrottle(), EventValuesSustainedThrottle()]
         else:
