@@ -33,6 +33,7 @@ describe('ApiClient', () => {
         expect(headers).toEqual({
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
+            'User-Agent': expect.stringMatching(/^posthog\/mcp-server; version: \d+\.\d+\.\d+$/),
         })
     })
 })

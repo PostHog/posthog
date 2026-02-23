@@ -1,3 +1,4 @@
+import packageJson from '../../package.json'
 import type { ApiConfig } from './client'
 import type { createApiClient } from './generated'
 import { globalRateLimiter } from './rate-limiter'
@@ -16,7 +17,7 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
 
                 const headers = new Headers()
                 headers.set('Authorization', `Bearer ${config.apiToken}`)
-                headers.set('User-Agent', 'posthog/mcp-server')
+                headers.set('User-Agent', `posthog/mcp-server; version: ${packageJson.version}`)
 
                 // Handle query parameters
                 if (input.urlSearchParams) {
