@@ -24,6 +24,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { HogSenseRenderer } from 'lib/components/HogSense'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -97,7 +98,6 @@ import {
 } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
@@ -109,6 +109,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
+import { featureFlagDetectionLogic } from './featureFlagDetectionLogic'
 import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
@@ -133,6 +134,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         accessDeniedToFeatureFlag,
         experiment,
     } = useValues(featureFlagLogic)
+    const { findings } = useValues(featureFlagDetectionLogic({ id }))
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
@@ -241,10 +243,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <SceneDivider />
                                 {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
                                 {featureFlag.filters.super_groups && featureFlag.filters.super_groups.length > 0 && (
-                                    <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
+                                    <FeatureFlagReleaseConditions
+                                        readOnly
+                                        isSuper
+                                        filters={featureFlag.filters}
+                                        findings={findings}
+                                    />
                                 )}
 
-                                <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                                <FeatureFlagReleaseConditions
+                                    readOnly
+                                    filters={featureFlag.filters}
+                                    findings={findings}
+                                />
 
                                 <SceneDivider />
 
@@ -444,6 +455,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         evaluationRuntime={featureFlag.evaluation_runtime}
+                                        findings={findings}
                                     />
                                     <SceneDivider />
                                 </>
@@ -1026,6 +1038,7 @@ function FeatureFlagRollout({
     onGetFeedback?: (variantKey?: string) => void
 }): JSX.Element {
     const {
+        props: flagProps,
         multivariateEnabled,
         variants,
         nonEmptyVariants,
@@ -1038,13 +1051,13 @@ function FeatureFlagRollout({
         hasEncryptedPayloadBeenSaved,
         hasExperiment,
         isDraftExperiment,
-        properties,
         variantErrors,
         experiment,
         experimentLoading,
         dependentFlags,
         featureFlagActiveUpdateLoading,
     } = useValues(featureFlagLogic)
+    const { findings } = useValues(featureFlagDetectionLogic({ id: flagProps.id }))
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         distributeVariantsEqually,
@@ -1120,10 +1133,18 @@ function FeatureFlagRollout({
         <SceneContent>
             {readOnly ? (
                 <>
-                    <FeatureFlagConditionWarning
-                        properties={properties}
-                        evaluationRuntime={featureFlag.evaluation_runtime}
-                    />
+                    <HogSenseRenderer findings={findings} slot="local-evaluation-warning">
+                        {(matched) => (
+                            <LemonBanner type="warning" className="mb-4">
+                                This flag cannot be locally evaluated by server-side SDKs due to unsupported features:{' '}
+                                {matched.map((f) => f.summary.toLowerCase()).join(', ')}. The flag will still evaluate
+                                correctly when not using local evaluation.{' '}
+                                <Link to="https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation">
+                                    Learn more
+                                </Link>
+                            </LemonBanner>
+                        )}
+                    </HogSenseRenderer>
                     <div className="flex flex-col">
                         <div className="grid grid-cols-2">
                             <div className="card-secondary">Status</div>

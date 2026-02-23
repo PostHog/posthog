@@ -126,7 +126,7 @@ describe('featureFlagDetectionLogic', () => {
         const logic = featureFlagDetectionLogic({ id: 3 })
         logic.mount()
 
-        const findingIds = logic.values.findings.map((f) => f.id)
+        const findingIds = logic.values.findings.map((f: { id: string }) => f.id)
         expect(findingIds).toContain('is-not-set-operator')
 
         logic.unmount()
@@ -206,7 +206,7 @@ describe('featureFlagDetectionLogic', () => {
         await expectLogic(flagLogic).toFinishAllListeners()
         await expectLogic(cohortsModel).toFinishAllListeners()
 
-        const findingIds = logic.values.findings.map((f) => f.id)
+        const findingIds = logic.values.findings.map((f: { id: string }) => f.id)
         expect(findingIds).toContain('static-cohort')
 
         logic.unmount()

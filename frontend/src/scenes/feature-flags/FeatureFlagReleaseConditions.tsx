@@ -10,10 +10,11 @@ import { LemonInput, LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import type { Finding } from 'lib/components/HogSense'
+import { HogSenseRenderer } from 'lib/components/HogSense'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -27,7 +28,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
-import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -98,13 +98,14 @@ export function FeatureFlagReleaseConditions({
     nonEmptyFeatureFlagVariants,
     showTrashIconWithOneCondition = false,
     removedLastConditionCallback,
-    evaluationRuntime,
+    findings: findingsProp,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
     showTrashIconWithOneCondition?: boolean
     removedLastConditionCallback?: () => void
+    findings?: Finding[]
 }): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -122,7 +123,6 @@ export function FeatureFlagReleaseConditions({
         totalUsers,
         filtersTaxonomicOptions,
         aggregationTargetName,
-        properties,
         filterGroups,
     } = useValues(releaseConditionsLogic)
 
@@ -154,13 +154,7 @@ export function FeatureFlagReleaseConditions({
     const { getFlagKey, flagKeysLoading } = useValues(releaseConditionsLogic)
     const flagKeyData = (flagId: string): string => getFlagKey(flagId)
 
-    const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
-        return !!properties.find(
-            (property) =>
-                property.type === PropertyFilterType.Cohort ||
-                !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
-        )
-    }
+    const findings = findingsProp ?? []
 
     const isEarlyAccessFeatureCondition = (group: FeatureFlagGroupType): boolean => {
         return !!(
@@ -267,23 +261,31 @@ export function FeatureFlagReleaseConditions({
                     )}
                     {readOnly && group.description && <div className="mt-2 text-muted">{group.description}</div>}
                     <LemonDivider className="my-3" />
-                    {!readOnly && hasNonInstantProperty(group.properties || []) && (
-                        <LemonBanner type="info" className="mt-3 mb-3">
-                            These properties aren't immediately available on first page load for unidentified persons.
-                            This feature flag requires that at least one event is sent prior to becoming available to
-                            your product or website.{' '}
-                            <Link to="https://posthog.com/docs/feature-flags/bootstrapping" target="_blank">
-                                {' '}
-                                Learn more about how to make feature flags available instantly.
-                            </Link>
-                        </LemonBanner>
+                    {!readOnly && (
+                        <HogSenseRenderer findings={findings} slot="non-instant-properties">
+                            {(matched) => (
+                                <LemonBanner type="info" className="mt-3 mb-3">
+                                    {matched[0].description}{' '}
+                                    <Link to="https://posthog.com/docs/feature-flags/bootstrapping" target="_blank">
+                                        Learn more about how to make feature flags available instantly.
+                                    </Link>
+                                </LemonBanner>
+                            )}
+                        </HogSenseRenderer>
                     )}
                     {!readOnly && (
-                        <FeatureFlagConditionWarning
-                            properties={properties}
-                            evaluationRuntime={evaluationRuntime}
-                            className="mt-3 mb-3"
-                        />
+                        <HogSenseRenderer findings={findings} slot="local-evaluation-warning">
+                            {(matched) => (
+                                <LemonBanner type="warning" className="mt-3 mb-3">
+                                    This flag cannot be locally evaluated by server-side SDKs due to unsupported
+                                    features: {matched.map((f) => f.summary.toLowerCase()).join(', ')}. The flag will
+                                    still evaluate correctly when not using local evaluation.{' '}
+                                    <Link to="https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation">
+                                        Learn more
+                                    </Link>
+                                </LemonBanner>
+                            )}
+                        </HogSenseRenderer>
                     )}
                     {readOnly ? (
                         <>

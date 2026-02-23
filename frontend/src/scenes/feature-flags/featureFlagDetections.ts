@@ -2,7 +2,13 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 
 import type { DetectionEntry } from '~/lib/components/HogSense'
-import { CohortType, FeatureFlagEvaluationRuntime, FeatureFlagType, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    CohortType,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagType,
+    PropertyFilterType,
+} from '~/types'
 
 const REGEX_LOOKAHEAD = /(?<!\\)\(\?[=!]/
 const REGEX_LOOKBEHIND = /(?<!\\)\(\?<[=!]/
@@ -23,9 +29,7 @@ function isServerEvaluable(context: FeatureFlagDetectionContext): boolean {
     return context.evaluation_runtime !== FeatureFlagEvaluationRuntime.CLIENT
 }
 
-function allProperties(
-    context: FeatureFlagDetectionContext
-): FeatureFlagType['filters']['groups'][number]['properties'] {
+function allProperties(context: FeatureFlagDetectionContext): AnyPropertyFilter[] {
     return context.filters.groups.flatMap((group) => group.properties ?? [])
 }
 
