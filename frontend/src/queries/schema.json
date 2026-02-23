@@ -2621,7 +2621,7 @@
                     "items": {
                         "$ref": "#/definitions/Breakdown"
                     },
-                    "maxLength": 3,
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
