@@ -96,7 +96,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         return {**super().get_serializer_context(), "team": self.team}
 
     @extend_schema(exclude=True)
-    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["signal_report:read"])
+    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         from typing import cast
 
@@ -113,7 +113,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         )
 
     @extend_schema(exclude=True)
-    @action(detail=True, methods=["get"], url_path="signals")
+    @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
         report = self.get_object()
