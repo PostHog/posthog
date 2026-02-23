@@ -13,6 +13,27 @@
                     }
                 ]
             }
+        ],
+        "Notification": [
+            {
+                "matcher": "permission_prompt",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "afplay /System/Library/Sounds/Hero.aiff"
+                    }
+                ]
+            }
+        ],
+        "Stop": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "afplay /System/Library/Sounds/Glass.aiff"
+                    }
+                ]
+            }
         ]
     }
 }
