@@ -11,8 +11,8 @@ use personhog_proto::personhog::types::v1::{
 };
 use serde_json::Value;
 use tonic::transport::Channel;
-use tracing::warn;
 use tonic::Request;
+use tracing::warn;
 
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::CohortId;

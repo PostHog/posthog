@@ -8,8 +8,7 @@ use uuid::Uuid;
 use crate::{
     api::types::FlagsQueryParams, cohorts::cohort_cache_manager::CohortCacheManager,
     flags::flag_models::FeatureFlagList, personhog_client::PersonhogFetcher,
-    rayon_dispatcher::RayonDispatcher, router,
-    utils::user_agent::UserAgentInfo,
+    rayon_dispatcher::RayonDispatcher, router, utils::user_agent::UserAgentInfo,
 };
 
 pub struct RequestContext {
