@@ -1002,6 +1002,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             # Add breakdown if needed
             if self.breakdowns_in_query:
                 if self.aggregation_target:
+                    assert aggregation_value_expr is not None
                     retention_query = parse_select(
                         """
                         SELECT
@@ -1060,6 +1061,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     )
             else:
                 if self.aggregation_target:
+                    assert aggregation_value_expr is not None
                     retention_query = parse_select(
                         """
                             SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
