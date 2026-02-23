@@ -349,7 +349,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return
 
         existing_variables = query.variables or {}
-        existing_variable_ids = [variable.variableId for variable in existing_variables.values() if variable.variableId]
+        existing_variable_ids: list[str] = []
+        for variable in existing_variables.values():
+            if not variable.variableId:
+                continue
+            try:
+                uuid.UUID(variable.variableId)
+            except ValueError:
+                continue
+            existing_variable_ids.append(variable.variableId)
+
         team_variables = InsightVariable.objects.filter(team=self.team, id__in=existing_variable_ids)
         team_variables_by_id = {str(variable.id): variable for variable in team_variables}
 
