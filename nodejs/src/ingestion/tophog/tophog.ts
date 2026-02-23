@@ -26,7 +26,9 @@ const DEFAULT_TOP_N = 10
 const DEFAULT_MAX_KEYS = 1_000
 
 export class TopHog {
-    private trackers: Map<string, Tracker> = new Map()
+    private summingTrackers: Map<string, SummingMetricTracker> = new Map()
+    private maxTrackers: Map<string, MaxMetricTracker> = new Map()
+    private averageTrackers: Map<string, AverageMetricTracker> = new Map()
     private flushInterval: ReturnType<typeof setInterval> | null = null
     private readonly config: TopHogRequiredConfig & TopHogOptionalConfig
 
@@ -41,42 +43,49 @@ export class TopHog {
     }
 
     register(name: string, opts?: MetricConfig): SummingMetricTracker {
-        return this.getOrCreate(
-            name,
-            () =>
-                new SummingMetricTracker(
-                    name,
-                    opts?.topN ?? this.config.defaultTopN,
-                    opts?.maxKeys ?? this.config.maxKeys
-                )
-        )
+        let tracker = this.summingTrackers.get(name)
+        if (!tracker) {
+            tracker = new SummingMetricTracker(
+                name,
+                opts?.topN ?? this.config.defaultTopN,
+                opts?.maxKeys ?? this.config.maxKeys
+            )
+            this.summingTrackers.set(name, tracker)
+        }
+        return tracker
     }
 
     registerMax(name: string, opts?: MetricConfig): MaxMetricTracker {
-        return this.getOrCreate(
-            name,
-            () =>
-                new MaxMetricTracker(name, opts?.topN ?? this.config.defaultTopN, opts?.maxKeys ?? this.config.maxKeys)
-        )
+        let tracker = this.maxTrackers.get(name)
+        if (!tracker) {
+            tracker = new MaxMetricTracker(
+                name,
+                opts?.topN ?? this.config.defaultTopN,
+                opts?.maxKeys ?? this.config.maxKeys
+            )
+            this.maxTrackers.set(name, tracker)
+        }
+        return tracker
     }
 
     registerAverage(name: string, opts?: MetricConfig): AverageMetricTracker {
-        return this.getOrCreate(
-            name,
-            () =>
-                new AverageMetricTracker(
-                    name,
-                    opts?.topN ?? this.config.defaultTopN,
-                    opts?.maxKeys ?? this.config.maxKeys
-                )
-        )
+        let tracker = this.averageTrackers.get(name)
+        if (!tracker) {
+            tracker = new AverageMetricTracker(
+                name,
+                opts?.topN ?? this.config.defaultTopN,
+                opts?.maxKeys ?? this.config.maxKeys
+            )
+            this.averageTrackers.set(name, tracker)
+        }
+        return tracker
     }
 
     async flush(): Promise<void> {
         const timestamp = new Date().toISOString()
         const messages: { value: string }[] = []
 
-        for (const tracker of this.trackers.values()) {
+        for (const tracker of this.allTrackers()) {
             for (const { key, value, count } of tracker.flush()) {
                 messages.push({
                     value: JSON.stringify({
@@ -121,12 +130,9 @@ export class TopHog {
         await this.flush()
     }
 
-    private getOrCreate<T extends Tracker>(name: string, create: () => T): T {
-        let tracker = this.trackers.get(name)
-        if (!tracker) {
-            tracker = create()
-            this.trackers.set(name, tracker)
-        }
-        return tracker as T
+    private *allTrackers(): Iterable<Tracker> {
+        yield* this.summingTrackers.values()
+        yield* this.maxTrackers.values()
+        yield* this.averageTrackers.values()
     }
 }

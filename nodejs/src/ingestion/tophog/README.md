@@ -137,9 +137,13 @@ Passed to any metric factory to override instance-level defaults for a specific 
 
 ```text
 TopHog (registry + Kafka reporter)
-├── MetricTracker "emitted_events"   (accumulates counts per key)
-├── MetricTracker "processing_time"  (accumulates timings per key)
-└── ...
+├── summingTrackers
+│   └── SummingMetricTracker "emitted_events"
+├── maxTrackers
+│   └── MaxMetricTracker "max_payload"
+├── averageTrackers
+│   └── AverageMetricTracker "avg_size"
+└── allTrackers() → iterates all three maps for flush
 
 Pipeline extension (pipelines/extensions/tophog.ts)
 ├── count("emitted_events", keyFn)        → records count before step runs
@@ -152,7 +156,7 @@ Pipeline extension (pipelines/extensions/tophog.ts)
 └── createTopHogWrapper(registry)            → wraps pipeline steps with metrics
 ```
 
-`TopHog` owns the flush interval and Kafka reporting. `MetricTracker` handles per-metric accumulation, eviction, and top-N selection. The pipeline extension provides factory functions that wire metrics into pipeline steps.
+`TopHog` owns the flush interval and Kafka reporting. Trackers are stored in separate maps by type (`summingTrackers`, `maxTrackers`, `averageTrackers`), so the same metric name can exist across different types without collision. `MetricTracker` handles per-metric accumulation, eviction, and top-N selection. The pipeline extension provides factory functions that wire metrics into pipeline steps.
 
 ## Performance
 
