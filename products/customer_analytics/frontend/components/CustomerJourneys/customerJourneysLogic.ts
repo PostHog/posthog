@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { FunnelsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { FunnelVizType, QueryBasedInsightModel } from '~/types'
@@ -130,10 +130,10 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         ],
         activeJourneyFullQuery: [
             (s) => [s.activeInsight],
-            (activeInsight): InsightVizNode | null => {
+            (activeInsight): InsightVizNode<FunnelsQuery> | null => {
                 const query = activeInsight?.query
                 if (!query || !isInsightVizNode(query)) {
-                    return query
+                    return null
                 }
                 const source = query.source as FunnelsQuery
                 return {
@@ -146,7 +146,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                             funnelVizType: FunnelVizType.Flow,
                         },
                     },
-                }
+                } as InsightVizNode<FunnelsQuery>
             },
         ],
     }),
