@@ -150,13 +150,10 @@ class _SentimentActivityInterceptor(ActivityInboundInterceptor):
 
 class _SentimentWorkflowInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> typing.Any:
-        workflow_info = workflow.info()
-        workflow_type = workflow_info.workflow_type
-
-        if workflow_type not in SENTIMENT_WORKFLOW_TYPES:
+        if input.type not in SENTIMENT_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
-        increment_workflow_started(workflow_type)
+        increment_workflow_started(input.type)
 
         with ExecutionTimeRecorder(
             "llma_sentiment_workflow_execution_latency",
@@ -164,9 +161,9 @@ class _SentimentWorkflowInterceptor(WorkflowInboundInterceptor):
         ):
             try:
                 result = await super().execute_workflow(input)
-                increment_workflow_finished("completed", workflow_type)
+                increment_workflow_finished("completed", input.type)
                 return result
             except Exception as e:
                 increment_errors(type(e).__name__)
-                increment_workflow_finished("failed", workflow_type)
+                increment_workflow_finished("failed", input.type)
                 raise

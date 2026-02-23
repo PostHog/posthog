@@ -213,10 +213,7 @@ class _EvalsMetricsActivityInboundInterceptor(ActivityInboundInterceptor):
 
 class _EvalsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> typing.Any:
-        workflow_info = workflow.info()
-        workflow_type = workflow_info.workflow_type
-
-        if workflow_type not in EVAL_WORKFLOW_TYPES:
+        if input.type not in EVAL_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
         increment_workflow_started()

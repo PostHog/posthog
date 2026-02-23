@@ -146,9 +146,7 @@ class _SummarizationActivityInterceptor(ActivityInboundInterceptor):
 
 class _SummarizationWorkflowInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> typing.Any:
-        workflow_info = workflow.info()
-
-        if workflow_info.workflow_type not in SUMMARIZATION_WORKFLOW_TYPES:
+        if input.type not in SUMMARIZATION_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
         with ExecutionTimeRecorder(

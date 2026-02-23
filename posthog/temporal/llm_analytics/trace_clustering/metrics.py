@@ -158,9 +158,7 @@ class _ClusteringActivityInterceptor(ActivityInboundInterceptor):
 
 class _ClusteringWorkflowInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> typing.Any:
-        workflow_info = workflow.info()
-
-        if workflow_info.workflow_type not in CLUSTERING_WORKFLOW_TYPES:
+        if input.type not in CLUSTERING_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
         # Parse analysis_level from workflow args for metric labels
