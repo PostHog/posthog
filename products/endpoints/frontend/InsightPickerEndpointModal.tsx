@@ -75,7 +75,7 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
                                         key={type}
                                         type="primary"
                                         icon={<Icon />}
-                                        to={urls.insightNew({ type })}
+                                        to={urls.insightNew({ type, sceneSource: 'endpoints' })}
                                         tooltip={INSIGHT_TYPES_METADATA[type]?.description}
                                         data-attr={`endpoint-quick-create-${type.toLowerCase()}`}
                                     >
@@ -95,7 +95,10 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
                                                         type="tertiary"
                                                         fullWidth
                                                         icon={Icon ? <Icon /> : undefined}
-                                                        to={urls.insightNew({ type: type as InsightType })}
+                                                        to={urls.insightNew({
+                                                            type: type as InsightType,
+                                                            sceneSource: 'endpoints',
+                                                        })}
                                                         data-attr={`endpoint-create-${type.toLowerCase()}`}
                                                     >
                                                         {metadata.name}

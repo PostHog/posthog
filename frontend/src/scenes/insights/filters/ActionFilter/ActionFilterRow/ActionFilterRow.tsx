@@ -191,6 +191,7 @@ export interface ActionFilterRowProps {
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    operatorAllowlist?: PropertyOperator[]
 }
 
 export function ActionFilterRow({
@@ -231,6 +232,7 @@ export function ActionFilterRow({
     hogQLGlobals,
     inlineEventsDocLink,
     definitionPopoverRenderer,
+    operatorAllowlist,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
     const effectiveActionsTaxonomicGroupTypes = showQuickFilters
@@ -923,6 +925,7 @@ export function ActionFilterRow({
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
+                        operatorAllowlist={operatorAllowlist}
                     />
                 </div>
             )}

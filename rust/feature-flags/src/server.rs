@@ -8,6 +8,7 @@ use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
@@ -21,8 +22,12 @@ use tokio::net::TcpListener;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
 
-pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
-where
+pub async fn serve<F>(
+    config: Config,
+    listener: TcpListener,
+    rayon_dispatcher: RayonDispatcher,
+    shutdown: F,
+) where
     F: Future<Output = ()> + Send + 'static,
 {
     // Configure compression based on environment variable
@@ -330,6 +335,7 @@ where
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
+        rayon_dispatcher,
         config,
     );
 

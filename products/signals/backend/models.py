@@ -1,15 +1,19 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from django_deprecate_fields import deprecate_field
+
 from posthog.models.utils import UUIDModel
 
 
 class SignalSourceConfig(UUIDModel):
     class SourceProduct(models.TextChoices):
         SESSION_REPLAY = "session_replay", "Session replay"
+        LLM_ANALYTICS = "llm_analytics", "LLM analytics"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
+        EVALUATION = "evaluation", "Evaluation"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
@@ -58,13 +62,15 @@ class SignalReport(UUIDModel):
     relevant_user_count = models.IntegerField(blank=True, null=True)
 
     # Video segment clustering fields
-    cluster_centroid = ArrayField(
-        base_field=models.FloatField(),
-        blank=True,
-        null=True,
-        help_text="Embedding centroid for this report's video segment cluster",
+    cluster_centroid = deprecate_field(
+        ArrayField(
+            base_field=models.FloatField(),
+            blank=True,
+            null=True,
+            help_text="Embedding centroid for this report's video segment cluster",
+        )
     )
-    cluster_centroid_updated_at = models.DateTimeField(blank=True, null=True)
+    cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
 
     class Meta:
         indexes = [
