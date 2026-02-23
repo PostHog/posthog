@@ -2546,7 +2546,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "zip 2.2.0",
+ "zip 4.6.1",
 ]
 
 [[package]]
@@ -5033,16 +5033,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08ab2867e3eeeca90e844d1940eab391c9dc5228783db2ed999acbc0a9ed375a"
 
 [[package]]
-name = "lzma-rs"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "297e814c836ae64db86b36cf2a557ba54368d03f6afcd7d947c266692f71115e"
-dependencies = [
- "byteorder",
- "crc",
-]
-
-[[package]]
 name = "mach"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5273,11 +5263,12 @@ dependencies = [
 
 [[package]]
 name = "msvc-demangler"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4c25a3bb7d880e8eceab4822f3141ad0700d20f025991c1f03bd3d00219a5fc"
+checksum = "fbeff6bd154a309b2ada5639b2661ca6ae4599b34e8487dc276d2cd637da2d76"
 dependencies = [
- "bitflags 2.9.1",
+ "bitflags 2.11.0",
+ "itoa",
 ]
 
 [[package]]
@@ -6358,16 +6349,6 @@ dependencies = [
 [[package]]
 name = "posthog-symbol-data"
 version = "0.3.0"
-dependencies = [
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "posthog-symbol-data"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe5471c1aad2514de61c8cbfd0c52fb3eb7efa03229737178442c2277d700330"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -8829,14 +8810,14 @@ dependencies = [
 
 [[package]]
 name = "symbolic-symcache"
-version = "12.17.0"
+version = "12.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c06fb3f0988ff72a03afe955df5ee80a79fd3b6a4afee7dda437b938b86cbc49"
+checksum = "9b14fe4ebcdce2b318d7b4f04d12e6c73c1504a59ed4423d90607aa7baa9ea37"
 dependencies = [
- "indexmap 2.12.1",
+ "indexmap 2.13.0",
  "symbolic-common",
  "symbolic-debuginfo",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tracing",
  "watto",
 ]
@@ -10696,7 +10677,7 @@ checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
 dependencies = [
  "aes",
  "arbitrary",
- "bzip2 0.5.2",
+ "bzip2",
  "constant_time_eq",
  "crc32fast",
  "deflate64",

@@ -182,7 +182,6 @@ pub enum AppleError {
     NoMatchingDebugImage,
 }
 
-#[derive(Debug, Error, Clone)]
 #[derive(Debug, Error, Clone, Serialize, PartialEq)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
