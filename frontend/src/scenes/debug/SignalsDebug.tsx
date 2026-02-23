@@ -3,6 +3,7 @@ import { useCallback } from 'react'
 
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
@@ -33,8 +34,15 @@ export function SignalsDebug(): JSX.Element {
         loaded,
     } = useValues(signalsDebugLogic)
 
-    const { setReportId, loadReportSignals, selectReport, setSelectedSignalId, setHoveredEdge, setMousePos } =
-        useActions(signalsDebugLogic)
+    const {
+        setReportId,
+        loadReportSignals,
+        selectReport,
+        setSelectedSignalId,
+        setHoveredEdge,
+        setMousePos,
+        deleteReport,
+    } = useActions(signalsDebugLogic)
 
     const [simConfig, setSimConfig] = useLocalStorage<SimConfig>('signals-debug-physics', { ...DEFAULT_CONFIG })
 
@@ -107,7 +115,7 @@ export function SignalsDebug(): JSX.Element {
                     {/* Report summary overlay */}
                     {report && (
                         <div
-                            className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md bg-surface-primary/80 backdrop-blur text-sm select-none pointer-events-none"
+                            className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md bg-surface-primary/80 backdrop-blur text-sm select-none"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 border: '1px solid var(--border)',
@@ -125,6 +133,28 @@ export function SignalsDebug(): JSX.Element {
                                 {signals.length} signal{signals.length !== 1 ? 's' : ''} · w
                                 {report.total_weight.toFixed(2)}
                             </span>
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                status="danger"
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: 'Delete report?',
+                                        description:
+                                            'This will soft-delete all signals in this report and remove the report. This cannot be undone.',
+                                        primaryButton: {
+                                            children: 'Delete',
+                                            status: 'danger',
+                                            onClick: () => deleteReport(report.id),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                }}
+                            >
+                                Delete
+                            </LemonButton>
                         </div>
                     )}
                     {loading && (
