@@ -1,4 +1,5 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { parseJSON } from '../../utils/json-parse'
 
 export interface TopHogOptions {
     kafkaProducer: KafkaProducerWrapper
@@ -17,7 +18,8 @@ export enum TopHogMetricType {
 }
 
 export interface TopHogMetric<T> {
-    key: (input: T) => string
+    /** Must return an object with stable property order — JSON.stringify is used for internal deduplication. */
+    key: (input: T) => Record<string, string>
     type: TopHogMetricType
     name: string
     maxKeys?: number
@@ -51,14 +53,15 @@ export class TopHog {
         }
     }
 
-    increment(metric: string, key: string, value: number = 1, maxKeys?: number): void {
+    increment(metric: string, key: Record<string, string>, value: number = 1, maxKeys?: number): void {
         let metricCounters = this.counters.get(metric)
         if (!metricCounters) {
             metricCounters = new Map()
             this.counters.set(metric, metricCounters)
         }
 
-        const existing = metricCounters.get(key)
+        const serializedKey = JSON.stringify(key)
+        const existing = metricCounters.get(serializedKey)
         if (existing === undefined) {
             const limit = maxKeys ?? this.config.maxKeys
             if (limit && metricCounters.size >= limit) {
@@ -68,10 +71,10 @@ export class TopHog {
             }
         } else {
             // Move to end of insertion order (mark as most recently used)
-            metricCounters.delete(key)
+            metricCounters.delete(serializedKey)
         }
 
-        metricCounters.set(key, (existing ?? 0) + value)
+        metricCounters.set(serializedKey, (existing ?? 0) + value)
     }
 
     async flush(): Promise<void> {
@@ -87,12 +90,12 @@ export class TopHog {
                 .sort(([, a], [, b]) => b - a)
                 .slice(0, this.config.defaultTopN)
 
-            for (const [key, value] of topEntries) {
+            for (const [serializedKey, value] of topEntries) {
                 messages.push({
                     value: JSON.stringify({
                         timestamp,
                         metric,
-                        key,
+                        key: parseJSON(serializedKey),
                         value,
                         pipeline: this.config.pipeline,
                         lane: this.config.lane,
