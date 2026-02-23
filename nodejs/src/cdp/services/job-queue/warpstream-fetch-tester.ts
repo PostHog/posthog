@@ -80,6 +80,7 @@ export class WarpstreamFetchTester {
                 try {
                     const start = performance.now()
                     const response = await fetch(url, { headers: this.getHeaders() })
+                    await response.text()
                     const latencyMs = performance.now() - start
 
                     cdpSeekLatencyMs.observe(latencyMs)
@@ -93,8 +94,6 @@ export class WarpstreamFetchTester {
                             partition: target.partition,
                         })
                     }
-
-                    await response.dump()
                 } catch (error) {
                     cdpSeekResult.labels({ result: 'error', method: 'individual' }).inc()
                     logger.warn('seek_test_individual_error', { error: String(error) })
@@ -151,6 +150,7 @@ export class WarpstreamFetchTester {
                         headers,
                         body: JSON.stringify(body),
                     })
+                    await response.text()
                     const latencyMs = performance.now() - start
 
                     cdpSeekBatchLatencyMs.observe(latencyMs)
@@ -164,8 +164,6 @@ export class WarpstreamFetchTester {
                             recordCount: chunk.length,
                         })
                     }
-
-                    await response.dump()
                 } catch (error) {
                     cdpSeekResult.labels({ result: 'error', method: 'batch' }).inc()
                     logger.warn('seek_test_batch_error', { error: String(error), recordCount: chunk.length })
