@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
+import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -28,10 +30,19 @@ export function ReportListPanel({
 
     const { setReportSearch, setStatusFilter, loadReports, loadMoreReports } = useActions(signalsDebugLogic)
 
+    const [panelWidth, setPanelWidth] = useState(300)
+
     const statuses = ['all', 'ready', 'in_progress', 'candidate', 'pending_input', 'potential', 'failed']
 
     return (
-        <div className="flex flex-col h-full border-r overflow-hidden" style={{ width: 300, minWidth: 300 }}>
+        <ResizableElement
+            defaultWidth={panelWidth}
+            minWidth={200}
+            maxWidth={600}
+            onResize={setPanelWidth}
+            className="flex flex-col h-full border-r overflow-hidden shrink-0"
+            borderPosition="right"
+        >
             {/* Header */}
             <div className="shrink-0 p-2 space-y-2 border-b">
                 <div className="flex items-center justify-between px-1">
@@ -98,7 +109,7 @@ export function ReportListPanel({
                                             {report.signal_count} signal{report.signal_count !== 1 ? 's' : ''}
                                         </span>
                                     </div>
-                                    <div className="text-[13px] font-medium truncate">
+                                    <div className="text-[13px] font-medium break-words">
                                         {report.title || <span className="text-muted italic">Untitled</span>}
                                     </div>
                                     <div className="text-muted text-[11px] truncate font-mono">
@@ -129,6 +140,6 @@ export function ReportListPanel({
                     </>
                 )}
             </div>
-        </div>
+        </ResizableElement>
     )
 }

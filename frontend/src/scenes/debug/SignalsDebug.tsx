@@ -74,7 +74,7 @@ export function SignalsDebug(): JSX.Element {
         <SceneContent className="h-full flex flex-col grow gap-y-1">
             {/* Header */}
             <div className="shrink-0 flex items-baseline gap-3 pb-1 border-b">
-                <h1 className="text-xl font-bold shrink-0">Signal report explorer</h1>
+                <h1 className="text-xl font-bold shrink-0">Signal reports</h1>
                 <div className="flex gap-2 items-center flex-1" style={{ maxWidth: '33%' }}>
                     <LemonInput
                         fullWidth
