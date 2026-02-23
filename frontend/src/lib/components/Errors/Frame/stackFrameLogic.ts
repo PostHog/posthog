@@ -76,5 +76,8 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                 frame_count: recordsWithContext.length,
             })
         },
+        loadFromRawIdsFailure: () => {
+            actions.setLoadStartTime(null)
+        },
     })),
 ])
