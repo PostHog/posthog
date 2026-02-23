@@ -496,7 +496,7 @@ export const STL: Record<string, STLFunction> = {
             if (!options?.external?.regex?.extract) {
                 throw new Error('Set options.external.regex.extract for RegEx extract support')
             }
-            if (!args[0] || !args[1]) {
+            if (args[0] == null || args[1] == null) {
                 return ''
             }
             return options.external.regex.extract(String(args[1]), String(args[0]))
