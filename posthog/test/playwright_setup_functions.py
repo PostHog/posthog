@@ -86,7 +86,9 @@ class PlaywrightSetupFunction(Protocol):
     def __call__(self, data: BaseModel, /) -> BaseModel: ...
 
 
-def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> PlaywrightWorkspaceSetupResult:
+def create_organization_with_team(
+    data: PlaywrightWorkspaceSetupData,
+) -> PlaywrightWorkspaceSetupResult:
     """Creates PostHog workspace with organization, team, user, API key, and demo data."""
     org_name = data.organization_name or "Hedgebox Inc."
 
@@ -155,7 +157,11 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     api_key, _ = PersonalAPIKey.objects.get_or_create(
         user=user,
         label="Test API Key",
-        defaults={"secure_value": secure_value, "mask_value": mask_value, "scopes": ["*"]},
+        defaults={
+            "secure_value": secure_value,
+            "mask_value": mask_value,
+            "scopes": ["*"],
+        },
     )
     api_key._value = api_key_value  # type: ignore
 
@@ -236,9 +242,15 @@ def _create_insights(
             variables_dict: dict[str, dict[str, str]] = {}
             for idx in insight_spec.variable_indexes:
                 var = created_variables[int(idx)]
-                variables_dict[str(var.id)] = {"code_name": var.code_name or "", "variableId": str(var.id)}
+                variables_dict[str(var.id)] = {
+                    "code_name": var.code_name or "",
+                    "variableId": str(var.id),
+                }
             if "source" in query:
-                query = {**query, "source": {**query["source"], "variables": variables_dict}}
+                query = {
+                    **query,
+                    "source": {**query["source"], "variables": variables_dict},
+                }
         insight = Insight.objects.create(
             team=team,
             name=insight_spec.name,
