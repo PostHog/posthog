@@ -97,7 +97,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             )
 
             if not calculation_result.result:
-                raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+                return AlertEvaluationResult(value=0, breaches=[])
 
             interval = query.interval if not is_non_time_series else None
 
@@ -199,7 +199,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 results_to_evaluate.append(selected_series_result)
 
             if not results_to_evaluate:
-                raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+                return AlertEvaluationResult(value=0, breaches=[])
 
             # if we don't have breakdown, we'll have to evaluate just one result
             # and increase will be the evaluated value of that result
@@ -294,6 +294,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 filters_override=filters_overrides,
             )
 
+            if not calculation_result.result:
+                return AlertEvaluationResult(value=0, breaches=[])
+
             results_to_evaluate = []
 
             if has_breakdown:
@@ -304,9 +307,6 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
                 selected_series_result = _pick_series_result(config, calculation_result)
                 results_to_evaluate.append(selected_series_result)
-
-                # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
-                selected_series_result = _pick_series_result(config, calculation_result)
 
             # if we don't have breakdown, we'll have to evaluate just one result
             # and increase will be the evaluated value of that result
