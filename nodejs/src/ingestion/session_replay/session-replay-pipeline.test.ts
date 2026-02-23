@@ -62,6 +62,26 @@ describe('session-replay-pipeline', () => {
         return JSON.stringify(rawMessage)
     }
 
+    function createOldTimestampSnapshotPayload(sessionId: string, daysOld: number): string {
+        const oldTimestamp = now.minus({ days: daysOld })
+        const event = {
+            event: '$snapshot_items',
+            properties: {
+                $session_id: sessionId,
+                $window_id: 'window-1',
+                $snapshot_items: [
+                    { type: 2, timestamp: oldTimestamp.toMillis(), data: {} },
+                    { type: 3, timestamp: oldTimestamp.plus({ seconds: 1 }).toMillis(), data: {} },
+                ],
+            },
+        }
+        const rawMessage = {
+            distinct_id: 'user-123',
+            data: JSON.stringify(event),
+        }
+        return JSON.stringify(rawMessage)
+    }
+
     beforeEach(() => {
         jest.clearAllMocks()
 
@@ -114,6 +134,32 @@ describe('session-replay-pipeline', () => {
         const payload = sessionId
             ? createValidSnapshotPayload(sessionId)
             : createValidSnapshotPayload(`session-${offset}`)
+
+        return {
+            partition,
+            offset,
+            topic: 'test-topic',
+            value: Buffer.from(payload),
+            key: Buffer.from('test-key'),
+            timestamp: Date.now(),
+            headers: kafkaHeaders,
+            size: payload.length,
+        }
+    }
+
+    function createMessageWithOldTimestamps(
+        partition: number,
+        offset: number,
+        sessionId: string,
+        daysOld: number,
+        headers?: Record<string, string>
+    ): Message {
+        const headersWithDefaults = headers ?? { token: 'test-token' }
+        const kafkaHeaders = Object.entries(headersWithDefaults).map(([key, value]) => ({
+            [key]: Buffer.from(value),
+        }))
+
+        const payload = createOldTimestampSnapshotPayload(sessionId, daysOld)
 
         return {
             partition,
@@ -552,6 +598,35 @@ describe('session-replay-pipeline', () => {
 
             expect(result).toHaveLength(1)
             expect(mockIngestionWarningProducer.queueMessages).not.toHaveBeenCalled()
+        })
+
+        it('sends ingestion warning when message timestamps are too old', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+            })
+
+            // Create a message with timestamps 10 days old (threshold is 7 days)
+            const messages = [createMessageWithOldTimestamps(0, 1, 'session-1', 10, { token: 'test-token' })]
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            // Message should be dropped but warning should be sent
+            expect(result).toHaveLength(0)
+            expect(mockIngestionWarningProducer.queueMessages).toHaveBeenCalledTimes(1)
+
+            const callArg = mockIngestionWarningProducer.queueMessages.mock.calls[0][0]
+            const call = Array.isArray(callArg) ? callArg[0] : callArg
+            expect(call.topic).toMatch(/^clickhouse_ingestion_warnings/)
+            const messageValue = parseJSON(call.messages[0].value as string)
+            expect(messageValue.team_id).toBe(1)
+            expect(messageValue.type).toBe('message_timestamp_diff_too_large')
         })
     })
 })

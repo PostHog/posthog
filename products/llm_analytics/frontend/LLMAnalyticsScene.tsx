@@ -571,7 +571,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     evaluations
                 </Link>
             ) : null,
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS] ? (
+            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
                     onClick={() => toggleProduct('Prompts', true)}

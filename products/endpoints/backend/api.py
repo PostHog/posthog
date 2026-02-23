@@ -211,7 +211,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def _build_materialization_info(self, version: EndpointVersion) -> dict:
         """Build materialization status dict for a version."""
-        if version.is_materialized and version.saved_query:
+        if version.saved_query:
             return {
                 "status": version.saved_query.status or "Unknown",
                 "can_materialize": True,
@@ -638,7 +638,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             endpoint.save()
 
             final_is_active = data.is_active if data.is_active is not None else endpoint.is_active
-            was_materialized = bool(current_version.is_materialized and current_version.saved_query)
+            was_materialized = current_version.saved_query_id is not None
 
             # Step 1: Handle deactivation (disables materialization, prevents any materialization operations)
             if not final_is_active and was_materialized:
@@ -680,7 +680,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 # When targeting a specific version, check that version's materialization state
                 # Otherwise use was_materialized (state before this update) to support materialization transfer
                 if target_version_override is not None:
-                    check_was_materialized = bool(target_version.is_materialized and target_version.saved_query)
+                    check_was_materialized = target_version.saved_query_id is not None
                 else:
                     check_was_materialized = was_materialized
 
@@ -841,8 +841,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # Update version with materialization info
         version.saved_query = saved_query
-        version.is_materialized = True
-        version.save(update_fields=["saved_query", "is_materialized"])
+        version.save(update_fields=["saved_query"])
 
     def _disable_materialization(self, endpoint: Endpoint, version: EndpointVersion | None = None) -> None:
         """Disable materialization for an endpoint version.
@@ -948,26 +947,32 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             logger.debug("Failed to analyze variables for materialization", exc_info=True)
             return []
 
-    def _get_original_select_columns(self, query: dict, version: EndpointVersion) -> builtins.list[ast.Expr] | None:
-        """Parse the original HogQL query and return SELECT columns as materialized field references.
+    def _parse_original_hogql_query(
+        self, query: dict, version: EndpointVersion
+    ) -> tuple[builtins.list[ast.Expr] | None, int | None]:
+        """Parse the original HogQL query and extract SELECT columns and LIMIT.
 
-        Returns field references for only the original SELECT expressions (not variable columns).
-        Returns None if parsing fails, so the caller can fall back to SELECT *.
+        Returns (select_columns, limit) where either may be None.
+        select_columns are transformed to materialized field references.
         """
         from products.endpoints.backend.materialization import transform_select_for_materialized_table
 
         query_str = query.get("query")
         if not query_str:
-            return None
+            return None, None
 
         try:
             parsed = parse_select(query_str)
-            if isinstance(parsed, ast.SelectQuery) and parsed.select:
-                return transform_select_for_materialized_table(list(parsed.select), self.team)
+            if isinstance(parsed, ast.SelectQuery):
+                columns = (
+                    transform_select_for_materialized_table(list(parsed.select), self.team) if parsed.select else None
+                )
+                limit = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
+                return columns, limit
         except Exception:
-            logger.debug("Failed to parse original query for SELECT columns", exc_info=True)
+            logger.debug("Failed to parse original HogQL query", exc_info=True)
 
-        return None
+        return None, None
 
     # Query types that support user-configurable breakdown filtering
     BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
@@ -1177,9 +1182,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             query_kind = query.get("kind")
 
             select_columns: list[ast.Expr] = [ast.Field(chain=["*"])]
-            if query_kind == "HogQLQuery" and query.get("variables"):
-                original_select = self._get_original_select_columns(query, version)
-                if original_select:
+            original_limit: int | None = None
+            if query_kind == "HogQLQuery":
+                original_select, original_limit = self._parse_original_hogql_query(query, version)
+                if query.get("variables") and original_select:
                     select_columns = original_select
 
             select_query = ast.SelectQuery(
@@ -1187,8 +1193,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 select_from=ast.JoinExpr(table=ast.Field(chain=[saved_query.name])),
             )
 
-            if limit is not None:
-                select_query.limit = ast.Constant(value=limit)
+            effective_limit = None
+            if limit is not None and original_limit is not None:
+                effective_limit = min(limit, original_limit)
+            elif limit is not None:
+                effective_limit = limit
+            elif original_limit is not None:
+                effective_limit = original_limit
+            if effective_limit is not None:
+                select_query.limit = ast.Constant(value=effective_limit)
 
             deprecation_headers: dict[str, str] | None = None
 
@@ -1502,7 +1515,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         {"error": f"Invalid limit parameter: {limit_param}"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-        elif limit <= 0:  # Add validation for body limit
+        elif limit <= 0:
             return Response(
                 {"error": f"Invalid limit parameter: {limit}"},
                 status=status.HTTP_400_BAD_REQUEST,

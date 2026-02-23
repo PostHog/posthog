@@ -4661,6 +4661,7 @@ dependencies = [
  "tokio-util",
  "tonic 0.12.3",
  "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -4915,6 +4916,18 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "lifecycle"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "metrics",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -9283,6 +9296,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "pin-project-lite",
+ "slab",
  "tokio",
 ]
 

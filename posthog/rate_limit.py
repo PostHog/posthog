@@ -412,6 +412,21 @@ class LLMProxyDailyRateThrottle(UserRateThrottle):
     rate = "20/day"
 
 
+class LLMProxyBYOKBurstRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_byok_burst"
+    rate = "30/minute"
+
+
+class LLMProxyBYOKSustainedRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_byok_sustained"
+    rate = "500/hour"
+
+
+class LLMProxyBYOKDailyRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_byok_daily"
+    rate = "2000/day"
+
+
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     # Lower rate limit for HogQL queries
     scope = "query"
