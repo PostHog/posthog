@@ -3556,15 +3556,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(17, 21)):
+        with self.assertNumQueries(FuzzyInt(17, 22)):
             # 1-10: Auth, team, project, membership, and access control queries
             # 11. SELECT surveys (for survey exclusion)
-            # 12. SELECT all feature flags
-            # 13. SELECT cohorts (only referenced cohorts in bulk, not all cohorts)
-            # 14-18. SELECT evaluation tags (one per flag)
-            # 19. SELECT group type mapping
-            # Note: Query count reduced because cohorts are now loaded in bulk
-            # for only those referenced by flags, instead of loading all cohorts.
+            # 12. EXISTS check for any flag referencing a cohort
+            # 13. SELECT all feature flags
+            # 14. SELECT cohorts (only loaded because a flag references a cohort)
+            # 15-19. SELECT evaluation tags (one per flag)
+            # 20. SELECT group type mapping
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",

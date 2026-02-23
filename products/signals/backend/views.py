@@ -1,13 +1,15 @@
 import json
 import uuid
 import logging
+from datetime import datetime
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Count
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import filters, serializers, status, viewsets
+from rest_framework import filters, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -20,13 +22,18 @@ from posthog.schema import EmbeddingModelName
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.embedding_worker import emit_embedding_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.api import emit_signal
-from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.serializers import (
+    SignalReportArtefactSerializer,
+    SignalReportSerializer,
+    SignalSourceConfigSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,15 +76,39 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
 
 
+class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    serializer_class = SignalSourceConfigSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "INTERNAL"
+    queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
+
+    def perform_create(self, serializer):
+        try:
+            serializer.save(team_id=self.team_id, created_by=self.request.user)
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"source_product": "A configuration for this source product and type already exists for this team."}
+            )
+
+    def perform_update(self, serializer):
+        try:
+            serializer.save()
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"source_product": "A configuration for this source product and type already exists for this team."}
+            )
+
+
 @extend_schema_view(
     list=extend_schema(exclude=True),
     retrieve=extend_schema(exclude=True),
 )
-class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class SignalReportViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
+    scope_object = "task"
     queryset = SignalReport.objects.all()
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["signal_count", "total_weight", "created_at", "updated_at"]
@@ -96,7 +127,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         return {**super().get_serializer_context(), "team": self.team}
 
     @extend_schema(exclude=True)
-    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["signal_report:read"])
+    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         from typing import cast
 
@@ -113,7 +144,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         )
 
     @extend_schema(exclude=True)
-    @action(detail=True, methods=["get"], url_path="signals")
+    @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
         report = self.get_object()
@@ -139,6 +170,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 GROUP BY document_id
             )
             WHERE JSONExtractString(metadata, 'report_id') = {report_id}
+              AND NOT JSONExtractBool(metadata, 'deleted')
             ORDER BY timestamp ASC
         """
 
@@ -171,3 +203,65 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             )
 
         return Response({"report": report_data, "signals": signals_list})
+
+    def destroy(self, request, *args, **kwargs):
+        report = self.get_object()
+        report_id = str(report.id)
+
+        # Fetch all signals for this report from ClickHouse (including already-deleted ones,
+        # so we don't miss any — the query intentionally omits the soft-delete filter)
+        query = """
+            SELECT
+                document_id,
+                content,
+                metadata,
+                toString(timestamp) as timestamp
+            FROM (
+                SELECT
+                    document_id,
+                    argMax(content, inserted_at) as content,
+                    argMax(metadata, inserted_at) as metadata,
+                    argMax(timestamp, inserted_at) as timestamp
+                FROM document_embeddings
+                WHERE model_name = {model_name}
+                  AND product = 'signals'
+                  AND document_type = 'signal'
+                GROUP BY document_id
+            )
+            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
+            ORDER BY timestamp ASC
+        """
+
+        result = execute_hogql_query(
+            query_type="SignalsFetchForReportDelete",
+            query=query,
+            team=self.team,
+            placeholders={
+                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+                "report_id": ast.Constant(value=report_id),
+            },
+        )
+
+        # Emit a soft-delete version of each signal, preserving the original timestamp
+        # so the row lands in the same partition and replaces the original via ReplacingMergeTree
+        for row in result.results or []:
+            document_id, content, metadata_str, timestamp_str = row
+            metadata = json.loads(metadata_str)
+            metadata["deleted"] = True
+
+            emit_embedding_request(
+                content=content,
+                team_id=self.team.pk,
+                product="signals",
+                document_type="signal",
+                rendering="plain",
+                document_id=document_id,
+                models=[m.value for m in EmbeddingModelName],
+                timestamp=datetime.fromisoformat(timestamp_str),
+                metadata=metadata,
+            )
+
+        # Delete the Django model (cascades to artefacts)
+        report.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

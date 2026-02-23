@@ -81,7 +81,12 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
-import { RecordingsWidget, UIPayloadAnswer, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
+import {
+    RecordingsWidget,
+    SummarizeSessionsWidget,
+    UIPayloadAnswer,
+    isRenderableUIPayloadTool,
+} from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
@@ -1000,22 +1005,31 @@ function AssistantActionComponent({
                 </div>
             )}
             {widget}
+            {/* Render summarize_sessions UI payload outside accordion so "Open report" is always visible */}
+            {!!uiPayload?.summarize_sessions && result && (
+                <SummarizeSessionsWidget
+                    payload={uiPayload.summarize_sessions}
+                    title={toolCall?.args.summary_title as string | undefined}
+                />
+            )}
             {toolCall && isSubstepsExpanded && (
                 <>
                     {!!uiPayload &&
                         isRenderableUIPayloadTool(toolCall.name, uiPayload) &&
-                        Object.entries(uiPayload).map(([toolName, toolPayload]) => (
-                            <div
-                                key={`${result?.tool_call_id}-${toolName}`}
-                                className="ml-3 border-l-2 border-border-secondary pl-3.5"
-                            >
-                                <UIPayloadAnswer
-                                    toolCallId={result!.tool_call_id}
-                                    toolName={toolName}
-                                    toolPayload={toolPayload}
-                                />
-                            </div>
-                        ))}
+                        Object.entries(uiPayload)
+                            .filter(([toolName]) => toolName !== 'summarize_sessions')
+                            .map(([toolName, toolPayload]) => (
+                                <div
+                                    key={`${result?.tool_call_id}-${toolName}`}
+                                    className="ml-3 border-l-2 border-border-secondary pl-3.5"
+                                >
+                                    <UIPayloadAnswer
+                                        toolCallId={result!.tool_call_id}
+                                        toolName={toolName}
+                                        toolPayload={toolPayload}
+                                    />
+                                </div>
+                            ))}
                     <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
                         <LemonButton
                             size="xxsmall"

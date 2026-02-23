@@ -4,13 +4,12 @@ import dataclasses
 
 from django.db import close_old_connections
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.signals import EMIT_SIGNALS_FEATURE_FLAG, is_signal_emission_registered
+from posthog.temporal.data_imports.signals import is_signal_emission_registered
 
 from products.data_warehouse.backend.data_load.service import delete_external_data_schedule
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
@@ -89,16 +88,18 @@ def create_external_data_job_model_activity(
         )
 
         # Cheap check if to start signals workflow to avoid spawning it for all teams.
-        # AI consent + Signals FF + source supported
-        ai_consent = (
-            Organization.objects.filter(team__id=inputs.team_id)
-            .values_list("is_ai_data_processing_approved", flat=True)
+        # AI consent + proactive tasks enabled + source supported
+        team = (
+            Team.objects.filter(id=inputs.team_id)
+            .select_related("organization")
+            .only("proactive_tasks_enabled", "organization__is_ai_data_processing_approved")
             .first()
         )
         emit_signals_enabled = (
-            ai_consent is True
+            team is not None
+            and team.organization.is_ai_data_processing_approved is True
+            and team.proactive_tasks_enabled is True
             and is_signal_emission_registered(source.source_type, schema.name)
-            and posthoganalytics.feature_enabled(EMIT_SIGNALS_FEATURE_FLAG, str(inputs.team_id)) is True
         )
 
         return CreateExternalDataJobModelActivityOutputs(
