@@ -158,10 +158,8 @@ class UpsertDashboardTool(MaxTool):
             "dashboard created",
             {
                 **await database_sync_to_async(dashboard.get_analytics_metadata)(),
-                "from_template": False,
-                "template_key": None,
-                "duplicated": False,
                 "dashboard_id": dashboard.id,
+                "$session_id": (self._config.get("configurable") or {}).get("session_id"),
                 "from_posthog_ai": True,
             },
             team=self._team,
