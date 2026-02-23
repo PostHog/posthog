@@ -69,7 +69,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     return (
         <div
             className={clsx(
-                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
+                'mt-4 grid grid-cols-1 @4xl/main-content:grid-cols-2 @7xl/main-content:grid-cols-3',
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
             data-attr="web-analytics-dashboard"
@@ -136,9 +136,9 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
         <div
             className={clsx(
                 'col-span-1 row-span-1 flex flex-col',
-                layout.colSpanClassName ?? 'md:col-span-6',
-                layout.rowSpanClassName ?? 'md:row-span-1',
-                layout.orderWhenLargeClassName ?? 'xxl:order-12',
+                layout.colSpanClassName ?? '@4xl/main-content:col-span-6',
+                layout.rowSpanClassName ?? '@4xl/main-content:row-span-1',
+                layout.orderWhenLargeClassName ?? '@7xl/main-content:order-12',
                 layout.className
             )}
         >
@@ -175,9 +175,9 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
         <WebTabs
             className={clsx(
                 'col-span-1 row-span-1',
-                layout.colSpanClassName || 'md:col-span-1',
-                layout.rowSpanClassName || 'md:row-span-1',
-                layout.orderWhenLargeClassName || 'xxl:order-12',
+                layout.colSpanClassName || '@4xl/main-content:col-span-1',
+                layout.rowSpanClassName || '@4xl/main-content:row-span-1',
+                layout.orderWhenLargeClassName || '@7xl/main-content:order-12',
                 layout.className
             )}
             activeTabId={tile.activeTabId}

@@ -349,6 +349,8 @@ impl KafkaDeduplicatorService {
             kafka_message_timeout_ms: self.config.kafka_message_timeout_ms,
             kafka_compression_codec: self.config.kafka_compression_codec.clone(),
             kafka_tls: self.config.kafka_tls,
+            kafka_client_rack: String::new(),
+            kafka_client_id: String::new(),
         };
 
         // Normalize empty strings to None for optional topic configs

@@ -60,6 +60,7 @@ export class MCP extends McpAgent<Env> {
         distinctId: undefined,
         region: undefined,
         apiKey: undefined,
+        clientName: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -165,21 +166,31 @@ export class MCP extends McpAgent<Env> {
         return _distinctId
     }
 
+    private async getBaseEventProperties(): Promise<Record<string, any>> {
+        const props: Record<string, any> = {}
+
+        if (this.requestProperties.sessionId) {
+            props.$session_id = await this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
+        }
+
+        const clientName = await this.cache.get('clientName')
+        if (clientName) {
+            props.client_name = clientName
+        }
+
+        return props
+    }
+
     async trackEvent(event: AnalyticsEvent, properties: Record<string, any> = {}): Promise<void> {
         try {
             const distinctId = await this.getDistinctId()
-
             const client = getPostHogClient()
 
             client.capture({
                 distinctId,
                 event,
                 properties: {
-                    ...(this.requestProperties.sessionId
-                        ? {
-                              $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
-                          }
-                        : {}),
+                    ...(await this.getBaseEventProperties()),
                     ...properties,
                 },
             })

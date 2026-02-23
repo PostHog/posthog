@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -20,7 +21,7 @@ import { EventData, useAIData } from './hooks/useAIData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { CompatMessage } from './types'
-import { normalizeMessages } from './utils'
+import { normalizeMessages, parseJSONPreview } from './utils'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {
@@ -166,19 +167,16 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
 }
 
 function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
-    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
+    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
     const cached = personsCache[distinctId]
-    const loading = isDistinctIdLoading(distinctId)
 
-    if (cached === undefined && !loading) {
-        ensurePersonLoaded(distinctId)
-    }
-
-    if (loading || cached === undefined) {
-        return <AIDataLoading variant="inline" />
-    }
+    useEffect(() => {
+        if (currentTeamId && cached === undefined) {
+            ensurePersonLoaded(distinctId)
+        }
+    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
 
     const personData: PersonData = cached
         ? { distinct_id: cached.distinct_id, properties: cached.properties }
@@ -196,7 +194,7 @@ function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
 
     let inputNormalized: CompatMessage[] | undefined
     try {
-        const parsed = typeof input === 'string' ? JSON.parse(input) : input
+        const parsed = parseJSONPreview(input)
         inputNormalized = normalizeMessages(parsed, 'user')
     } catch (e) {
         console.warn('Error normalizing properties.$ai_input', e)
@@ -218,7 +216,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
 
     let outputNormalized: CompatMessage[] | undefined
     try {
-        const parsed = typeof output === 'string' ? JSON.parse(output) : output
+        const parsed = parseJSONPreview(output)
         outputNormalized = normalizeMessages(parsed, 'assistant')
     } catch (e) {
         console.warn('Error normalizing properties.$ai_output_choices', e)

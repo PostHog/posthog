@@ -55,7 +55,6 @@ import {
     LegacyResultsQuery,
     LoadingState,
     PageHeaderCustom,
-    StopExperimentModal,
 } from './components'
 
 const MetricsTab = (): JSX.Element => {
@@ -375,7 +374,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <DistributionModal />
                     <ReleaseConditionsModal />
 
-                    <StopExperimentModal />
                     <EditConclusionModal />
 
                     <VariantDeltaTimeseries />

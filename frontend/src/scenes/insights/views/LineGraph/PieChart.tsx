@@ -67,7 +67,7 @@ export function PieChart({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
-    const { getTooltip, hideTooltip } = useInsightTooltip()
+    const { getTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
 
     const { canvasRef } = useChart<'pie'>({
         getConfig: () => {
@@ -249,12 +249,8 @@ export function PieChart({
                                     )
                                 }
 
-                                const position = chart.canvas.getBoundingClientRect()
-                                tooltipEl.style.position = 'absolute'
-                                tooltipEl.style.left =
-                                    position.left + window.pageXOffset + (tooltip.caretX || 0) + 8 + 'px'
-                                tooltipEl.style.top =
-                                    position.top + window.pageYOffset + (tooltip.caretY || 0) + 8 + 'px'
+                                const bounds = chart.canvas.getBoundingClientRect()
+                                positionTooltip(tooltipEl, bounds, tooltip.caretX || 0, tooltip.caretY || 0)
                             },
                         },
                     },
