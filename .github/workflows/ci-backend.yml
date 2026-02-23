@@ -767,6 +767,10 @@ jobs:
                   # Disable auto-merge before pushing to prevent unreviewed code from merging
                   gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
+                  # Remove GITHUB_TOKEN extraheader set by actions/checkout — it overrides
+                  # URL-embedded credentials and causes the push to use GITHUB_TOKEN instead
+                  # of the app token. GITHUB_TOKEN commits don't trigger CI; app token ones do.
+                  git config --unset-all http.https://github.com/.extraheader || true
                   git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"

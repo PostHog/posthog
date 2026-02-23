@@ -134,6 +134,9 @@ class VercelRegionProxyMixin:
                 integration="vercel",
             )
 
+            if response.status_code == 204:
+                return Response(status=204)
+
             content_type = response.headers.get("content-type", "")
             if not content_type.startswith(("application/json", "text/")):
                 logger.warning("Unexpected content type from proxy", content_type=content_type)
@@ -193,6 +196,8 @@ class VercelRegionProxyMixin:
             )
             try:
                 drf_response = self._proxy_to_eu(request)
+                if drf_response.status_code == 204:
+                    return HttpResponse(status=204)
                 content = json.dumps(drf_response.data) if drf_response.data else "{}"
                 return HttpResponse(content=content, status=drf_response.status_code, content_type="application/json")
             except exceptions.APIException as e:
