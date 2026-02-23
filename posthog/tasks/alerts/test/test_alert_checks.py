@@ -19,6 +19,7 @@ from posthog.schema import (
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import InsightResult
+from posthog.errors import CHQueryErrorCannotScheduleTask
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck, AlertSubscription
 from posthog.models.instance_setting import set_instance_setting
@@ -991,3 +992,18 @@ class TestGetSubscribedUsersEmails(APIBaseTest):
 
         emails = self.alert.get_subscribed_users_emails()
         assert emails == []
+
+    def test_ch_cannot_schedule_task_raises_for_retry(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.side_effect = CHQueryErrorCannotScheduleTask("cannot schedule")
+
+            import pytest
+
+            with pytest.raises(CHQueryErrorCannotScheduleTask):
+                check_alert(self.alert["id"])
+
+        assert mock_send_errors.call_count == 0

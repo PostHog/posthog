@@ -15,7 +15,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
@@ -180,7 +180,7 @@ def check_alerts_task() -> None:
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.ALERTS.value,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=1,
     retry_backoff_max=10,
     max_retries=3,
@@ -319,9 +319,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         alert_evaluation_result = check_alert_for_insight(alert)
         value = alert_evaluation_result.value
         breaches = alert_evaluation_result.breaches
-    except CHQueryErrorTooManySimultaneousQueries:
-        # error on our side so we raise
-        # as celery task can be retried according to config
+    except CH_TRANSIENT_ERRORS:
+        # transient infra errors — re-raise so celery retries according to config
         raise
     except Exception as err:
         error_message = f"Alert id = {alert.id}, failed to evaluate"

@@ -872,3 +872,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     1003: ErrorCodeMeta("SSH_EXCEPTION"),
     1004: ErrorCodeMeta("STARTUP_SCRIPTS_ERROR"),
 }
+# Transient ClickHouse infrastructure errors that are safe to retry.
+# Use this in celery autoretry_for and except clauses instead of listing errors individually.
+CH_TRANSIENT_ERRORS = (CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error)
