@@ -90,7 +90,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             ): boolean => {
                 if (
                     sessionPlayerMetaDataLoading ||
-                    !exceptionTimestamp ||
+                    exceptionTimestamp === null ||
                     !sessionPlayerData.start ||
                     !sessionPlayerData.end
                 ) {
