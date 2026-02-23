@@ -58,7 +58,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        Authorization: 'Bearer internal-secret',
+                        'X-INTERNAL-SECRET': 'posthog123',
                     },
                     body: JSON.stringify({
                         filters,
