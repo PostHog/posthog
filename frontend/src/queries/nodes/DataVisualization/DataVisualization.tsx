@@ -293,7 +293,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                     {props.exportContext && (
                                         <ExportButton
                                             disabledReason={
-                                                visualizationType != ChartDisplayType.ActionsTable &&
+                                                effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
                                                 'Only table results are exportable'
                                             }
                                             type="secondary"
