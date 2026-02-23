@@ -544,7 +544,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     for (const node of deleted) {
                         actions.softDeleteAction(node.id)
                     }
-                    // Re-sync React Flow from unchanged workflow state
                     actions.resetFlowFromHogFlow(values.workflow)
                     return
                 }

@@ -271,23 +271,37 @@ export const workflowLogic = kea<workflowLogicType>([
                     for (const field of draftFields) {
                         ;(draftData as any)[field] = workflow[field]
                     }
-                    // Strip soft-deleted actions and reconnect edges before saving
+                    // Strip soft-deleted actions and reconnect edges before saving.
+                    // Process in topological order: leaf nodes first, then branching parents.
+                    // This ensures that when we remove a branching node, its branch children
+                    // are already gone so only its continue edge remains for reconnection.
                     const deletedIds = values.draftDeletedActionIds
                     if (deletedIds.size > 0) {
-                        const edges = draftData.edges ?? []
-                        // For each deleted node, reconnect incoming edges to outgoer
-                        const reconnected = edges.map((edge) => {
-                            if (deletedIds.has(edge.to)) {
-                                // Find the continue edge from the deleted node
-                                const outgoing = edges.find((e) => e.from === edge.to && e.type === 'continue')
-                                if (outgoing) {
-                                    return { ...edge, to: outgoing.to }
-                                }
-                            }
-                            return edge
+                        let edges = draftData.edges ?? []
+                        let remainingActions = draftData.actions ?? []
+
+                        const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
+                        const sortedDeletedIds = [...deletedIds].sort((a, b) => {
+                            const aIsBranching = branchingTypes.includes(
+                                remainingActions.find((act) => act.id === a)?.type ?? ''
+                            )
+                            const bIsBranching = branchingTypes.includes(
+                                remainingActions.find((act) => act.id === b)?.type ?? ''
+                            )
+                            return aIsBranching === bIsBranching ? 0 : aIsBranching ? 1 : -1
                         })
-                        draftData.edges = reconnected.filter((e) => !deletedIds.has(e.from) && !deletedIds.has(e.to))
-                        draftData.actions = (draftData.actions ?? []).filter((a) => !deletedIds.has(a.id))
+
+                        for (const id of sortedDeletedIds) {
+                            const outgoing = edges.find((e) => e.from === id && e.type === 'continue')
+                            if (outgoing) {
+                                edges = edges.map((edge) => (edge.to === id ? { ...edge, to: outgoing.to } : edge))
+                            }
+                            edges = edges.filter((e) => e.from !== id && e.to !== id)
+                            remainingActions = remainingActions.filter((a) => a.id !== id)
+                        }
+
+                        draftData.edges = edges
+                        draftData.actions = remainingActions
                     }
                     return api.hogFlows.saveDraft(props.id, draftData)
                 },
