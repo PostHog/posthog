@@ -240,7 +240,7 @@ describe('sqlEditorLogic', () => {
                 key: 'endpoints',
                 name: 'Endpoints',
                 path: urls.endpoints(),
-                iconType: 'endpoint',
+                iconType: 'endpoints',
             })
         })
     })
