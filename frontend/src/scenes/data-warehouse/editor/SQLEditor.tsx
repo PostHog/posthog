@@ -12,6 +12,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
@@ -207,8 +208,16 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         updateInsightButtonEnabled,
         saveAsMenuItems,
     } = useValues(sqlEditorLogic)
-    const { updateView, updateInsight, saveAsInsight, saveAsView, saveAsEndpoint, openHistoryModal } =
-        useActions(sqlEditorLogic)
+    const {
+        updateView,
+        updateInsight,
+        saveAsInsight,
+        saveAsView,
+        saveAsEndpoint,
+        openHistoryModal,
+        setSuggestedQueryInput,
+        reportAIQueryPromptOpen,
+    } = useActions(sqlEditorLogic)
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
@@ -271,6 +280,27 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 noBorder
                 noPadding
                 {...titleSectionProps}
+                maxToolProps={{
+                    identifier: 'execute_sql',
+                    context: {
+                        current_query: queryInput,
+                    },
+                    contextDescription: {
+                        text: 'Current query',
+                        icon: iconForType('sql_editor'),
+                    },
+                    callback: (toolOutput: string) => {
+                        setSuggestedQueryInput(toolOutput, 'max_ai')
+                    },
+                    suggestions: [],
+                    onMaxOpen: () => {
+                        reportAIQueryPromptOpen()
+                    },
+                    introOverride: {
+                        headline: 'What data do you want to analyze?',
+                        description: 'Let me help you quickly write SQL, and tweak it.',
+                    },
+                }}
                 actions={
                     <div className="flex items-center gap-2">
                         {editingView ? (
