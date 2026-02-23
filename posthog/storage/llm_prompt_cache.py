@@ -9,27 +9,6 @@ from posthog.models.user import User
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
 
 
-def _serialize_hedgehog_config(user: User) -> dict[str, Any] | None:
-    if not user.hedgehog_config:
-        return None
-
-    if user.hedgehog_config.get("version") == 2:
-        actor_options = user.hedgehog_config.get("actor_options", {})
-        return {
-            "use_as_profile": user.hedgehog_config.get("use_as_profile"),
-            "color": actor_options.get("color"),
-            "accessories": actor_options.get("accessories"),
-            "skin": actor_options.get("skin"),
-        }
-
-    return {
-        "use_as_profile": user.hedgehog_config.get("use_as_profile"),
-        "color": user.hedgehog_config.get("color"),
-        "accessories": user.hedgehog_config.get("accessories"),
-        "skin": user.hedgehog_config.get("skin"),
-    }
-
-
 def _serialize_created_by(user: User | None) -> dict[str, Any] | None:
     if user is None:
         return None
@@ -42,7 +21,6 @@ def _serialize_created_by(user: User | None) -> dict[str, Any] | None:
         "last_name": user.last_name,
         "email": user.email,
         "is_email_verified": user.is_email_verified,
-        "hedgehog_config": _serialize_hedgehog_config(user),
         "role_at_organization": user.role_at_organization,
     }
 

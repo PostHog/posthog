@@ -1,7 +1,6 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from posthog.api.llm_prompt import LLMPromptSerializer
 from posthog.models.llm_prompt import LLMPrompt
 from posthog.storage.llm_prompt_cache import (
     get_prompt_by_name_from_cache,
@@ -30,7 +29,13 @@ class TestLLMPromptCache(BaseTest):
         cached_prompt = get_prompt_by_name_from_cache(self.team, "cached-prompt")
 
         self.assertIsNotNone(cached_prompt)
-        self.assertEqual(cached_prompt, LLMPromptSerializer(prompt).data)
+        assert cached_prompt is not None
+        self.assertEqual(cached_prompt["id"], str(prompt.id))
+        self.assertEqual(cached_prompt["name"], prompt.name)
+        self.assertEqual(cached_prompt["prompt"], prompt.prompt)
+        self.assertEqual(cached_prompt["version"], prompt.version)
+        self.assertEqual(cached_prompt["deleted"], prompt.deleted)
+        self.assertNotIn("hedgehog_config", cached_prompt["created_by"])
 
     def test_get_prompt_by_name_from_cache_returns_none_for_missing_prompt_name(self):
         LLMPrompt.objects.create(
