@@ -9,9 +9,10 @@ import { DEFAULT_OPEN_QUESTION, DEFAULT_RATING_QUESTION, getDefaultSurveyContent
 export interface SurveyStepEditorProps {
     survey: ProductTourSurveyQuestion | undefined
     onChange: (survey: ProductTourSurveyQuestion) => void
+    isEditingTranslation?: boolean
 }
 
-export function SurveyStepEditor({ survey, onChange }: SurveyStepEditorProps): JSX.Element {
+export function SurveyStepEditor({ survey, onChange, isEditingTranslation }: SurveyStepEditorProps): JSX.Element {
     const currentSurvey = survey ?? getDefaultSurveyContent('open')
 
     const updateSurvey = (updates: Partial<ProductTourSurveyQuestion>): void => {
@@ -64,17 +65,18 @@ export function SurveyStepEditor({ survey, onChange }: SurveyStepEditorProps): J
 
     return (
         <div className="space-y-3">
-            {/* Question type toggle */}
-            <LemonSegmentedButton
-                size="small"
-                fullWidth
-                value={currentSurvey.type}
-                onChange={(value) => handleTypeChange(value as ProductTourSurveyQuestionType)}
-                options={[
-                    { value: 'open', label: 'Open text' },
-                    { value: 'rating', label: 'Rating' },
-                ]}
-            />
+            {!isEditingTranslation && (
+                <LemonSegmentedButton
+                    size="small"
+                    fullWidth
+                    value={currentSurvey.type}
+                    onChange={(value) => handleTypeChange(value as ProductTourSurveyQuestionType)}
+                    options={[
+                        { value: 'open', label: 'Open text' },
+                        { value: 'rating', label: 'Rating' },
+                    ]}
+                />
+            )}
 
             {/* Question text */}
             <div className="space-y-1">
@@ -91,39 +93,41 @@ export function SurveyStepEditor({ survey, onChange }: SurveyStepEditorProps): J
             {/* Rating-specific options */}
             {currentSurvey.type === 'rating' && (
                 <div className="space-y-2">
-                    <div className="flex gap-3 items-center">
-                        <div className="flex gap-1.5 items-center">
-                            <span className="text-xs text-muted">Type:</span>
-                            <LemonSegmentedButton
-                                size="xsmall"
-                                value={currentSurvey.display ?? 'emoji'}
-                                onChange={(value) => handleDisplayChange(value as 'emoji' | 'number')}
-                                options={[
-                                    { value: 'emoji', label: 'Emoji' },
-                                    { value: 'number', label: 'Number' },
-                                ]}
-                            />
+                    {!isEditingTranslation && (
+                        <div className="flex gap-3 items-center">
+                            <div className="flex gap-1.5 items-center">
+                                <span className="text-xs text-muted">Type:</span>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={currentSurvey.display ?? 'emoji'}
+                                    onChange={(value) => handleDisplayChange(value as 'emoji' | 'number')}
+                                    options={[
+                                        { value: 'emoji', label: 'Emoji' },
+                                        { value: 'number', label: 'Number' },
+                                    ]}
+                                />
+                            </div>
+                            <div className="flex gap-1.5 items-center">
+                                <span className="text-xs text-muted">Scale:</span>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={currentSurvey.scale ?? 5}
+                                    onChange={(value) => updateSurvey({ scale: value as 3 | 5 | 10 })}
+                                    options={
+                                        currentSurvey.display === 'number'
+                                            ? [
+                                                  { value: 5, label: '1-5' },
+                                                  { value: 10, label: '0-10' },
+                                              ]
+                                            : [
+                                                  { value: 3, label: '1-3' },
+                                                  { value: 5, label: '1-5' },
+                                              ]
+                                    }
+                                />
+                            </div>
                         </div>
-                        <div className="flex gap-1.5 items-center">
-                            <span className="text-xs text-muted">Scale:</span>
-                            <LemonSegmentedButton
-                                size="xsmall"
-                                value={currentSurvey.scale ?? 5}
-                                onChange={(value) => updateSurvey({ scale: value as 3 | 5 | 10 })}
-                                options={
-                                    currentSurvey.display === 'number'
-                                        ? [
-                                              { value: 5, label: '1-5' },
-                                              { value: 10, label: '0-10' },
-                                          ]
-                                        : [
-                                              { value: 3, label: '1-3' },
-                                              { value: 5, label: '1-5' },
-                                          ]
-                                }
-                            />
-                        </div>
-                    </div>
+                    )}
                     <div className="flex gap-2">
                         <div className="flex-1 space-y-1">
                             <label className="text-xs text-muted">Low label</label>
