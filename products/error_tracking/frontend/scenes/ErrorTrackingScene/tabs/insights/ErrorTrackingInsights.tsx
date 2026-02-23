@@ -12,18 +12,43 @@ import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } 
 
 import { InsightsViewMode, errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 
+function formatQueryForInsightEditor(query: InsightVizNode<TrendsQuery>): InsightVizNode<TrendsQuery> {
+    return {
+        ...query,
+        source: {
+            ...query.source,
+            dateRange: {
+                date_from: 'wStart',
+                date_to: null,
+            },
+        },
+        // Open in regular insight mode with full controls visible.
+        full: true,
+        showHeader: undefined,
+        showTable: undefined,
+        showFilters: undefined,
+        embedded: undefined,
+    }
+}
+
 function buildExceptionVolumeQuery(dateFrom: string, dateTo: string): InsightVizNode<TrendsQuery> {
     return {
         kind: NodeKind.InsightVizNode,
         source: {
             kind: NodeKind.TrendsQuery,
-            series: [{ kind: NodeKind.EventsNode, event: null, name: 'All events' }],
-            properties: [
+            series: [
                 {
-                    key: 'event',
-                    type: PropertyFilterType.Event,
-                    value: '$exception',
-                    operator: PropertyOperator.Exact,
+                    kind: NodeKind.EventsNode,
+                    event: null,
+                    custom_name: 'Exceptions',
+                    properties: [
+                        {
+                            key: 'event',
+                            type: PropertyFilterType.Event,
+                            value: '$exception',
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
                 },
             ],
             interval: 'day',
@@ -44,14 +69,22 @@ function buildCrashFreeSessionsQuery(dateFrom: string, dateTo: string): InsightV
                 {
                     kind: NodeKind.EventsNode,
                     event: null,
-                    name: 'Total sessions',
+                    custom_name: 'Total sessions',
                     math: BaseMathType.UniqueSessions,
                 },
                 {
                     kind: NodeKind.EventsNode,
-                    event: '$exception',
-                    name: 'Sessions with crash',
+                    event: null,
+                    custom_name: 'Sessions with crash',
                     math: BaseMathType.UniqueSessions,
+                    properties: [
+                        {
+                            key: 'event',
+                            type: PropertyFilterType.Event,
+                            value: '$exception',
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
                 },
             ],
             interval: 'day',
@@ -152,7 +185,7 @@ function ChartCard({
                     size="xsmall"
                     type="secondary"
                     icon={<IconExternal />}
-                    to={urls.insightNew({ query })}
+                    to={urls.insightNew({ query: formatQueryForInsightEditor(query) })}
                     targetBlank
                 >
                     Open as insight
