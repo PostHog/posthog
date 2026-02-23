@@ -628,7 +628,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         saveWorkflowPartial: async ({ workflow }) => {
             const merged = { ...values.workflow, ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
@@ -909,10 +909,10 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new') {
                 return
             }
-            if ((window as any).__workflowMetadataTimer) {
-                clearTimeout((window as any).__workflowMetadataTimer)
+            if (cache.metadataTimer) {
+                clearTimeout(cache.metadataTimer)
             }
-            ;(window as any).__workflowMetadataTimer = setTimeout(async () => {
+            cache.metadataTimer = setTimeout(async () => {
                 try {
                     const updates = { [field]: value } as Partial<HogFlow>
                     await api.hogFlows.updateHogFlow(props.id!, updates)
@@ -925,22 +925,21 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         // Autosave: debounce 10s after changes
         setWorkflowValues: () => {
-            if ((window as any).__workflowAutosaveTimer) {
-                clearTimeout((window as any).__workflowAutosaveTimer)
+            if (cache.autosaveTimer) {
+                clearTimeout(cache.autosaveTimer)
             }
-            ;(window as any).__workflowAutosaveTimer = setTimeout(() => {
+            cache.autosaveTimer = setTimeout(() => {
                 actions.saveDraftNow()
             }, 5000)
         },
     })),
-    beforeUnmount(() => {
-        if ((window as any).__workflowAutosaveTimer) {
-            clearTimeout((window as any).__workflowAutosaveTimer)
-            delete (window as any).__workflowAutosaveTimer
+    // Clean up debounce timers to prevent saves firing after navigation
+    beforeUnmount(({ cache }) => {
+        if (cache.autosaveTimer) {
+            clearTimeout(cache.autosaveTimer)
         }
-        if ((window as any).__workflowMetadataTimer) {
-            clearTimeout((window as any).__workflowMetadataTimer)
-            delete (window as any).__workflowMetadataTimer
+        if (cache.metadataTimer) {
+            clearTimeout(cache.metadataTimer)
         }
     }),
     afterMount(({ actions }) => {
