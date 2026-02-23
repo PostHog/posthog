@@ -1,9 +1,4 @@
-import { eventWithTime } from '@posthog/rrweb-types'
-import { fullSnapshotEvent } from '@posthog/rrweb-types'
-import { EventType } from '@posthog/rrweb-types'
 import { serializedNodeWithId } from '@posthog/rrweb-types'
-
-import { RecordingSnapshot } from '~/types'
 
 // we have seen some chrome extensions
 // that break playback of session recordings
@@ -171,50 +166,4 @@ export function stripChromeExtensionDataFromNode(
     }
 
     return stripped
-}
-
-export function stripChromeExtensionData(snapshots: RecordingSnapshot[]): RecordingSnapshot[] {
-    // we're going to iterate the snapshots
-    // if we see a full snapshot, we're going to walk the tree of nodes and child nodes
-    // checking for "chrome-extension" in the attributes
-    // if we find it, we're going to remove it and all of its children
-    // we're going to do this in place and return the modified array
-    let strippedChromeExtensionData = false
-    const matchedExtensions = new Set<string>()
-
-    for (const snapshot of snapshots) {
-        if (snapshot.type !== EventType.FullSnapshot) {
-            continue
-        }
-        const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
-        // it's slightly yucky that we rely on the identity of matchedExtensions here to gather matches
-        // but way simpler than trying to narrow types and return a value
-        if (
-            stripChromeExtensionDataFromNode(
-                fullSnapshot.data.node,
-                Object.keys(CHROME_EXTENSION_DENY_LIST),
-                matchedExtensions
-            )
-        ) {
-            strippedChromeExtensionData = true
-        }
-    }
-
-    if (strippedChromeExtensionData) {
-        // insert a custom snapshot event to indicate that we've stripped the chrome extension data
-        const customSnapshot: RecordingSnapshot = {
-            type: EventType.Custom,
-            data: {
-                tag: 'chrome-extension-stripped',
-                payload: {
-                    extensions: Array.from(matchedExtensions),
-                },
-            },
-            timestamp: snapshots[0].timestamp,
-            windowId: snapshots[0].windowId,
-        }
-        snapshots.splice(0, 0, customSnapshot)
-    }
-
-    return snapshots
 }
