@@ -43,11 +43,8 @@ describe('toolbar toolbarConfigLogic', () => {
         expectLogic(logic).toMatchValues({ isAuthenticated: true })
     })
 
-    it('setOAuthTokens updates tokens and clears temporaryToken', () => {
-        const logic = toolbarConfigLogic.build({
-            apiURL: 'http://localhost',
-            temporaryToken: 'temp-123',
-        })
+    it('setOAuthTokens updates tokens', () => {
+        const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
         logic.mount()
 
         expectLogic(logic, () => {
@@ -56,7 +53,6 @@ describe('toolbar toolbarConfigLogic', () => {
             accessToken: 'pha_new',
             refreshToken: 'phr_new',
             clientId: 'client-123',
-            temporaryToken: null,
             isAuthenticated: true,
         })
     })
@@ -64,7 +60,6 @@ describe('toolbar toolbarConfigLogic', () => {
     it('logout clears all tokens', () => {
         const logic = toolbarConfigLogic.build({
             apiURL: 'http://localhost',
-            temporaryToken: 'temp',
             accessToken: 'access',
             refreshToken: 'refresh',
             clientId: 'client',
@@ -74,7 +69,6 @@ describe('toolbar toolbarConfigLogic', () => {
         expectLogic(logic, () => {
             logic.actions.logout()
         }).toMatchValues({
-            temporaryToken: null,
             accessToken: null,
             refreshToken: null,
             clientId: null,
@@ -110,49 +104,7 @@ describe('toolbar toolbarConfigLogic', () => {
         expect(logic.values.uiHost).toBe('https://us.posthog.com')
     })
 
-    describe('OAuth migration', () => {
-        it('auto-opens OAuth popup when temporaryToken exists without stored OAuth', () => {
-            const logic = toolbarConfigLogic.build({
-                apiURL: 'http://localhost',
-                temporaryToken: 'temp-token-123',
-            })
-            logic.mount()
-
-            expect(mockOpen).toHaveBeenCalledWith(
-                expect.stringContaining('/toolbar_oauth/authorize/'),
-                'posthog_toolbar_oauth',
-                'width=600,height=700'
-            )
-            // Temp token stays active so toolbar remains functional during popup
-            expectLogic(logic).toMatchValues({ temporaryToken: 'temp-token-123', isAuthenticated: true })
-        })
-
-        it('restores OAuth from localStorage instead of migrating (old bookmark with temp token)', () => {
-            localStorage.setItem(
-                OAUTH_LOCALSTORAGE_KEY,
-                JSON.stringify({
-                    accessToken: 'stored-access',
-                    refreshToken: 'stored-refresh',
-                    clientId: 'stored-client',
-                })
-            )
-            const logic = toolbarConfigLogic.build({
-                apiURL: 'http://localhost',
-                temporaryToken: 'old-temp-token',
-            })
-            logic.mount()
-
-            // OAuth popup should NOT open — stored tokens are sufficient
-            expect(mockOpen).not.toHaveBeenCalled()
-            expectLogic(logic).toMatchValues({
-                accessToken: 'stored-access',
-                refreshToken: 'stored-refresh',
-                clientId: 'stored-client',
-                temporaryToken: null,
-                isAuthenticated: true,
-            })
-        })
-
+    describe('OAuth localStorage restoration', () => {
         it('restores OAuth from localStorage when no tokens in props', () => {
             localStorage.setItem(
                 OAUTH_LOCALSTORAGE_KEY,
@@ -173,7 +125,15 @@ describe('toolbar toolbarConfigLogic', () => {
             })
         })
 
-        it('does not migrate when accessToken already exists in props', () => {
+        it('does not overwrite when accessToken already exists in props', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                })
+            )
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',
                 accessToken: 'existing-access',
@@ -182,7 +142,6 @@ describe('toolbar toolbarConfigLogic', () => {
             })
             logic.mount()
 
-            expect(mockOpen).not.toHaveBeenCalled()
             expectLogic(logic).toMatchValues({ accessToken: 'existing-access', isAuthenticated: true })
         })
     })
