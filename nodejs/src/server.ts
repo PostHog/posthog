@@ -145,7 +145,7 @@ export class PluginServer {
             }
 
             if (capabilities.evaluationScheduler) {
-                serviceLoaders.push(() => startEvaluationScheduler(hub))
+                serviceLoaders.push(() => startEvaluationScheduler(hub, hub))
             }
 
             if (capabilities.sessionRecordingBlobIngestionV2) {
@@ -300,7 +300,7 @@ export class PluginServer {
 
             if (capabilities.logsIngestion) {
                 serviceLoaders.push(async () => {
-                    const consumer = new LogsIngestionConsumer(hub)
+                    const consumer = new LogsIngestionConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
