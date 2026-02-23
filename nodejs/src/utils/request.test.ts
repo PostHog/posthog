@@ -100,6 +100,7 @@ describe('fetch', () => {
         ])('should block IPv6-mapped IPv4 addresses: %s (%s)', async (ip) => {
             jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 6 }] as any)
 
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
         })
     })
