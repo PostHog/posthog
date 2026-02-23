@@ -11,7 +11,6 @@ import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/Au
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
-import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import {
     convertPropertyGroupToProperties,
@@ -33,13 +32,8 @@ import { PropertyFilterType, PropertyMathType } from '~/types'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
-import { WebAnalyticsFiltersV2MigrationBanner } from './WebAnalyticsFiltersV2MigrationBanner'
 import { WebConversionGoal } from './WebConversionGoal'
-import {
-    WEB_ANALYTICS_PROPERTY_ALLOW_LIST,
-    WebPropertyFilters,
-    getWebAnalyticsTaxonomicGroupTypes,
-} from './WebPropertyFilters'
+import { WEB_ANALYTICS_PROPERTY_ALLOW_LIST, getWebAnalyticsTaxonomicGroupTypes } from './WebPropertyFilters'
 import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
@@ -51,11 +45,9 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
         isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
-            <WebAnalyticsFiltersV2MigrationBanner />
             <IncompatibleFiltersWarning />
             <FilterBar
                 top={tabs}
@@ -76,7 +68,7 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                     <>
                         <ShareButton />
                         <WebVitalsPercentileToggle />
-                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && <FilterPresetsDropdown />}
+                        <FilterPresetsDropdown />
                         <FiltersPopover />
                         <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                         <WebAnalyticsDomainSelector />
@@ -89,63 +81,7 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
 }
 
 export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
-    const {
-        dateFilter: { dateTo, dateFrom },
-        isPathCleaningEnabled,
-    } = useValues(webAnalyticsLogic)
-    const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
-        return <CondensedWebAnalyticsFilterBar tabs={tabs} />
-    }
-
-    return (
-        <>
-            <IncompatibleFiltersWarning />
-
-            <div data-attr="web-analytics-filters">
-                <FilterBar
-                    top={tabs}
-                    left={
-                        <>
-                            <ReloadAll iconOnly />
-                            <DateFilter
-                                dateOptions={webAnalyticsDateMapping}
-                                allowTimePrecision
-                                dateFrom={dateFrom}
-                                dateTo={dateTo}
-                                onChange={setDates}
-                            />
-
-                            <WebAnalyticsDomainSelector />
-                            <WebAnalyticsDeviceToggle />
-                            <LiveUserCount
-                                docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
-                                dataAttr="web-analytics-live-user-count"
-                            />
-                        </>
-                    }
-                    right={
-                        <>
-                            <WebAnalyticsCompareFilter />
-
-                            <WebConversionGoal />
-                            <TableSortingIndicator />
-
-                            <WebVitalsPercentileToggle />
-                            <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
-
-                            <WebAnalyticsAIFilters>
-                                <WebPropertyFilters />
-                            </WebAnalyticsAIFilters>
-                        </>
-                    }
-                />
-            </div>
-        </>
-    )
+    return <CondensedWebAnalyticsFilterBar tabs={tabs} />
 }
 
 const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Element => {
@@ -266,7 +202,6 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
 const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     // Device toggle shortcuts (Web Analytics-specific)
     useAppShortcut({
@@ -286,51 +221,29 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
         scope: Scene.WebAnalytics,
     })
 
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
-        return (
-            <LemonSelect
-                size="small"
-                value={deviceTypeFilter ?? undefined}
-                allowClear={true}
-                onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
-                options={[
-                    {
-                        value: 'Desktop',
-                        label: (
-                            <div>
-                                <IconMonitor className="mx-1" /> Desktop
-                            </div>
-                        ),
-                        tooltip: 'Desktop devices include laptops and desktops.',
-                    },
-                    {
-                        value: 'Mobile',
-                        label: (
-                            <div>
-                                <IconPhone className="mx-1" /> Mobile
-                            </div>
-                        ),
-                        tooltip: 'Mobile devices include smartphones and tablets.',
-                    },
-                ]}
-            />
-        )
-    }
-
     return (
-        <LemonSegmentedSelect
+        <LemonSelect
             size="small"
             value={deviceTypeFilter ?? undefined}
+            allowClear={true}
             onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
             options={[
                 {
                     value: 'Desktop',
-                    label: <IconMonitor className="mx-1" />,
+                    label: (
+                        <div>
+                            <IconMonitor className="mx-1" /> Desktop
+                        </div>
+                    ),
                     tooltip: 'Desktop devices include laptops and desktops.',
                 },
                 {
                     value: 'Mobile',
-                    label: <IconPhone className="mx-1" />,
+                    label: (
+                        <div>
+                            <IconPhone className="mx-1" /> Mobile
+                        </div>
+                    ),
                     tooltip: 'Mobile devices include smartphones and tablets.',
                 },
             ]}
@@ -425,8 +338,7 @@ function FiltersPopover(): JSX.Element {
         productTab === ProductTab.ANALYTICS &&
         (!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
 
-    const cohortFilterEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]
-    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false, cohortFilterEnabled)
+    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false)
     const propertyAllowList = preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
 
     const activeFilterCount = rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0)

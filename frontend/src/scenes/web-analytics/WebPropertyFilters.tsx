@@ -7,10 +7,8 @@ import { Popover } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isWebAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AnyPropertyFilter } from '~/types'
 
@@ -28,14 +26,11 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
 // Re-export for backward compatibility
 export const WEB_ANALYTICS_PROPERTY_ALLOW_LIST = WEB_ANALYTICS_PRE_AGGREGATED_PROPERTY_ALLOW_LIST
 
-export const getWebAnalyticsTaxonomicGroupTypes = (
-    preAggregatedEnabled: boolean,
-    cohortFilterEnabled: boolean = false
-): TaxonomicFilterGroupType[] => [
+export const getWebAnalyticsTaxonomicGroupTypes = (preAggregatedEnabled: boolean): TaxonomicFilterGroupType[] => [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.SessionProperties,
     ...(!preAggregatedEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
-    ...(cohortFilterEnabled ? [TaxonomicFilterGroupType.Cohorts] : []),
+    TaxonomicFilterGroupType.Cohorts,
 ]
 
 export interface WebPropertyFiltersProps {
@@ -54,19 +49,16 @@ export const WebPropertyFilters = ({
         hasIncompatibleFilters = false,
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters: logicSetFilters } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const webAnalyticsFilters = propsFilters ?? rawWebAnalyticsFilters
     const setWebAnalyticsFilters = propsSetFilters ?? logicSetFilters
 
     const [displayFilters, setDisplayFilters] = useState(false)
 
-    const cohortFilterEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.SessionProperties,
         ...(!preAggregatedEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
-        ...(cohortFilterEnabled ? [TaxonomicFilterGroupType.Cohorts] : []),
+        TaxonomicFilterGroupType.Cohorts,
     ]
 
     const webAnalyticsPropertyAllowList = preAggregatedEnabled

@@ -20,8 +20,6 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
     const hasFeatureFlag = featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
     const isUsingNewEngine = currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
-    const showLiveUserCount =
-        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
 
     const handleToggleEngine = (checked: boolean): void => {
         updateCurrentTeam({
@@ -34,12 +32,10 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
     return (
         <div className="flex items-center gap-2">
-            {showLiveUserCount && (
-                <LiveUserCount
-                    docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
-                    dataAttr="web-analytics-live-user-count"
-                />
-            )}
+            <LiveUserCount
+                docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+                dataAttr="web-analytics-live-user-count"
+            />
             {hasFeatureFlag && (
                 <Popover
                     visible={showPopover}
