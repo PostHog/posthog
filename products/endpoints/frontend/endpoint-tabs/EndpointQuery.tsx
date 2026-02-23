@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import isEqual from 'lodash.isequal'
 import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -74,7 +75,9 @@ function EndpointHogQLQuery({
 }): JSX.Element {
     const sqlEditorTabId = useMemo(() => `endpoint-query-${tabId}-${version ?? 'latest'}`, [tabId, version])
     const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
-    const { queryInput } = useValues(sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded }))
+    const { queryInput, sourceQuery } = useValues(
+        sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
+    )
     const { setQueryInput, setSourceQuery, runQuery } = useActions(
         sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     )
@@ -94,7 +97,11 @@ function EndpointHogQLQuery({
     }, [query.query, query.variables]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        if (queryInput === query.query) {
+        const sourceVariables = isHogQLQuery(sourceQuery.source) ? sourceQuery.source.variables : undefined
+        const hasQueryChanges = queryInput !== query.query
+        const hasVariableChanges = !isEqual(sourceVariables || {}, query.variables || {})
+
+        if (!hasQueryChanges && !hasVariableChanges) {
             setLocalQuery(null)
             return
         }
@@ -102,9 +109,9 @@ function EndpointHogQLQuery({
         setLocalQuery({
             kind: NodeKind.HogQLQuery,
             query: queryInput,
-            variables: query.variables,
+            variables: sourceVariables,
         } as HogQLQuery)
-    }, [query.query, query.variables, queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [query.query, query.variables, queryInput, sourceQuery.source]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex min-w-0 gap-4">
