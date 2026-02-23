@@ -17,6 +17,7 @@ export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType =
     const mediaVariant = featureFlags[FEATURE_FLAGS.ONBOARDING_SESSION_REPLAY_MEDIA]
 
     const handleNext = (enabled: boolean): void => {
+        window.posthog?.capture('onboarding session replay toggled', { enabled })
         updateCurrentTeam({ session_recording_opt_in: enabled })
         goToNextStep()
     }
