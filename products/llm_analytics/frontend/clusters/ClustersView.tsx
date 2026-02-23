@@ -238,6 +238,7 @@ export function ClustersView(): JSX.Element {
                                         <div className="space-y-1.5">
                                             <p className="font-semibold mb-0">WTH (What The Hog) is this?</p>
                                             <p className="mb-0">
+
                                                 Each dot is a{' '}
                                                 {clusteringLevel === 'generation' ? 'generation' : 'trace'}. We crunched
                                                 them through embeddings and squished them into 2D so similar ones land
@@ -245,9 +246,10 @@ export function ClustersView(): JSX.Element {
                                             </p>
                                             <p className="mb-0">
                                                 Clusters of dots = groups of{' '}
-                                                {clusteringLevel === 'generation' ? 'generations' : 'conversations'}{' '}
+                                                {clusteringLevel === 'generation' ? 'generations' : 'traces'}{' '}
                                                 that your LLM handled in a similar way. Outliers are the loners that
                                                 didn't fit any group.
+
                                             </p>
                                             <p className="mb-0">Click any dot to drill into that specific trace.</p>
                                         </div>
