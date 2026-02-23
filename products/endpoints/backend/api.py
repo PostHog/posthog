@@ -178,6 +178,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_active", "created_by"]
 
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(deleted=False)
+
     def get_serializer_class(self):
         return None  # We use Pydantic models instead
 
@@ -288,7 +291,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Retrieve an endpoint, or a specific endpoint version."""
-        endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name, deleted=False)
 
         version_number = self._parse_version_param(request)
         try:
@@ -595,7 +598,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         If version is specified, updates target that specific version.
         Otherwise, the current version is used.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
         endpoint_before_update = Endpoint.objects.get(pk=endpoint.id)
 
         upgraded_query = upgrade(request.data)
@@ -847,26 +850,18 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         If version is not specified, uses the current version.
         """
         version = version or endpoint.get_version()
-        if version and version.saved_query:
-            version.saved_query.revert_materialization()
-            version.saved_query.soft_delete()
-            version.saved_query = None
-            version.is_materialized = False
-            version.save(update_fields=["saved_query", "is_materialized"])
+        if version:
+            version.disable_materialization()
         clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
         endpoint_id = str(endpoint.id)
         endpoint_name = endpoint.name
 
-        # Disable materialization on all versions
-        for version in endpoint.versions.all():
-            if version.saved_query:
-                self._disable_materialization(endpoint, version)
-
-        endpoint.delete()
+        endpoint.soft_delete()
+        clear_endpoint_materialization_cache(self.team_id, endpoint.name)
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
@@ -1463,7 +1458,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     @action(methods=["GET", "POST"], detail=True)
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute endpoint with optional parameters."""
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True, deleted=False)
         data = self.get_model(request.data, EndpointRunRequest)
 
         # Track endpoint execution for deprecation monitoring
@@ -1705,7 +1700,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Returns versions in descending order (latest first).
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
         versions = endpoint.versions.all()
 
         results = [self._serialize(v) for v in versions]
@@ -1720,7 +1715,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Supports ?version=N query param to get status for a specific version.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
 
         version_number = self._parse_version_param(request)
         if version_number is not None:
@@ -1745,7 +1740,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Supports ?version=N query param to generate spec for a specific version.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
 
         version = None
         version_number = self._parse_version_param(request)

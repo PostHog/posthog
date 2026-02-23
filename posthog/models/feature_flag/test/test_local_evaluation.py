@@ -6,10 +6,8 @@ from parameterized import parameterized
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.feature_flag.local_evaluation import (
-    DATABASE_FOR_LOCAL_EVALUATION,
-    _extract_cohort_ids_from_filters,
-    _get_flags_for_local_evaluation,
-    _load_cohorts_with_dependencies,
+    _get_flags_response_for_local_evaluation,
+    _get_flags_response_for_local_evaluation_batch,
     clear_flag_caches,
     flags_hypercache,
     get_flags_response_for_local_evaluation,
@@ -338,8 +336,8 @@ class TestSurveyFlagExclusion(BaseTest):
             **{flag_field: survey_flag},
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
 
         assert regular_flag.key in flag_keys
         assert survey_flag.key not in flag_keys
@@ -359,8 +357,8 @@ class TestSurveyFlagExclusion(BaseTest):
             linked_flag=user_linked_flag,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
 
         assert user_linked_flag.key in flag_keys
 
@@ -379,13 +377,13 @@ class TestSurveyFlagExclusion(BaseTest):
             targeting_flag=survey_flag,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        assert survey_flag.key not in [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key not in [f["key"] for f in response["flags"]]
 
         survey.delete()
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        assert survey_flag.key in [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key in [f["key"] for f in response["flags"]]
 
     def test_survey_flags_excluded_from_api_response(self):
         """Verify the full API response excludes survey flags."""
@@ -481,16 +479,16 @@ class TestSurveyFlagExclusion(BaseTest):
             targeting_flag=survey_flag,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        assert survey_flag.key not in [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key not in [f["key"] for f in response["flags"]]
 
         # Archive the survey (not delete)
         survey.archived = True
         survey.save()
 
         # Flag should still be excluded since the survey still exists
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        assert survey_flag.key not in [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key not in [f["key"] for f in response["flags"]]
 
     def test_survey_flag_reassignment_updates_exclusions(self):
         """When a survey changes which flags it uses, both old and new flags should update correctly."""
@@ -512,16 +510,16 @@ class TestSurveyFlagExclusion(BaseTest):
             targeting_flag=flag_a,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
         assert flag_a.key not in flag_keys
         assert flag_b.key in flag_keys
 
         survey.targeting_flag = flag_b
         survey.save()
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
         assert flag_a.key in flag_keys
         assert flag_b.key not in flag_keys
 
@@ -541,8 +539,8 @@ class TestSurveyFlagExclusion(BaseTest):
                 targeting_flag=shared_flag,
             )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
 
         assert shared_flag.key not in flag_keys
 
@@ -573,214 +571,156 @@ class TestSurveyFlagExclusion(BaseTest):
             internal_response_sampling_flag=flag_b,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
 
         assert flag_a.key not in flag_keys
         assert flag_b.key not in flag_keys
         assert regular_flag.key in flag_keys
 
 
-class TestExtractCohortIdsFromFilters(BaseTest):
-    """Tests for _extract_cohort_ids_from_filters helper function."""
+class TestLocalEvaluationBatch(BaseTest):
+    def _create_team_with_project(self, name: str) -> Team:
+        project, team = Project.objects.create_with_team(
+            initiating_user=self.user,
+            organization=self.organization,
+            name=name,
+        )
+        return team
 
-    @parameterized.expand(
-        [
-            ("empty_filters", {}, set()),
-            ("no_groups", {"multivariate": {}}, set()),
-            ("empty_groups", {"groups": []}, set()),
-            (
-                "person_properties_only",
-                {"groups": [{"properties": [{"type": "person", "key": "email", "value": "test@example.com"}]}]},
-                set(),
-            ),
-            (
-                "single_cohort",
-                {"groups": [{"properties": [{"type": "cohort", "value": 123}]}]},
-                {123},
-            ),
-            (
-                "multiple_cohorts_same_group",
-                {"groups": [{"properties": [{"type": "cohort", "value": 1}, {"type": "cohort", "value": 2}]}]},
-                {1, 2},
-            ),
-            (
-                "multiple_cohorts_different_groups",
-                {
-                    "groups": [
-                        {"properties": [{"type": "cohort", "value": 10}]},
-                        {"properties": [{"type": "cohort", "value": 20}]},
-                        {"properties": [{"type": "cohort", "value": 30}]},
-                    ]
-                },
-                {10, 20, 30},
-            ),
-            (
-                "string_cohort_value",
-                {"groups": [{"properties": [{"type": "cohort", "value": "456"}]}]},
-                {456},
-            ),
-            (
-                "invalid_string_value",
-                {"groups": [{"properties": [{"type": "cohort", "value": "invalid"}]}]},
-                set(),
-            ),
-            (
-                "none_value",
-                {"groups": [{"properties": [{"type": "cohort", "value": None}]}]},
-                set(),
-            ),
-            (
-                "mixed_valid_and_invalid",
-                {
-                    "groups": [
-                        {
-                            "properties": [
-                                {"type": "cohort", "value": 100},
-                                {"type": "cohort", "value": "invalid"},
-                                {"type": "cohort", "value": None},
-                                {"type": "cohort", "value": 200},
-                            ]
-                        }
-                    ]
-                },
-                {100, 200},
-            ),
-            (
-                "duplicate_cohort_ids",
-                {
-                    "groups": [
-                        {"properties": [{"type": "cohort", "value": 5}]},
-                        {"properties": [{"type": "cohort", "value": 5}]},
-                    ]
-                },
-                {5},
-            ),
-        ]
-    )
-    def test_extract_cohort_ids(self, _name: str, filters: dict, expected: set):
-        result = _extract_cohort_ids_from_filters(filters)
-        assert result == expected
-
-
-class TestLoadCohortsWithDependencies(BaseTest):
-    """Tests for _load_cohorts_with_dependencies helper function."""
-
-    def _make_cohort_filter(self, nested_values: list) -> dict:
-        """Helper to create a properly structured cohort filter."""
-        return {
-            "properties": {
-                "type": "OR",
-                "values": [{"type": "OR", "values": nested_values}],
-            }
-        }
-
-    def _make_person_property(self, key: str, value: str) -> dict:
-        return {"key": key, "value": value, "type": "person"}
-
-    def _make_cohort_reference(self, cohort_id: int) -> dict:
-        return {"key": "id", "value": cohort_id, "type": "cohort"}
-
-    def test_empty_cohort_ids(self):
-        result = _load_cohorts_with_dependencies(set(), self.team.project_id, DATABASE_FOR_LOCAL_EVALUATION)
+    def test_batch_empty_team_list(self):
+        result = _get_flags_response_for_local_evaluation_batch([], True)
         assert result == {}
 
-    def test_single_cohort_exists(self):
+    def test_batch_two_teams_flags_isolated(self):
+        team_a = self._create_team_with_project("Team A")
+        team_b = self._create_team_with_project("Team B")
+
+        FeatureFlag.objects.create(
+            team=team_a,
+            key="flag-a",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.create(
+            team=team_b,
+            key="flag-b",
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team_a, team_b], True)
+
+        assert team_a.id in results
+        assert team_b.id in results
+
+        keys_a = [f["key"] for f in results[team_a.id]["flags"]]
+        keys_b = [f["key"] for f in results[team_b.id]["flags"]]
+
+        assert keys_a == ["flag-a"]
+        assert keys_b == ["flag-b"]
+
+    def test_batch_team_with_no_flags(self):
+        team_with_flags = self._create_team_with_project("Has Flags")
+        team_without_flags = self._create_team_with_project("No Flags")
+
+        FeatureFlag.objects.create(
+            team=team_with_flags,
+            key="some-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team_with_flags, team_without_flags], True)
+
+        assert len(results[team_with_flags.id]["flags"]) == 1
+        assert results[team_without_flags.id]["flags"] == []
+        assert "group_type_mapping" in results[team_without_flags.id]
+        assert "cohorts" in results[team_without_flags.id]
+
+    def test_batch_team_with_no_flags_includes_group_type_mapping(self):
+        team = self._create_team_with_project("GTM Team")
+
+        create_group_type_mapping_without_created_at(
+            team=team, project_id=team.project_id, group_type="company", group_type_index=0
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team], True)
+
+        assert results[team.id]["flags"] == []
+        assert results[team.id]["group_type_mapping"] == {"0": "company"}
+
+    def test_batch_cohort_isolation_across_projects(self):
+        team_a = self._create_team_with_project("Project A")
+        team_b = self._create_team_with_project("Project B")
+
+        cohort_a = Cohort.objects.create(
+            team=team_a,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+            name="cohort-a",
+        )
+        cohort_b = Cohort.objects.create(
+            team=team_b,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "b@b.com", "type": "person"}]}],
+                }
+            },
+            name="cohort-b",
+        )
+
+        FeatureFlag.objects.create(
+            team=team_a,
+            key="flag-with-cohort-a",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.pk}]}]},
+        )
+        FeatureFlag.objects.create(
+            team=team_b,
+            key="flag-with-cohort-b",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_b.pk}]}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team_a, team_b], True)
+
+        cohort_ids_a = set(results[team_a.id]["cohorts"].keys())
+        cohort_ids_b = set(results[team_b.id]["cohorts"].keys())
+
+        assert str(cohort_a.pk) in cohort_ids_a
+        assert str(cohort_b.pk) not in cohort_ids_a
+
+        assert str(cohort_b.pk) in cohort_ids_b
+        assert str(cohort_a.pk) not in cohort_ids_b
+
+    def test_batch_deleted_cohort_handled_gracefully(self):
+        team = self._create_team_with_project("Deleted Cohort Team")
+
         cohort = Cohort.objects.create(
-            team=self.team,
-            name="test-cohort",
-            filters=self._make_cohort_filter([self._make_person_property("email", "test@example.com")]),
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "x@x.com", "type": "person"}]}],
+                }
+            },
+            name="soon-deleted",
+        )
+        cohort_id = cohort.pk
+
+        FeatureFlag.objects.create(
+            team=team,
+            key="flag-ref-deleted-cohort",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}]},
         )
 
-        result = _load_cohorts_with_dependencies({cohort.pk}, self.team.project_id, DATABASE_FOR_LOCAL_EVALUATION)
+        # Soft-delete the cohort
+        cohort.deleted = True
+        cohort.save()
 
-        assert cohort.pk in result
-        assert result[cohort.pk] == cohort
+        results = _get_flags_response_for_local_evaluation_batch([team], True)
 
-    def test_missing_cohort_marked_empty(self):
-        nonexistent_id = 99999
-
-        result = _load_cohorts_with_dependencies({nonexistent_id}, self.team.project_id, DATABASE_FOR_LOCAL_EVALUATION)
-
-        assert nonexistent_id in result
-        assert result[nonexistent_id] == ""
-
-    def test_nested_dependency_both_loaded(self):
-        """Cohort B references Cohort A - both should be loaded."""
-        cohort_a = Cohort.objects.create(
-            team=self.team,
-            name="cohort-a",
-            filters=self._make_cohort_filter([self._make_person_property("email", "a@example.com")]),
-        )
-        cohort_b = Cohort.objects.create(
-            team=self.team,
-            name="cohort-b",
-            filters=self._make_cohort_filter([self._make_cohort_reference(cohort_a.pk)]),
-        )
-
-        # Only request cohort_b, but cohort_a should also be loaded due to dependency
-        result = _load_cohorts_with_dependencies({cohort_b.pk}, self.team.project_id, DATABASE_FOR_LOCAL_EVALUATION)
-
-        assert cohort_b.pk in result
-        assert cohort_a.pk in result
-        assert result[cohort_b.pk] == cohort_b
-        assert result[cohort_a.pk] == cohort_a
-
-    def test_three_level_nesting(self):
-        """A -> B -> C chain: all three should be loaded."""
-        cohort_c = Cohort.objects.create(
-            team=self.team,
-            name="cohort-c",
-            filters=self._make_cohort_filter([self._make_person_property("email", "c@example.com")]),
-        )
-        cohort_b = Cohort.objects.create(
-            team=self.team,
-            name="cohort-b",
-            filters=self._make_cohort_filter([self._make_cohort_reference(cohort_c.pk)]),
-        )
-        cohort_a = Cohort.objects.create(
-            team=self.team,
-            name="cohort-a",
-            filters=self._make_cohort_filter([self._make_cohort_reference(cohort_b.pk)]),
-        )
-
-        result = _load_cohorts_with_dependencies({cohort_a.pk}, self.team.project_id, DATABASE_FOR_LOCAL_EVALUATION)
-
-        assert cohort_a.pk in result
-        assert cohort_b.pk in result
-        assert cohort_c.pk in result
-
-    def test_circular_reference_no_infinite_loop(self):
-        """A -> B -> A: should handle circular reference without infinite loop."""
-        cohort_a = Cohort.objects.create(
-            team=self.team,
-            name="cohort-a",
-            filters=self._make_cohort_filter([self._make_person_property("email", "a@example.com")]),
-        )
-        cohort_b = Cohort.objects.create(
-            team=self.team,
-            name="cohort-b",
-            filters=self._make_cohort_filter([self._make_cohort_reference(cohort_a.pk)]),
-        )
-        # Update cohort_a to reference cohort_b (creating circular reference)
-        cohort_a.filters = self._make_cohort_filter([self._make_cohort_reference(cohort_b.pk)])
-        cohort_a.save()
-
-        # Should complete without infinite loop
-        result = _load_cohorts_with_dependencies({cohort_a.pk}, self.team.project_id, DATABASE_FOR_LOCAL_EVALUATION)
-
-        assert cohort_a.pk in result
-        assert cohort_b.pk in result
-
-    def test_deleted_cohort_not_loaded(self):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="deleted-cohort",
-            filters=self._make_cohort_filter([self._make_person_property("email", "test@example.com")]),
-            deleted=True,
-        )
-
-        result = _load_cohorts_with_dependencies({cohort.pk}, self.team.project_id, DATABASE_FOR_LOCAL_EVALUATION)
-
-        # Deleted cohort should be marked as empty string
-        assert result[cohort.pk] == ""
+        flag_keys = [f["key"] for f in results[team.id]["flags"]]
+        assert "flag-ref-deleted-cohort" in flag_keys
+        assert str(cohort_id) not in results[team.id]["cohorts"]
