@@ -1409,19 +1409,22 @@ def send_error_tracking_weekly_digest() -> None:
 
     logger.info(f"Found {len(results)} teams with exceptions, fanning out digest emails")
 
-    for team_id, exception_count, ingestion_failure_count in results:
-        send_error_tracking_weekly_digest_for_team.delay(team_id, exception_count, ingestion_failure_count)
+    for team_id, exception_count, ingestion_failure_count, prev_exception_count in results:
+        send_error_tracking_weekly_digest_for_team.delay(
+            team_id, exception_count, ingestion_failure_count, prev_exception_count
+        )
 
     logger.info("Completed Error Tracking weekly digest fan-out")
 
 
 @shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
 def send_error_tracking_weekly_digest_for_team(
-    team_id: int, exception_count: int, ingestion_failure_count: int
+    team_id: int, exception_count: int, ingestion_failure_count: int, prev_exception_count: int = 0
 ) -> None:
     """Send the weekly error tracking digest email to all members of a team."""
     from products.error_tracking.backend.weekly_digest import (
         build_ingestion_failures_url,
+        compute_week_over_week_change,
         get_crash_free_sessions,
         get_daily_exception_counts,
         get_new_issues_for_team,
@@ -1454,9 +1457,9 @@ def send_error_tracking_weekly_digest_for_team(
     new_issues = get_new_issues_for_team(team)
     daily_counts = get_daily_exception_counts(team_id)
     crash_free = get_crash_free_sessions(team)
+    exception_change = compute_week_over_week_change(exception_count, prev_exception_count, higher_is_better=False)
 
-    # TODO: restore to "%Y-%W" after testing (currently allows one email per hour)
-    date_suffix = timezone.now().strftime("%Y-%W-%d-%H")
+    date_suffix = timezone.now().strftime("%Y-%W")
     error_tracking_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest"
     ingestion_failures_url = build_ingestion_failures_url(team_id)
 
@@ -1469,6 +1472,7 @@ def send_error_tracking_weekly_digest_for_team(
             template_context={
                 "team": team,
                 "exception_count": exception_count,
+                "exception_change": exception_change,
                 "ingestion_failure_count": ingestion_failure_count,
                 "top_issues": top_issues,
                 "new_issues": new_issues,

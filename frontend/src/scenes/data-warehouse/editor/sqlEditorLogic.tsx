@@ -130,7 +130,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({} as SqlEditorLogicProps),
     tabAwareScene(),
-    connect(() => ({
+    connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById'],
@@ -161,7 +161,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
-            endpointLogic,
+            endpointLogic({ tabId: props.tabId }),
             ['setIsUpdateMode', 'setSelectedEndpointName'],
         ],
     })),

@@ -110,6 +110,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
+    from posthog.admin.admins.tophog_admin import tophog_dashboard_view
 
     admin_urlpatterns = [
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
@@ -137,6 +138,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/distinct-id-usage/",
             admin.site.admin_view(distinct_id_usage_view),
             name="distinct-id-usage",
+        ),
+        path(
+            "admin/tophog/",
+            admin.site.admin_view(tophog_dashboard_view),
+            name="tophog-dashboard",
         ),
         path(
             "admin/logout/",
