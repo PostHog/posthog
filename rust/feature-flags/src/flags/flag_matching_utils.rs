@@ -359,17 +359,12 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
 
     // if we have person properties, set them
-    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
-    {
-        person_props
-            .as_object()
-            .unwrap_or(&serde_json::Map::new())
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    } else {
-        HashMap::new()
-    };
+    let mut all_person_properties: HashMap<String, Value> =
+        if let Some(Value::Object(props)) = person_props {
+            props.into_iter().collect()
+        } else {
+            HashMap::new()
+        };
 
     // Always add distinct_id to person properties to match Python implementation
     // This allows flags to filter on distinct_id even when no other person properties exist
@@ -479,17 +474,12 @@ async fn fetch_properties_via_personhog(
         }
     }
 
-    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
-    {
-        person_props
-            .as_object()
-            .unwrap_or(&serde_json::Map::new())
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    } else {
-        HashMap::new()
-    };
+    let mut all_person_properties: HashMap<String, Value> =
+        if let Some(Value::Object(props)) = person_props {
+            props.into_iter().collect()
+        } else {
+            HashMap::new()
+        };
     all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
     flag_evaluation_state.set_person_properties(all_person_properties);
 

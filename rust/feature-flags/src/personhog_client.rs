@@ -11,6 +11,7 @@ use personhog_proto::personhog::types::v1::{
 };
 use serde_json::Value;
 use tonic::transport::Channel;
+use tracing::warn;
 use tonic::Request;
 
 use crate::api::errors::FlagError;
@@ -108,10 +109,15 @@ impl PersonhogFetcher for PersonhogClient {
         Ok(Some(Person {
             id: proto_person.id,
             team_id: proto_person.team_id as i32,
-            uuid: proto_person
-                .uuid
-                .parse()
-                .unwrap_or_else(|_| uuid::Uuid::nil()),
+            uuid: proto_person.uuid.parse().unwrap_or_else(|e| {
+                warn!(
+                    person_id = proto_person.id,
+                    raw_uuid = proto_person.uuid,
+                    error = %e,
+                    "Failed to parse person UUID from personhog, falling back to nil"
+                );
+                uuid::Uuid::nil()
+            }),
             properties,
             is_identified: proto_person.is_identified,
             is_user_id: if proto_person.is_user_id {
@@ -220,8 +226,8 @@ impl PersonhogFetcher for PersonhogClient {
 
         let mut overrides = HashMap::new();
 
-        // Process results: priority is based on distinct_id order (first = highest priority)
-        // We process in reverse so highest priority (first distinct_id) writes last
+        // Priority is based on distinct_id order (first = highest priority)
+        // Process all results in reverse so later entries get overwritten
         let results = response.into_inner().results;
         for context in results.iter().rev() {
             for hash_override in &context.overrides {
@@ -232,10 +238,10 @@ impl PersonhogFetcher for PersonhogClient {
             }
         }
 
-        // Now process in forward order so the first distinct_id's overrides take precedence
-        for context in &results {
-            if !distinct_ids.is_empty() && context.distinct_id == distinct_ids[0] {
-                for hash_override in &context.overrides {
+        // Now process first distinct_id to ensure its overrides take precedence
+        if !distinct_ids.is_empty() {
+            if let Some(first_context) = results.iter().find(|c| c.distinct_id == distinct_ids[0]) {
+                for hash_override in &first_context.overrides {
                     overrides.insert(
                         hash_override.feature_flag_key.clone(),
                         hash_override.hash_key.clone(),
