@@ -8,7 +8,7 @@ from unittest import mock
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import AlertState, InsightThresholdType
+from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
@@ -119,6 +119,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
         }
@@ -145,6 +146,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "subscribed_users": [
                     self.user.id,
                 ],
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
                 "name": "alert name",
             }
@@ -163,6 +165,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
         }
@@ -193,6 +196,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
         }
@@ -238,6 +242,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
             "state": AlertState.FIRING,
@@ -261,6 +266,53 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # should also create a new alert check with resolution
         check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
         assert check.state == AlertState.SNOOZED
+
+    @parameterized.expand(
+        [
+            (
+                "invalid_condition",
+                {"condition": {"type": "bogus"}, "config": {"type": "TrendsAlertConfig", "series_index": 0}},
+                "invalid condition",
+            ),
+            (
+                "missing_config_type",
+                {"condition": {"type": AlertConditionType.ABSOLUTE_VALUE}, "config": {"series_index": 0}},
+                "unsupported alert config type",
+            ),
+            (
+                "relative_condition_on_pie_chart",
+                {
+                    "condition": {"type": AlertConditionType.RELATIVE_INCREASE},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                },
+                "not compatible with non time series",
+            ),
+            (
+                "absolute_with_percentage_threshold",
+                {
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {}}},
+                },
+                "absolute value alerts require an absolute threshold",
+            ),
+        ]
+    )
+    def test_create_alert_rejects_invalid_config(self, _name, overrides, expected_error_fragment):
+        pie_insight_data = deepcopy(self.default_insight_data)
+        pie_insight_data["query"]["trendsFilter"]["display"] = "ActionsPie"
+        pie_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=pie_insight_data).json()
+
+        creation_request = {
+            "insight": pie_insight["id"],
+            "subscribed_users": [self.user.id],
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+            **overrides,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected_error_fragment in str(response.content).lower()
 
 
 class TestAlertAPIKeyAccess(APIBaseTest):
@@ -333,6 +385,7 @@ class TestAlertAPIKeyAccess(APIBaseTest):
                 "insight": self.insight["id"],
                 "subscribed_users": [self.user.id],
                 "name": "New Alert",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             },
             HTTP_AUTHORIZATION=f"Bearer {api_key}",
