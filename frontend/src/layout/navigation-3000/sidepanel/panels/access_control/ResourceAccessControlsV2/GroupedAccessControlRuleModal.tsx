@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconHome, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonModal, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
@@ -7,115 +6,36 @@ import { LemonButton, LemonDivider, LemonDropdown, LemonModal, LemonSelect, Link
 import { toSentenceCase } from 'lib/utils'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
-import { APIScopeObject, AccessControlLevel } from '~/types'
-
 import { ScopeIcon } from './ScopeIcon'
-import {
-    AccessControlLevelMapping,
-    GroupedAccessControlRulesForm,
-    accessControlsLogic,
-    getEntryId,
-} from './accessControlsLogic'
-import {
-    getFeaturesDisabledReason,
-    getGroupedAccessControlRuleModalTitle,
-    getInheritedReasonTooltip,
-    getLevelOptionsForResource,
-    getMinLevelDisabledReason,
-    getProjectDisabledReason,
-} from './helpers'
-import { AccessControlSettingsEntry, RuleModalState, ScopeType } from './types'
+import { accessControlsLogic } from './accessControlsLogic'
+import { groupedAccessControlRuleModalLogic } from './groupedAccessControlRuleModalLogic'
+import { GroupedAccessControlRuleModalLogicProps } from './types'
 
-export function GroupedAccessControlRuleModal(props: {
-    state: RuleModalState
+export interface GroupedAccessControlRuleModalProps {
+    state: GroupedAccessControlRuleModalLogicProps
     close: () => void
-    onSave: (params: { scopeType: ScopeType; scopeId: string | null; levels: AccessControlLevelMapping[] }) => void
-    loading: boolean
-    projectId: string
-    canEdit: boolean
-}): JSX.Element | null {
-    const logic = accessControlsLogic({ projectId: props.projectId })
-    const { groupedRulesForm } = useValues(logic)
-    const { setGroupedRulesFormValues } = useActions(logic)
+}
 
-    const { scopeType, entry } = props.state
-    const scopeId = getEntryId(entry)
-
-    useEffect(() => {
-        // Initialize form with effective levels
-        const levels: AccessControlLevelMapping[] = []
-        if (entry.project.effective_access_level) {
-            levels.push({
-                resourceKey: 'project' as APIScopeObject,
-                level: entry.project.effective_access_level,
-            })
-        }
-        for (const [resource, resourceEntry] of Object.entries(entry.resources)) {
-            if (resourceEntry.effective_access_level) {
-                levels.push({
-                    resourceKey: resource as APIScopeObject,
-                    level: resourceEntry.effective_access_level,
-                })
-            }
-        }
-        setGroupedRulesFormValues({ scopeId, levels })
-    }, [entry, setGroupedRulesFormValues, scopeId])
-
-    const clearOverrides = (): void => {
-        if (props.loading) {
-            return
-        }
-        // Reset all resources to their inherited levels (clearing explicit overrides)
-        const levels: AccessControlLevelMapping[] = []
-        // Keep project level as is
-        const projectLevel = groupedRulesForm.levels.find((l) => l.resourceKey === 'project')
-        if (projectLevel) {
-            levels.push(projectLevel)
-        }
-        // Reset resources to inherited levels
-        for (const [resource, resourceEntry] of Object.entries(entry.resources)) {
-            if (resourceEntry.inherited_access_level) {
-                levels.push({
-                    resourceKey: resource as APIScopeObject,
-                    level: resourceEntry.inherited_access_level,
-                })
-            }
-        }
-        setGroupedRulesFormValues({ scopeId, levels })
-    }
-
-    const updateLevels = (levels: AccessControlLevelMapping[]): void => {
-        setGroupedRulesFormValues({ scopeId, levels })
-    }
-
-    const save = (): void => {
-        props.onSave({ scopeType, scopeId, levels: groupedRulesForm.levels })
-    }
+export function GroupedAccessControlRuleModal(props: GroupedAccessControlRuleModalProps): JSX.Element {
+    const { modalTitle, loading, canEdit } = useValues(groupedAccessControlRuleModalLogic(props.state))
+    const { save } = useActions(groupedAccessControlRuleModalLogic(props.state))
 
     return (
         <LemonModal
             isOpen={true}
-            onClose={props.loading ? undefined : props.close}
-            title={getGroupedAccessControlRuleModalTitle(scopeType)}
+            onClose={loading ? undefined : props.close}
+            title={modalTitle}
             maxWidth="32rem"
             footer={
                 <GroupedAccessControlRuleModalFooter
                     close={props.close}
-                    loading={props.loading}
-                    canEdit={props.canEdit}
+                    loading={loading}
+                    canEdit={canEdit}
                     onSave={save}
                 />
             }
         >
-            <GroupedAccessControlRuleModalContent
-                entry={entry}
-                groupedRuleForm={groupedRulesForm}
-                onUpdate={updateLevels}
-                onClear={clearOverrides}
-                loading={props.loading}
-                canEdit={props.canEdit}
-                projectId={props.projectId}
-            />
+            <GroupedAccessControlRuleModalContent logicProps={props.state} />
         </LemonModal>
     )
 }
@@ -148,28 +68,27 @@ function GroupedAccessControlRuleModalFooter(props: {
 }
 
 function GroupedAccessControlRuleModalContent(props: {
-    entry: AccessControlSettingsEntry
-    groupedRuleForm: GroupedAccessControlRulesForm
-    onUpdate: (levels: AccessControlLevelMapping[]) => void
-    onClear: () => void
-    loading: boolean
-    canEdit: boolean
-    projectId: string
+    logicProps: GroupedAccessControlRuleModalLogicProps
 }): JSX.Element {
-    const logic = accessControlsLogic({ projectId: props.projectId })
-    const { resourcesWithProject, availableProjectLevels, availableResourceLevels } = useValues(logic)
+    const { projectId } = props.logicProps
+    const {
+        loading,
+        formProjectLevel,
+        projectDisabledReason,
+        projectInheritedReasonTooltip,
+        projectLevelOptions,
+        featuresDisabledReason,
+        displayedResourceLevel,
+        isResourceLevelShowingInherited,
+        resourceInheritedReasonTooltip,
+        resourceLevelOptions,
+        showResourceAddOverrideButton,
+    } = useValues(groupedAccessControlRuleModalLogic(props.logicProps))
+    const { setProjectLevel, setResourceLevel, clearResourceOverrides } = useActions(
+        groupedAccessControlRuleModalLogic(props.logicProps)
+    )
 
-    const projectDisabledReason = getProjectDisabledReason(props.entry, props.canEdit, props.loading)
-    const featuresDisabledReason = getFeaturesDisabledReason(props.entry, props.canEdit, props.loading)
-
-    // Display the form state value for project
-    const formProjectLevel = props.groupedRuleForm.levels.find((l) => l.resourceKey === 'project')?.level
-    const displayedProjectLevel = formProjectLevel ?? props.entry.project.effective_access_level
-
-    // Prevent users from selecting project level lower than inherited level
-    const minimumProjectLevel = props.entry.project.inherited_access_level ?? undefined
-    const projectInheritedReason = props.entry.project.inherited_access_level_reason
-    const isProjectShowingInherited = displayedProjectLevel === minimumProjectLevel && minimumProjectLevel !== null
+    const { resourceKeys } = useValues(accessControlsLogic({ projectId }))
 
     return (
         <div className="space-y-4">
@@ -183,24 +102,13 @@ function GroupedAccessControlRuleModalContent(props: {
                 <div className="min-w-[8rem]">
                     <LemonSelect
                         dropdownPlacement="bottom-end"
-                        value={displayedProjectLevel}
+                        value={formProjectLevel}
                         disabledReason={projectDisabledReason}
-                        tooltip={
-                            isProjectShowingInherited ? getInheritedReasonTooltip(projectInheritedReason) : undefined
-                        }
+                        tooltip={projectInheritedReasonTooltip}
                         size="small"
                         className="w-36"
-                        onChange={(newValue) => {
-                            const newLevels = [
-                                ...props.groupedRuleForm.levels.filter((mapping) => mapping.resourceKey !== 'project'),
-                                ...(newValue ? [{ resourceKey: 'project' as APIScopeObject, level: newValue }] : []),
-                            ]
-                            props.onUpdate(newLevels)
-                        }}
-                        options={getLevelOptionsForResource(availableProjectLevels, {
-                            minimum: minimumProjectLevel,
-                            disabledReason: getMinLevelDisabledReason(minimumProjectLevel, projectInheritedReason),
-                        })}
+                        onChange={setProjectLevel}
+                        options={projectLevelOptions}
                     />
                 </div>
             </div>
@@ -214,10 +122,12 @@ function GroupedAccessControlRuleModalContent(props: {
                         to="#"
                         onClick={(e) => {
                             e.preventDefault()
-                            props.onClear()
+                            if (!loading && !featuresDisabledReason) {
+                                clearResourceOverrides()
+                            }
                         }}
                         className={
-                            props.loading || featuresDisabledReason
+                            loading || featuresDisabledReason
                                 ? 'cursor-not-allowed opacity-50 pointer-events-none'
                                 : 'cursor-pointer'
                         }
@@ -226,135 +136,75 @@ function GroupedAccessControlRuleModalContent(props: {
                     </Link>
                 </div>
 
-                {resourcesWithProject
-                    .filter((r) => r.key !== 'project')
-                    .map((resource) => {
-                        const tooltipText = getAccessControlTooltip(resource.key)
-                        const resourceEntry = props.entry.resources[resource.key]
-                        const formEntry = props.groupedRuleForm.levels.find((l) => l.resourceKey === resource.key)
-                        const hasFormEntry = formEntry !== undefined
-                        const formLevel = formEntry?.level ?? null
-                        const displayedResourceLevel = hasFormEntry
-                            ? formLevel
-                            : (resourceEntry?.effective_access_level ?? null)
-
-                        // The minimum selectable level is the higher of the resource's minimum and the inherited level
-                        const inheritedReason = resourceEntry?.inherited_access_level_reason
-                        const isOrgAdmin = inheritedReason === 'organization_admin'
-                        const inheritedLevel = resourceEntry?.inherited_access_level
-                        const resourceMinimum = resourceEntry?.minimum
-
-                        // Org admins have max access, others can't go below inherited level or the resource's minimum
-                        const minimumResourceLevel = isOrgAdmin
-                            ? (resourceEntry?.effective_access_level ?? undefined)
-                            : (inheritedLevel ?? resourceMinimum)
-
-                        const isShowingInherited = displayedResourceLevel === inheritedLevel && inheritedLevel !== null
-
-                        const resourceMinDisabledReason = isOrgAdmin
-                            ? 'User is an organization admin'
-                            : (getMinLevelDisabledReason(inheritedLevel, inheritedReason) ??
-                              getMinLevelDisabledReason(resourceMinimum, null, resource.label))
-
-                        const levelOptions = getLevelOptionsForResource(availableResourceLevels, {
-                            minimum: minimumResourceLevel,
-                            disabledReason: resourceMinDisabledReason,
-                        })
-
-                        const handleLevelChange = (newValue: AccessControlLevel | null): void => {
-                            const newLevels: AccessControlLevelMapping[] = [
-                                ...props.groupedRuleForm.levels.filter(
-                                    (mapping) => mapping.resourceKey !== resource.key
-                                ),
-                                // Always add the entry (even with null) to track user's explicit choice
-                                { resourceKey: resource.key, level: newValue },
-                            ]
-                            props.onUpdate(newLevels)
-                        }
-
-                        return (
-                            <div key={resource.key} className="flex gap-2 items-center justify-between">
-                                <div className="font-medium flex items-center gap-2">
-                                    <span className="text-lg flex items-center text-muted-alt">
-                                        <ScopeIcon scope={resource.key} />
-                                    </span>
-                                    {resource.label}
-                                    {tooltipText && (
-                                        <Tooltip title={tooltipText}>
-                                            <IconInfo className="text-sm text-muted" />
-                                        </Tooltip>
-                                    )}
-                                </div>
-                                <div className="min-w-[8rem]">
-                                    {!inheritedLevel &&
-                                    ((hasFormEntry && formLevel === null) ||
-                                        (!hasFormEntry && resourceEntry?.access_level === null)) ? (
-                                        <LemonDropdown
-                                            placement="bottom-end"
-                                            overlay={
-                                                <div className="flex flex-col">
-                                                    {levelOptions.map((option) => (
-                                                        <LemonButton
-                                                            key={option.value}
-                                                            size="small"
-                                                            className="w-36"
-                                                            fullWidth
-                                                            disabledReason={option.disabledReason}
-                                                            onClick={() => handleLevelChange(option.value)}
-                                                        >
-                                                            {option.label}
-                                                        </LemonButton>
-                                                    ))}
-                                                </div>
-                                            }
-                                        >
-                                            <LemonButton
-                                                size="small"
-                                                type="tertiary"
-                                                icon={<IconPlus />}
-                                                sideIcon={null}
-                                                disabledReason={featuresDisabledReason}
-                                                className="ml-auto w-36"
-                                            >
-                                                Add override
-                                            </LemonButton>
-                                        </LemonDropdown>
-                                    ) : (
-                                        <LemonSelect
-                                            className="w-36"
-                                            size="small"
-                                            value={displayedResourceLevel}
-                                            disabledReason={featuresDisabledReason}
-                                            tooltip={
-                                                isShowingInherited
-                                                    ? getInheritedReasonTooltip(inheritedReason)
-                                                    : undefined
-                                            }
-                                            renderButtonContent={(leaf) => {
-                                                if (isShowingInherited && inheritedLevel) {
-                                                    return toSentenceCase(inheritedLevel)
-                                                }
-                                                return leaf?.label ?? ''
-                                            }}
-                                            onChange={handleLevelChange}
-                                            options={[
-                                                // Only show "No override" if there's no inherited level
-                                                ...(inheritedLevel
-                                                    ? []
-                                                    : [
-                                                          {
-                                                              value: null as AccessControlLevel | null,
-                                                              label: 'No override',
-                                                          },
-                                                      ]),
-                                                ...levelOptions,
-                                            ]}
-                                        />
-                                    )}
-                                </div>
+                {resourceKeys.map((resource) => {
+                    const tooltipText = getAccessControlTooltip(resource.key)
+                    return (
+                        <div key={resource.key} className="flex gap-2 items-center justify-between">
+                            <div className="font-medium flex items-center gap-2">
+                                <span className="text-lg flex items-center text-muted-alt">
+                                    <ScopeIcon scope={resource.key} />
+                                </span>
+                                {resource.label}
+                                {tooltipText && (
+                                    <Tooltip title={tooltipText}>
+                                        <IconInfo className="text-sm text-muted" />
+                                    </Tooltip>
+                                )}
                             </div>
-                        )
-                    })}
+                            <div className="min-w-[8rem]">
+                                {showResourceAddOverrideButton(resource.key) ? (
+                                    <LemonDropdown
+                                        placement="bottom-end"
+                                        overlay={
+                                            <div className="flex flex-col">
+                                                {resourceLevelOptions(resource.key, resource.label).map((option) => (
+                                                    <LemonButton
+                                                        key={option.value}
+                                                        size="small"
+                                                        className="w-36"
+                                                        fullWidth
+                                                        disabledReason={option.disabledReason}
+                                                        onClick={() => setResourceLevel(resource.key, option.value)}
+                                                    >
+                                                        {option.label}
+                                                    </LemonButton>
+                                                ))}
+                                            </div>
+                                        }
+                                    >
+                                        <LemonButton
+                                            size="small"
+                                            type="tertiary"
+                                            icon={<IconPlus />}
+                                            sideIcon={null}
+                                            disabledReason={featuresDisabledReason}
+                                            className="ml-auto w-36"
+                                        >
+                                            Add override
+                                        </LemonButton>
+                                    </LemonDropdown>
+                                ) : (
+                                    <LemonSelect
+                                        className="w-36"
+                                        size="small"
+                                        value={displayedResourceLevel(resource.key)}
+                                        disabledReason={featuresDisabledReason}
+                                        tooltip={resourceInheritedReasonTooltip(resource.key)}
+                                        renderButtonContent={(leaf) => {
+                                            const level = displayedResourceLevel(resource.key)
+                                            if (isResourceLevelShowingInherited(resource.key) && level) {
+                                                return toSentenceCase(level)
+                                            }
+                                            return leaf?.label ?? ''
+                                        }}
+                                        onChange={(value) => setResourceLevel(resource.key, value)}
+                                        options={resourceLevelOptions(resource.key, resource.label)}
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    )
+                })}
             </div>
         </div>
     )

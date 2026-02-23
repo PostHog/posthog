@@ -1,5 +1,4 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
@@ -29,7 +28,7 @@ import {
     AccessControlRoleEntry,
     AccessControlSettingsEntry,
     AccessControlsTab,
-    RuleModalState,
+    GroupedAccessControlRuleModalLogicProps,
     ScopeType,
 } from './types'
 
@@ -42,30 +41,6 @@ const initialFilters: AccessControlFilters = {
     memberIds: [],
     resourceKeys: [],
     ruleLevels: [],
-}
-
-export type AccessControlLevelMapping = {
-    resourceKey: APIScopeObject
-    level: AccessControlLevel | null
-}
-
-export type GroupedAccessControlRulesForm = {
-    scopeId: string | null
-    levels: AccessControlLevelMapping[]
-}
-
-export function getEntryId(entry: AccessControlSettingsEntry): string {
-    if ('role_id' in entry) {
-        return entry.role_id
-    }
-    return entry.organization_membership_id
-}
-
-export function getEntryName(entry: AccessControlSettingsEntry): string {
-    if ('role_name' in entry) {
-        return entry.role_name
-    }
-    return entry.user.first_name || entry.user.email
 }
 
 function getEffectiveLevel(entry: AccessControlSettingsEntry, resourceKey: APIScopeObject): AccessControlLevel | null {
@@ -144,12 +119,13 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         setActiveTab: (activeTab: AccessControlsTab) => ({ activeTab }),
         setFilters: (filters: Partial<AccessControlFilters>) => ({ filters }),
         setSearchText: (searchText: string) => ({ searchText }),
-        openRuleModal: (state: RuleModalState) => ({ state }),
+        openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => ({ state }),
         closeRuleModal: true,
         saveGroupedRules: (params: {
             scopeType: ScopeType
-            scopeId: string | null
-            levels: AccessControlLevelMapping[]
+            scopeId: string
+            projectLevel: AccessControlLevel | null
+            resourceLevels: Record<APIScopeObject, AccessControlLevel | null>
         }) => params,
     }),
 
@@ -197,9 +173,12 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             },
         ],
         ruleModalState: [
-            null as RuleModalState | null,
+            null as GroupedAccessControlRuleModalLogicProps | null,
             {
-                openRuleModal: (_: RuleModalState | null, { state }: { state: RuleModalState }) => state,
+                openRuleModal: (
+                    _: GroupedAccessControlRuleModalLogicProps | null,
+                    { state }: { state: GroupedAccessControlRuleModalLogicProps }
+                ) => state,
                 closeRuleModal: () => null,
             },
         ],
@@ -318,17 +297,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
     }),
 
-    forms(() => ({
-        groupedRulesForm: {
-            defaults: {
-                scopeId: null,
-                levels: [] as AccessControlLevelMapping[],
-            } as GroupedAccessControlRulesForm,
-        },
-    })),
-
     listeners(({ actions, values }) => ({
-        saveGroupedRules: async ({ scopeType, scopeId, levels }) => {
+        saveGroupedRules: async ({ scopeType, scopeId, projectLevel, resourceLevels }) => {
             // If the selected level equals the inherited level, we save null (clear override)
             // If the selected level differs from inherited, we save it as an override
 
@@ -346,11 +316,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
             if (scopeType === 'default' && values.defaults) {
                 // For defaults, there's no inheritance
-                const projectLevel = values.defaults.project_access_level
                 entryData = {
                     project: {
-                        access_level: projectLevel,
-                        effective_access_level: projectLevel,
+                        access_level: values.defaults.project_access_level,
+                        effective_access_level: values.defaults.project_access_level,
                         inherited_access_level: null,
                     },
                     resources: Object.fromEntries(
@@ -381,20 +350,18 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 return
             }
 
-            const newLevelsMap = new Map(levels.map((l) => [l.resourceKey, l.level]))
             const updates: { resource: APIScopeObject; level: AccessControlLevel | null }[] = []
 
             // Process project
-            const newProjectLevel = newLevelsMap.get('project' as APIScopeObject) ?? null
             const currentProjectEffective = entryData.project.effective_access_level
             const currentProjectSaved = entryData.project.access_level
             const projectInherited = entryData.project.inherited_access_level
 
-            if (newProjectLevel !== currentProjectEffective) {
+            if (projectLevel !== currentProjectEffective) {
                 // User changed the level - determine what to save
                 // If new level equals inherited, save null (clear override)
                 // Otherwise save the new level
-                const levelToSave = newProjectLevel === projectInherited ? null : newProjectLevel
+                const levelToSave = projectLevel === projectInherited ? null : projectLevel
                 if (levelToSave !== currentProjectSaved) {
                     updates.push({ resource: 'project' as APIScopeObject, level: levelToSave })
                 }
@@ -403,12 +370,12 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             // Process resources
             const allResourceKeys = new Set<APIScopeObject>([
                 ...(Object.keys(entryData.resources) as APIScopeObject[]),
-                ...levels.filter((l) => l.resourceKey !== 'project').map((l) => l.resourceKey),
+                ...(Object.keys(resourceLevels) as APIScopeObject[]),
             ])
 
             for (const resourceKey of allResourceKeys) {
                 const resourceEntry = entryData.resources[resourceKey]
-                const newLevel = newLevelsMap.get(resourceKey) ?? null
+                const newLevel = resourceLevels[resourceKey] ?? null
                 const currentEffective = resourceEntry?.effective_access_level ?? null
                 const currentSaved = resourceEntry?.access_level ?? null
                 const inherited = resourceEntry?.inherited_access_level ?? null
@@ -418,7 +385,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     // Otherwise save the new level
                     const levelToSave = newLevel === inherited ? null : newLevel
                     if (levelToSave !== currentSaved) {
-                        updates.push({ resource: resourceKey as APIScopeObject, level: levelToSave })
+                        updates.push({ resource: resourceKey, level: levelToSave })
                     }
                 }
             }
@@ -429,9 +396,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             if (projectUpdate) {
                 if (scopeType === 'default') {
                     actions.updateAccessControlDefault(projectUpdate.level ?? AccessControlLevel.None)
-                } else if (scopeType === 'role' && scopeId) {
+                } else if (scopeType === 'role') {
                     actions.updateAccessControlRoles([{ role: scopeId, level: projectUpdate.level }])
-                } else if (scopeType === 'member' && scopeId) {
+                } else if (scopeType === 'member') {
                     actions.updateAccessControlMembers([{ member: scopeId, level: projectUpdate.level }])
                 }
             }

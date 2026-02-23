@@ -1,4 +1,4 @@
-import { APIScopeObject, AccessControlMembersResponse, AccessControlRolesResponse } from '~/types'
+import { APIScopeObject, AccessControlLevel, AccessControlMembersResponse, AccessControlRolesResponse } from '~/types'
 
 export type ScopeType = 'default' | 'role' | 'member'
 
@@ -9,9 +9,10 @@ export type AccessControlMemberEntry = AccessControlMembersResponse['results'][n
 
 export type AccessControlSettingsEntry = AccessControlRoleEntry | AccessControlMemberEntry
 
-export type RuleModalState = {
-    scopeType: ScopeType
+export type GroupedAccessControlRuleModalLogicProps = {
     entry: AccessControlSettingsEntry
+    scopeType: ScopeType
+    projectId: string
 }
 
 export type AccessControlsTab = 'defaults' | 'roles' | 'members'
@@ -22,3 +23,5 @@ export type AccessControlFilters = {
     resourceKeys: APIScopeObject[]
     ruleLevels: string[]
 }
+
+export type FormAccessLevel = AccessControlLevel | null // null means "no override"

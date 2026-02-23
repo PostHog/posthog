@@ -7,7 +7,7 @@ import { pluralizeResource } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject } from '~/types'
 
-import { getEntryId } from './accessControlsLogic'
+import { getEntryId } from './helpers'
 import {
     AccessControlMemberEntry,
     AccessControlRoleEntry,
@@ -108,13 +108,12 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
 function AccessSummary({ entry }: { entry: AccessControlSettingsEntry }): JSX.Element {
     const tags: { resource: string; level: string }[] = []
 
-    // Showing project effective access level
-    if (entry.project.effective_access_level) {
+    if (entry.project.effective_access_level !== null) {
         tags.push({ resource: 'project', level: entry.project.effective_access_level })
     }
 
     for (const [resource, resourceEntry] of Object.entries(entry.resources)) {
-        if (resourceEntry.effective_access_level) {
+        if (resourceEntry.effective_access_level !== null) {
             tags.push({ resource, level: resourceEntry.effective_access_level })
         }
     }

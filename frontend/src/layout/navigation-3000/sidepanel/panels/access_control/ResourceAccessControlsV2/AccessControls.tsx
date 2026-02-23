@@ -32,13 +32,12 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         loading,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal, saveGroupedRules } =
-        useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal } = useActions(logic)
 
     const scopeType = activeTab === 'roles' ? 'role' : 'member'
 
     const handleEdit = (entry: AccessControlSettingsEntry): void => {
-        openRuleModal({ scopeType, entry })
+        openRuleModal({ scopeType, entry, projectId })
     }
 
     return (
@@ -87,16 +86,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                 </AccessControlTabContainer>
             </div>
 
-            {ruleModalState && (
-                <GroupedAccessControlRuleModal
-                    state={ruleModalState}
-                    close={closeRuleModal}
-                    loading={loading}
-                    projectId={projectId}
-                    canEdit={canEdit}
-                    onSave={saveGroupedRules}
-                />
-            )}
+            {ruleModalState && <GroupedAccessControlRuleModal state={ruleModalState} close={closeRuleModal} />}
         </>
     )
 }
