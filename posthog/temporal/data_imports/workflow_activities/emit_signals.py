@@ -20,7 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.data_imports.signals import SignalEmitter, SignalSourceTableConfig, get_signal_config
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 

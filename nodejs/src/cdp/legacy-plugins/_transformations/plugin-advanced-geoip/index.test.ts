@@ -1,6 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { createPageview, resetMeta } from '@posthog/plugin-scaffold/test/utils'
+import { PluginEvent } from '~/plugin-scaffold'
 
+import { createPageview, resetMeta } from '../../test-utils'
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 
