@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { IconGear, IconMessage, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonInput,
     LemonModal,
+    LemonSearchableSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -55,9 +56,9 @@ function RateLimitBanner(): JSX.Element | null {
 
     return (
         <LemonBanner type="warning" className="mb-4">
-            You've hit our playground request limit. You can make another request in{' '}
+            You've hit the playground request limit for shared keys. You can make another request in{' '}
             <strong>{humanFriendlyDuration(Math.ceil((rateLimitedUntil - Date.now()) / 1000), { maxUnits: 1 })}</strong>
-            . We're working on bring-your-own-key and other improvements to remove this limit.
+            .
         </LemonBanner>
     )
 }
@@ -512,12 +513,39 @@ function ConfigurationPanel(): JSX.Element {
     const { setMaxTokens, setThinking, setReasoningLevel, setModel, loadModelOptions } =
         useActions(llmAnalyticsPlaygroundLogic)
 
-    const handleThinkingToggle = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        setThinking(e.target.checked)
-    }
-
     const options = Array.isArray(modelOptions) ? modelOptions : []
     const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
+
+    const groupedModelOptions = useMemo(() => {
+        const modelsByProvider = options.reduce(
+            (acc, option) => {
+                const provider = option.provider || 'Unknown'
+                if (!acc[provider]) {
+                    acc[provider] = []
+                }
+                acc[provider].push(option)
+                return acc
+            },
+            {} as Record<string, ModelOption[]>
+        )
+
+        const entries = Object.entries(modelsByProvider) as [string, ModelOption[]][]
+
+        return entries
+            .sort(([providerA], [providerB]) => providerA.localeCompare(providerB))
+            .map(([provider, providerModels]) => ({
+                title: provider,
+                options: providerModels
+                    .slice()
+                    .sort((a: ModelOption, b: ModelOption) => b.name.localeCompare(a.name))
+                    .map((option: ModelOption) => ({
+                        label: option.name,
+                        value: option.id,
+                        provider: option.provider,
+                        tooltip: option.description || `Provider: ${option.provider}`,
+                    })),
+            }))
+    }, [options])
 
     return (
         <div className="space-y-4">
@@ -526,26 +554,28 @@ function ConfigurationPanel(): JSX.Element {
                 {modelOptionsLoading && !options.length ? (
                     <LemonSkeleton className="h-10" />
                 ) : (
-                    <LemonSelect
+                    <LemonSearchableSelect
                         className="w-full"
                         placeholder="Select model"
                         value={model}
                         onChange={(value) => setModel(value)}
-                        options={options.map((option: ModelOption) => ({
-                            label: `${option.name} (${option.provider})`,
-                            value: option.id,
-                            tooltip: option.description || `Provider: ${option.provider}`,
-                        }))}
+                        options={groupedModelOptions}
+                        searchPlaceholder="Search models..."
+                        searchKeys={['label', 'value', 'provider']}
                         loading={modelOptionsLoading}
-                        disabled={modelOptionsLoading || options.length === 0}
+                        disabledReason={
+                            modelOptionsLoading
+                                ? 'Loading models...'
+                                : options.length === 0
+                                  ? 'No models available'
+                                  : undefined
+                        }
                         data-attr="playground-model-selector"
                     />
                 )}
                 {options.length === 0 && !modelOptionsLoading && (
                     <div className="mt-1">
-                        <p className="text-xs text-danger">
-                            {errorMessage || 'No models available. Check proxy status.'}
-                        </p>
+                        <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
                         <button
                             type="button"
                             className="text-xs text-link mt-1 underline"
@@ -571,18 +601,14 @@ function ConfigurationPanel(): JSX.Element {
                 <div className="text-xs text-muted mt-1">Leave empty to use model's default max tokens</div>
             </div>
 
-            <div className="flex items-center space-x-2">
-                <input
-                    id="thinkingToggle"
-                    type="checkbox"
-                    className="rounded text-primary focus:ring-primary"
-                    checked={thinking}
-                    onChange={handleThinkingToggle}
-                />
-                <label htmlFor="thinkingToggle" className="text-sm font-medium">
-                    Enable thinking/reasoning stream (if supported)
-                </label>
-            </div>
+            <LemonSwitch
+                bordered
+                checked={thinking}
+                onChange={setThinking}
+                label="Thinking"
+                size="small"
+                tooltip="Enable thinking/reasoning stream (if supported)"
+            />
 
             <div>
                 <label className="font-semibold mb-1 block text-sm">Reasoning level (optional)</label>
