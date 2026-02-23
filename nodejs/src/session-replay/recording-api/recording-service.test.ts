@@ -102,7 +102,10 @@ describe('RecordingService', () => {
                 transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
             }
             mockS3Send.mockResolvedValue({ Body: mockBody })
-            mockDecryptor.decryptBlock.mockResolvedValue(Buffer.from('decrypted data'))
+            mockDecryptor.decryptBlock.mockResolvedValue({
+                data: Buffer.from('decrypted data'),
+                sessionState: 'ciphertext',
+            })
 
             const result = await service.getBlock(validParams)
 
@@ -171,7 +174,7 @@ describe('RecordingService', () => {
                 transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
             }
             mockS3Send.mockResolvedValue({ Body: mockBody })
-            mockDecryptor.decryptBlock.mockResolvedValue(Buffer.from('data'))
+            mockDecryptor.decryptBlock.mockResolvedValue({ data: Buffer.from('data'), sessionState: 'ciphertext' })
 
             await service.getBlock(validParams)
 

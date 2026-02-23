@@ -21,7 +21,14 @@ export function createMockKeyStore(): jest.Mocked<KeyStore> {
 export function createMockEncryptor(): jest.Mocked<RecordingEncryptor> {
     return {
         start: jest.fn().mockResolvedValue(undefined),
-        encryptBlock: jest.fn().mockImplementation((_sessionId, _teamId, buffer) => Promise.resolve(buffer)),
-        encryptBlockWithKey: jest.fn().mockImplementation((_sessionId, _teamId, buffer, _sessionKey) => buffer),
+        encryptBlock: jest
+            .fn()
+            .mockImplementation((_sessionId, _teamId, buffer) =>
+                Promise.resolve({ data: buffer, sessionState: 'cleartext' })
+            ),
+        encryptBlockWithKey: jest.fn().mockImplementation((_sessionId, _teamId, buffer, _sessionKey) => ({
+            data: buffer,
+            sessionState: 'cleartext',
+        })),
     } as unknown as jest.Mocked<RecordingEncryptor>
 }

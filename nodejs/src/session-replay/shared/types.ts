@@ -70,9 +70,9 @@ export interface KeyStore {
 export interface RecordingEncryptor {
     start(): Promise<void>
     /** Encrypt a block, fetching the session key automatically */
-    encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
+    encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<EncryptResult>
     /** Encrypt a block with a pre-fetched session key */
-    encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
+    encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): EncryptResult
 }
 
 /**
@@ -82,15 +82,25 @@ export interface RecordingEncryptor {
 export interface RecordingDecryptor {
     start(): Promise<void>
     /** Decrypt a block, fetching the session key automatically */
-    decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
+    decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<DecryptResult>
     /** Decrypt a block with a pre-fetched session key */
-    decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
+    decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): DecryptResult
 }
 
 /**
  * Error thrown when attempting to access a crypto-shredded session.
  * The recording data still exists but is permanently unreadable.
  */
+export interface EncryptResult {
+    data: Buffer
+    sessionState: SessionState
+}
+
+export interface DecryptResult {
+    data: Buffer
+    sessionState: SessionState
+}
+
 export class SessionKeyDeletedError extends Error {
     public readonly deletedAt?: number
 

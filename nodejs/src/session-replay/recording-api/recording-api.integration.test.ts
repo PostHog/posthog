@@ -103,7 +103,7 @@ describe('Recording API encryption integration', () => {
                 const sessionKey = await keyStore.generateKey(sessionId, teamId)
 
                 const blockData = await createBlockData(originalEvents)
-                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
                 // Encrypted data should be different from original
                 expect(encrypted.equals(blockData)).toBe(false)
@@ -112,10 +112,11 @@ describe('Recording API encryption integration', () => {
                 expect(encrypted.length).toBeGreaterThan(blockData.length)
 
                 // Decrypt
-                const decrypted = await decryptor.decryptBlock(sessionId, teamId, encrypted)
+                const { data: decrypted, sessionState } = await decryptor.decryptBlock(sessionId, teamId, encrypted)
 
                 // Decrypted data should match original
                 expect(decrypted.equals(blockData)).toBe(true)
+                expect(sessionState).toBe('ciphertext')
 
                 // Parse and verify events
                 const events = await parseBlockData(decrypted)
@@ -136,8 +137,8 @@ describe('Recording API encryption integration', () => {
                 // Generate key first
                 const sessionKey = await keyStore.generateKey(sessionId, teamId)
 
-                const encrypted1 = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
-                const encrypted2 = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                const { data: encrypted1 } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                const { data: encrypted2 } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
                 // Extract nonces (first NONCEBYTES of each encrypted block)
                 const nonce1 = encrypted1.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
@@ -147,9 +148,9 @@ describe('Recording API encryption integration', () => {
                 expect(Buffer.compare(nonce1, nonce2)).not.toBe(0)
 
                 // Both should decrypt to same content
-                const decrypted1 = await decryptor.decryptBlock(sessionId, teamId, encrypted1)
-                const decrypted2 = await decryptor.decryptBlock(sessionId, teamId, encrypted2)
-                expect(decrypted1.equals(decrypted2)).toBe(true)
+                const result1 = await decryptor.decryptBlock(sessionId, teamId, encrypted1)
+                const result2 = await decryptor.decryptBlock(sessionId, teamId, encrypted2)
+                expect(result1.data.equals(result2.data)).toBe(true)
             })
 
             it('should use different keys for different sessions', async () => {
@@ -164,15 +165,25 @@ describe('Recording API encryption integration', () => {
                 const keyA = await keyStore.generateKey(`session-a-${timestamp}`, 42)
                 const keyB = await keyStore.generateKey(`session-b-${timestamp}`, 42)
 
-                const encrypted1 = encryptor.encryptBlockWithKey(`session-a-${timestamp}`, 42, blockData, keyA)
-                const encrypted2 = encryptor.encryptBlockWithKey(`session-b-${timestamp}`, 42, blockData, keyB)
+                const { data: encrypted1 } = encryptor.encryptBlockWithKey(
+                    `session-a-${timestamp}`,
+                    42,
+                    blockData,
+                    keyA
+                )
+                const { data: encrypted2 } = encryptor.encryptBlockWithKey(
+                    `session-b-${timestamp}`,
+                    42,
+                    blockData,
+                    keyB
+                )
 
                 // Decrypt with correct keys
-                const decrypted1 = await decryptor.decryptBlock(`session-a-${timestamp}`, 42, encrypted1)
-                const decrypted2 = await decryptor.decryptBlock(`session-b-${timestamp}`, 42, encrypted2)
+                const result1 = await decryptor.decryptBlock(`session-a-${timestamp}`, 42, encrypted1)
+                const result2 = await decryptor.decryptBlock(`session-b-${timestamp}`, 42, encrypted2)
 
-                expect(decrypted1.equals(blockData)).toBe(true)
-                expect(decrypted2.equals(blockData)).toBe(true)
+                expect(result1.data.equals(blockData)).toBe(true)
+                expect(result2.data.equals(blockData)).toBe(true)
 
                 // Cross-decryption should fail (using wrong key)
                 expect(() => {
@@ -192,15 +203,15 @@ describe('Recording API encryption integration', () => {
                 const key1 = await keyStore.generateKey(sessionId, 1)
                 const key2 = await keyStore.generateKey(sessionId, 2)
 
-                const encryptedTeam1 = encryptor.encryptBlockWithKey(sessionId, 1, blockData, key1)
-                const encryptedTeam2 = encryptor.encryptBlockWithKey(sessionId, 2, blockData, key2)
+                const { data: encryptedTeam1 } = encryptor.encryptBlockWithKey(sessionId, 1, blockData, key1)
+                const { data: encryptedTeam2 } = encryptor.encryptBlockWithKey(sessionId, 2, blockData, key2)
 
                 // Decrypt with correct team
-                const decryptedTeam1 = await decryptor.decryptBlock(sessionId, 1, encryptedTeam1)
-                const decryptedTeam2 = await decryptor.decryptBlock(sessionId, 2, encryptedTeam2)
+                const resultTeam1 = await decryptor.decryptBlock(sessionId, 1, encryptedTeam1)
+                const resultTeam2 = await decryptor.decryptBlock(sessionId, 2, encryptedTeam2)
 
-                expect(decryptedTeam1.equals(blockData)).toBe(true)
-                expect(decryptedTeam2.equals(blockData)).toBe(true)
+                expect(resultTeam1.data.equals(blockData)).toBe(true)
+                expect(resultTeam2.data.equals(blockData)).toBe(true)
 
                 // Cross-team decryption should fail
                 expect(() => {
@@ -223,11 +234,11 @@ describe('Recording API encryption integration', () => {
                 const sessionKey = await keyStore.generateKey(sessionId, teamId)
 
                 // Encrypt
-                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
                 // Verify decryption works before deletion
-                const decryptedBefore = await decryptor.decryptBlock(sessionId, teamId, encrypted)
-                expect(decryptedBefore.equals(blockData)).toBe(true)
+                const resultBefore = await decryptor.decryptBlock(sessionId, teamId, encrypted)
+                expect(resultBefore.data.equals(blockData)).toBe(true)
 
                 // Delete the key
                 const deleteResult = await keyStore.deleteKey(sessionId, teamId)
@@ -305,7 +316,7 @@ describe('Recording API encryption integration', () => {
                 for (const sessionId of sessions) {
                     const sessionKey = await keyStore.generateKey(sessionId, teamId)
                     const blockData = await createBlockData([{ type: 2, data: { session: sessionId } }])
-                    encrypted[sessionId] = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                    encrypted[sessionId] = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey).data
                 }
 
                 // Delete some sessions
@@ -314,8 +325,8 @@ describe('Recording API encryption integration', () => {
 
                 // Verify kept sessions are still decryptable
                 for (const sessionId of [`keep-1-${timestamp}`, `keep-2-${timestamp}`]) {
-                    const decrypted = await decryptor.decryptBlock(sessionId, teamId, encrypted[sessionId])
-                    const events = await parseBlockData(decrypted)
+                    const result = await decryptor.decryptBlock(sessionId, teamId, encrypted[sessionId])
+                    const events = await parseBlockData(result.data)
                     expect(events[0][1]).toEqual({ type: 2, data: { session: sessionId } })
                 }
 
@@ -356,12 +367,12 @@ describe('Recording API encryption integration', () => {
                 const blockData = await createBlockData(largeEvents)
                 expect(blockData.length).toBeGreaterThan(50000) // Should be substantial
 
-                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
-                const decrypted = await decryptor.decryptBlock(sessionId, teamId, encrypted)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                const result = await decryptor.decryptBlock(sessionId, teamId, encrypted)
 
-                expect(decrypted.equals(blockData)).toBe(true)
+                expect(result.data.equals(blockData)).toBe(true)
 
-                const events = await parseBlockData(decrypted)
+                const events = await parseBlockData(result.data)
                 expect(events).toHaveLength(100)
             })
         })
@@ -403,11 +414,13 @@ describe('Recording API encryption integration', () => {
                     sessionState: 'cleartext',
                 }
 
-                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, cleartextKey)
-                expect(encrypted.equals(blockData)).toBe(true)
+                const encryptResult = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, cleartextKey)
+                expect(encryptResult.data.equals(blockData)).toBe(true)
+                expect(encryptResult.sessionState).toBe('cleartext')
 
-                const decrypted = decryptor.decryptBlockWithKey(sessionId, teamId, encrypted, cleartextKey)
-                expect(decrypted.equals(blockData)).toBe(true)
+                const decryptResult = decryptor.decryptBlockWithKey(sessionId, teamId, encryptResult.data, cleartextKey)
+                expect(decryptResult.data.equals(blockData)).toBe(true)
+                expect(decryptResult.sessionState).toBe('cleartext')
             })
         })
     })
@@ -678,7 +691,7 @@ describe('Recording API encryption integration', () => {
 
                 const sessionKey = await keyStore.generateKey(sessionId, teamId)
                 const blockData = await createBlockData(originalEvents)
-                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
                 const s3Key = `${S3_PREFIX}/30d/1700000000-abcdef0123456789`
                 await s3Client.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: s3Key, Body: encrypted }))
@@ -706,7 +719,7 @@ describe('Recording API encryption integration', () => {
 
                 const sessionKey = await keyStore.generateKey(sessionId, teamId)
                 const blockData = await createBlockData([{ type: 2, data: { content: 'secret' } }])
-                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
                 const s3Key = `${S3_PREFIX}/30d/1700000001-abcdef0123456789`
                 await s3Client.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: s3Key, Body: encrypted }))
@@ -778,7 +791,7 @@ describe('Recording API encryption integration', () => {
 
                 const sessionKey = await keyStore.generateKey(sessionId, teamId)
                 const blockData = await createBlockData(originalEvents)
-                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
                 mockS3Send.mockResolvedValue({
                     Body: { transformToByteArray: () => Promise.resolve(encrypted) },
@@ -804,7 +817,7 @@ describe('Recording API encryption integration', () => {
 
                 const sessionKey = await keyStore.generateKey(sessionId, teamId)
                 const blockData = await createBlockData([{ type: 2, data: { content: 'secret' } }])
-                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
                 await keyStore.deleteKey(sessionId, teamId)
 
@@ -924,11 +937,11 @@ describe('Recording API encryption integration', () => {
 
             const sessionKey = await cachedKeyStore.generateKey(sessionId, teamId)
             const blockData = await createBlockData([{ type: 2, data: { content: 'cached' } }])
-            const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+            const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
             // Populate cache via decrypt
-            const decrypted = await decryptor.decryptBlock(sessionId, teamId, encrypted)
-            expect(decrypted.equals(blockData)).toBe(true)
+            const result = await decryptor.decryptBlock(sessionId, teamId, encrypted)
+            expect(result.data.equals(blockData)).toBe(true)
 
             // Delete through cache
             await cachedKeyStore.deleteKey(sessionId, teamId)
