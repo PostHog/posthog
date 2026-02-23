@@ -5,6 +5,7 @@ import hashlib
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
@@ -28,7 +29,7 @@ class TestTwigEventHandler(TestCase):
         self.client = APIClient()
         self.signing_secret = "twig-test-secret"
 
-    def _post_event(self, payload: dict) -> object:
+    def _post_event(self, payload: dict, **extra_headers) -> object:
         body = json.dumps(payload).encode()
         signature, ts = _sign_request(body, self.signing_secret)
         return self.client.post(
@@ -37,6 +38,7 @@ class TestTwigEventHandler(TestCase):
             content_type="application/json",
             HTTP_X_SLACK_SIGNATURE=signature,
             HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            **extra_headers,
         )
 
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
@@ -71,6 +73,7 @@ class TestTwigEventHandler(TestCase):
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
     def test_event_callback_routes(self, mock_config, mock_route):
         mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_route.return_value = "handled_locally"
         payload = {
             "type": "event_callback",
             "team_id": "T12345",
@@ -84,9 +87,49 @@ class TestTwigEventHandler(TestCase):
         response = self.client.get("/slack/twig-event-callback/")
         assert response.status_code == 405
 
+    @patch("products.slack_app.backend.api.route_twig_event_to_relevant_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    def test_non_app_mention_event_is_ignored(self, mock_config, mock_route):
+        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        payload = {
+            "type": "event_callback",
+            "team_id": "T12345",
+            "event": {"type": "message", "text": "hello", "channel": "C001", "user": "U123", "ts": "1234.5678"},
+        }
+        response = self._post_event(payload)
+        assert response.status_code == 202
+        mock_route.assert_not_called()
+
+    @patch("products.slack_app.backend.api.route_twig_event_to_relevant_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    def test_proxy_failure_returns_502(self, mock_config, mock_route):
+        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_route.return_value = "proxy_failed"
+        payload = {
+            "type": "event_callback",
+            "team_id": "T12345",
+            "event": {"type": "app_mention", "text": "hello", "channel": "C001", "user": "U123", "ts": "1234.5678"},
+        }
+        response = self._post_event(payload)
+        assert response.status_code == 502
+
+    @patch("products.slack_app.backend.api.route_twig_event_to_relevant_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    def test_no_integration_still_returns_202(self, mock_config, mock_route):
+        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_route.return_value = "no_integration"
+        payload = {
+            "type": "event_callback",
+            "team_id": "T_UNKNOWN",
+            "event": {"type": "app_mention", "text": "hello", "channel": "C001", "user": "U123", "ts": "1234.5678"},
+        }
+        response = self._post_event(payload)
+        assert response.status_code == 202
+
 
 class TestHandleTwigAppMention(TestCase):
     def setUp(self):
+        cache.clear()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create(email="dev@example.com", distinct_id="user-1")
@@ -106,13 +149,15 @@ class TestHandleTwigAppMention(TestCase):
             sensitive_config={"access_token": "ghp-test"},
         )
 
-    def _make_event(self, text: str = "<@UBOT> fix the bug", thread_ts: str | None = None) -> dict:
-        event = {
+    def _make_event(
+        self, text: str = "<@UBOT> fix the bug", thread_ts: str | None = None, ts: str = "1234.5678"
+    ) -> dict:
+        event: dict = {
             "type": "app_mention",
             "channel": "C001",
             "user": "U123",
             "text": text,
-            "ts": "1234.5678",
+            "ts": ts,
         }
         if thread_ts:
             event["thread_ts"] = thread_ts
@@ -137,7 +182,7 @@ class TestHandleTwigAppMention(TestCase):
 
         from products.slack_app.backend.api import handle_twig_app_mention
 
-        handle_twig_app_mention(self._make_event(), self.twig_integration)
+        handle_twig_app_mention(self._make_event(ts="1.001"), self.twig_integration)
 
         mock_task_class.create_and_run.assert_called_once()
         call_kwargs = mock_task_class.create_and_run.call_args.kwargs
@@ -163,7 +208,7 @@ class TestHandleTwigAppMention(TestCase):
 
         from products.slack_app.backend.api import handle_twig_app_mention
 
-        handle_twig_app_mention(self._make_event(), self.twig_integration)
+        handle_twig_app_mention(self._make_event(ts="2.002"), self.twig_integration)
 
         mock_client.chat_postMessage.assert_called_once()
         call_text = mock_client.chat_postMessage.call_args.kwargs["text"]
@@ -178,7 +223,7 @@ class TestHandleTwigAppMention(TestCase):
 
         from products.slack_app.backend.api import handle_twig_app_mention
 
-        handle_twig_app_mention(self._make_event(), self.twig_integration)
+        handle_twig_app_mention(self._make_event(ts="3.003"), self.twig_integration)
 
         mock_client.auth_test.assert_not_called()
 
@@ -204,12 +249,65 @@ class TestHandleTwigAppMention(TestCase):
 
         from products.slack_app.backend.api import handle_twig_app_mention
 
-        handle_twig_app_mention(self._make_event(), self.twig_integration)
+        handle_twig_app_mention(self._make_event(ts="4.004"), self.twig_integration)
 
         mock_client.chat_postMessage.assert_called_once()
         call_kwargs = mock_client.chat_postMessage.call_args.kwargs
-        assert call_kwargs["thread_ts"] == "1234.5678"
+        assert call_kwargs["thread_ts"] == "4.004"
         assert "internal error" in call_kwargs["text"].lower()
+
+    @patch("products.tasks.backend.models.Task")
+    @patch("products.slack_app.backend.api.guess_repository")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.WebClient")
+    def test_threaded_mention_carries_user_message_ts(
+        self, mock_webclient_class, mock_resolve, mock_guess, mock_task_class
+    ):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.auth_test.return_value = {"bot_id": "B001", "user_id": "UBOT"}
+        mock_client.conversations_replies.return_value = {
+            "messages": [{"user": "U123", "text": "<@UBOT> fix the bug", "ts": "9999.0001"}]
+        }
+
+        from products.slack_app.backend.api import SlackUserContext
+
+        mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
+        mock_guess.return_value = ["posthog/posthog-js"]
+
+        from products.slack_app.backend.api import handle_twig_app_mention
+
+        event = self._make_event(ts="9999.0001", thread_ts="8888.0000")
+        handle_twig_app_mention(event, self.twig_integration)
+
+        mock_task_class.create_and_run.assert_called_once()
+        context = mock_task_class.create_and_run.call_args.kwargs["slack_thread_context"]
+        assert context.thread_ts == "8888.0000"
+        assert context.user_message_ts == "9999.0001"
+
+    def test_idempotency_guard_prevents_duplicate(self):
+        from products.slack_app.backend.api import handle_twig_app_mention
+
+        event = self._make_event(ts="5.005")
+
+        with patch("products.slack_app.backend.api.cache") as mock_cache:
+            mock_cache.add.return_value = False
+
+            with patch("products.slack_app.backend.api.resolve_slack_user") as mock_resolve:
+                handle_twig_app_mention(event, self.twig_integration)
+                mock_resolve.assert_not_called()
+
+    @patch("products.slack_app.backend.api.logger")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.WebClient")
+    def test_outer_exception_is_caught(self, mock_webclient_class, mock_resolve, mock_logger):
+        mock_resolve.side_effect = RuntimeError("unexpected")
+
+        from products.slack_app.backend.api import handle_twig_app_mention
+
+        handle_twig_app_mention(self._make_event(ts="6.006"), self.twig_integration)
+
+        mock_logger.exception.assert_any_call("twig_app_mention_failed", error="unexpected")
 
 
 class TestRouteTwigEventToRelevantRegion(TestCase):
@@ -225,37 +323,55 @@ class TestRouteTwigEventToRelevantRegion(TestCase):
         )
         self.event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678"}
 
-    @patch("products.slack_app.backend.api.handle_twig_app_mention")
+    @patch("products.slack_app.backend.tasks.process_twig_mention.delay")
     @override_settings(DEBUG=False)
-    def test_handles_locally_when_integration_found(self, mock_handle):
+    def test_local_match_dispatches_celery_task(self, mock_delay):
         request = self.factory.post("/slack/twig-event-callback/", HTTP_HOST="eu.posthog.com")
 
-        from products.slack_app.backend.api import route_twig_event_to_relevant_region
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_twig_event_to_relevant_region
 
-        route_twig_event_to_relevant_region(request, self.event, "T12345")
+        result = route_twig_event_to_relevant_region(request, self.event, "T12345")
 
-        mock_handle.assert_called_once_with(self.event, self.twig_integration)
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_delay.assert_called_once_with(self.event, self.twig_integration.id)
 
     @patch("products.slack_app.backend.api.proxy_slack_event_to_secondary_region")
+    @patch("products.slack_app.backend.api.SLACK_PRIMARY_REGION_DOMAIN", "eu.posthog.com")
     @override_settings(DEBUG=False)
     def test_proxies_to_secondary_when_no_integration_in_primary(self, mock_proxy):
+        mock_proxy.return_value = True
         request = self.factory.post("/slack/twig-event-callback/", HTTP_HOST="eu.posthog.com")
 
-        from products.slack_app.backend.api import route_twig_event_to_relevant_region
+        from products.slack_app.backend.api import ROUTE_PROXIED, route_twig_event_to_relevant_region
 
-        route_twig_event_to_relevant_region(request, self.event, "T_UNKNOWN")
+        result = route_twig_event_to_relevant_region(request, self.event, "T_UNKNOWN")
 
+        assert result == ROUTE_PROXIED
         mock_proxy.assert_called_once_with(request)
 
-    @patch("products.slack_app.backend.api.handle_twig_app_mention")
+    @patch("products.slack_app.backend.api.proxy_slack_event_to_secondary_region")
+    @patch("products.slack_app.backend.api.SLACK_PRIMARY_REGION_DOMAIN", "eu.posthog.com")
+    @override_settings(DEBUG=False)
+    def test_proxy_failure_returns_proxy_failed(self, mock_proxy):
+        mock_proxy.return_value = False
+        request = self.factory.post("/slack/twig-event-callback/", HTTP_HOST="eu.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_PROXY_FAILED, route_twig_event_to_relevant_region
+
+        result = route_twig_event_to_relevant_region(request, self.event, "T_UNKNOWN")
+
+        assert result == ROUTE_PROXY_FAILED
+
+    @patch("products.slack_app.backend.tasks.process_twig_mention.delay")
     @patch("products.slack_app.backend.api.proxy_slack_event_to_secondary_region")
     @override_settings(DEBUG=False)
-    def test_stops_when_no_integration_in_secondary(self, mock_proxy, mock_handle):
+    def test_no_integration_in_secondary_returns_no_integration(self, mock_proxy, mock_delay):
         request = self.factory.post("/slack/twig-event-callback/", HTTP_HOST="us.posthog.com")
 
-        from products.slack_app.backend.api import route_twig_event_to_relevant_region
+        from products.slack_app.backend.api import ROUTE_NO_INTEGRATION, route_twig_event_to_relevant_region
 
-        route_twig_event_to_relevant_region(request, self.event, "T_UNKNOWN")
+        result = route_twig_event_to_relevant_region(request, self.event, "T_UNKNOWN")
 
-        mock_handle.assert_not_called()
+        assert result == ROUTE_NO_INTEGRATION
+        mock_delay.assert_not_called()
         mock_proxy.assert_not_called()

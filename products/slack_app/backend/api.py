@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
+from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -38,6 +39,11 @@ from ee.models.assistant import Conversation
 logger = structlog.get_logger(__name__)
 
 HANDLED_EVENT_TYPES = ["app_mention"]
+
+ROUTE_HANDLED_LOCALLY = "handled_locally"
+ROUTE_PROXIED = "proxied"
+ROUTE_PROXY_FAILED = "proxy_failed"
+ROUTE_NO_INTEGRATION = "no_integration"
 
 
 @dataclass
@@ -137,11 +143,14 @@ if settings.DEBUG:
 def route_slack_event_to_relevant_region(request: HttpRequest, event: dict, slack_team_id: str) -> None:
     """Handle app_mention events - when the bot is @mentioned."""
     # Find a Slack integration for this workspace
-    integration = (
+    integrations = list(
         Integration.objects.filter(kind="slack", integration_id=slack_team_id)
         .select_related("team", "team__organization")
-        .first()
+        .order_by("id")[:2]
     )
+    if len(integrations) > 1:
+        logger.warning("slack_multiple_integrations", slack_team_id=slack_team_id)
+    integration = integrations[0] if integrations else None
     if integration and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         # We're in the right region
         if event.get("type") == "app_mention":
@@ -156,7 +165,7 @@ def route_slack_event_to_relevant_region(request: HttpRequest, event: dict, slac
         return
 
 
-def proxy_slack_event_to_secondary_region(request: HttpRequest) -> None:
+def proxy_slack_event_to_secondary_region(request: HttpRequest) -> bool:
     parsed_url = urlparse(request.build_absolute_uri())
     target_url = urlunparse(parsed_url._replace(netloc=SLACK_SECONDARY_REGION_DOMAIN))
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
@@ -170,9 +179,19 @@ def proxy_slack_event_to_secondary_region(request: HttpRequest) -> None:
             data=request.body or None,
             timeout=3,
         )
-        logger.warning("slack_app_proxy_to_secondary_region", target_url=target_url, status_code=response.status_code)
+        if 200 <= response.status_code < 300:
+            logger.info("slack_app_proxy_to_secondary_region", target_url=target_url, status_code=response.status_code)
+            return True
+
+        logger.warning(
+            "slack_app_proxy_to_secondary_region_non_success",
+            target_url=target_url,
+            status_code=response.status_code,
+        )
+        return False
     except requests.RequestException as exc:
         logger.exception("slack_app_proxy_to_secondary_region_failed", error=str(exc), target_url=target_url)
+        return False
 
 
 def handle_app_mention(event: dict, integration: Integration) -> None:
@@ -558,20 +577,28 @@ def guess_repository(
 
 def route_twig_event_to_relevant_region(
     request: HttpRequest, event: dict, slack_team_id: str, integration_kind: str = "slack-twig"
-) -> None:
-    integration = (
+) -> str:
+    integrations = list(
         Integration.objects.filter(kind=integration_kind, integration_id=slack_team_id)
         .select_related("team", "team__organization")
-        .first()
+        .order_by("id")[:2]
     )
+    if len(integrations) > 1:
+        logger.warning("twig_multiple_integrations", slack_team_id=slack_team_id)
+    integration = integrations[0] if integrations else None
 
     if integration and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event.get("type") == "app_mention":
-            handle_twig_app_mention(event, integration)
+            from products.slack_app.backend.tasks import process_twig_mention
+
+            process_twig_mention.delay(event, integration.id)
+        return ROUTE_HANDLED_LOCALLY
     elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
-        proxy_slack_event_to_secondary_region(request)
+        success = proxy_slack_event_to_secondary_region(request)
+        return ROUTE_PROXIED if success else ROUTE_PROXY_FAILED
     else:
         logger.warning("twig_no_integration_found", slack_team_id=slack_team_id)
+        return ROUTE_NO_INTEGRATION
 
 
 def handle_twig_app_mention(event: dict, integration: Integration) -> None:
@@ -586,6 +613,12 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
 
     slack_user_id = event.get("user")
     if not slack_user_id:
+        return
+
+    event_ts = event.get("ts", "")
+    dedup_key = f"twig_mention:{integration.integration_id}:{channel}:{event_ts}"
+    if not cache.add(dedup_key, True, timeout=300):
+        logger.info("twig_mention_dedup", dedup_key=dedup_key)
         return
 
     logger.info(
@@ -641,6 +674,7 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
             integration_id=integration.id,
             channel=channel,
             thread_ts=thread_ts,
+            user_message_ts=event.get("ts"),
         )
 
         try:
@@ -661,11 +695,14 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
                 channel=channel,
                 thread_ts=thread_ts,
             )
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
-            )
+            try:
+                slack.client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
+                )
+            except Exception:
+                logger.warning("twig_error_notification_failed", channel=channel, thread_ts=thread_ts)
             return
 
         logger.info(
@@ -694,6 +731,7 @@ def twig_event_handler(request: HttpRequest) -> HttpResponse:
 
     retry_num = request.headers.get("X-Slack-Retry-Num")
     if retry_num:
+        logger.info("twig_event_retry", retry_num=retry_num)
         return HttpResponse(status=200)
 
     try:
@@ -712,7 +750,9 @@ def twig_event_handler(request: HttpRequest) -> HttpResponse:
         slack_team_id = data.get("team_id", "")
 
         if event.get("type") == "app_mention":
-            route_twig_event_to_relevant_region(request, event, slack_team_id)
+            result = route_twig_event_to_relevant_region(request, event, slack_team_id)
+            if result == ROUTE_PROXY_FAILED:
+                return HttpResponse(status=502)
 
         return HttpResponse(status=202)
 

@@ -196,7 +196,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "client_id": slack_client_id or None,
         },
         "twig_slack_service": {
-            "available": bool(twig_slack_client_id) and bool(twig_slack_signing_secret),
+            "available": bool(twig_slack_client_id)
+            and bool(twig_slack_signing_secret)
+            and bool(twig_slack_config.get("SLACK_TWIG_CLIENT_SECRET")),
             "client_id": twig_slack_client_id or None,
         },
         "data_warehouse_integrations": {

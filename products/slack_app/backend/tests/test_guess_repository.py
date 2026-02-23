@@ -47,7 +47,7 @@ class TestGuessRepository:
             ("invalid_repo_filtered", "posthog/nonexistent", []),
         ]
     )
-    @patch("products.slack_app.backend.api.get_llm_client")
+    @patch("posthog.llm.gateway_client.get_llm_client")
     @patch("products.slack_app.backend.api.GitHubIntegration")
     def test_guess_repository(self, _name, llm_output, expected, mock_github_class, mock_get_llm):
         mock_github = MagicMock()
