@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -23,7 +23,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             values: [nodeLogic, ['response', 'responseLoading'], issueActionsLogic, ['needsReload']],
             actions: [
                 nodeLogic,
-                ['setResponse', 'loadData', 'loadDataSuccess', 'cancelQuery'],
+                ['setResponse', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelQuery'],
                 issueActionsLogic,
                 [
                     'mergeIssues',
@@ -52,6 +52,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             {
                 setLoadStartTime: (_, { startTime }) => startTime,
                 loadDataSuccess: () => null,
+                loadDataFailure: () => null,
             },
         ],
     }),
