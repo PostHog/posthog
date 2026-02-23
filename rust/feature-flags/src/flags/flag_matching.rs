@@ -495,7 +495,7 @@ impl FeatureFlagMatcher {
 
         if should_write {
             if self.skip_writes {
-                tracing::info!(
+                tracing::debug!(
                     team_id = self.team_id,
                     distinct_id = %self.distinct_id,
                     "SKIP_WRITES: skipping hash key override write to PostgreSQL"
