@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import datetime as dt
+import dataclasses
 from zoneinfo import ZoneInfo
 
 import pytest

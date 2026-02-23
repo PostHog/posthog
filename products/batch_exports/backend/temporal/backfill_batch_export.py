@@ -45,12 +45,25 @@ class TemporalScheduleNotFoundError(Exception):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
+class HeartbeatDetailsParseError(Exception):
+    def __init__(self, reason: str):
+        super().__init__(f"Failed to parse heartbeat details: {reason}")
+
+
 class HeartbeatDetails(typing.NamedTuple):
     """Details sent over in a Temporal Activity heartbeat."""
 
     schedule_id: str
     workflow_id: str
     last_batch_data_interval_end: str
+
+    @classmethod
+    def from_details(cls, details: collections.abc.Sequence[typing.Any]) -> typing.Self:
+        """Parse from activity details, raise non-retryable error if it fails."""
+        try:
+            return cls(*details)
+        except Exception as e:
+            raise HeartbeatDetailsParseError(str(e)) from e
 
 
 @dataclasses.dataclass
@@ -603,7 +616,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         if details:
             # If we receive details from a previous run, it means we were restarted for some reason.
             # Let's not double-backfill and instead wait for any outstanding runs.
-            last_activity_details = HeartbeatDetails(*details)
+            last_activity_details = HeartbeatDetails.from_details(details)
             logger.info(
                 "Heartbeat details received",
                 backfill_run_id=last_activity_details.workflow_id,
@@ -907,7 +920,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
-                    non_retryable_error_types=["TemporalScheduleNotFoundError"],
+                    non_retryable_error_types=["TemporalScheduleNotFoundError", "HeartbeatDetailsParseError"],
                 ),
                 start_to_close_timeout=start_to_close_timeout,
                 heartbeat_timeout=dt.timedelta(seconds=30),
