@@ -7,7 +7,6 @@ on:
             - 'rust/**'
             - '.github/workflows/rust-docker-build.yml'
         branches:
-            - 'err/fix-cymbal-crashes'
             - 'master'
 
 jobs:
