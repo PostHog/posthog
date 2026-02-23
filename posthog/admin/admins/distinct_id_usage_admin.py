@@ -32,8 +32,7 @@ def _query_high_usage(
     dt_from: datetime, dt_to: datetime, threshold: int, min_events_threshold: int, distinct_id_min_events: int
 ) -> list[tuple]:
     table = _escaped_table()
-    return sync_execute(
-        f"""
+    query = """
         WITH team_totals AS (
             SELECT team_id, sum(event_count) as total_events
             FROM {table}
@@ -55,7 +54,9 @@ def _query_high_usage(
           AND d.event_count >= %(distinct_id_min_events)s
         ORDER BY d.event_count DESC
         LIMIT 100
-        """,
+        """.format(table=table)
+    return sync_execute(
+        query,
         {
             "dt_from": dt_from,
             "dt_to": dt_to,
@@ -69,8 +70,7 @@ def _query_high_usage(
 
 def _query_high_cardinality(dt_from: datetime, dt_to: datetime, threshold: int) -> list[tuple]:
     table = _escaped_table()
-    return sync_execute(
-        f"""
+    query = """
         SELECT team_id, uniq(distinct_id) as distinct_id_count
         FROM {table}
         WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
@@ -78,7 +78,9 @@ def _query_high_cardinality(dt_from: datetime, dt_to: datetime, threshold: int) 
         HAVING distinct_id_count >= %(threshold)s
         ORDER BY distinct_id_count DESC
         LIMIT 100
-        """,
+        """.format(table=table)
+    return sync_execute(
+        query,
         {
             "dt_from": dt_from,
             "dt_to": dt_to,
@@ -90,15 +92,16 @@ def _query_high_cardinality(dt_from: datetime, dt_to: datetime, threshold: int) 
 
 def _query_bursts(dt_from: datetime, dt_to: datetime, threshold: int) -> list[tuple]:
     table = _escaped_table()
-    return sync_execute(
-        f"""
+    query = """
         SELECT team_id, distinct_id, minute, event_count
         FROM {table}
         WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
           AND event_count >= %(threshold)s
         ORDER BY event_count DESC
         LIMIT 100
-        """,
+        """.format(table=table)
+    return sync_execute(
+        query,
         {
             "dt_from": dt_from,
             "dt_to": dt_to,
