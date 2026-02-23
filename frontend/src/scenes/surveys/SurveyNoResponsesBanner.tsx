@@ -49,16 +49,14 @@ export function SurveyNoResponsesBanner({
               y: [0, -5, 0, -3, 0],
               rotate: [0, -4, 0, 2, 0],
           }
-    const hogTransition = isFiltered
-        ? {
-              x: { duration: hogDuration, ease: 'easeInOut' },
-              y: { duration: hogDuration, ease: 'easeInOut' },
-              rotate: { duration: hogDuration, ease: 'easeInOut' },
-          }
-        : {
-              y: { duration: hogDuration, delay: 0.1, ease: 'easeInOut' },
-              rotate: { duration: hogDuration, delay: 0.1, ease: 'easeInOut' },
-          }
+    const baseTransition = { duration: hogDuration, ease: 'easeInOut' }
+    const delayedTransition = { ...baseTransition, delay: 0.1 }
+    const yTransition = isFiltered ? baseTransition : delayedTransition
+    const hogTransition = {
+        ...(isFiltered ? { x: baseTransition } : {}),
+        y: yTransition,
+        rotate: yTransition,
+    }
     const quickTips = [
         {
             title: 'Start with one key question',
@@ -105,7 +103,7 @@ export function SurveyNoResponsesBanner({
                     style={{ marginLeft: '-4.5rem' }}
                     initial={{ x: 0, y: 0, rotate: 0, opacity: 1 }}
                     animate={hogAnimation}
-                    transition={hogTransition}
+                    transition={hogTransition as React.ComponentProps<typeof motion.div>['transition']}
                 >
                     <Hog className="size-36 block" loading="eager" decoding="sync" />
                 </motion.div>

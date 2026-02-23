@@ -111,9 +111,7 @@ export function SurveyViewRedesign(): JSX.Element {
             if (!syncToUrl) {
                 return
             }
-            router.actions.replace(location.pathname, { ...searchParams, [panelTabSearchParam]: key }, hashParams, {
-                replace: true,
-            })
+            router.actions.replace(location.pathname, { ...searchParams, [panelTabSearchParam]: key }, hashParams)
         },
         [hashParams, location.pathname, searchParams]
     )
@@ -137,7 +135,7 @@ export function SurveyViewRedesign(): JSX.Element {
         }
         if (!validPanelTabKeys.includes(tabFromUrl)) {
             const { [panelTabSearchParam]: _invalid, ...nextSearchParams } = searchParams
-            router.actions.replace(location.pathname, nextSearchParams, hashParams, { replace: true })
+            router.actions.replace(location.pathname, nextSearchParams, hashParams)
         }
     }, [hashParams, location.pathname, panelTabKey, searchParams, setPanelTab, validPanelTabKeys])
 
