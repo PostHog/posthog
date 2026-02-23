@@ -80,15 +80,6 @@ export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
 export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
 export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
 
-if ! python3 - <<'PY' >/dev/null 2>&1
-import duckdb  # noqa: F401
-PY
-then
-    echo "DuckLake requires the duckdb Python package."
-    echo "Run 'uv sync --active' (or activate Flox) before executing hogli start."
-    exit 1
-fi
-
 # Geo files
 ./bin/download-mmdb
 
