@@ -1128,7 +1128,22 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 JSON.stringify(values.tabularColumnSettings)
             )
 
-            if (oldValue && oldValue.length) {
+            const currentColumnNames = new Set(value.map((column) => column.name))
+            const hasInvalidSelectedXAxis =
+                values.selectedXAxis !== null && !currentColumnNames.has(values.selectedXAxis)
+            const hasInvalidSelectedYAxis =
+                values.selectedYAxis?.some((series) => {
+                    if (series === null) {
+                        return false
+                    }
+
+                    const column = value.find((nextColumn) => nextColumn.name === series.name)
+                    return !column || !column.type.isNumerical
+                }) ?? false
+
+            if (hasInvalidSelectedXAxis || hasInvalidSelectedYAxis) {
+                actions.clearAxis()
+            } else if (oldValue && oldValue.length) {
                 if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
                     actions.clearAxis()
                 }

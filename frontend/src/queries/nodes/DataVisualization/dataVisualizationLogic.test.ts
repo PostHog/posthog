@@ -136,6 +136,78 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('resets axes when y-axis columns are no longer numerical', async () => {
+        const dataNode = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
+
+        dataNode.actions.setResponse({
+            columns: ['1', '2', '3'],
+            types: [
+                ['1', 'Int64'],
+                ['2', 'Int64'],
+                ['3', 'Int64'],
+            ],
+            results: [[1, 2, 3]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: null,
+            selectedYAxis: [
+                {
+                    name: '1',
+                    settings: {
+                        formatting: {
+                            prefix: '',
+                            suffix: '',
+                        },
+                    },
+                },
+                {
+                    name: '2',
+                    settings: {
+                        formatting: {
+                            prefix: '',
+                            suffix: '',
+                        },
+                    },
+                },
+                {
+                    name: '3',
+                    settings: {
+                        formatting: {
+                            prefix: '',
+                            suffix: '',
+                        },
+                    },
+                },
+            ],
+        })
+
+        dataNode.actions.setResponse({
+            columns: ['1', '2', '3'],
+            types: [
+                ['1', 'String'],
+                ['2', 'Int64'],
+                ['3', 'String'],
+            ],
+            results: [['a', 2, 'b']],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: '1',
+            selectedYAxis: [
+                {
+                    name: '2',
+                    settings: {
+                        formatting: {
+                            prefix: '',
+                            suffix: '',
+                        },
+                    },
+                },
+            ],
+        })
+    })
+
     it('does not resolve to a time-series chart without a date column', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 
