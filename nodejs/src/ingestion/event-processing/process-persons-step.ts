@@ -94,7 +94,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
                 ...rest,
                 eventWithPerson: normalizedEvent,
                 person: person!,
-            } as Omit<TInput, 'normalizedEvent'> & ProcessPersonsOutput,
+            },
             sideEffects
         )
     }

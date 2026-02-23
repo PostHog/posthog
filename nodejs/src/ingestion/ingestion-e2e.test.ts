@@ -2705,7 +2705,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: merge_dangerously from tests/main/process-event.test.ts
         testWithTeamIngester('$merge_dangerously merges two persons into one', {}, async (ingester, hub, team) => {
             const oldDistinctId = 'old_distinct_id'
             const newDistinctId = 'new_distinct_id'
@@ -2743,7 +2742,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: alias from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$create_alias links existing person to new distinct id',
             {},
@@ -2785,7 +2783,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: alias reverse from tests/main/process-event.test.ts
         testWithTeamIngester('alias works in reverse direction', {}, async (ingester, hub, team) => {
             const oldDistinctId = 'old_distinct_id'
             const newDistinctId = 'new_distinct_id'
@@ -2818,7 +2815,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: alias twice from tests/main/process-event.test.ts
         testWithTeamIngester('chained alias merges three persons into one', {}, async (ingester, hub, team) => {
             const oldDistinctId = 'old_distinct_id'
             const newDistinctId = 'new_distinct_id'
@@ -2885,7 +2881,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: alias before person from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$create_alias before any person exists creates one person with both distinct ids',
             {},
@@ -2910,7 +2905,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: alias both existing from tests/main/process-event.test.ts
         testWithTeamIngester('$create_alias merges two existing persons into one', {}, async (ingester, hub, team) => {
             // Create two separate persons
             await ingester.handleKafkaBatch(
@@ -2946,7 +2940,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: alias merge properties from tests/main/process-event.test.ts
         testWithTeamIngester('alias merges person properties correctly', {}, async (ingester, hub, team) => {
             const newDistinctId = 'new_distinct_id'
             const oldDistinctId = 'old_distinct_id'
@@ -3010,7 +3003,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: identify with illegal (generic) id from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$identify with illegal distinct ids does not merge persons',
             {},
@@ -3069,7 +3061,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: Alias with illegal (generic) id from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$create_alias with illegal distinct id does not merge persons',
             {},
@@ -3109,7 +3100,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         // 2. User signs up, triggers event with their new_distinct_id (creating a new Person)
         // 3. In the frontend, try to alias anonymous_id with new_distinct_id
         // Result should be that we end up with one Person with both ID's
-        // Equivalent to: distinct with anonymous_id which was already created from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$identify merges anonymous person into existing person preserving properties',
             {},
@@ -3158,7 +3148,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: identify with the same distinct_id as anon_distinct_id from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$identify where distinct_id equals $anon_distinct_id is a no-op',
             {},
@@ -3197,7 +3186,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: distinct with multiple anonymous_ids which were already created from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$identify merges multiple anonymous persons sequentially preserving properties',
             {},
@@ -3269,7 +3257,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: distinct team leakage from tests/main/process-event.test.ts
         testWithTeamIngester('$identify does not merge persons across teams', {}, async (ingester, hub, team) => {
             // Create a second team
             const team2Id = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
@@ -3335,7 +3322,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: we do not alias users if distinct id changes but we are already identified from tests/main/process-event.test.ts
         testWithTeamIngester(
             'we do not alias users if distinct id changes but we are already identified',
             {},
@@ -3398,7 +3384,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: we do not alias users if distinct id changes but we are already identified, with no anonymous event from tests/main/process-event.test.ts
         testWithTeamIngester(
             'we do not alias already identified users with no anonymous event',
             {},
@@ -3467,7 +3452,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: we can alias an anonymous person to an identified person from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$create_alias merges anonymous person into identified person',
             {},
@@ -3528,7 +3512,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: we can alias an identified person to an anonymous person from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$create_alias does not merge when alias person is already identified',
             {},
@@ -3578,7 +3561,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
-        // Equivalent to: person and group properties on events from tests/main/process-event.test.ts
         testWithTeamIngester('person and group properties are set on events', {}, async (ingester, hub, team) => {
             // Create person with properties
             await ingester.handleKafkaBatch(
@@ -3647,7 +3629,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: set and set_once on the same key from tests/main/process-event.test.ts
         testWithTeamIngester('$set wins over $set_once on the same key', {}, async (ingester, hub, team) => {
             await ingester.handleKafkaBatch(
                 createKafkaMessages([
@@ -3674,7 +3655,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: $unset person property from tests/main/process-event.test.ts
         testWithTeamIngester('$unset removes person properties', {}, async (ingester, hub, team) => {
             // Create person with properties
             await ingester.handleKafkaBatch(
@@ -3718,7 +3698,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             })
         })
 
-        // Equivalent to: ingestion in any order > ingestion in order from tests/main/process-event.test.ts
         testWithTeamIngester(
             '$set and $set_once apply correctly across sequential events',
             {},
