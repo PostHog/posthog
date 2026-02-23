@@ -305,6 +305,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         minSearchQueryLength: [(s) => [s.group], (group) => group?.minSearchQueryLength ?? 0],
+        needsMoreSearchCharacters: [
+            (s) => [s.minSearchQueryLength, s.searchQuery, s.swappedInQuery],
+            (minSearchQueryLength, searchQuery, swappedInQuery) => {
+                if (minSearchQueryLength <= 0) {
+                    return false
+                }
+                const effectiveQuery = swappedInQuery || searchQuery
+                return effectiveQuery.length < minSearchQueryLength
+            },
+        ],
         excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
         propertyAllowList: [(s) => [s.group], (group) => group?.propertyAllowList],
         scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],

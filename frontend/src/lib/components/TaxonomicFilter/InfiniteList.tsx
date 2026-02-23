@@ -457,6 +457,8 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         showPopover,
         items,
         hasRemoteDataSource,
+        needsMoreSearchCharacters,
+        minSearchQueryLength,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
@@ -502,12 +504,12 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         <div
             className={cn(
                 'taxonomic-infinite-list',
-                showEmptyState && 'empty-infinite-list',
+                (showEmptyState || needsMoreSearchCharacters) && 'empty-infinite-list',
                 'h-full',
                 isSuggestedFilters && 'empty-infinite-list--start'
             )}
         >
-            {showEmptyState ? (
+            {showEmptyState || needsMoreSearchCharacters ? (
                 <div className="no-infinite-results flex flex-col gap-y-1 items-center">
                     {isSuggestedFilters ? (
                         <>
@@ -516,6 +518,16 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                 Start searching and we'll suggest filters...
                             </span>
                             <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                        </>
+                    ) : needsMoreSearchCharacters ? (
+                        <>
+                            <IconSearch className="text-5xl text-tertiary" />
+                            <span className="text-secondary text-center">
+                                Search for {group?.searchPlaceholder || group?.name?.toLowerCase() || 'items'}
+                            </span>
+                            <span className="text-center text-secondary italic">
+                                Type at least {minSearchQueryLength} characters to search
+                            </span>
                         </>
                     ) : (
                         <>
