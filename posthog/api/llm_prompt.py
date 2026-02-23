@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -21,6 +21,7 @@ from posthog.models.llm_prompt import LLMPrompt
 from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 
@@ -109,7 +110,6 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             **validated_data,
         )
 
-
 class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "llm_prompt"
     queryset = LLMPrompt.objects.all()
@@ -126,15 +126,8 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
 
         return super().get_throttles()
 
-    def _get_prompt_by_name(self, prompt_name: str) -> LLMPrompt | None:
-        try:
-            return LLMPrompt.objects.get(
-                team=self.team,
-                name=prompt_name,
-                deleted=False,
-            )
-        except LLMPrompt.DoesNotExist:
-            return None
+    def _get_prompt_by_name(self, prompt_name: str) -> dict[str, Any] | None:
+        return get_prompt_by_name_from_cache(self.team, prompt_name)
 
     def perform_create(self, serializer):
         instance = serializer.save()
@@ -204,8 +197,8 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
                     distinct_id=str(self.team.uuid),
                     timestamp=None,
                     properties={
-                        "prompt_id": str(prompt.id),
-                        "prompt_name": prompt.name,
+                        "prompt_id": prompt["id"],
+                        "prompt_name": prompt["name"],
                     },
                 )
             except Exception as err:
@@ -215,13 +208,12 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
             self.team,
             "llma prompt fetched",
             {
-                "prompt_id": str(prompt.id),
-                "prompt_name": prompt.name,
+                "prompt_id": prompt["id"],
+                "prompt_name": prompt["name"],
             },
         )
 
-        serializer = self.get_serializer(prompt)
-        return Response(serializer.data)
+        return Response(prompt)
 
     @action(
         methods=["GET"],
@@ -245,8 +237,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = self.get_serializer(prompt)
-        return Response(serializer.data)
+        return Response(prompt)
 
     @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
