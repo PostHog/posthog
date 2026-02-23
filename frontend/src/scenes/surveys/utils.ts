@@ -291,7 +291,9 @@ export function getSurveyResponse(question: SurveyQuestion, index: number): stri
 
     return `COALESCE(
         NULLIF(JSONExtractString(events.properties, '${idBasedKey}'), ''),
-        NULLIF(JSONExtractString(events.properties, '${indexBasedKey}'), '')
+        NULLIF(JSONExtractString(events.properties, '${indexBasedKey}'), ''),
+        if(JSONType(events.properties, '${idBasedKey}') = 'Int64', toString(JSONExtractInt(events.properties, '${idBasedKey}')), NULL),
+        if(JSONType(events.properties, '${indexBasedKey}') = 'Int64', toString(JSONExtractInt(events.properties, '${indexBasedKey}')), NULL)
     )`
 }
 

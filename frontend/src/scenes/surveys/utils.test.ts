@@ -1060,3 +1060,39 @@ describe('timezone handling in survey date queries', () => {
         })
     })
 })
+
+describe('getSurveyResponse', () => {
+    it('includes JSONExtractInt fallback for numeric values', () => {
+        const question = { id: 'q1', type: SurveyQuestionType.Rating } as any
+
+        const result = getSurveyResponse(question, 0)
+
+        expect(result).toContain('JSONExtractString')
+        expect(result).toContain('JSONExtractInt')
+        expect(result).toContain('JSONType')
+        expect(result).toContain('toString')
+    })
+
+    it.each([
+        [0, '$survey_response_q1', '$survey_response'],
+        [1, '$survey_response_q1', '$survey_response_1'],
+        [2, '$survey_response_q1', '$survey_response_2'],
+    ])('uses correct index-based key for question index %d', (index, _idKey, expectedIndexKey) => {
+        const question = { id: 'q1', type: SurveyQuestionType.Rating } as any
+        const result = getSurveyResponse(question, index)
+        expect(result).toContain(expectedIndexKey)
+    })
+
+    it('uses id-based key from question id', () => {
+        const question = { id: 'abc-123', type: SurveyQuestionType.Rating } as any
+        const result = getSurveyResponse(question, 0)
+        expect(result).toContain('$survey_response_abc-123')
+    })
+
+    it('uses JSONExtractArrayRaw for multiple choice (no numeric fallback)', () => {
+        const question = { id: 'q1', type: SurveyQuestionType.MultipleChoice } as any
+        const result = getSurveyResponse(question, 0)
+        expect(result).toContain('JSONExtractArrayRaw')
+        expect(result).not.toContain('JSONExtractInt')
+    })
+})

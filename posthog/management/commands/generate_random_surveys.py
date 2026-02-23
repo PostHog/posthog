@@ -638,8 +638,12 @@ class Command(BaseCommand):
             "response_sampling_daily_limits": None,
         }
 
-    def generate_response_for_question(self, question: dict[str, Any]) -> str | list[str] | None:
-        """Generate a realistic response for a given question type."""
+    def generate_response_for_question(self, question: dict[str, Any]) -> str | int | list[str] | None:
+        """Generate a realistic response for a given question type.
+
+        Returns the raw value — may be int for ratings (matching real SDK behavior
+        where numeric values are sent as JSON numbers) or str for text responses.
+        """
         question_type = question.get("type")
         question_text = question.get("question", "").lower()
 
@@ -666,19 +670,24 @@ class Command(BaseCommand):
             # 1 = thumbs up, 2 = thumbs down
             if scale == 2 and display == "emoji":
                 # Realistic distribution: ~70% thumbs up, ~30% thumbs down
-                return "1" if random.random() < 0.7 else "2"
+                value = 1 if random.random() < 0.7 else 2
+                # Real SDK sends numbers; mix in some string values for variety
+                return value if random.random() < 0.7 else str(value)
 
             # Realistic distribution: skewed positive with some variation
             rand = random.random()
             if rand < 0.1:
-                return "1"
+                value = 1
             elif rand < 0.2:
-                return "2"
+                value = 2
             elif rand < 0.35:
-                return str(min(3, scale))
+                value = min(3, scale)
             elif rand < 0.65:
-                return str(min(4, scale))
-            return str(scale)
+                value = min(4, scale)
+            else:
+                value = scale
+            # Real SDK sends numbers; mix in some string values for variety
+            return value if random.random() < 0.7 else str(value)
 
         elif question_type == "single_choice":
             choices = question.get("choices", [])
@@ -871,19 +880,36 @@ class Command(BaseCommand):
                         # Fall back to random UUID if no real traces exist
                         response_properties["$ai_trace_id"] = str(uuid.uuid4())
 
+                submission_id = str(uuid.uuid4())
+                response_properties["$survey_submission_id"] = submission_id
+
                 # Generate response for each question, respecting branching logic
                 questions = survey.questions or []
                 skip_remaining = False
+                survey_questions_meta: list[dict[str, Any]] = []
                 for idx, question in enumerate(questions):
                     if skip_remaining:
                         break
 
                     response = self.generate_response_for_question(question)
                     if response is not None:
-                        if idx == 0:
+                        question_id = question.get("id")
+                        # Use id-based key when question has an id (matches real SDK behavior),
+                        # fall back to index-based key otherwise
+                        if question_id:
+                            response_properties[f"$survey_response_{question_id}"] = response
+                        elif idx == 0:
                             response_properties["$survey_response"] = response
                         else:
                             response_properties[f"$survey_response_{idx}"] = response
+
+                        survey_questions_meta.append(
+                            {
+                                "id": question_id,
+                                "question": question.get("question", ""),
+                                "response": response,
+                            }
+                        )
 
                         # Check branching logic
                         branching = question.get("branching")
@@ -893,10 +919,13 @@ class Command(BaseCommand):
                             # 1 = thumbs up (positive), 2 = thumbs down (negative)
                             scale = question.get("scale", 5)
                             if question.get("type") == "rating" and scale == 2:
-                                sentiment = "positive" if response == "1" else "negative"
+                                sentiment = "positive" if str(response) == "1" else "negative"
                                 next_step = response_values.get(sentiment)
                                 if next_step == "end":
                                     skip_remaining = True
+
+                response_properties["$survey_completed"] = True
+                response_properties["$survey_questions"] = survey_questions_meta
 
                 insert, event_params = self._build_event_row(
                     event_name="survey sent",

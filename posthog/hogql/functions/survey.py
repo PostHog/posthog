@@ -88,10 +88,46 @@ def _build_property_access(key: str | ast.Expr) -> ast.Expr:
     )
 
 
+def _build_numeric_property_access(key: str | ast.Expr) -> ast.Expr:
+    """Build numeric fallback: if(JSONType(properties, key) = 'Int64', toString(JSONExtractInt(properties, key)), NULL).
+
+    JSONExtractString returns empty for numeric JSON values, so this
+    provides a fallback that converts numeric values to strings.
+    Uses JSONType instead of JSONHas to avoid false positives on
+    non-numeric values (e.g. empty strings would otherwise become '0').
+    """
+    key_expr = _key_as_expr(key)
+    return ast.Call(
+        name="if",
+        args=[
+            ast.Call(
+                name="equals",
+                args=[
+                    ast.Call(
+                        name="JSONType",
+                        args=[ast.Field(chain=["properties"]), key_expr],
+                    ),
+                    ast.Constant(value="Int64"),
+                ],
+            ),
+            ast.Call(
+                name="toString",
+                args=[
+                    ast.Call(
+                        name="JSONExtractInt",
+                        args=[ast.Field(chain=["properties"]), key_expr],
+                    ),
+                ],
+            ),
+            ast.Constant(value=None),
+        ],
+    )
+
+
 def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str) -> ast.Expr:
     """Build COALESCE expression for single-choice survey response."""
-    # coalesce(nullif(properties.$id_key, ''), nullif(properties.$index_key, ''))
-    # Using ast.Field enables materialized column optimization when available
+    # First try string extraction (handles string JSON values), then fall back to
+    # numeric extraction (handles numeric JSON values like rating responses).
     return ast.Call(
         name="coalesce",
         args=[
@@ -103,6 +139,8 @@ def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str) -> 
                 name="nullif",
                 args=[_build_property_access(index_based_key), ast.Constant(value="")],
             ),
+            _build_numeric_property_access(id_based_key),
+            _build_numeric_property_access(index_based_key),
         ],
     )
 
