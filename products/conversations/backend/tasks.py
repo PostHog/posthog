@@ -20,7 +20,7 @@ from products.conversations.backend.slack import get_slack_client
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
 
 logger = structlog.get_logger(__name__)
-SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 15 * 60
+SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
 
 
