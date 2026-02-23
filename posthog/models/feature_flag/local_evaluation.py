@@ -425,16 +425,24 @@ def _get_flags_response_for_local_evaluation_batch(
     ):
         survey_flag_ids.update(fid for fid in row if fid is not None)
 
-    # Bulk load all non-deleted cohorts for all projects (including static ones for
-    # cache completeness). Static cohorts are excluded from the response but need to
-    # be in the cache so get_cohort_ids doesn't make fallback DB queries for them.
+    # Only load cohorts if at least one flag references a cohort property.
+    # This avoids loading thousands of unused cohorts for teams that don't
+    # use cohorts in their feature flags.
+    any_flag_uses_cohort = (
+        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+        .filter(team_id__in=team_ids, deleted=False)
+        .filter(filters__groups__contains=[{"properties": [{"type": "cohort"}]}])
+        .exists()
+    )
+
     cohorts_by_project: dict[int, dict[int, Cohort]] = defaultdict(dict)
-    for cohort in (
-        Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(team__project_id__in=project_ids, deleted=False)
-        .select_related("team")
-    ):
-        cohorts_by_project[cohort.team.project_id][cohort.pk] = cohort
+    if any_flag_uses_cohort:
+        for cohort in (
+            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+            .filter(team__project_id__in=project_ids, deleted=False)
+            .select_related("team")
+        ):
+            cohorts_by_project[cohort.team.project_id][cohort.pk] = cohort
 
     # Bulk load group type mappings for all projects
     gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
