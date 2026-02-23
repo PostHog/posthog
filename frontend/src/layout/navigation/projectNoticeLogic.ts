@@ -1,5 +1,4 @@
-import { connect, kea, listeners, path, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
+import { afterMount, beforeUnmount, connect, kea, listeners, path, selectors } from 'kea'
 
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -7,6 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProjectNoticeVariant, navigationLogic } from './navigationLogic'
 import type { projectNoticeLogicType } from './projectNoticeLogicType'
 
+const POLL_INTERVAL_MS = 30_000
 const DEBOUNCE_MS = 2000
 
 export const projectNoticeLogic = kea<projectNoticeLogicType>([
@@ -26,33 +26,28 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             if (!values.shouldPoll) {
                 return
             }
-            // Debounce team checks when events stream in
-            if (cache.eventDebounceTimer) {
-                clearTimeout(cache.eventDebounceTimer)
+            if (cache.debounceTimer) {
+                clearTimeout(cache.debounceTimer)
             }
-            cache.eventDebounceTimer = window.setTimeout(() => {
+            cache.debounceTimer = window.setTimeout(() => {
                 actions.loadCurrentTeam()
-                cache.eventDebounceTimer = null
+                cache.debounceTimer = null
             }, DEBOUNCE_MS)
         },
     })),
-    subscriptions(({ actions, cache }) => ({
-        shouldPoll: (shouldPoll: boolean) => {
-            if (shouldPoll) {
-                cache.disposables.add(() => {
-                    const timerId = window.setInterval(() => {
-                        actions.loadCurrentTeam()
-                    }, 30_000)
-                    return () => clearInterval(timerId)
-                }, 'noEventsPolling')
-            } else {
-                cache.disposables.dispose('noEventsPolling')
-                // Clean up debounce timer if banner dismissed
-                if (cache.eventDebounceTimer) {
-                    clearTimeout(cache.eventDebounceTimer)
-                    cache.eventDebounceTimer = null
-                }
-            }
-        },
-    })),
+    afterMount(({ actions, values, cache }) => {
+        if (values.shouldPoll) {
+            cache.pollTimer = window.setInterval(() => {
+                actions.loadCurrentTeam()
+            }, POLL_INTERVAL_MS)
+        }
+    }),
+    beforeUnmount(({ cache }) => {
+        if (cache.pollTimer) {
+            clearInterval(cache.pollTimer)
+        }
+        if (cache.debounceTimer) {
+            clearTimeout(cache.debounceTimer)
+        }
+    }),
 ])
