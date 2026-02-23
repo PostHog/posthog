@@ -322,7 +322,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
         if provider_key_id:
             try:
-                provider_key = self._get_provider_key(provider_key_id, request.user)
+                provider_key = self._get_provider_key(provider_key_id, request.user, touch_last_used=False)
             except ValueError:
                 return Response({"error": "Invalid provider key configuration"}, status=400)
 
