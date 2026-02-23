@@ -50,3 +50,10 @@ export enum SignalSourceType {
     SESSION_ANALYSIS_CLUSTER = 'session_analysis_cluster',
     EVALUATION = 'evaluation',
 }
+
+export interface ToggleSignalSourceParams {
+    sourceProduct: SignalSourceProduct
+    sourceType: SignalSourceType
+    enabled: boolean
+    config?: Record<string, any>
+}

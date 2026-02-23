@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { signalSourcesLogic } from 'scenes/inbox/signalSourcesLogic'
-import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
+import { SignalSourceConfig, SignalSourceProduct, SignalSourceType, ToggleSignalSourceParams } from 'scenes/inbox/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -54,7 +54,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             llmProviderKeysLogic,
             ['loadProviderKeys', 'loadProviderKeysSuccess'],
             signalSourcesLogic,
-            ['loadSourceConfigs'],
+            ['loadSourceConfigs', 'toggleSignalSource', 'toggleSignalSourceSuccess', 'toggleSignalSourceFailure'],
         ],
     })),
 
@@ -472,38 +472,43 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
-        setSignalEmission: async ({ enabled }) => {
-            try {
-                const configs: SignalSourceConfig[] = values.sourceConfigs ?? []
-                const existing = configs.find(
-                    (c) =>
-                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
-                        c.source_type === SignalSourceType.EVALUATION
-                )
+        setSignalEmission: ({ enabled }) => {
+            const configs: SignalSourceConfig[] = values.sourceConfigs ?? []
+            const existing = configs.find(
+                (c) =>
+                    c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
+                    c.source_type === SignalSourceType.EVALUATION
+            )
 
-                if (existing) {
-                    const currentIds: string[] = existing.config?.evaluation_ids ?? []
-                    const newIds = enabled
-                        ? [...new Set([...currentIds, props.evaluationId])]
-                        : currentIds.filter((id: string) => id !== props.evaluationId)
-                    await api.signalSourceConfigs.update(existing.id, {
-                        enabled: true,
-                        config: { ...existing.config, evaluation_ids: newIds },
-                    })
-                    actions.setSignalEmissionSuccess(enabled)
-                } else if (enabled) {
-                    await api.signalSourceConfigs.create({
-                        source_product: SignalSourceProduct.LLM_ANALYTICS,
-                        source_type: SignalSourceType.EVALUATION,
-                        enabled: true,
-                        config: { evaluation_ids: [props.evaluationId] },
-                    })
-                    actions.setSignalEmissionSuccess(true)
-                }
-                actions.loadSourceConfigs()
-            } catch (error) {
-                actions.setSignalEmissionSuccess(!enabled)
-                throw error
+            const currentIds: string[] = existing?.config?.evaluation_ids ?? []
+            const newIds = enabled
+                ? [...new Set([...currentIds, props.evaluationId])]
+                : currentIds.filter((id: string) => id !== props.evaluationId)
+
+            actions.toggleSignalSource({
+                sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
+                sourceType: SignalSourceType.EVALUATION,
+                enabled: true,
+                config: { ...existing?.config, evaluation_ids: newIds },
+            })
+        },
+
+        toggleSignalSourceSuccess: ({ params }: { params: ToggleSignalSourceParams }) => {
+            if (
+                params.sourceProduct === SignalSourceProduct.LLM_ANALYTICS &&
+                params.sourceType === SignalSourceType.EVALUATION
+            ) {
+                const ids: string[] = params.config?.evaluation_ids ?? []
+                actions.setSignalEmissionSuccess(ids.includes(props.evaluationId))
+            }
+        },
+
+        toggleSignalSourceFailure: ({ params }: { params: ToggleSignalSourceParams }) => {
+            if (
+                params.sourceProduct === SignalSourceProduct.LLM_ANALYTICS &&
+                params.sourceType === SignalSourceType.EVALUATION
+            ) {
+                actions.loadSignalConfig()
             }
         },
 

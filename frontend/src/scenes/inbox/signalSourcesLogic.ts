@@ -8,7 +8,7 @@ import api from 'lib/api'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { signalSourcesLogicType } from './signalSourcesLogicType'
-import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from './types'
+import { SignalSourceConfig, SignalSourceProduct, SignalSourceType, ToggleSignalSourceParams } from './types'
 
 export const signalSourcesLogic = kea<signalSourcesLogicType>([
     path(['scenes', 'inbox', 'signalSourcesLogic']),
@@ -19,6 +19,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         openSessionAnalysisSetup: true,
         closeSessionAnalysisSetup: true,
         toggleSessionAnalysis: true,
+        toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
+        toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
+        toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -107,32 +110,45 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        toggleSessionAnalysis: async (_, breakpoint) => {
-            const config = values.sessionAnalysisConfig
-            const desiredEnabled = config?.enabled ?? true
+        toggleSignalSource: async ({ params }, breakpoint) => {
+            const { sourceProduct, sourceType, enabled, config } = params
             try {
-                if (
-                    config &&
-                    config.id !==
-                        `new_${SignalSourceProduct.SESSION_REPLAY}_${SignalSourceType.SESSION_ANALYSIS_CLUSTER}`
-                ) {
-                    await api.signalSourceConfigs.update(config.id, { enabled: desiredEnabled })
-                } else {
+                const configs = values.sourceConfigs ?? []
+                const existing = configs.find((c) => c.source_product === sourceProduct && c.source_type === sourceType)
+
+                if (existing && !existing.id.startsWith('new_')) {
+                    const updateData: Partial<SignalSourceConfig> = { enabled }
+                    if (config !== undefined) {
+                        updateData.config = config
+                    }
+                    await api.signalSourceConfigs.update(existing.id, updateData)
+                } else if (enabled) {
                     await api.signalSourceConfigs.create({
-                        source_product: SignalSourceProduct.SESSION_REPLAY,
-                        source_type: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
-                        config: {},
-                        enabled: true,
+                        source_product: sourceProduct,
+                        source_type: sourceType,
+                        enabled,
+                        config: config ?? {},
                     })
                 }
                 breakpoint()
+                actions.toggleSignalSourceSuccess(params)
                 actions.loadSourceConfigs()
             } catch (error: any) {
                 breakpoint()
+                const errorMessage = error?.detail || error?.message || 'Failed to toggle signal source'
+                actions.toggleSignalSourceFailure(params, errorMessage)
                 actions.loadSourceConfigs()
-                const errorMessage = error?.detail || error?.message || 'Failed to toggle session analysis'
                 lemonToast.error(errorMessage)
             }
+        },
+        toggleSessionAnalysis: () => {
+            const config = values.sessionAnalysisConfig
+            const desiredEnabled = config?.enabled ?? true
+            actions.toggleSignalSource({
+                sourceProduct: SignalSourceProduct.SESSION_REPLAY,
+                sourceType: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
+                enabled: desiredEnabled,
+            })
         },
         saveSessionAnalysisFilters: async ({ filters }) => {
             try {
