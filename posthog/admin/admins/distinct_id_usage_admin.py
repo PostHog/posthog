@@ -21,6 +21,93 @@ logger = logging.getLogger(__name__)
 
 QUERY_SETTINGS = {"max_execution_time": 30}
 
+
+def _escaped_table() -> str:
+    db = escape_clickhouse_identifier(settings.CLICKHOUSE_DATABASE)
+    tbl = escape_clickhouse_identifier(TABLE_BASE_NAME)
+    return f"{db}.{tbl}"
+
+
+def _query_high_usage(
+    dt_from: datetime, dt_to: datetime, threshold: int, min_events_threshold: int, distinct_id_min_events: int
+) -> list[tuple]:
+    table = _escaped_table()
+    return sync_execute(
+        f"""
+        WITH team_totals AS (
+            SELECT team_id, sum(event_count) as total_events
+            FROM {table}
+            WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
+            GROUP BY team_id
+            HAVING total_events >= %(min_events_threshold)s
+        ),
+        distinct_id_totals AS (
+            SELECT team_id, distinct_id, sum(event_count) as event_count
+            FROM {table}
+            WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
+            GROUP BY team_id, distinct_id
+        )
+        SELECT d.team_id, d.distinct_id, d.event_count, t.total_events,
+               round(d.event_count * 100.0 / t.total_events, 2) as percentage
+        FROM distinct_id_totals d
+        JOIN team_totals t ON d.team_id = t.team_id
+        WHERE d.event_count * 100.0 / t.total_events >= %(threshold)s
+          AND d.event_count >= %(distinct_id_min_events)s
+        ORDER BY d.event_count DESC
+        LIMIT 100
+        """,
+        {
+            "dt_from": dt_from,
+            "dt_to": dt_to,
+            "threshold": threshold,
+            "min_events_threshold": min_events_threshold,
+            "distinct_id_min_events": distinct_id_min_events,
+        },
+        settings=QUERY_SETTINGS,
+    )
+
+
+def _query_high_cardinality(dt_from: datetime, dt_to: datetime, threshold: int) -> list[tuple]:
+    table = _escaped_table()
+    return sync_execute(
+        f"""
+        SELECT team_id, uniq(distinct_id) as distinct_id_count
+        FROM {table}
+        WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
+        GROUP BY team_id
+        HAVING distinct_id_count >= %(threshold)s
+        ORDER BY distinct_id_count DESC
+        LIMIT 100
+        """,
+        {
+            "dt_from": dt_from,
+            "dt_to": dt_to,
+            "threshold": threshold,
+        },
+        settings=QUERY_SETTINGS,
+    )
+
+
+def _query_bursts(dt_from: datetime, dt_to: datetime, threshold: int) -> list[tuple]:
+    table = _escaped_table()
+    return sync_execute(
+        f"""
+        SELECT team_id, distinct_id, minute, event_count
+        FROM {table}
+        WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
+          AND event_count >= %(threshold)s
+        ORDER BY event_count DESC
+        LIMIT 100
+        """,
+        {
+            "dt_from": dt_from,
+            "dt_to": dt_to,
+            "threshold": threshold,
+        },
+        settings=QUERY_SETTINGS,
+    )
+
+
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
 
 
@@ -200,94 +287,33 @@ def distinct_id_usage_view(request):
         queried = True
         dt_from = form.cleaned_data["datetime_from"]
         dt_to = form.cleaned_data["datetime_to"]
-        db = escape_clickhouse_identifier(settings.CLICKHOUSE_DATABASE)
-        tbl = escape_clickhouse_identifier(TABLE_BASE_NAME)
-        table = f"{db}.{tbl}"
 
         high_usage_raw: list[tuple] = []
         high_cardinality_raw: list[tuple] = []
         burst_raw: list[tuple] = []
 
-        # Query 1: High usage distinct IDs
         try:
-            high_usage_raw = sync_execute(
-                f"""
-                WITH team_totals AS (
-                    SELECT team_id, sum(event_count) as total_events
-                    FROM {table}
-                    WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
-                    GROUP BY team_id
-                    HAVING total_events >= %(min_events_threshold)s
-                ),
-                distinct_id_totals AS (
-                    SELECT team_id, distinct_id, sum(event_count) as event_count
-                    FROM {table}
-                    WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
-                    GROUP BY team_id, distinct_id
-                )
-                SELECT d.team_id, d.distinct_id, d.event_count, t.total_events,
-                       round(d.event_count * 100.0 / t.total_events, 2) as percentage
-                FROM distinct_id_totals d
-                JOIN team_totals t ON d.team_id = t.team_id
-                WHERE d.event_count * 100.0 / t.total_events >= %(threshold)s
-                  AND d.event_count >= %(distinct_id_min_events)s
-                ORDER BY d.event_count DESC
-                LIMIT 100
-                """,
-                {
-                    "dt_from": dt_from,
-                    "dt_to": dt_to,
-                    "threshold": form.cleaned_data["high_usage_percentage_threshold"],
-                    "min_events_threshold": form.cleaned_data["high_usage_min_events_threshold"],
-                    "distinct_id_min_events": form.cleaned_data["high_usage_distinct_id_min_events"],
-                },
-                settings=QUERY_SETTINGS,
+            high_usage_raw = _query_high_usage(
+                dt_from,
+                dt_to,
+                threshold=form.cleaned_data["high_usage_percentage_threshold"],
+                min_events_threshold=form.cleaned_data["high_usage_min_events_threshold"],
+                distinct_id_min_events=form.cleaned_data["high_usage_distinct_id_min_events"],
             )
         except Exception as e:
             logger.exception("Distinct ID usage: high usage query failed")
             errors.append(f"High usage query failed: {e}")
 
-        # Query 2: High cardinality teams
         try:
-            high_cardinality_raw = sync_execute(
-                f"""
-                SELECT team_id, uniq(distinct_id) as distinct_id_count
-                FROM {table}
-                WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
-                GROUP BY team_id
-                HAVING distinct_id_count >= %(threshold)s
-                ORDER BY distinct_id_count DESC
-                LIMIT 100
-                """,
-                {
-                    "dt_from": dt_from,
-                    "dt_to": dt_to,
-                    "threshold": form.cleaned_data["high_cardinality_threshold"],
-                },
-                settings=QUERY_SETTINGS,
+            high_cardinality_raw = _query_high_cardinality(
+                dt_from, dt_to, threshold=form.cleaned_data["high_cardinality_threshold"]
             )
         except Exception as e:
             logger.exception("Distinct ID usage: high cardinality query failed")
             errors.append(f"High cardinality query failed: {e}")
 
-        # Query 3: Burst events
         try:
-            burst_raw = sync_execute(
-                f"""
-                SELECT team_id, distinct_id, minute, event_count
-                FROM {table}
-                WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
-                  AND event_count >= %(threshold)s
-                ORDER BY event_count DESC
-                LIMIT 100
-                """,
-                {
-                    "dt_from": dt_from,
-                    "dt_to": dt_to,
-                    "threshold": form.cleaned_data["burst_threshold"],
-                },
-                settings=QUERY_SETTINGS,
-            )
+            burst_raw = _query_bursts(dt_from, dt_to, threshold=form.cleaned_data["burst_threshold"])
         except Exception as e:
             logger.exception("Distinct ID usage: burst query failed")
             errors.append(f"Burst query failed: {e}")
