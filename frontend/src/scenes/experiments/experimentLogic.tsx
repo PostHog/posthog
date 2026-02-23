@@ -482,6 +482,7 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
         endExperiment: true,
+        endExperimentWithoutShipping: true,
         pauseExperiment: true,
         resumeExperiment: true,
         archiveExperiment: true,
@@ -1283,6 +1284,16 @@ export const experimentLogic = kea<experimentLogicType>([
                         : false
                 )
             values.experiment && eventUsageLogic.actions.reportExperimentStopped(values.experiment)
+        },
+        endExperimentWithoutShipping: async () => {
+            actions.endExperiment()
+            actions.closeFinishExperimentModal()
+            lemonToast.success('Experiment ended successfully')
+
+            const trigger = values.hogfettiTrigger
+            if (trigger) {
+                ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
+            }
         },
         pauseExperiment: async () => {
             await actions.setFeatureFlagActive(false)

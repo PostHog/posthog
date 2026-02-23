@@ -1,5 +1,7 @@
 import time
+from collections import defaultdict
 from collections.abc import Generator
+from itertools import groupby
 from typing import Any, Union, cast
 
 from django.conf import settings
@@ -56,11 +58,6 @@ def _resolve_flag_dependency_key(flag_prop: FlagProperty, flag_id_to_key: dict[s
     """
     flag_reference = flag_prop.get("key", "")
     return flag_id_to_key.get(flag_reference, flag_reference)
-
-
-def _build_flag_id_to_key_mapping(flags) -> dict[str, str]:
-    """Build mapping from flag ID to flag key for dependency transformation."""
-    return {str(flag.id): flag.key for flag in flags}
 
 
 class _DependencyChainBuilder:
@@ -259,15 +256,19 @@ def _build_all_dependency_chains(
     return flags_data
 
 
-def _transform_flag_property_dependencies(flags_data: list[dict[str, Any]], parsed_flags: list) -> list[dict[str, Any]]:
+def _transform_flag_property_dependencies(
+    flags_data: list[dict[str, Any]], flag_id_to_key: dict[str, str]
+) -> list[dict[str, Any]]:
     """
     Transform flag properties in filter conditions to include dependency chains.
     Uses an optimized two-pass approach:
     1. Normalize flag IDs to keys and collect unique dependency target keys in single pass
     2. Build dependency chains for collected dependency targets using batch processing
-    """
-    flag_id_to_key = _build_flag_id_to_key_mapping(parsed_flags)
 
+    Args:
+        flags_data: List of serialized flag dictionaries to transform
+        flag_id_to_key: Mapping from flag ID (as string) to flag key
+    """
     flags_data, unique_dependencies = _normalize_and_collect_dependency_target_keys(flags_data, flag_id_to_key)
 
     flags_data = _build_all_dependency_chains(flags_data, unique_dependencies)
@@ -275,7 +276,9 @@ def _transform_flag_property_dependencies(flags_data: list[dict[str, Any]], pars
     return flags_data
 
 
-def _apply_flag_dependency_transformation(response_data: dict[str, Any], parsed_flags: list) -> dict[str, Any]:
+def _apply_flag_dependency_transformation(
+    response_data: dict[str, Any], flag_id_to_key: dict[str, str]
+) -> dict[str, Any]:
     """
     Apply flag dependency transformation to response data.
 
@@ -284,14 +287,14 @@ def _apply_flag_dependency_transformation(response_data: dict[str, Any], parsed_
 
     Args:
         response_data: The response data containing flags to transform
-        parsed_flags: The original parsed feature flags for ID-to-key mapping
+        flag_id_to_key: Mapping from flag ID (as string) to flag key
 
     Returns:
         New response data dictionary with transformed flags
     """
     try:
         flags_list = cast(list[dict[str, Any]], response_data["flags"])
-        transformed_flags = _transform_flag_property_dependencies(flags_list, parsed_flags)
+        transformed_flags = _transform_flag_property_dependencies(flags_list, flag_id_to_key)
 
         logger.info("Flag dependency transformation completed")
         return {**response_data, "flags": transformed_flags}
@@ -350,12 +353,7 @@ def get_flags_response_if_none_match(
 
 
 def update_flag_caches(team: Team):
-    """
-    Update both flag cache variants from shared data.
-
-    Loads flags and cohorts once, then generates both with-cohorts and
-    without-cohorts responses to avoid duplicate database queries.
-    """
+    """Update both flag cache variants."""
     logger.info(f"Syncing feature_flags cache for team {team.id}")
 
     start_time = time.time()
@@ -363,9 +361,12 @@ def update_flag_caches(team: Team):
     size_with_cohorts: int | None = None
     size_without_cohorts: int | None = None
     try:
-        with_cohorts, without_cohorts = _get_both_flags_responses_for_local_evaluation(team)
+        with_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=True)
         size_with_cohorts = flags_hypercache.set_cache_value(team, with_cohorts)
+
+        without_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=False)
         size_without_cohorts = flags_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
+
         success = True
     except Exception as e:
         capture_exception(e)
@@ -373,12 +374,9 @@ def update_flag_caches(team: Team):
     finally:
         duration = time.time() - start_time
         result = "success" if success else "failure"
-        # Duration uses combined label since both caches are updated in one operation.
-        # Duration-only call doesn't increment counter since the individual caches handle that.
         emit_cache_sync_metrics(
             result, "feature_flags", "flags_local_eval.json", duration=duration, increment_counter=False
         )
-        # Size and counter use individual labels since each cache is actually updated.
         emit_cache_sync_metrics(result, "feature_flags", "flags_with_cohorts.json", size=size_with_cohorts)
         emit_cache_sync_metrics(result, "feature_flags", "flags_without_cohorts.json", size=size_without_cohorts)
 
@@ -388,334 +386,170 @@ def clear_flag_caches(team: Team, kinds: list[str] | None = None):
     flags_without_cohorts_hypercache.clear_cache(team, kinds=kinds)
 
 
-def _extract_cohort_ids_from_filters(filters: dict) -> set[int]:
-    """
-    Extract cohort IDs directly from flag filters without loading from DB.
-    Only extracts direct references, not nested dependencies.
-    """
-    cohort_ids: set[int] = set()
-    for prop in _get_properties_from_filters(filters, "cohort"):
-        value = prop.get("value")
-        # Skip list values to align with other cohort-processing code paths
-        if value is None or isinstance(value, list):
-            continue
-        try:
-            cohort_ids.add(int(value))
-        except (TypeError, ValueError):
-            continue
-    return cohort_ids
+def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict[str, Any]:
+    """Build the local-evaluation response for a single team."""
+    results = _get_flags_response_for_local_evaluation_batch([team], include_cohorts)
+    return results.get(team.id, {"flags": [], "group_type_mapping": {}, "cohorts": {}})
 
 
-def _load_cohorts_with_dependencies(
-    direct_cohort_ids: set[int], project_id: int, using_database: str
-) -> dict[int, CohortOrEmpty]:
+def _get_flags_response_for_local_evaluation_batch(
+    teams: list[Team], include_cohorts: bool
+) -> dict[int, dict[str, Any]]:
     """
-    Load cohorts and their dependencies in bulk queries.
+    Build local-evaluation responses for multiple teams using bulk data loading
+    and streaming flag serialization to control memory.
 
-    Performs iterative bulk loading to resolve nested cohort dependencies
-    with minimal database queries (typically 1-2 iterations).
+    Loads survey flag IDs, cohorts, and group type mappings in bulk (one query
+    each regardless of team count), then streams flags with .iterator() and
+    itertools.groupby to process one team at a time.
     """
-    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
-    ids_to_load = direct_cohort_ids.copy()
-    loaded_ids: set[int] = set()
+    from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
-    while ids_to_load:
-        # Load cohorts in bulk with team prefetched to avoid N+1 queries
-        # when get_all_cohort_dependencies accesses cohort.team.project_id
-        new_cohorts = (
-            Cohort.objects.db_manager(using_database)
-            .filter(pk__in=ids_to_load, team__project_id=project_id, deleted=False)
-            .select_related("team")
+    if not teams:
+        return {}
+
+    team_ids = [t.id for t in teams]
+    team_by_id = {t.id: t for t in teams}
+    project_ids = list({t.project_id for t in teams})
+
+    # Bulk load survey flag IDs across all teams
+    survey_flag_ids: set[int] = set()
+    for row in (
+        Survey.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+        .filter(team_id__in=team_ids)
+        .values_list(
+            "targeting_flag_id",
+            "internal_targeting_flag_id",
+            "internal_response_sampling_flag_id",
         )
+    ):
+        survey_flag_ids.update(fid for fid in row if fid is not None)
 
-        # Add loaded cohorts to cache
-        for cohort in new_cohorts:
-            seen_cohorts_cache[cohort.pk] = cohort
-            loaded_ids.add(cohort.pk)
-
-        # Mark missing cohorts as empty to avoid repeated lookups
-        for cohort_id in ids_to_load:
-            if cohort_id not in seen_cohorts_cache:
-                seen_cohorts_cache[cohort_id] = ""
-                loaded_ids.add(cohort_id)
-
-        # Extract nested cohort IDs from newly loaded cohorts
-        nested_ids: set[int] = set()
-        for cohort_id in ids_to_load:
-            cohort = seen_cohorts_cache.get(cohort_id)
-            if isinstance(cohort, Cohort):
-                for prop in cohort.properties.flat:
-                    if prop.type == "cohort" and not isinstance(prop.value, list):
-                        try:
-                            nested_id = int(prop.value)
-                            if nested_id not in loaded_ids:
-                                nested_ids.add(nested_id)
-                        except (ValueError, TypeError):
-                            continue
-
-        # Continue with nested IDs that haven't been loaded
-        ids_to_load = nested_ids
-
-    return seen_cohorts_cache
-
-
-def _load_flags_and_cohorts_for_team(team: Team) -> tuple[list[FeatureFlag], dict[int, CohortOrEmpty]]:
-    """
-    Load feature flags and their cohort dependencies for a team.
-
-    Handles:
-    - Excluding survey-linked flags
-    - Excluding remote configuration flags
-    - Extracting cohort IDs from flag filters
-    - Loading cohorts with nested dependencies
-
-    Returns:
-        tuple: (feature_flags, seen_cohorts_cache)
-    """
-    # Exclude survey-linked flags from local evaluation. See GitHub issue #43631.
-    survey_flag_ids = Survey.get_internal_flag_ids(
-        team_id=team.id,
-        using=DATABASE_FOR_LOCAL_EVALUATION,
+    # Only load cohorts if at least one flag references a cohort property.
+    # This avoids loading thousands of unused cohorts for teams that don't
+    # use cohorts in their feature flags.
+    any_flag_uses_cohort = (
+        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+        .filter(team_id__in=team_ids, deleted=False)
+        .filter(filters__groups__contains=[{"properties": [{"type": "cohort"}]}])
+        .exists()
     )
 
-    # Exclude encrypted remote config flags since they can only be accessed via the
-    # dedicated /remote_config endpoint which handles decryption. Including them in
-    # local evaluation would return unusable encrypted ciphertext. Unencrypted remote
-    # config flags are included since they work with useFeatureFlagPayload.
-    feature_flags = list(
+    cohorts_by_project: dict[int, dict[int, Cohort]] = defaultdict(dict)
+    if any_flag_uses_cohort:
+        for cohort in (
+            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+            .filter(team__project_id__in=project_ids, deleted=False)
+            .select_related("team")
+        ):
+            cohorts_by_project[cohort.team.project_id][cohort.pk] = cohort
+
+    # Bulk load group type mappings for all projects
+    gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
+    for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(project_id__in=project_ids):
+        gtm_by_project[row.project_id][str(row.group_type_index)] = row.group_type
+
+    # Stream flags ordered by team_id then key for consistent ordering (ETag stability)
+    flags_qs = (
         FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
         .filter(
             ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
-            team_id=team.id,
+            team_id__in=team_ids,
             deleted=False,
         )
         .exclude(id__in=survey_flag_ids)
+        .order_by("team_id", "key")
     )
 
-    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
-    try:
-        all_direct_cohort_ids: set[int] = set()
-        for flag in feature_flags:
-            all_direct_cohort_ids.update(_extract_cohort_ids_from_filters(flag.get_filters()))
+    results: dict[int, dict[str, Any]] = {}
 
-        if all_direct_cohort_ids:
-            seen_cohorts_cache = _load_cohorts_with_dependencies(
-                all_direct_cohort_ids, team.project_id, DATABASE_FOR_LOCAL_EVALUATION
-            )
-    except Exception:
-        logger.error("Error loading cohorts for flags", exc_info=True)
-
-    return feature_flags, seen_cohorts_cache
-
-
-def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) -> tuple[list[FeatureFlag], dict]:
-    """
-    Get all feature flags for a team with conditional cohort handling for local evaluation.
-
-    This method supports two different client integration patterns:
-
-    Args:
-        team: The team to get feature flags for.
-        include_cohorts: Controls cohort handling strategy for client compatibility.
-
-    Returns:
-        tuple[list[FeatureFlag], dict]: (flags, cohorts_dict)
-
-    Behavior based on include_cohorts:
-
-    When include_cohorts=True (for smart clients):
-        - Flag filters are kept unchanged (cohort references preserved)
-        - Returns cohorts dict with cohort definitions for client-side evaluation
-        - Client must evaluate cohort membership locally using provided cohort criteria
-
-    When include_cohorts=False (for simple clients):
-        - Flag filters are transformed (simple cohorts expanded to person properties)
-        - Returns empty cohorts dict
-        - Client only needs to evaluate simplified property-based filters
-    """
-    feature_flags, seen_cohorts_cache = _load_flags_and_cohorts_for_team(team)
-    cohorts: dict[str, Any] = {}
-
-    for feature_flag in feature_flags:
-        try:
-            filters = feature_flag.get_filters()
-
-            # Capture cohort_ids BEFORE transformation to avoid losing cohort references
-            cohort_ids = feature_flag.get_cohort_ids(
-                using_database=DATABASE_FOR_LOCAL_EVALUATION,
-                seen_cohorts_cache=seen_cohorts_cache,
-            )
-
-            # transform cohort filters to be evaluated locally, but only if include_cohorts is false
-            if not include_cohorts and len(cohort_ids) == 1:
-                feature_flag.filters = {
-                    **filters,
-                    "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(
-                        using_database=DATABASE_FOR_LOCAL_EVALUATION,
-                        seen_cohorts_cache=seen_cohorts_cache,
-                    ),
-                }
-            else:
-                feature_flag.filters = filters
-
-            # Only build cohorts when include_cohorts is True (matching send_cohorts behavior)
-            if include_cohorts:
-                for id in cohort_ids:
-                    # don't duplicate queries for already added cohorts
-                    if str(id) not in cohorts:
-                        if id in seen_cohorts_cache:
-                            cohort = seen_cohorts_cache[id]
-                        else:
-                            logger.warning(
-                                "Cohort not in seen_cohorts_cache, performing fallback query",
-                                extra={"cohort_id": id, "team_id": team.id},
-                            )
-                            cohort = (
-                                Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-                                .filter(id=id, team__project_id=team.project_id, deleted=False)
-                                .first()
-                            )
-                            seen_cohorts_cache[id] = cohort or ""
-
-                        if cohort and not cohort.is_static:
-                            try:
-                                cohorts[str(cohort.pk)] = cohort.properties.to_dict()
-                            except Exception:
-                                logger.error(
-                                    "Error processing cohort properties",
-                                    extra={"cohort_id": id},
-                                    exc_info=True,
-                                )
-                                continue
-
-        except Exception:
-            logger.error("Error processing feature flag", extra={"flag_id": feature_flag.pk}, exc_info=True)
+    for tid, team_flags_iter in groupby(flags_qs.iterator(), key=lambda f: f.team_id):
+        team = team_by_id.get(tid)
+        if team is None:
             continue
 
-    return feature_flags, cohorts
+        project_cohorts = cohorts_by_project.get(team.project_id, {})
+        # Build a seen_cohorts_cache compatible with FeatureFlag.get_cohort_ids
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = dict(project_cohorts)
 
+        flags_data: list[dict[str, Any]] = []
+        cohorts: dict[str, Any] = {}
+        flag_id_to_key: dict[str, str] = {}
 
-def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict[str, Any]:
-    from posthog.api.feature_flag import MinimalFeatureFlagSerializer
-
-    flags, cohorts = _get_flags_for_local_evaluation(team, include_cohorts)
-
-    response_data = {
-        "flags": [MinimalFeatureFlagSerializer(feature_flag, context={}).data for feature_flag in flags],
-        "group_type_mapping": {
-            str(row.group_type_index): row.group_type
-            for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
-                project_id=team.project_id
-            )
-        },
-        "cohorts": cohorts,
-    }
-
-    # Transform flag dependencies for simplified client-side evaluation
-    return _apply_flag_dependency_transformation(response_data, flags)
-
-
-def _get_both_flags_responses_for_local_evaluation(team: Team) -> tuple[dict[str, Any], dict[str, Any]]:
-    """
-    Generate both with-cohorts and without-cohorts responses from shared data.
-
-    Loads flags and cohorts once, then derives both responses to avoid duplicate
-    database queries. This reduces memory and processing time for cache updates.
-
-    Returns:
-        tuple: (with_cohorts_response, without_cohorts_response)
-    """
-    from posthog.api.feature_flag import MinimalFeatureFlagSerializer
-
-    feature_flags, seen_cohorts_cache = _load_flags_and_cohorts_for_team(team)
-
-    # Get group type mapping once (shared between both responses)
-    group_type_mapping = {
-        str(row.group_type_index): row.group_type
-        for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
-            project_id=team.project_id
-        )
-    }
-
-    # Process flags and build cohorts dict for with-cohorts response
-    cohorts_dict: dict[str, Any] = {}
-    flags_with_cohorts_data: list[dict[str, Any]] = []
-    flags_without_cohorts_data: list[dict[str, Any]] = []
-
-    for feature_flag in feature_flags:
-        try:
-            original_filters = feature_flag.get_filters()
-
-            cohort_ids = feature_flag.get_cohort_ids(
-                using_database=DATABASE_FOR_LOCAL_EVALUATION,
-                seen_cohorts_cache=seen_cohorts_cache,
-            )
-
-            # Serialize for with-cohorts response (uses original filters)
-            flags_with_cohorts_data.append(MinimalFeatureFlagSerializer(feature_flag, context={}).data)
-
-            # Build cohorts dict for with-cohorts response
-            for cohort_id in cohort_ids:
-                if str(cohort_id) not in cohorts_dict:
-                    if cohort_id not in seen_cohorts_cache:
-                        logger.warning(
-                            "Cohort not in seen_cohorts_cache, performing fallback query",
-                            extra={"cohort_id": cohort_id, "team_id": team.id},
-                        )
-                        cohort = (
-                            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-                            .filter(id=cohort_id, team__project_id=team.project_id, deleted=False)
-                            .first()
-                        )
-                        seen_cohorts_cache[cohort_id] = cohort or ""
-
-                    cohort = seen_cohorts_cache[cohort_id]
-                    if cohort and not cohort.is_static:
-                        try:
-                            cohorts_dict[str(cohort.pk)] = cohort.properties.to_dict()
-                        except Exception:
-                            logger.error(
-                                "Error processing cohort properties",
-                                extra={"cohort_id": cohort_id},
-                                exc_info=True,
-                            )
-                            continue
-
-            # Serialize for without-cohorts response (transform filters if applicable)
+        for feature_flag in team_flags_iter:
             try:
-                if len(cohort_ids) == 1:
+                filters = feature_flag.get_filters()
+
+                # Pre-populate cache with empty entries for any referenced cohort_id
+                # not already loaded, so get_cohort_ids doesn't make fallback DB queries
+                # for deleted or cross-team cohorts.
+                for group in filters.get("groups", []):
+                    for prop in group.get("properties", []):
+                        if prop.get("type") == "cohort" and prop.get("value") is not None:
+                            try:
+                                cid = int(prop["value"])
+                                if cid not in seen_cohorts_cache:
+                                    seen_cohorts_cache[cid] = ""
+                            except (TypeError, ValueError):
+                                pass
+
+                cohort_ids = feature_flag.get_cohort_ids(
+                    using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                    seen_cohorts_cache=seen_cohorts_cache,
+                )
+
+                if not include_cohorts and len(cohort_ids) == 1:
                     feature_flag.filters = {
-                        **original_filters,
+                        **filters,
                         "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(
                             using_database=DATABASE_FOR_LOCAL_EVALUATION,
                             seen_cohorts_cache=seen_cohorts_cache,
                         ),
                     }
-                flags_without_cohorts_data.append(MinimalFeatureFlagSerializer(feature_flag, context={}).data)
-            finally:
-                feature_flag.filters = original_filters
+                else:
+                    feature_flag.filters = filters
 
-        except Exception:
-            logger.error("Error processing feature flag", extra={"flag_id": feature_flag.pk}, exc_info=True)
-            continue
+                flags_data.append(MinimalFeatureFlagSerializer(feature_flag, context={}).data)
 
-    # Build with-cohorts response
-    with_cohorts_response = {
-        "flags": flags_with_cohorts_data,
-        "group_type_mapping": group_type_mapping,
-        "cohorts": cohorts_dict,
-    }
-    with_cohorts_response = _apply_flag_dependency_transformation(with_cohorts_response, feature_flags)
+                if include_cohorts:
+                    for cohort_id in cohort_ids:
+                        str_id = str(cohort_id)
+                        if str_id not in cohorts:
+                            cohort = project_cohorts.get(cohort_id)
+                            if cohort is not None and not cohort.is_static:
+                                try:
+                                    cohorts[str_id] = cohort.properties.to_dict()
+                                except Exception:
+                                    logger.error(
+                                        "Error processing cohort properties",
+                                        extra={"cohort_id": cohort_id},
+                                        exc_info=True,
+                                    )
 
-    # Build without-cohorts response
-    without_cohorts_response = {
-        "flags": flags_without_cohorts_data,
-        "group_type_mapping": group_type_mapping,
-        "cohorts": {},
-    }
-    without_cohorts_response = _apply_flag_dependency_transformation(without_cohorts_response, feature_flags)
+                flag_id_to_key[str(feature_flag.id)] = feature_flag.key
 
-    return with_cohorts_response, without_cohorts_response
+            except Exception:
+                logger.error("Error processing feature flag", extra={"flag_id": feature_flag.pk}, exc_info=True)
+                continue
+
+        response_data: dict[str, Any] = {
+            "flags": flags_data,
+            "group_type_mapping": gtm_by_project.get(team.project_id, {}),
+            "cohorts": cohorts if include_cohorts else {},
+        }
+
+        results[tid] = _apply_flag_dependency_transformation(response_data, flag_id_to_key)
+
+    # Ensure every requested team has a result, even if it had no flags
+    for tid in team_ids:
+        if tid not in results:
+            results[tid] = {
+                "flags": [],
+                "group_type_mapping": gtm_by_project.get(team_by_id[tid].project_id, {}),
+                "cohorts": {},
+            }
+
+    return results
 
 
 # NOTE: All models that affect feature flag evaluation should have a signal to update the cache

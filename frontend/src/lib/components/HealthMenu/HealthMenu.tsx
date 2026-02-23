@@ -36,6 +36,8 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
     } = useValues(healthMenuLogic)
     const { setHealthMenuOpen } = useActions(healthMenuLogic)
     const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
     const { issueCount: pipelineIssueCount } = useValues(sidePanelHealthLogic)
 
     const sdkDoctorTooltip = needsAttention
@@ -51,12 +53,11 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
             ? `${pipelineIssueCount} pipeline issue${pipelineIssueCount === 1 ? '' : 's'}`
             : 'All pipelines healthy'
 
+    const hasPipelineIssues = pipelineStatusEnabled && pipelineIssueCount > 0
     const triggerBadgeContent =
-        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
-            ? '!'
-            : '✓'
+        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || hasPipelineIssues ? '!' : '✓'
     const triggerBadgeStatus =
-        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
+        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || hasPipelineIssues
             ? 'danger'
             : 'success'
 
@@ -112,28 +113,30 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
                     </Link>
                 )}
             />
-            <Menu.Item
-                render={(props) => (
-                    <Link
-                        {...props}
-                        to={urls.pipelineStatus()}
-                        buttonProps={{ menuItem: true }}
-                        tooltip={pipelineStatusTooltip}
-                        tooltipPlacement="right"
-                        tooltipCloseDelayMs={0}
-                        data-attr="health-menu-pipeline-status-button"
-                    >
-                        <IconWithBadge
-                            size="xsmall"
-                            content={pipelineIssueCount > 0 ? '!' : '✓'}
-                            status={pipelineHealthStatus}
+            {pipelineStatusEnabled && (
+                <Menu.Item
+                    render={(props) => (
+                        <Link
+                            {...props}
+                            to={urls.pipelineStatus()}
+                            buttonProps={{ menuItem: true }}
+                            tooltip={pipelineStatusTooltip}
+                            tooltipPlacement="right"
+                            tooltipCloseDelayMs={0}
+                            data-attr="health-menu-pipeline-status-button"
                         >
-                            <IconDatabase className="size-5" />
-                        </IconWithBadge>
-                        Pipeline status
-                    </Link>
-                )}
-            />
+                            <IconWithBadge
+                                size="xsmall"
+                                content={pipelineIssueCount > 0 ? '!' : '✓'}
+                                status={pipelineHealthStatus}
+                            >
+                                <IconDatabase className="size-5" />
+                            </IconWithBadge>
+                            Pipeline status
+                        </Link>
+                    )}
+                />
+            )}
             <Menu.Item
                 render={(props) => (
                     <Link
@@ -156,6 +159,8 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
         useValues(healthMenuLogic)
     const { setHealthMenuOpen } = useActions(healthMenuLogic)
     const { triggerBadgeContent, triggerBadgeStatus, totalIssues } = useValues(unifiedHealthMenuLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
 
     const combinedBadgeContent = postHogStatusBadgeContent === '!' || triggerBadgeContent === '!' ? '!' : '✓'
     const combinedBadgeStatus: 'danger' | 'warning' | 'success' =
@@ -232,19 +237,21 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                     </Link>
                 )}
             />
-            <Menu.Item
-                render={(props) => (
-                    <Link
-                        {...props}
-                        to={urls.pipelineStatus()}
-                        buttonProps={{ menuItem: true }}
-                        data-attr="health-menu-pipeline-status-button"
-                    >
-                        <IconDatabase className="size-5" />
-                        Pipeline status
-                    </Link>
-                )}
-            />
+            {pipelineStatusEnabled && (
+                <Menu.Item
+                    render={(props) => (
+                        <Link
+                            {...props}
+                            to={urls.pipelineStatus()}
+                            buttonProps={{ menuItem: true }}
+                            data-attr="health-menu-pipeline-status-button"
+                        >
+                            <IconDatabase className="size-5" />
+                            Pipeline status
+                        </Link>
+                    )}
+                />
+            )}
             <Menu.Item
                 render={(props) => (
                     <Link

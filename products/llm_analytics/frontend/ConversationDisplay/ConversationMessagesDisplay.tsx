@@ -500,6 +500,14 @@ export const LLMMessageDisplay = React.memo(
             if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
                 try {
                     const parsed = typeof content === 'string' ? parsePartialJSON(content) : content
+                    // If the partial parser returned an empty container, the input wasn't
+                    // actually JSON (e.g. "[Thinking: ...]" starts with "[" but is plain text)
+                    const isParsedEmpty =
+                        (Array.isArray(parsed) && parsed.length === 0) ||
+                        (isObject(parsed) && Object.keys(parsed as Record<string, unknown>).length === 0)
+                    if (isParsedEmpty) {
+                        throw new Error('not JSON')
+                    }
                     if (isObject(parsed) && parsed.type === 'image') {
                         return <ImageMessageDisplay message={parsed} />
                     }

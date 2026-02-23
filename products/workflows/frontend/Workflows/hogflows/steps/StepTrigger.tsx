@@ -45,7 +45,7 @@ import { PropertyFilterType } from '~/types'
 import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
-import { HogFlowEventFilters } from '../filters/HogFlowFilters'
+import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
@@ -505,6 +505,7 @@ function StepTriggerConfigurationBatch({
                         ],
                     }}
                     hasRowOperator={false}
+                    operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                 />
             </div>
             <LemonDivider />
@@ -731,6 +732,7 @@ function ConversionGoalSection(): JSX.Element {
                             onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
                             pageKey="workflow-conversion-properties"
                             hideBehavioralCohorts
+                            operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                         />
                     </LemonField.Pure>
                     <div className="flex flex-col gap-1">

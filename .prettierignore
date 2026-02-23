@@ -31,6 +31,7 @@ frontend/src/products.json
 frontend/src/layout.html
 **/fixtures/**
 services/mcp/**/generated.ts
+services/mcp/src/**/*.md
 services/mcp/worker-configuration.d.ts
 frontend/src/taxonomy/core-filter-definitions-by-group.json
 frontend/dist/
