@@ -17,12 +17,13 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.workflow import ChildWorkflowHandle
 
-from posthog.models.team.team import Team
 from posthog.temporal.ai.video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
 from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKBACK_WINDOW
 from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs, WorkflowResult
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+
+from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
 activity_logger = get_logger(__name__)
@@ -144,24 +145,10 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
 @activity.defn
 async def get_proactive_tasks_enabled_team_ids_activity() -> list[int]:
     enabled_team_ids: list[int] = []
-    async for team in Team.objects.filter(proactive_tasks_enabled=True).only("id", "organization_id", "uuid"):
-        feature_flag_enabled = posthoganalytics.feature_enabled(
-            "product-autonomy",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            send_feature_flag_events=False,
-        )
-        if feature_flag_enabled:
-            enabled_team_ids.append(team.id)
+    async for config in SignalSourceConfig.objects.filter(
+        source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+        enabled=True,
+    ).only("team_id"):
+        enabled_team_ids.append(config.team_id)
     return enabled_team_ids

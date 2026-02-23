@@ -17,7 +17,7 @@ from posthog.schema import (
     TracesQuery,
 )
 
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
+from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models import PropertyDefinition, Team
@@ -1587,13 +1587,13 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(runner.paginator.limit, MAX_SELECT_TRACES_LIMIT_EXPORT)
 
     def test_query_limit_uses_default_when_no_limit_specified(self):
-        """Test that query context uses default when no limit is specified."""
+        """Test that query context uses default (100) when no limit is specified."""
         runner = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(),
             limit_context=LimitContext.QUERY,
         )
-        self.assertEqual(runner.paginator.limit, DEFAULT_RETURNED_ROWS)
+        self.assertEqual(runner.paginator.limit, 100)
 
     def test_query_limit_respects_explicit_limit(self):
         """Test that query context respects explicit limits."""

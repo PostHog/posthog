@@ -8,6 +8,7 @@ from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_re
 from posthog.temporal.ai.session_summary.activities import (
     analyze_video_segment_activity,
     capture_timing_activity,
+    cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     prep_session_video_asset_activity,
@@ -28,6 +29,11 @@ from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
     process_slack_conversation_activity,
+)
+
+from products.signals.backend.temporal import (
+    ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
 
 from .llm_traces_summaries.summarize_traces import (
@@ -95,6 +101,7 @@ SIGNALS_WORKFLOWS = [
     SummarizeSessionGroupWorkflow,
     VideoSegmentClusteringWorkflow,
     VideoSegmentClusteringCoordinatorWorkflow,
+    *SIGNALS_PRODUCT_WORKFLOWS,
 ]
 
 SIGNALS_ACTIVITIES = [
@@ -112,6 +119,7 @@ SIGNALS_ACTIVITIES = [
     analyze_video_segment_activity,
     embed_and_store_segments_activity,
     store_video_session_summary_activity,
+    cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     capture_timing_activity,
     get_sessions_to_prime_activity,
@@ -121,6 +129,7 @@ SIGNALS_ACTIVITIES = [
     label_clusters_activity,
     persist_reports_activity,
     get_proactive_tasks_enabled_team_ids_activity,
+    *SIGNALS_PRODUCT_ACTIVITIES,
 ]
 
 __all__ = [

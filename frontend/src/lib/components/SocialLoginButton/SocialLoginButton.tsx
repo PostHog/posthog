@@ -91,19 +91,12 @@ export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLogi
     const { beginPasskeyLogin } = useActions(passkeyLogic)
     const { isLoading } = useValues(passkeyLogic)
 
-    const {
-        reauth,
-    }: {
-        reauth?: 'true'
-    } = extraQueryParams ?? {}
-
     return (
         <div className="relative">
             <LemonButton
                 size="large"
                 icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
                 active={isLastUsed}
-                className={clsx(!isLastUsed && reauth !== 'true' && 'bg-mark')}
                 tooltip="Passkey"
                 htmlType="button"
                 onClick={() => {
@@ -112,13 +105,13 @@ export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLogi
                 loading={isLoading}
                 data-attr="passkey-login"
             />
-            {reauth !== 'true' && (
+            {isLastUsed && (
                 <LemonTag
                     type="muted"
                     size="small"
                     className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
                 >
-                    {isLastUsed ? 'Last used' : 'New'}
+                    Last used
                 </LemonTag>
             )}
         </div>

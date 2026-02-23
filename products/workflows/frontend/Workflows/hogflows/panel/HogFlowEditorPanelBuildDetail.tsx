@@ -210,11 +210,6 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     className={shakePickButton ? 'animate-shake' : ''}
                                                     loading={testLoading}
                                                     tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
-                                                    disabledReason={
-                                                        workflow.id === 'new'
-                                                            ? 'Save the workflow first to test steps'
-                                                            : undefined
-                                                    }
                                                     onClick={runOutputTest}
                                                 >
                                                     Pick from response
@@ -258,21 +253,23 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                                 to:
                                                             </p>
                                                             <div className="flex flex-wrap gap-1">
-                                                                {mappings.map((mapping, index) => (
-                                                                    <LemonButton
-                                                                        key={index}
-                                                                        size="xsmall"
-                                                                        type="secondary"
-                                                                        onClick={() =>
-                                                                            assignPendingPathToMapping(
-                                                                                index,
-                                                                                pendingPath!
-                                                                            )
-                                                                        }
-                                                                    >
-                                                                        {mapping.key || `Row ${index + 1}`}
-                                                                    </LemonButton>
-                                                                ))}
+                                                                {mappings.map((mapping, index) =>
+                                                                    mapping.key ? (
+                                                                        <LemonButton
+                                                                            key={index}
+                                                                            size="xsmall"
+                                                                            type="secondary"
+                                                                            onClick={() =>
+                                                                                assignPendingPathToMapping(
+                                                                                    index,
+                                                                                    pendingPath!
+                                                                                )
+                                                                            }
+                                                                        >
+                                                                            {mapping.key}
+                                                                        </LemonButton>
+                                                                    ) : null
+                                                                )}
                                                                 <LemonButton
                                                                     size="xsmall"
                                                                     type="tertiary"

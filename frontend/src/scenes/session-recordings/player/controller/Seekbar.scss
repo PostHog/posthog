@@ -8,6 +8,10 @@
     width: 100%;
     height: var(--slider-height);
 
+    &--sources {
+        --bar-height: 6px;
+    }
+
     &:hover,
     &--scrubbing {
         --bar-height: 8px;
@@ -15,6 +19,11 @@
         .PlayerSeekBarPreview {
             opacity: 1;
         }
+    }
+
+    &--sources:hover,
+    &--sources#{&}--scrubbing {
+        --bar-height: 10px;
     }
 
     .PlayerSeekbar__slider {
@@ -114,6 +123,38 @@
             border-radius: 50%;
             transition: top 150ms ease-in-out;
             backface-visibility: hidden;
+        }
+
+        .PlayerSeekbar__sources {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 2;
+            display: flex;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            border-radius: var(--bar-height);
+
+            .PlayerSeekbar__sources__item {
+                height: 100%;
+                background-color: var(--color-neutral-100);
+                transition: background-color 150ms ease;
+
+                &--loaded {
+                    background-color: var(--color-neutral-450);
+                }
+            }
+        }
+
+        .PlayerSeekbar__played {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 3;
+            height: 100%;
+            background-color: hsl(25deg 85% 50% / 70%);
+            border-radius: var(--bar-height) 0 0 var(--bar-height);
         }
 
         @keyframes PlayerSeekbar__loading-stripes {

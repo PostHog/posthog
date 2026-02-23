@@ -9,7 +9,6 @@ from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
 
 from posthog.hogql.ast import And, CompareOperation, Constant, SelectQuery
 from posthog.hogql.constants import (
-    DEFAULT_RETURNED_ROWS,
     MAX_SELECT_RETURNED_ROWS,
     LimitContext,
     get_default_limit_for_context,
@@ -80,8 +79,8 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         """Test behavior with limit set to zero."""
         runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=0))
         response = runner.calculate()
-        self.assertEqual(runner.paginator.limit, DEFAULT_RETURNED_ROWS)
-        self.assertEqual(response.limit, DEFAULT_RETURNED_ROWS)
+        self.assertEqual(runner.paginator.limit, 100)
+        self.assertEqual(response.limit, 100)
         self.assertEqual(len(response.results), 10)
         self.assertFalse(response.hasMore)
 
@@ -89,8 +88,8 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         """Test behavior with negative limit value."""
         runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=-1))
         response = runner.calculate()
-        self.assertEqual(runner.paginator.limit, DEFAULT_RETURNED_ROWS)
-        self.assertEqual(response.limit, DEFAULT_RETURNED_ROWS)
+        self.assertEqual(runner.paginator.limit, 100)
+        self.assertEqual(response.limit, 100)
         self.assertEqual(len(response.results), 10)
         self.assertFalse(response.hasMore)
 

@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { AnyPropertyFilter, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PropertyFilterButton } from './PropertyFilterButton'
 
@@ -90,6 +90,53 @@ export function FilterTypes(): JSX.Element {
             {propertyFilters.map((f) => (
                 <div className="mb-1" key={f.type && f.key ? `${f.type}_${f.key}` : 'empty-property-filter'}>
                     <PropertyFilterButton item={f} />
+                </div>
+            ))}
+        </div>
+    )
+}
+
+const operatorVariantFilters = [
+    {
+        key: 'Browser',
+        operator: PropertyOperator.Exact,
+        type: PropertyFilterType.Event,
+        value: ['Chrome', 'Safari', 'Edge'],
+    },
+    {
+        key: 'Browser',
+        operator: PropertyOperator.IsNot,
+        type: PropertyFilterType.Event,
+        value: ['Chrome', 'Safari', 'Edge'],
+    },
+    { key: '$current_url', operator: PropertyOperator.IContains, type: PropertyFilterType.Event, value: 'checkout' },
+    { key: '$current_url', operator: PropertyOperator.NotIContains, type: PropertyFilterType.Event, value: 'checkout' },
+    { key: '$pathname', operator: PropertyOperator.Regex, type: PropertyFilterType.Event, value: '^/api/v[0-9]+' },
+    { key: '$pathname', operator: PropertyOperator.NotRegex, type: PropertyFilterType.Event, value: '^/api/v[0-9]+' },
+    { key: '$session_duration', operator: PropertyOperator.GreaterThan, type: PropertyFilterType.Event, value: 42 },
+    {
+        key: '$session_duration',
+        operator: PropertyOperator.GreaterThanOrEqual,
+        type: PropertyFilterType.Event,
+        value: 42,
+    },
+    { key: '$session_duration', operator: PropertyOperator.LessThan, type: PropertyFilterType.Event, value: 42 },
+    { key: '$session_duration', operator: PropertyOperator.LessThanOrEqual, type: PropertyFilterType.Event, value: 42 },
+    { key: 'score', operator: PropertyOperator.Between, type: PropertyFilterType.Event, value: [10, 100] },
+    { key: 'score', operator: PropertyOperator.NotBetween, type: PropertyFilterType.Event, value: [10, 100] },
+    { key: '$timestamp', operator: PropertyOperator.IsDateExact, type: PropertyFilterType.Event, value: '2024-06-15' },
+    { key: '$timestamp', operator: PropertyOperator.IsDateBefore, type: PropertyFilterType.Event, value: '2024-06-15' },
+    { key: '$timestamp', operator: PropertyOperator.IsDateAfter, type: PropertyFilterType.Event, value: '2024-06-15' },
+    { key: 'email', operator: PropertyOperator.IsSet, type: PropertyFilterType.Event, value: 'is_set' },
+    { key: 'email', operator: PropertyOperator.IsNotSet, type: PropertyFilterType.Event, value: 'is_not_set' },
+] satisfies AnyPropertyFilter[]
+
+export function OperatorVariants(): JSX.Element {
+    return (
+        <div className="space-y-2">
+            {operatorVariantFilters.map((filter, index) => (
+                <div key={index}>
+                    <PropertyFilterButton item={filter} />
                 </div>
             ))}
         </div>

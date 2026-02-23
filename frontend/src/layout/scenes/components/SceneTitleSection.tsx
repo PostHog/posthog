@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconBrackets, IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconWrench, IconX } from '@posthog/icons'
@@ -87,6 +87,7 @@ export function SceneTitlePanelButton({
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
+                    data-attr="open-context-panel-ai-button"
                 >
                     <div className="relative">
                         <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
@@ -106,13 +107,14 @@ export function SceneTitlePanelButton({
                     }}
                     tooltip={
                         <>
-                            {sidePanelOpen ? 'Close scene panel' : 'Open scene panel'}{' '}
-                            <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
+                            Open context panel
+                            <RenderKeybind className="relative -top-px ml-1" keybind={[keyBinds.toggleRightNav]} />
                         </>
                     }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
+                    data-attr="open-context-panel-button"
                 >
                     <IconSidePanel className="text-primary group-hover:text-primary z-10" />
                 </ButtonPrimitive>
@@ -193,6 +195,10 @@ type SceneMainTitleProps = {
      * */
     noBorder?: boolean
     /**
+     * If true, removes the vertical padding from the title section
+     * */
+    noPadding?: boolean
+    /**
      * If true, the actions from PageHeader will be shown
      * @default false
      */
@@ -236,6 +242,7 @@ export function SceneTitleSection({
     renameDebounceMs,
     saveOnBlur = false,
     noBorder = false,
+    noPadding = false,
     actions,
     forceBackTo,
     className,
@@ -247,6 +254,7 @@ export function SceneTitleSection({
     const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
+    const sentinelRef = useRef<HTMLDivElement>(null)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const effectiveDescription = description
 
@@ -259,8 +267,8 @@ export function SceneTitleSection({
         </>
     )
 
-    useEffect(() => {
-        const stickyElement = document.querySelector('[data-sticky-sentinel]')
+    useLayoutEffect(() => {
+        const stickyElement = sentinelRef.current
         if (!stickyElement) {
             return
         }
@@ -293,12 +301,18 @@ export function SceneTitleSection({
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
             {effectiveDescription != null && (
                 // When this element touches top of the scene, we set the sticky bar to be sticky
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
+                <div
+                    ref={sentinelRef}
+                    data-sticky-sentinel
+                    className="h-px w-px pointer-events-none absolute -top-4"
+                    aria-hidden
+                />
             )}
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
+                    noPadding ? '' : '-mx-4 px-4 -mt-4',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     isRemovingSidePanelFlag && 'pl-4 pr-2',
@@ -306,7 +320,10 @@ export function SceneTitleSection({
                 )}
             >
                 <div
-                    className="scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
+                    className={cn(
+                        'scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group',
+                        noPadding ? 'py-0.5' : 'py-2'
+                    )}
                     data-editable={canEdit}
                 >
                     <div
@@ -459,7 +476,8 @@ function SceneName({
                             value={name || ''}
                             onChange={(e) => {
                                 setName(e.target.value)
-                                if (!saveOnBlur) {
+                                if (!saveOnBlur || forceEdit) {
+                                    // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
                                     debouncedOnChange(e.target.value)
                                 }
                             }}
@@ -613,7 +631,8 @@ function SceneDescription({
                         value={description || ''}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur) {
+                            if (!saveOnBlur || forceEdit) {
+                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}

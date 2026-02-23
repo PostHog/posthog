@@ -183,6 +183,26 @@ export function StepCard({
                                 </div>
                             )}
 
+                            <LemonButton
+                                size="xsmall"
+                                type="primary"
+                                status="danger"
+                                onClick={() =>
+                                    updateStep(index, {
+                                        type: 'modal',
+                                        selector: undefined,
+                                        inferenceData: undefined,
+                                        screenshotMediaId: undefined,
+                                        useManualSelector: undefined,
+                                        element: undefined,
+                                        elementTargeting: undefined,
+                                    })
+                                }
+                                icon={<IconTrash />}
+                            >
+                                Remove element
+                            </LemonButton>
+
                             <div>
                                 <label className="block text-[11px] font-medium text-muted-3000 mb-1.5">
                                     Targeting
@@ -215,6 +235,18 @@ export function StepCard({
                                 </div>
                             ) : (
                                 <>
+                                    {!step.inferenceData && (
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            fullWidth
+                                            icon={<IconCursorClick />}
+                                            onClick={handleReselectElement}
+                                            disabledReason={isSelecting ? 'Click your element' : undefined}
+                                        >
+                                            {isSelecting ? 'Click your element' : 'Select element'}
+                                        </LemonButton>
+                                    )}
                                     <div>
                                         <Tooltip title="How strictly we should identify the target element">
                                             <label className="flex text-[11px] font-medium text-muted-3000 mb-1 gap-1">
@@ -272,37 +304,6 @@ export function StepCard({
                                         { value: 'click', label: 'Element click' },
                                     ]}
                                 />
-                            </div>
-
-                            <div className="flex gap-2">
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    fullWidth
-                                    icon={<IconCursorClick />}
-                                    onClick={handleReselectElement}
-                                >
-                                    Change
-                                </LemonButton>
-                                {step.type === 'modal' && (
-                                    <LemonButton
-                                        size="small"
-                                        type="tertiary"
-                                        status="danger"
-                                        onClick={() =>
-                                            updateStep(index, {
-                                                type: 'modal',
-                                                selector: undefined,
-                                                inferenceData: undefined,
-                                                screenshotMediaId: undefined,
-                                                useManualSelector: undefined,
-                                                element: undefined,
-                                                elementTargeting: undefined,
-                                            })
-                                        }
-                                        icon={<IconTrash />}
-                                    />
-                                )}
                             </div>
                         </>
                     ) : (

@@ -11,6 +11,7 @@ import {
     ProductTourStepWidth,
     ProductTourSurveyQuestion,
     ProductTourSurveyQuestionType,
+    StepOrderVersion,
     SurveyPosition,
 } from '~/types'
 
@@ -43,6 +44,79 @@ export function getDefaultStepContent(): JSONContent {
             {
                 type: 'paragraph',
                 content: [{ type: 'text', text: 'Describe what this element does...' }],
+            },
+        ],
+    }
+}
+
+export function getExplainerStepContent(): JSONContent {
+    return {
+        type: 'doc',
+        content: [
+            {
+                type: 'heading',
+                attrs: { level: 2 },
+                content: [{ type: 'text', text: 'Welcome to Product Tours!' }],
+            },
+            {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Here are some tips to get you going 🦔' }],
+            },
+            {
+                type: 'bulletList',
+                content: [
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: 'Add an element to display this step as a tooltip',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: 'Configure when & where to show the tour',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: "Customize your tour's theme",
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [{ type: 'text', text: 'Add custom buttons' }],
+                            },
+                        ],
+                    },
+                ],
             },
         ],
     }
@@ -122,4 +196,32 @@ export function createDefaultStep(type: ProductTourStepType): ProductTourStep {
     }
 
     return baseStep
+}
+
+function hasStepsChanged(currentSteps: ProductTourStep[], history: StepOrderVersion[] | undefined): boolean {
+    if (!history || history.length === 0) {
+        return true
+    }
+    const latestVersion = history[history.length - 1]
+    if (currentSteps.length !== latestVersion.steps.length) {
+        return true
+    }
+    return currentSteps.some((step, index) => step.id !== latestVersion.steps[index].id)
+}
+
+export function getUpdatedStepOrderHistory(
+    currentSteps: ProductTourStep[],
+    existingHistory: StepOrderVersion[] | undefined
+): StepOrderVersion[] {
+    const history = existingHistory ? [...existingHistory] : []
+
+    if (hasStepsChanged(currentSteps, history)) {
+        history.push({
+            id: uuid(),
+            steps: currentSteps,
+            created_at: new Date().toISOString(),
+        })
+    }
+
+    return history
 }

@@ -118,7 +118,7 @@ export function Navigation({
                             '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative',
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
-                                'lg:mr-2': isRemovingSidePanelFlag,
+                                'lg:mr-1 lg:mb-1': isRemovingSidePanelFlag,
                                 'rounded-r-none': isRemovingSidePanelFlag && sidePanelOpen,
                             }
                         )}

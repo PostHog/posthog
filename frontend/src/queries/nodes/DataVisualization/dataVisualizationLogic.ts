@@ -89,6 +89,7 @@ export interface DataVisualizationLogicProps {
     loadPriority?: number
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    limitContext?: 'posthog_ai'
 }
 
 export interface SelectedYAxis {
@@ -273,6 +274,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
+                limitContext: props.limitContext,
             }),
             ['response', 'responseLoading', 'responseError', 'queryCancelled'],
             themeLogic,
@@ -288,6 +290,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
+                limitContext: props.limitContext,
             }),
             ['loadData'],
         ],
@@ -701,14 +704,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         presetChartHeight: [
             (s, props) => [props.key, s.dashboardId, s.activeSceneId],
             (key, dashboardId, activeSceneId) => {
-                // Key for SQL editor based visiaulizations
-                const sqlEditorScene = activeSceneId === Scene.SQLEditor
+                // Keys for SQL editor visualizations can render outside the SQLEditor scene,
+                // e.g. in embedded mode, so key matching keeps sizing consistent.
+                const sqlEditorVisualization =
+                    activeSceneId === Scene.SQLEditor ||
+                    key.includes('SQLEditor') ||
+                    key.startsWith('data-warehouse-editor-data-node-')
 
                 if (activeSceneId === Scene.Insight) {
                     return true
                 }
 
-                return !key.includes('new-SQL') && !dashboardId && !sqlEditorScene
+                return !key.includes('new-SQL') && !dashboardId && !sqlEditorVisualization
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],

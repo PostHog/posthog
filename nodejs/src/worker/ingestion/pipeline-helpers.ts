@@ -238,9 +238,12 @@ export async function sendMessageToDLQ(
             value: originalMessage.value,
             key: originalMessage.key ?? null,
             headers: copyAndExtendHeaders(originalMessage, {
-                'dlq-reason': error instanceof Error ? error.message : String(error),
-                'dlq-step': step,
-                'dlq-timestamp': new Date().toISOString(),
+                dlq_reason: error instanceof Error ? error.message : String(error),
+                dlq_step: step,
+                dlq_timestamp: new Date().toISOString(),
+                dlq_topic: originalMessage.topic,
+                dlq_partition: String(originalMessage.partition),
+                dlq_offset: String(originalMessage.offset),
             }),
         })
     } catch (dlqError) {

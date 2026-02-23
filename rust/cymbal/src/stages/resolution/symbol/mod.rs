@@ -3,11 +3,12 @@ use axum::async_trait;
 use crate::{
     error::{ProguardError, ResolveError, UnhandledError},
     frames::{Frame, RawFrame},
+    langs::apple::AppleDebugImage,
     metric_consts::JAVA_EXCEPTION_REMAP_FAILED,
     symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef},
     types::{operator::TeamId, Exception},
 };
-
+use tracing::warn;
 pub mod local;
 
 #[async_trait]
@@ -16,6 +17,7 @@ pub trait SymbolResolver: Send + Sync + 'static {
         &self,
         team_id: TeamId,
         frame: &RawFrame,
+        debug_images: &[AppleDebugImage],
     ) -> Result<Vec<Frame>, UnhandledError>;
 
     async fn resolve_java_class(
@@ -73,6 +75,10 @@ pub trait SymbolResolver: Send + Sync + 'static {
                 exception.exception_type = new_type
             }
             Err(ResolveError::ResolutionError(frame_error)) => {
+                warn!(
+                    "Failed to resolve Java exception module and type: {}",
+                    frame_error
+                );
                 // Handle resolution error
                 metrics::counter!(JAVA_EXCEPTION_REMAP_FAILED, "reason" => frame_error.to_string())
                     .increment(1)

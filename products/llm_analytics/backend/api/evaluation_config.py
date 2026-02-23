@@ -14,6 +14,7 @@ from posthog.permissions import AccessControlPermission
 
 from ..models.evaluation_config import EvaluationConfig
 from ..models.provider_keys import LLMProviderKey
+from .metrics import llma_track_latency
 from .provider_keys import LLMProviderKeySerializer
 
 
@@ -46,6 +47,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @llma_track_latency("llma_evaluation_config_list")
     @monitor(feature=None, endpoint="llma_evaluation_config_list", method="GET")
     def list(self, request: Request, **kwargs) -> Response:
         """Get the evaluation config for this team"""
@@ -54,6 +56,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=["post"])
+    @llma_track_latency("llma_evaluation_config_set_active_key")
     @monitor(feature=None, endpoint="llma_evaluation_config_set_active_key", method="POST")
     def set_active_key(self, request: Request, **kwargs) -> Response:
         """Set the active provider key for evaluations"""
