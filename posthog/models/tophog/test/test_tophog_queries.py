@@ -131,6 +131,8 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
         results = query_tophog_metrics(DATE_FROM, DATE_TO)
         self.assertEqual(len(results), 1)
         self.assertAlmostEqual(results[0]["total"], 30.0, places=5)
+        self.assertEqual(results[0]["pipelines"], ["events", "recordings"])
+        self.assertEqual(results[0]["lanes"], ["fast", "slow"])
 
     def test_filter_options(self):
         _insert_rows(

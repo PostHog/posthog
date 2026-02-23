@@ -87,8 +87,8 @@ def tophog_dashboard_view(request):
                     "key": _format_key(row["key"]),
                     "value": row["total"],
                     "count": row["obs"],
-                    "pipeline": row["pipeline"],
-                    "lane": row["lane"],
+                    "pipeline": ", ".join(row["pipelines"]),
+                    "lane": ", ".join(row["lanes"]),
                 }
             )
     except Exception as e:

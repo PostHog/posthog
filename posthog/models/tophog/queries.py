@@ -9,7 +9,7 @@ WITH filtered AS (
     WHERE timestamp >= %(date_from)s AND timestamp <= %(date_to)s
     {filters}
 )
-SELECT metric, type, key, total, obs, pipeline, lane
+SELECT metric, type, key, total, obs, pipelines, lanes
 FROM (
     SELECT
         *,
@@ -25,8 +25,8 @@ FROM (
                 ELSE sum(value)
             END AS total,
             sum(count) AS obs,
-            any(pipeline) AS pipeline,
-            any(lane) AS lane
+            arraySort(groupUniqArray(pipeline)) AS pipelines,
+            arraySort(groupUniqArray(lane)) AS lanes
         FROM filtered
         GROUP BY metric, type, key
     )
@@ -69,10 +69,10 @@ def query_tophog_metrics(
             "key": key,
             "total": total,
             "obs": obs,
-            "pipeline": row_pipeline,
-            "lane": row_lane,
+            "pipelines": pipelines,
+            "lanes": lanes,
         }
-        for metric, type_, key, total, obs, row_pipeline, row_lane in rows
+        for metric, type_, key, total, obs, pipelines, lanes in rows
     ]
 
 
