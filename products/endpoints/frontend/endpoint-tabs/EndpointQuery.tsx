@@ -1,33 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconPencil } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { HogQLQuery, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic } from '../endpointSceneLogic'
-
-function formatVariableValue(variable: HogQLVariable): { text: string; isPlaceholder: boolean } {
-    if (variable.value === undefined || variable.value === null || variable.value === '') {
-        return { text: 'null', isPlaceholder: true }
-    }
-    if (typeof variable.value === 'object') {
-        return { text: JSON.stringify(variable.value), isPlaceholder: false }
-    }
-    return { text: String(variable.value), isPlaceholder: false }
-}
 
 interface EndpointQueryProps {
     tabId: string
@@ -87,7 +72,6 @@ function EndpointHogQLQuery({
     version?: number
     query: HogQLQuery
 }): JSX.Element {
-    const variables = query.variables || {}
     const sqlEditorTabId = useMemo(() => `endpoint-query-${tabId}-${version ?? 'latest'}`, [tabId, version])
     const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
     const { queryInput } = useValues(sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded }))
@@ -129,38 +113,6 @@ function EndpointHogQLQuery({
                     <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} />
                 </ResizableSQLEditorContainer>
             </div>
-            {Object.keys(variables).length > 0 && (
-                <div className="w-80 flex-shrink-0">
-                    <div className="border rounded p-4">
-                        <h3 className="text-sm font-semibold mb-3">Variable default values</h3>
-                        <div className="flex flex-col gap-3">
-                            {Object.values(variables).map((variable) => {
-                                const { text, isPlaceholder } = formatVariableValue(variable)
-                                return (
-                                    <LemonField.Pure key={variable.variableId} label={variable.code_name}>
-                                        <div className="flex items-center gap-1">
-                                            <div
-                                                className={`text-sm border rounded px-2 py-1 flex-1 ${
-                                                    isPlaceholder ? 'text-muted italic' : 'font-mono bg-bg-light'
-                                                }`}
-                                            >
-                                                {text}
-                                            </div>
-                                            <LemonButton
-                                                icon={<IconPencil />}
-                                                size="small"
-                                                type="tertiary"
-                                                to={urls.variableEdit(variable.variableId)}
-                                                tooltip="Edit variable"
-                                            />
-                                        </div>
-                                    </LemonField.Pure>
-                                )
-                            })}
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     )
 }
