@@ -11,45 +11,7 @@ from products.signals.backend.api import emit_signal
 
 DEFAULT_INPUT_DIR = Path(__file__).resolve().parent.parent.parent / "github_issues" / "posthog" / "posthog"
 
-
-def _extract_repo(issue: dict) -> str:
-    """Extract owner/repo from the issue's html_url or repository_url."""
-    html_url = issue.get("html_url", "")
-    # html_url looks like https://github.com/posthog/posthog/issues/12345
-    parts = html_url.split("/")
-    try:
-        idx = parts.index("github.com")
-        return f"{parts[idx + 1]}/{parts[idx + 2]}"
-    except (ValueError, IndexError):
-        repo_url = issue.get("repository_url", "")
-        # repository_url looks like https://api.github.com/repos/posthog/posthog
-        return "/".join(repo_url.rstrip("/").split("/")[-2:])
-
-
-def _build_description(issue: dict) -> str:
-    """Build a human-readable description from a GitHub issue for embedding."""
-    title = issue.get("title", "")
-    body = (issue.get("body") or "")[:6000]
-    labels = ", ".join(lbl["name"] for lbl in issue.get("labels", []) if isinstance(lbl, dict))
-
-    parts = [f"GitHub Issue #{issue['number']}: {title}"]
-    if labels:
-        parts.append(f"Labels: {labels}")
-    if body:
-        parts.append(f"\n{body}")
-    return "\n".join(parts)
-
-
-def _build_extra(issue: dict) -> dict:
-    """Extract useful metadata into the extra dict."""
-    return {
-        "url": issue.get("html_url", ""),
-        "author": issue.get("user", {}).get("login", ""),
-        "labels": [lbl["name"] for lbl in issue.get("labels", []) if isinstance(lbl, dict)],
-        "comments": issue.get("comments", 0),
-        "created_at": issue.get("created_at", ""),
-        "updated_at": issue.get("updated_at", ""),
-    }
+EXTRA_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at", "locked", "state")
 
 
 class Command(BaseCommand):
@@ -67,12 +29,6 @@ class Command(BaseCommand):
             type=str,
             default=None,
             help=f"Directory containing issue JSON files (default: {DEFAULT_INPUT_DIR})",
-        )
-        parser.add_argument(
-            "--weight",
-            type=float,
-            default=0.3,
-            help="Signal weight for each issue (default: 0.3)",
         )
 
     def handle(self, *args, **options):
@@ -96,25 +52,33 @@ class Command(BaseCommand):
 
         self.stdout.write(f"Found {len(json_files)} issue files to ingest for team {team.id}")
 
-        asyncio.run(self._ingest(team, json_files, options["weight"]))
+        asyncio.run(self._ingest(team, json_files))
 
-    async def _ingest(self, team: Team, json_files: list[Path], weight: float):
+    async def _ingest(self, team: Team, json_files: list[Path]):
         success = 0
+        skipped = 0
         failed = 0
 
         for i, path in enumerate(json_files):
             try:
                 issue = json.loads(path.read_text())
-                repo = _extract_repo(issue)
-                source_id = f"{repo}#{issue['number']}"
+
+                title = issue.get("title", "")
+                body = issue.get("body") or ""
+                if not title or not body:
+                    skipped += 1
+                    continue
+
+                source_id = str(issue.get("id", issue["number"]))
+
                 await emit_signal(
                     team=team,
                     source_product="github",
-                    source_type="open_issue",
+                    source_type="issue",
                     source_id=source_id,
-                    description=_build_description(issue),
-                    weight=weight,
-                    extra=_build_extra(issue),
+                    description=f"{title}\n{body}",
+                    weight=1.0,
+                    extra={k: v for k, v in issue.items() if k in EXTRA_FIELDS},
                 )
                 success += 1
             except Exception as e:
@@ -122,8 +86,8 @@ class Command(BaseCommand):
                 failed += 1
 
             if (i + 1) % 50 == 0:
-                self.stdout.write(f"  progress: {i + 1}/{len(json_files)} ({success} ok, {failed} failed)")
+                self.stdout.write(f"  progress: {i + 1}/{len(json_files)} ({success} ok, {skipped} skipped, {failed} failed)")
 
         self.stdout.write(
-            self.style.SUCCESS(f"Done. {success} signals emitted, {failed} failed out of {len(json_files)} issues.")
+            self.style.SUCCESS(f"Done. {success} emitted, {skipped} skipped (no title/body), {failed} failed out of {len(json_files)} issues.")
         )
