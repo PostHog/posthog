@@ -35,19 +35,33 @@ class RunBrowserLabTestWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, input: RunBrowserLabTestWorkflowInput) -> RunBrowserLabTestWorkflowOutput:
-        from .activities import RunBrowserLabTestActivityInput, run_browser_lab_test_activity
-
-        result = await workflow.execute_activity(
+        from .activities import (
+            FetchBrowserLabTestActivityInput,
+            RunBrowserLabTestActivityInput,
+            fetch_browser_lab_test_activity,
             run_browser_lab_test_activity,
-            RunBrowserLabTestActivityInput(
-                team_id=input.team_id,
+        )
+
+        fetch_result = await workflow.execute_activity(
+            fetch_browser_lab_test_activity,
+            FetchBrowserLabTestActivityInput(
                 browser_lab_test_id=input.browser_lab_test_id,
                 browser_lab_test_run_id=input.browser_lab_test_run_id,
-                url="",
-                steps=[],
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+        run_result = await workflow.execute_activity(
+            run_browser_lab_test_activity,
+            RunBrowserLabTestActivityInput(
+                url=fetch_result.url,
+                steps=fetch_result.steps,
+                browser_lab_test_run_id=fetch_result.browser_lab_test_run_id,
+                secrets=fetch_result.secrets,
             ),
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
-        return RunBrowserLabTestWorkflowOutput(success=result.success, error=result.error)
+        return RunBrowserLabTestWorkflowOutput(success=run_result.success, error=run_result.error)

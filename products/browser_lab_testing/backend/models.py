@@ -2,6 +2,8 @@ import uuid
 
 from django.db import models
 
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+
 
 class BrowserLabTest(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -9,6 +11,7 @@ class BrowserLabTest(models.Model):
     name = models.CharField(max_length=255)
     url = models.URLField()
     steps = models.JSONField(default=list)
+    encrypted_secrets = EncryptedJSONStringField(null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

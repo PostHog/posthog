@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 class BrowserLabTestSerializer(serializers.ModelSerializer):
+    secrets = serializers.DictField(child=serializers.JSONField(), required=False, write_only=True)
+
     class Meta:
         model = BrowserLabTest
         fields = [
@@ -27,6 +29,7 @@ class BrowserLabTestSerializer(serializers.ModelSerializer):
             "name",
             "url",
             "steps",
+            "secrets",
             "created_by",
             "created_at",
             "updated_at",
@@ -36,7 +39,30 @@ class BrowserLabTestSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> BrowserLabTest:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
+        secrets = validated_data.pop("secrets", None)
+        if secrets:
+            validated_data["encrypted_secrets"] = secrets
         return super().create(validated_data)
+
+    def update(self, instance: BrowserLabTest, validated_data: dict) -> BrowserLabTest:
+        secrets = validated_data.pop("secrets", None)
+        if secrets is not None:
+            existing = instance.encrypted_secrets or {}
+            merged: dict[str, str] = {}
+            for key, value in secrets.items():
+                if isinstance(value, dict) and value.get("secret") is True:
+                    if key in existing:
+                        merged[key] = existing[key]
+                else:
+                    merged[key] = value
+            validated_data["encrypted_secrets"] = merged if merged else None
+        return super().update(instance, validated_data)
+
+    def to_representation(self, instance: BrowserLabTest) -> dict:
+        data = super().to_representation(instance)
+        stored = instance.encrypted_secrets or {}
+        data["secrets"] = {key: {"secret": True} for key in stored}
+        return data
 
 
 class BrowserLabTestRunSerializer(serializers.ModelSerializer):

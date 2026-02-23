@@ -1,0 +1,14 @@
+{
+    "name": "@posthog/products-browser-lab-testing",
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@types/react": "*",
+        "react": "*"
+    }
+}
