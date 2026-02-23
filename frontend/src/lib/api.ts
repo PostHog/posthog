@@ -4247,8 +4247,14 @@ const api = {
     },
 
     signalReports: {
-        async list(): Promise<PaginatedResponse<SignalReport>> {
-            return await new ApiRequest().signalReports().get()
+        async list(params?: {
+            limit?: number
+            offset?: number
+            status?: string
+            search?: string
+            ordering?: string
+        }): Promise<CountedPaginatedResponse<SignalReport>> {
+            return await new ApiRequest().signalReports().withQueryString(params).get()
         },
         async analyzeSessions(): Promise<Record<string, any>> {
             return await new ApiRequest().signalReports().withAction('analyze_sessions').create()
@@ -4258,14 +4264,6 @@ const api = {
         },
         async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').get()
-        },
-        async listDebugReports(params?: {
-            limit?: number
-            offset?: number
-            status?: string
-            ordering?: string
-        }): Promise<CountedPaginatedResponse<SignalReport>> {
-            return await new ApiRequest().signalReports().withQueryString(params).get()
         },
         async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
             return await new ApiRequest().signalReport(reportId).withAction('signals').get()
