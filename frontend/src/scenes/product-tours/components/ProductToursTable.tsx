@@ -3,6 +3,8 @@ import { router } from 'kea-router'
 
 import {
     IconArchive,
+    IconCheckCircle,
+    IconCircleDashed,
     IconCopy,
     IconCursorClick,
     IconEye,
@@ -12,7 +14,7 @@ import {
     IconStopFilled,
     IconTrash,
 } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -33,7 +35,15 @@ import {
     productToursLogic,
 } from '../productToursLogic'
 
-export function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Element {
+export function ProductTourStatusTag({
+    tour,
+    isEditing,
+    draftSaveStatus,
+}: {
+    tour: ProductTour
+    isEditing?: boolean
+    draftSaveStatus?: 'unsaved' | 'saving' | 'saved' | null
+}): JSX.Element {
     const status = getProductTourStatus(tour)
 
     const statusConfig: Record<
@@ -46,7 +56,18 @@ export function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Eleme
     }
 
     const config = statusConfig[status]
-    return <LemonTag type={config.type}>{config.label}</LemonTag>
+    return (
+        <LemonTag type={config.type}>
+            {isEditing && (
+                <>
+                    {draftSaveStatus === 'unsaved' && <IconCircleDashed />}
+                    {draftSaveStatus === 'saving' && <Spinner />}
+                    {draftSaveStatus === 'saved' && <IconCheckCircle className="text-success" />}
+                </>
+            )}
+            {config.label}
+        </LemonTag>
+    )
 }
 
 export function ProductToursTable(): JSX.Element {
