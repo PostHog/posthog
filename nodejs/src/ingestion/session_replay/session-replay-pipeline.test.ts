@@ -5,6 +5,7 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { TeamForReplay } from '../../session-recording/teams/types'
 import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { parseJSON } from '../../utils/json-parse'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
 import { drop, ok, redirect } from '../pipelines/results'
@@ -18,10 +19,19 @@ jest.mock('../event-preprocessing', () => ({
 const mockCreateParseHeadersStep = createParseHeadersStep as jest.Mock
 const mockCreateApplyEventRestrictionsStep = createApplyEventRestrictionsStep as jest.Mock
 
-type MockKafkaProducer = Pick<KafkaProducerWrapper, 'produce' | 'flush' | 'disconnect'>
+function createMockKafkaProducer(): jest.Mocked<KafkaProducerWrapper> {
+    // Cast through unknown because KafkaProducerWrapper has private properties we don't need to mock
+    return {
+        produce: jest.fn().mockResolvedValue(undefined),
+        flush: jest.fn().mockResolvedValue(undefined),
+        disconnect: jest.fn().mockResolvedValue(undefined),
+        queueMessages: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<KafkaProducerWrapper>
+}
 
 describe('session-replay-pipeline', () => {
-    let mockKafkaProducer: jest.Mocked<MockKafkaProducer>
+    let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+    let mockIngestionWarningProducer: jest.Mocked<KafkaProducerWrapper>
     let mockRestrictionManager: EventIngestionRestrictionManager
     let mockTeamService: TeamService
     let promiseScheduler: PromiseScheduler
@@ -52,14 +62,31 @@ describe('session-replay-pipeline', () => {
         return JSON.stringify(rawMessage)
     }
 
+    function createOldTimestampSnapshotPayload(sessionId: string, daysOld: number): string {
+        const oldTimestamp = now.minus({ days: daysOld })
+        const event = {
+            event: '$snapshot_items',
+            properties: {
+                $session_id: sessionId,
+                $window_id: 'window-1',
+                $snapshot_items: [
+                    { type: 2, timestamp: oldTimestamp.toMillis(), data: {} },
+                    { type: 3, timestamp: oldTimestamp.plus({ seconds: 1 }).toMillis(), data: {} },
+                ],
+            },
+        }
+        const rawMessage = {
+            distinct_id: 'user-123',
+            data: JSON.stringify(event),
+        }
+        return JSON.stringify(rawMessage)
+    }
+
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockKafkaProducer = {
-            produce: jest.fn().mockResolvedValue(undefined),
-            flush: jest.fn().mockResolvedValue(undefined),
-            disconnect: jest.fn().mockResolvedValue(undefined),
-        }
+        mockKafkaProducer = createMockKafkaProducer()
+        mockIngestionWarningProducer = createMockKafkaProducer()
 
         // The restriction manager is not actually used since we mock createApplyEventRestrictionsStep
         mockRestrictionManager = {} as unknown as EventIngestionRestrictionManager
@@ -120,16 +147,43 @@ describe('session-replay-pipeline', () => {
         }
     }
 
+    function createMessageWithOldTimestamps(
+        partition: number,
+        offset: number,
+        sessionId: string,
+        daysOld: number,
+        headers?: Record<string, string>
+    ): Message {
+        const headersWithDefaults = headers ?? { token: 'test-token' }
+        const kafkaHeaders = Object.entries(headersWithDefaults).map(([key, value]) => ({
+            [key]: Buffer.from(value),
+        }))
+
+        const payload = createOldTimestampSnapshotPayload(sessionId, daysOld)
+
+        return {
+            partition,
+            offset,
+            topic: 'test-topic',
+            value: Buffer.from(payload),
+            key: Buffer.from('test-key'),
+            timestamp: Date.now(),
+            headers: kafkaHeaders,
+            size: payload.length,
+        }
+    }
+
     describe('runSessionReplayPipeline', () => {
         it('passes through messages when no restrictions apply', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             const messages = [createMessage(0, 1, 'session-1'), createMessage(0, 2, 'session-2')]
@@ -154,13 +208,14 @@ describe('session-replay-pipeline', () => {
             )
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             const messages = [
@@ -178,13 +233,14 @@ describe('session-replay-pipeline', () => {
 
         it('filters out messages that fail to parse', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             // Create a message with invalid payload
@@ -210,13 +266,14 @@ describe('session-replay-pipeline', () => {
 
         it('sends messages that fail to parse to the DLQ topic', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             // Create a message with invalid payload
@@ -258,13 +315,14 @@ describe('session-replay-pipeline', () => {
             )
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             const messages = [
@@ -292,13 +350,14 @@ describe('session-replay-pipeline', () => {
 
         it('returns empty array for empty input', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             const result = await runSessionReplayPipeline(pipeline, [])
@@ -318,13 +377,14 @@ describe('session-replay-pipeline', () => {
             )
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             // Create 1000 messages
@@ -361,13 +421,14 @@ describe('session-replay-pipeline', () => {
             )
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             const messages = [
@@ -386,13 +447,14 @@ describe('session-replay-pipeline', () => {
 
         it('processes large batch with all messages passing through', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             // Create 500 messages
@@ -423,13 +485,14 @@ describe('session-replay-pipeline', () => {
             } as unknown as TeamService
 
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: teamServiceThatDropsSecond,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             const messages = [
@@ -447,13 +510,14 @@ describe('session-replay-pipeline', () => {
 
         it('sends messages with no token header to DLQ', async () => {
             const pipeline = createSessionReplayPipeline({
-                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
             })
 
             // Explicitly pass empty headers (no token)
@@ -463,6 +527,106 @@ describe('session-replay-pipeline', () => {
 
             // Message should be dropped by team filter due to missing token
             expect(result).toHaveLength(0)
+        })
+
+        it('sends ingestion warning for old lib version', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1', { token: 'test-token', lib_version: '1.74.0' })]
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(result).toHaveLength(1)
+            expect(mockIngestionWarningProducer.queueMessages).toHaveBeenCalledTimes(1)
+
+            const callArg = mockIngestionWarningProducer.queueMessages.mock.calls[0][0]
+            const call = Array.isArray(callArg) ? callArg[0] : callArg
+            expect(call.topic).toMatch(/^clickhouse_ingestion_warnings/)
+            const messageValue = parseJSON(call.messages[0].value as string)
+            expect(messageValue.team_id).toBe(1)
+            expect(messageValue.type).toBe('replay_lib_version_too_old')
+            expect(parseJSON(messageValue.details)).toEqual({
+                libVersion: '1.74.0',
+                parsedVersion: { major: 1, minor: 74 },
+            })
+        })
+
+        it('does not send ingestion warning for new lib version', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1', { token: 'test-token', lib_version: '1.75.0' })]
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(result).toHaveLength(1)
+            expect(mockIngestionWarningProducer.queueMessages).not.toHaveBeenCalled()
+        })
+
+        it('does not send ingestion warning when no lib version header', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1', { token: 'test-token' })]
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(result).toHaveLength(1)
+            expect(mockIngestionWarningProducer.queueMessages).not.toHaveBeenCalled()
+        })
+
+        it('sends ingestion warning when message timestamps are too old', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+            })
+
+            // Create a message with timestamps 10 days old (threshold is 7 days)
+            const messages = [createMessageWithOldTimestamps(0, 1, 'session-1', 10, { token: 'test-token' })]
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            // Message should be dropped but warning should be sent
+            expect(result).toHaveLength(0)
+            expect(mockIngestionWarningProducer.queueMessages).toHaveBeenCalledTimes(1)
+
+            const callArg = mockIngestionWarningProducer.queueMessages.mock.calls[0][0]
+            const call = Array.isArray(callArg) ? callArg[0] : callArg
+            expect(call.topic).toMatch(/^clickhouse_ingestion_warnings/)
+            const messageValue = parseJSON(call.messages[0].value as string)
+            expect(messageValue.team_id).toBe(1)
+            expect(messageValue.type).toBe('message_timestamp_diff_too_large')
         })
     })
 })

@@ -639,7 +639,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <p className="text-muted mb-4 text-center">
                                     Add your API key for LLM analytics features with your own account.
                                     <br />
-                                    Supports evaluations today and playground support coming soon.
+                                    Used for evaluations and the playground.
                                 </p>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmAnalytics}
