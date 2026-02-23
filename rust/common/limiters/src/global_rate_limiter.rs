@@ -1019,7 +1019,7 @@ mod tests {
     #[test]
     fn test_config_defaults() {
         let config = GlobalRateLimiterConfig::default();
-        assert_eq!(config.global_threshold, 100_000);
+        assert_eq!(config.global_threshold, 1_000_000);
         assert_eq!(config.window_interval, Duration::from_secs(60));
         assert_eq!(config.bucket_interval, Duration::from_secs(10));
         assert_eq!(config.redis_key_prefix, "@posthog/global_rate_limiter");
