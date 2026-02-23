@@ -150,7 +150,7 @@ start_port_forward() {
         echo "Error: Cannot connect to K8s cluster ($CURRENT_REGION)." >&2
         if echo "$kubectl_err" | grep -q "no such host"; then
             echo "Cause: DNS resolution failed. Connect to the VPN and try again." >&2
-        elif echo "$kubectl_err" | grep -q "token has expired\|no valid bearer token\|Unauthorized"; then
+        elif echo "$kubectl_err" | grep -Eq "token has expired|no valid bearer token|Unauthorized"; then
             echo "Cause: AWS SSO session expired. Run: aws sso login" >&2
         else
             echo "kubectl error: $kubectl_err" >&2
