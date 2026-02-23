@@ -77,6 +77,7 @@ class EmitSignalsActivityInputs:
 async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -> dict[str, Any]:
     """Emit signals for newly imported records from external data sources."""
     log = logger.bind(signals_type="data-import-signals", **inputs.properties_to_log)
+    log.info(f"Starting signal emission for {inputs.source_type}/{inputs.schema_name}")
     config = get_signal_config(inputs.source_type, inputs.schema_name)
     # Check if we care about this source type + schema
     if config is None:
