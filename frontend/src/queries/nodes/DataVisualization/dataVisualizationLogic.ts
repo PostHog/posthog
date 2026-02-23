@@ -719,6 +719,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return columns.filter((n) => n.type.isNumerical)
             },
         ],
+        hasDateTimeColumns: [
+            (s) => [s.columns],
+            (columns): boolean => columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name)),
+        ],
         dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
         showEditingUI: [
             (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],
