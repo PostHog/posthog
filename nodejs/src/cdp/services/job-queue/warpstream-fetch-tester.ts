@@ -50,6 +50,10 @@ export class WarpstreamFetchTester {
     constructor(private config: PluginsServerConfig) {}
 
     start(): void {
+        if (!this.config.CDP_CYCLOTRON_WARPSTREAM_HTTP_URL) {
+            throw new Error('CDP_CYCLOTRON_WARPSTREAM_HTTP_URL must be configured to use WarpstreamFetchTester')
+        }
+
         const kafkaConfig = getKafkaConfigFromEnv('CONSUMER')
         const username = kafkaConfig['sasl.username'] as string | undefined
         const password = kafkaConfig['sasl.password'] as string | undefined
@@ -207,7 +211,11 @@ export class WarpstreamFetchTester {
         if (targets.length <= count) {
             return targets
         }
-        const shuffled = [...targets].sort(() => Math.random() - 0.5)
+        const shuffled = [...targets]
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1))
+            ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+        }
         return shuffled.slice(0, count)
     }
 
