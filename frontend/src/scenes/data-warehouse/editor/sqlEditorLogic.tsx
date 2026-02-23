@@ -28,6 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { queryExportContext } from '~/queries/query'
 import {
     DataVisualizationNode,
@@ -133,6 +134,22 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     }
 
     return hash
+}
+
+export function getDisplayTypeToSaveInsight(
+    outputTab: OutputTab,
+    sourceQueryDisplay: ChartDisplayType | undefined,
+    effectiveVisualizationType?: ChartDisplayType
+): ChartDisplayType {
+    if (outputTab === OutputTab.Results) {
+        return ChartDisplayType.ActionsTable
+    }
+
+    if (sourceQueryDisplay && sourceQueryDisplay !== ChartDisplayType.Auto) {
+        return sourceQueryDisplay
+    }
+
+    return effectiveVisualizationType || ChartDisplayType.ActionsLineGraph
 }
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
@@ -810,10 +827,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         saveAsInsight: async () => {
-            const defaultDisplay =
-                values.outputActiveTab === OutputTab.Results
-                    ? ChartDisplayType.ActionsTable
-                    : values.sourceQuery.display || ChartDisplayType.ActionsLineGraph
+            const effectiveVisualizationType = dataVisualizationLogic.findMounted({
+                key: values.dataLogicKey,
+                query: values.sourceQuery,
+                dataNodeCollectionId: values.dataLogicKey,
+                editMode: true,
+            })?.values.effectiveVisualizationType
+
+            const defaultDisplay = getDisplayTypeToSaveInsight(
+                values.outputActiveTab,
+                values.sourceQuery.display,
+                effectiveVisualizationType
+            )
 
             LemonDialog.openForm({
                 title: 'Save as new insight',
@@ -847,10 +872,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             })
         },
         saveAsInsightSubmit: async ({ name }) => {
-            const display =
-                values.outputActiveTab === OutputTab.Results
-                    ? ChartDisplayType.ActionsTable
-                    : values.sourceQuery.display || ChartDisplayType.ActionsLineGraph
+            const effectiveVisualizationType = dataVisualizationLogic.findMounted({
+                key: values.dataLogicKey,
+                query: values.sourceQuery,
+                dataNodeCollectionId: values.dataLogicKey,
+                editMode: true,
+            })?.values.effectiveVisualizationType
+
+            const display = getDisplayTypeToSaveInsight(
+                values.outputActiveTab,
+                values.sourceQuery.display,
+                effectiveVisualizationType
+            )
 
             const insight = await insightsApi.create({
                 name,
