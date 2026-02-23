@@ -324,6 +324,9 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                         />
                     )}
                 </div>
+                {conditions.urlMatchType === SurveyMatchType.Exact && (
+                    <span className="text-xs text-muted">Trailing slashes are stripped when matching exact URLs.</span>
+                )}
             </div>
 
             <div>

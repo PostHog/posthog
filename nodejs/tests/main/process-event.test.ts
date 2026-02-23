@@ -8,9 +8,8 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-
 import { KAFKA_GROUPS } from '~/config/kafka-topics'
+import { PluginEvent } from '~/plugin-scaffold'
 import { createRedisFromConfig } from '~/utils/db/redis'
 import { parseRawClickHouseEvent } from '~/utils/event'
 import { captureTeamEvent } from '~/utils/posthog'

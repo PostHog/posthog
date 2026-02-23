@@ -43,6 +43,7 @@ import { MaxErrorTrackingWidgetLogicProps, maxErrorTrackingWidgetLogic } from '.
 export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
     'search_session_recordings',
     'search_error_tracking_issues',
+    'summarize_sessions',
     'create_form',
 ]
 
@@ -295,5 +296,32 @@ function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrack
                 )}
             </div>
         </MessageTemplate>
+    )
+}
+
+export function SummarizeSessionsWidget({
+    payload,
+    title,
+}: {
+    payload: { title?: string; session_group_summary_id?: string } | null | undefined
+    title?: string
+}): JSX.Element | null {
+    if (!payload?.session_group_summary_id) {
+        return null
+    }
+
+    return (
+        <div className="flex items-center justify-between border rounded-lg bg-surface-primary px-2 py-1.5 w-full">
+            <span className="text-xs font-semibold text-secondary">{title || 'Sessions summary'}</span>
+            <LemonButton
+                to={`/session-summaries/${payload.session_group_summary_id}`}
+                icon={<IconOpenInNew />}
+                size="xsmall"
+                targetBlank
+                tooltip="Open full analysis"
+            >
+                Open full analysis
+            </LemonButton>
+        </div>
     )
 }
