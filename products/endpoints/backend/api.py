@@ -349,11 +349,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return
 
         existing_variables = query.variables or {}
+        existing_variable_ids = [variable.variableId for variable in existing_variables.values() if variable.variableId]
+        team_variables = InsightVariable.objects.filter(team=self.team, id__in=existing_variable_ids)
+        team_variables_by_id = {str(variable.id): variable for variable in team_variables}
+
         synced_variables: dict[str, HogQLVariable] = {}
         existing_code_names: set[str] = set()
 
         for variable_id, variable in existing_variables.items():
             if variable.code_name and variable.code_name in placeholder_names:
+                if variable.value is None and variable.isNull is not True:
+                    team_variable = team_variables_by_id.get(variable.variableId)
+                    if team_variable:
+                        variable.value = team_variable.default_value
+                        variable.isNull = team_variable.default_value is None
                 synced_variables[variable_id] = variable
                 existing_code_names.add(variable.code_name)
 
