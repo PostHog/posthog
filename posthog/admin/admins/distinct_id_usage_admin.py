@@ -8,6 +8,9 @@ from django.core.exceptions import PermissionDenied
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
+
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.distinct_id_usage.sql import TABLE_BASE_NAME
@@ -163,7 +166,9 @@ def _handle_post_action(request) -> HttpResponseRedirect:
     return_querystring = request.POST.get("return_querystring", "")
     redirect_url = reverse("distinct-id-usage")
     if return_querystring:
-        redirect_url = f"{redirect_url}?{return_querystring}"
+        candidate = f"{redirect_url}?{return_querystring}"
+        if url_has_allowed_host_and_scheme(candidate, allowed_hosts={request.get_host()}):
+            redirect_url = candidate
 
     if action == "add_to_restriction":
         _handle_add_to_restriction(request)
@@ -195,7 +200,9 @@ def distinct_id_usage_view(request):
         queried = True
         dt_from = form.cleaned_data["datetime_from"]
         dt_to = form.cleaned_data["datetime_to"]
-        table = f"{settings.CLICKHOUSE_DATABASE}.{TABLE_BASE_NAME}"
+        db = escape_clickhouse_identifier(settings.CLICKHOUSE_DATABASE)
+        tbl = escape_clickhouse_identifier(TABLE_BASE_NAME)
+        table = f"{db}.{tbl}"
 
         high_usage_raw: list[tuple] = []
         high_cardinality_raw: list[tuple] = []
