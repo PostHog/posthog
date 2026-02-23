@@ -539,6 +539,7 @@ impl ThreadCounts {
             rayon_threads,
         }
     }
+}
 
 impl Config {
     const MAX_RESPONSE_TIMEOUT_MS: u64 = 30_000; // 30 seconds
