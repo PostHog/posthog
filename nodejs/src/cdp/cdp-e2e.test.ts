@@ -351,7 +351,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 const resultMetric = await cdpSeekResult.get()
                 const latencyMetric = await cdpSeekLatencyMs.get()
 
-                // With offset >= 1, sample_rate = 1.0, and max_offset = 1, we must have seek metrics
+                // With offset >= 1 and max_offset = 1, we must have seek metrics
                 expect(resultMetric.values.length).toBeGreaterThan(0)
                 const successCount = resultMetric.values.find((v) => v.labels.result === 'success')
                 expect(successCount?.value).toBeGreaterThanOrEqual(1)
