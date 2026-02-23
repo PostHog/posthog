@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { InsightsViewMode, errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 
@@ -17,7 +17,15 @@ function buildExceptionVolumeQuery(dateFrom: string, dateTo: string): InsightViz
         kind: NodeKind.InsightVizNode,
         source: {
             kind: NodeKind.TrendsQuery,
-            series: [{ kind: NodeKind.EventsNode, event: '$exception', name: 'Exceptions' }],
+            series: [{ kind: NodeKind.EventsNode, event: null, name: 'All events' }],
+            properties: [
+                {
+                    key: 'event',
+                    type: PropertyFilterType.Event,
+                    value: '$exception',
+                    operator: PropertyOperator.Exact,
+                },
+            ],
             interval: 'day',
             dateRange: { date_from: dateFrom, date_to: dateTo },
             trendsFilter: { display: ChartDisplayType.ActionsBar },
