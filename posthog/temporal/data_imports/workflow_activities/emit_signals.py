@@ -7,6 +7,7 @@ from typing import Any
 
 from django.conf import settings
 
+import structlog
 import posthoganalytics
 from google.genai import types
 from posthoganalytics.ai.gemini import AsyncClient, genai
@@ -20,12 +21,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.data_imports.signals import SignalEmitter, SignalSourceTableConfig, get_signal_config
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 
 from products.data_warehouse.backend.models import ExternalDataSchema
 from products.signals.backend.api import emit_signal
+
+logger = structlog.get_logger(__name__)
 
 # Default model to use for LLM calls
 GEMINI_MODEL = "models/gemini-3-flash-preview"
@@ -73,22 +76,18 @@ class EmitSignalsActivityInputs:
 @activity.defn
 async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -> dict[str, Any]:
     """Emit signals for newly imported records from external data sources."""
+    log = logger.bind(signals_type="data-import-signals", **inputs.properties_to_log)
+    log.info(f"Starting signal emission for {inputs.source_type}/{inputs.schema_name}")
     config = get_signal_config(inputs.source_type, inputs.schema_name)
     # Check if we care about this source type + schema
     if config is None:
-        activity.logger.warning(
-            f"No signal emitter config registered for {inputs.source_type}/{inputs.schema_name}",
-            extra=inputs.properties_to_log,
-        )
+        log.warning(f"No signal emitter config registered for {inputs.source_type}/{inputs.schema_name}")
         return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
-
     async with Heartbeater():
         # Fetch schema and team
         schema, team = await _fetch_schema_and_team(inputs.schema_id, inputs.team_id)
         if schema.table is None:
-            activity.logger.warning(
-                f"Schema {inputs.schema_id} has no table for emitting signals", extra=inputs.properties_to_log
-            )
+            log.warning(f"Schema {inputs.schema_id} has no table for emitting signals")
             return {"status": "skipped", "reason": "no_table", "signals_emitted": 0}
         # Query for new records
         records = await database_sync_to_async(_query_new_records, thread_sensitive=False)(
@@ -99,16 +98,16 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             extra=inputs.properties_to_log,
         )
         if not records:
-            activity.logger.warning(
-                f"No new records found for {inputs.source_type}/{inputs.schema_name} for emitting signals",
-                extra=inputs.properties_to_log,
-            )
+            log.warning(f"No new records found for {inputs.source_type}/{inputs.schema_name}")
             return {"status": "success", "reason": "no_new_records", "signals_emitted": 0}
         # Build emitter outputs, filtering out records with missing data
         outputs = _build_emitter_outputs(
             team_id=inputs.team_id,
             records=records,
             emitter=config.emitter,
+        )
+        log.info(
+            f"Built {len(outputs)} signal outputs from {len(records)} records for {inputs.source_type}/{inputs.schema_name}",
         )
         # Summarize long descriptions before actionability check
         if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
@@ -128,16 +127,16 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
                 extra=inputs.properties_to_log,
             )
         if not outputs:
+            log.warning(
+                f"No actionable records after filtering for {inputs.source_type}/{inputs.schema_name}",
+            )
             return {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
         signals_emitted = await _emit_signals(
             team=team,
             outputs=outputs,
             extra=inputs.properties_to_log,
         )
-        activity.logger.info(
-            f"Emitted {signals_emitted} signals for {inputs.source_type}/{inputs.schema_name}",
-            extra=inputs.properties_to_log,
-        )
+        log.info(f"Emitted {signals_emitted} signals for {inputs.source_type}/{inputs.schema_name}")
         return {"status": "success", "signals_emitted": signals_emitted}
 
 
@@ -180,11 +179,22 @@ def _query_new_records(
         WHERE {where_sql}
         LIMIT {config.max_records}
     """
+    logger.info(
+        "Querying new records for signal emission",
+        sync_type="continuous" if last_synced_at is not None else "first",
+        last_synced_at=last_synced_at,
+        lookback_days=config.first_sync_lookback_days if last_synced_at is None else None,
+        table_name=table_name,
+        where_clause=where_sql,
+        max_records=config.max_records,
+        signals_type="data-import-signals",
+        **extra,
+    )
     parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)
     try:
         result = execute_hogql_query(query=parsed, team=team, query_type="EmitSignalsNewRecords")
     except Exception as e:
-        activity.logger.exception(f"Error querying new records: {e}", extra=extra)
+        logger.exception(f"Error querying new records: {e}", **extra)
         return []
     if not result.results or not result.columns:
         return []
@@ -239,6 +249,7 @@ async def _summarize_description(
             posthoganalytics.capture_exception(
                 e,
                 properties={
+                    "ai_product": "signals",
                     "tag": "data_warehouse_signals_import",
                     "error_type": "summarization_failed",
                     "source_type": output.source_type,
@@ -275,10 +286,11 @@ async def _summarize_long_descriptions(
         async with semaphore:
             try:
                 result = await _summarize_description(client, output, summarization_prompt, threshold)
-            except Exception as e:
-                activity.logger.exception(
+            except Exception:
+                logger.exception(
                     "Summarization failed, skipping signal",
-                    extra={**extra, "signal_source_id": output.source_id, "error": str(e)},
+                    signal_source_id=output.source_id,
+                    **extra,
                 )
                 return None
             finally:
@@ -300,9 +312,10 @@ async def _summarize_long_descriptions(
             result.append(summarized)
         else:
             skipped += 1
-    activity.logger.info(
+    logger.info(
         f"Summarized {len(needs_summary) - skipped} long descriptions, skipped {skipped} (threshold={threshold})",
-        extra=extra,
+        signals_type="data-import-signals",
+        **extra,
     )
     return result
 
@@ -356,6 +369,7 @@ async def _check_actionability(
             posthoganalytics.capture_exception(
                 e,
                 properties={
+                    "ai_product": "signals",
                     "tag": "data_warehouse_signals_import",
                     "error_type": "actionability_check_failed",
                     "source_type": output.source_type,
@@ -384,10 +398,11 @@ async def _filter_actionable(
         async with semaphore:
             try:
                 result = await _check_actionability(client, output, actionability_prompt)
-            except Exception as e:
-                activity.logger.exception(
+            except Exception:
+                logger.exception(
                     "Actionability check failed, assuming actionable",
-                    extra={**extra, "signal_source_id": output.source_id, "error": str(e)},
+                    signal_source_id=output.source_id,
+                    **extra,
                 )
                 return True, None
             finally:
@@ -408,19 +423,18 @@ async def _filter_actionable(
             actionable.append(output)
         else:
             filtered_count += 1
-            activity.logger.info(
+            logger.info(
                 "Filtered non-actionable signal",
-                extra={
-                    **extra,
-                    "signal_source_type": output.source_type,
-                    "signal_source_id": output.source_id,
-                    "thoughts": thoughts,
-                },
+                signal_source_type=output.source_type,
+                signal_source_id=output.source_id,
+                thoughts=thoughts,
+                **extra,
             )
     if filtered_count > 0:
-        activity.logger.info(
+        logger.info(
             f"Filtered {filtered_count} non-actionable records out of {len(outputs)}",
-            extra=extra,
+            signals_type="data-import-signals",
+            **extra,
         )
     return actionable
 
@@ -458,20 +472,20 @@ async def _emit_signals(
                     without_extra = dataclasses.replace(output, extra={})
                     if _estimate_output_payload_bytes(without_extra) > TEMPORAL_PAYLOAD_MAX_BYTES:
                         msg = "Signal payload exceeds Temporal limit even without extra metadata"
-                        activity.logger.error(
+                        logger.error(
                             msg,
-                            extra={
-                                **extra,
-                                "signal_source_type": output.source_type,
-                                "signal_source_id": output.source_id,
-                            },
+                            signal_source_type=output.source_type,
+                            signal_source_id=output.source_id,
+                            **extra,
                         )
                         # Avoid emitting signal if know that it will break the workflow anyway
                         raise ValueError(msg)
                     # Logging error, as it should not happen, but allowing to pass, to not lose the signal completely
-                    activity.logger.error(
+                    logger.error(
                         f"Signal extra metadata too large ({payload_bytes} bytes), emitting without extra",
-                        extra={**extra, "signal_source_type": output.source_type, "signal_source_id": output.source_id},
+                        signal_source_type=output.source_type,
+                        signal_source_id=output.source_id,
+                        **extra,
                     )
                     output = without_extra
                 await emit_signal(
@@ -485,7 +499,7 @@ async def _emit_signals(
                 )
                 return True
             except Exception as e:
-                activity.logger.exception(f"Error emitting signal for record: {e}", extra=extra)
+                logger.exception(f"Error emitting signal for record: {e}", **extra)
                 return False
             finally:
                 completed_count += 1

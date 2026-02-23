@@ -265,6 +265,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         project_weekly_digest_disabled: {},
         all_weekly_digest_disabled: false,
         error_tracking_issue_assigned: false,
+        error_tracking_weekly_digest: true,
         discussions_mentioned: false,
     },
     anonymize_data: false,

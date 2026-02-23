@@ -2,10 +2,9 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-
 import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
 import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
@@ -357,7 +356,7 @@ describe('PersonState.processEvent()', () => {
 
             const hubParam = undefined
             const processPerson = true
-            const [_person, kafkaAcks] = await personProcessor(
+            const result1 = await personProcessor(
                 {
                     event: '$identify',
                     distinct_id: oldUserDistinctId,
@@ -371,7 +370,7 @@ describe('PersonState.processEvent()', () => {
                 processPerson
             ).processEvent()
 
-            const [_person2, kafkaAcks2] = await personProcessor(
+            const result2 = await personProcessor(
                 {
                     event: '$identify',
                     distinct_id: newUserDistinctId,
@@ -386,8 +385,8 @@ describe('PersonState.processEvent()', () => {
             ).processEvent()
 
             await hub.kafkaProducer.flush()
-            await kafkaAcks
-            await kafkaAcks2
+            await Promise.all(result1.sideEffects)
+            await Promise.all(result2.sideEffects)
 
             // new2 has an override, because it was in posthog_personlessdistinctid
             await clickhouse.delayUntilEventIngested(() => fetchOverridesForDistinctId('new2'))
@@ -912,9 +911,13 @@ describe('PersonState.processEvent()', () => {
             )
 
             const personS = personProcessor(event, undefined, mergeService)
-            const [result, kafkaAcks] = await personS.processEvent()
+            const result = await personS.processEvent()
             const context = personS.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(
+                hub,
+                context.personStore,
+                Promise.all(result.sideEffects).then(() => undefined)
+            )
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (isOkResult(result)) {
@@ -1085,8 +1088,12 @@ describe('PersonState.processEvent()', () => {
             const personS = personProcessor(event, undefined, mergeService)
             const context = personS.getContext()
 
-            const [result, kafkaAcks] = await personS.processEvent()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            const result = await personS.processEvent()
+            await flushPersonStoreToKafka(
+                hub,
+                context.personStore,
+                Promise.all(result.sideEffects).then(() => undefined)
+            )
 
             // Return logic is still unaware that merge happened
             expect(result.type).toBe(PipelineResultType.OK)
@@ -1396,7 +1403,7 @@ describe('PersonState.processEvent()', () => {
                 },
                 newUserDistinctId
             )
-            const [identify2Result] = await identify2Processor.processEvent()
+            const identify2Result = await identify2Processor.processEvent()
             expect(identify2Result.type).toBe(PipelineResultType.OK)
 
             // More events after identify
@@ -4298,7 +4305,7 @@ describe('PersonState.processEvent()', () => {
                         error: new PersonMergeLimitExceededError('person_merge_move_limit_hit'),
                     })
 
-                    const [result] = await processor.processEvent()
+                    const result = await processor.processEvent()
 
                     expect(result.type).toBe(PipelineResultType.DLQ)
                     if (isDlqResult(result)) {
@@ -4327,7 +4334,7 @@ describe('PersonState.processEvent()', () => {
                         error: new PersonMergeLimitExceededError('person_merge_move_limit_hit'),
                     })
 
-                    const [result] = await processor.processEvent()
+                    const result = await processor.processEvent()
 
                     expect(result.type).toBe(PipelineResultType.REDIRECT)
                     if (isRedirectResult(result)) {
@@ -4374,7 +4381,7 @@ describe('PersonState.processEvent()', () => {
                             needsPersonUpdate: true,
                         })
 
-                        const [result] = await processor.processEvent()
+                        const result = await processor.processEvent()
 
                         expect(result.type).toBe(PipelineResultType.OK)
                         if (isOkResult(result)) {

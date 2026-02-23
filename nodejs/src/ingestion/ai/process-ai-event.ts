@@ -7,7 +7,7 @@
  * - Cost calculation (for generation/embedding events)
  * - Model parameter extraction (for generation/embedding events)
  */
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'
