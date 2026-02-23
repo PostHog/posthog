@@ -92,11 +92,11 @@ describe('prepareEventStep()', () => {
             hub.groupTypeManager,
             hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
         )
-        groupStoreForBatch = new BatchWritingGroupStore({
-            kafkaProducer: hub.kafkaProducer,
-            groupRepository: hub.groupRepository,
-            clickhouseGroupRepository: hub.clickhouseGroupRepository,
-        })
+        groupStoreForBatch = new BatchWritingGroupStore(
+            hub.kafkaProducer,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
     })
 
     afterEach(async () => {

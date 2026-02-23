@@ -113,11 +113,11 @@ describe('processEvent', () => {
             new PostgresPersonRepository(hub.postgres),
             hub.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStore({
-            kafkaProducer: hub.kafkaProducer,
-            groupRepository: hub.groupRepository,
-            clickhouseGroupRepository: hub.clickhouseGroupRepository,
-        })
+        const groupStoreForBatch = new BatchWritingGroupStore(
+            hub.kafkaProducer,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const runner = new EventPipelineRunner(
             {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -272,11 +272,11 @@ describe('processEvent', () => {
             personRepository || new PostgresPersonRepository(hub.postgres),
             hub.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStore({
-            kafkaProducer: hub.kafkaProducer,
-            groupRepository: hub.groupRepository,
-            clickhouseGroupRepository: hub.clickhouseGroupRepository,
-        })
+        const groupStoreForBatch = new BatchWritingGroupStore(
+            hub.kafkaProducer,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const runner = new EventPipelineRunner(
             {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
