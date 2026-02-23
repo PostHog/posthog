@@ -185,6 +185,8 @@ export const workflowLogic = kea<workflowLogicType>([
             filters,
             scheduledAt,
         }),
+        softDeleteAction: (actionId: string) => ({ actionId }),
+        restoreAction: (actionId: string) => ({ actionId }),
         discardChanges: true,
         duplicate: true,
         saveDraftNow: true,
@@ -268,6 +270,24 @@ export const workflowLogic = kea<workflowLogicType>([
                     ]
                     for (const field of draftFields) {
                         ;(draftData as any)[field] = workflow[field]
+                    }
+                    // Strip soft-deleted actions and reconnect edges before saving
+                    const deletedIds = values.draftDeletedActionIds
+                    if (deletedIds.size > 0) {
+                        const edges = draftData.edges ?? []
+                        // For each deleted node, reconnect incoming edges to outgoer
+                        const reconnected = edges.map((edge) => {
+                            if (deletedIds.has(edge.to)) {
+                                // Find the continue edge from the deleted node
+                                const outgoing = edges.find((e) => e.from === edge.to && e.type === 'continue')
+                                if (outgoing) {
+                                    return { ...edge, to: outgoing.to }
+                                }
+                            }
+                            return edge
+                        })
+                        draftData.edges = reconnected.filter((e) => !deletedIds.has(e.from) && !deletedIds.has(e.to))
+                        draftData.actions = (draftData.actions ?? []).filter((a) => !deletedIds.has(a.id))
                     }
                     return api.hogFlows.saveDraft(props.id, draftData)
                 },
@@ -375,6 +395,22 @@ export const workflowLogic = kea<workflowLogicType>([
                 saveWorkflowSuccess: () => false,
             },
         ],
+        draftDeletedActionIds: [
+            new Set<string>(),
+            {
+                softDeleteAction: (state: Set<string>, { actionId }: { actionId: string }) =>
+                    new Set([...state, actionId]),
+                restoreAction: (state: Set<string>, { actionId }: { actionId: string }) => {
+                    const next = new Set(state)
+                    next.delete(actionId)
+                    return next
+                },
+                loadWorkflowSuccess: () => new Set<string>(),
+                saveWorkflowSuccess: () => new Set<string>(),
+                publishDraftToServerSuccess: () => new Set<string>(),
+                discardDraftOnServerSuccess: () => new Set<string>(),
+            },
+        ],
         // True when the form has been edited since the last draft save.
         // Drives the "Save draft" vs "Publish" button: if dirty, the server
         // draft is stale and needs saving before we can publish.
@@ -382,6 +418,8 @@ export const workflowLogic = kea<workflowLogicType>([
             false,
             {
                 setWorkflowValues: () => true,
+                softDeleteAction: () => true,
+                restoreAction: () => true,
                 saveDraftToServerSuccess: () => false,
                 loadWorkflowSuccess: () => false,
                 saveWorkflowSuccess: () => false,
@@ -561,10 +599,13 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         workflowContentChanged: [
-            (s) => [s.workflow, s.originalWorkflow],
-            (workflow, originalWorkflow): boolean => {
+            (s) => [s.workflow, s.originalWorkflow, s.draftDeletedActionIds],
+            (workflow, originalWorkflow, draftDeletedActionIds): boolean => {
                 if (!originalWorkflow) {
                     return false
+                }
+                if (draftDeletedActionIds.size > 0) {
+                    return true
                 }
                 const contentFields: (keyof HogFlow)[] = [
                     'trigger_masking',
@@ -594,18 +635,19 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         draftChangedActionIds: [
-            (s) => [s.workflow, s.originalWorkflow],
-            (workflow, originalWorkflow): Set<string> => {
+            (s) => [s.workflow, s.originalWorkflow, s.draftDeletedActionIds],
+            (workflow, originalWorkflow, draftDeletedActionIds): Set<string> => {
                 if (!originalWorkflow || originalWorkflow.status !== 'active') {
                     return new Set()
                 }
-                const changed = new Set<string>()
-                const liveActions = originalWorkflow.actions
-                const liveActionsById = new Map(liveActions.map((a) => [a.id, a]))
-                const currentActionsById = new Map(workflow.actions.map((a) => [a.id, a]))
+                const changed = new Set<string>(draftDeletedActionIds)
+                const liveActionsById = new Map(originalWorkflow.actions.map((a) => [a.id, a]))
 
                 for (const action of workflow.actions) {
                     if (action.type === 'trigger' || action.type === 'exit') {
+                        continue
+                    }
+                    if (draftDeletedActionIds.has(action.id)) {
                         continue
                     }
                     const liveAction = liveActionsById.get(action.id)
@@ -615,16 +657,44 @@ export const workflowLogic = kea<workflowLogicType>([
                         changed.add(action.id)
                     }
                 }
-                // Actions removed in draft
-                for (const action of liveActions) {
+                return changed
+            },
+        ],
+
+        draftChangesSummary: [
+            (s) => [s.workflow, s.originalWorkflow, s.draftDeletedActionIds],
+            (
+                workflow,
+                originalWorkflow,
+                draftDeletedActionIds
+            ): { added: string[]; modified: string[]; deleted: string[] } => {
+                const empty = { added: [], modified: [], deleted: [] }
+                if (!originalWorkflow || originalWorkflow.status !== 'active') {
+                    return empty
+                }
+                const liveActionsById = new Map(originalWorkflow.actions.map((a) => [a.id, a]))
+
+                const added: string[] = []
+                const modified: string[] = []
+                const deleted: string[] = []
+
+                for (const action of workflow.actions) {
                     if (action.type === 'trigger' || action.type === 'exit') {
                         continue
                     }
-                    if (!currentActionsById.has(action.id)) {
-                        changed.add(action.id)
+                    if (draftDeletedActionIds.has(action.id)) {
+                        deleted.push(action.name)
+                        continue
+                    }
+                    const liveAction = liveActionsById.get(action.id)
+                    if (!liveAction) {
+                        added.push(action.name)
+                    } else if (!configsEqual(liveAction.config, action.config)) {
+                        modified.push(action.name)
                     }
                 }
-                return changed
+
+                return { added, modified, deleted }
             },
         ],
     }),
@@ -922,6 +992,22 @@ export const workflowLogic = kea<workflowLogicType>([
                     console.error('Metadata save failed:', e)
                 }
             }, 2000)
+        },
+        softDeleteAction: () => {
+            if (cache.autosaveTimer) {
+                clearTimeout(cache.autosaveTimer)
+            }
+            cache.autosaveTimer = setTimeout(() => {
+                actions.saveDraftNow()
+            }, 10000)
+        },
+        restoreAction: () => {
+            if (cache.autosaveTimer) {
+                clearTimeout(cache.autosaveTimer)
+            }
+            cache.autosaveTimer = setTimeout(() => {
+                actions.saveDraftNow()
+            }, 5000)
         },
         // Autosave: debounce 10s after changes
         setWorkflowValues: () => {

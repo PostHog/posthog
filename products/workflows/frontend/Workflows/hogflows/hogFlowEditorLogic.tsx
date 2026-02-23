@@ -153,13 +153,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect(() => ({
         values: [
             workflowLogic,
-            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
+            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById', 'draftDeletedActionIds'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
         actions: [
             workflowLogic,
-            ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
+            [
+                'setWorkflowInfo',
+                'setWorkflowAction',
+                'setWorkflowActionEdges',
+                'loadWorkflowSuccess',
+                'softDeleteAction',
+                'restoreAction',
+            ],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
@@ -310,18 +317,28 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNodeCanBeDeleted: [
-            (s) => [s.selectedNode, s.nodes, s.edges],
-            (selectedNode, nodes, edges) => {
+            (s) => [s.selectedNode, s.nodes, s.edges, s.draftDeletedActionIds],
+            (selectedNode, nodes, edges, draftDeletedActionIds) => {
                 if (!selectedNode) {
                     return false
                 }
 
-                const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
-                if (outgoingNodes.length === 1) {
-                    return true
+                // Resolve through soft-deleted nodes to find the effective outgoer
+                const resolveOutgoer = (node: HogFlowActionNode): string => {
+                    if (!draftDeletedActionIds.has(node.id)) {
+                        return node.id
+                    }
+                    const next = getOutgoers(node, nodes, edges)
+                    if (next.length === 1) {
+                        return resolveOutgoer(next[0])
+                    }
+                    return node.id
                 }
 
-                return new Set(outgoingNodes.map((node) => node.id)).size === 1
+                const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
+                const resolvedIds = new Set(outgoingNodes.map(resolveOutgoer))
+
+                return resolvedIds.size <= 1
             },
         ],
         selectedNodeCanBeCopiedOrMoved: [
@@ -520,6 +537,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             onNodesDelete: ({ deleted }) => {
                 if (deleted.some((node) => node.id === values.selectedNodeId)) {
                     actions.setSelectedNodeId(null)
+                }
+
+                // For active workflows, soft-delete and re-sync the flow from the unchanged workflow
+                if (values.workflow.status === 'active') {
+                    for (const node of deleted) {
+                        actions.softDeleteAction(node.id)
+                    }
+                    // Re-sync React Flow from unchanged workflow state
+                    actions.resetFlowFromHogFlow(values.workflow)
+                    return
                 }
 
                 const deletedNodeIds = deleted.map((node) => node.id)
