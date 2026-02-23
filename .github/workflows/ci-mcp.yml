@@ -311,6 +311,11 @@ jobs:
                       label='mcp_ci_api_key',
                       secure_value=hash_key_value('e2e_demo_api_key'),
                   )
+                  PersonalAPIKey.objects.create(
+                      user=user,
+                      label='mcp_ci_api_key_phx',
+                      secure_value=hash_key_value('phx_e2e_demo_api_key'),
+                  )
                   print(f'TEST_ORG_ID={org.id}')
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV
@@ -345,7 +350,7 @@ jobs:
               run: cd services/mcp && pnpm run test:hono:integration
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
-                  TEST_POSTHOG_PERSONAL_API_KEY: e2e_demo_api_key
+                  TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
                   TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
                   REDIS_URL: redis://localhost:6379
