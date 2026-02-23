@@ -46,7 +46,9 @@ impl Stage for LinkingStage {
 impl From<&Arc<AppContext>> for LinkingStage {
     fn from(ctx: &Arc<AppContext>) -> Self {
         let issue_cache = CacheBuilder::new(1000)
-            .time_to_live(std::time::Duration::from_secs(ctx.config.issue_cache_ttl_seconds))
+            .time_to_live(std::time::Duration::from_secs(
+                ctx.config.issue_cache_ttl_seconds,
+            ))
             .build();
         Self {
             app_context: ctx.clone(),
