@@ -48,6 +48,10 @@
         "source": "// Detect when the model refuses to answer\nlet phrases := [\n    'I cannot', 'I can\\'t', 'I\\'m unable',\n    'I am unable', 'I\\'m sorry, but I',\n    'I must decline', 'I\\'m not able'\n]\nfor (let i, phrase in phrases) {\n    if (output ilike concat('%', phrase, '%')) {\n        print(concat('Refusal detected: \"', phrase, '\"'))\n        return false\n    }\n}\nreturn true"
     },
     {
+        "label": "N/A guard",
+        "source": "// Return N/A when the property being checked is absent\n// (requires \"Allow N/A responses\" to be enabled)\nlet model := properties.$ai_model\nif (model == null) {\n    print('No model set — not applicable')\n    return null\n}\n\n// Actual check: only pass certain models\nlet allowed := ['gpt-4', 'gpt-4o', 'claude-sonnet-4-20250514']\nif (not has(allowed, model)) {\n    print(concat('Model ', model, ' is not in the allowed list'))\n    return false\n}\nreturn true"
+    },
+    {
         "label": "Input relevance",
         "source": "// Check that key terms from the input appear in the output\nlet words := splitByString(' ', input)\nlet key_terms := []\nfor (let i, word in words) {\n    if (length(word) >= 5) {\n        key_terms := arrayPushBack(key_terms, word)\n    }\n}\nif (length(key_terms) == 0) {\n    print('No key terms found in input (words >= 5 chars)')\n    return true\n}\nlet found := 0\nlet missing := []\nfor (let i, term in key_terms) {\n    if (output ilike concat('%', term, '%')) {\n        found := found + 1\n    } else {\n        missing := arrayPushBack(missing, term)\n    }\n}\nlet ratio := found / length(key_terms)\nprint(concat(toString(found), '/', toString(length(key_terms)), ' key terms found'))\nif (length(missing) > 0) {\n    print('Missing:', missing)\n}\nif (ratio < 0.3) {\n    print('Output may not be relevant to the input')\n    return false\n}\nreturn true"
     }

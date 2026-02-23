@@ -168,6 +168,29 @@ class TestHogEvalExamplesBehavior:
         assert "Choice 0:" in result["reasoning"]
         assert "Model: gpt-4" in result["reasoning"]
 
+    def test_na_guard_returns_null_when_model_missing(self):
+        bytecode = compile_hog(_get_source("N/A guard"), "destination")
+        event = _make_event(ai_model=None)
+        del event["properties"]["$ai_model"]
+        result = run_hog_eval(bytecode, event, allows_na=True)
+        assert result["error"] is None
+        assert result["verdict"] is None
+        assert "not applicable" in result["reasoning"]
+
+    def test_na_guard_passes_on_allowed_model(self):
+        bytecode = compile_hog(_get_source("N/A guard"), "destination")
+        result = run_hog_eval(bytecode, CLEAN_EVENT)
+        assert result["error"] is None
+        assert result["verdict"] is True
+
+    def test_na_guard_fails_on_disallowed_model(self):
+        bytecode = compile_hog(_get_source("N/A guard"), "destination")
+        event = _make_event(ai_model="llama-3")
+        result = run_hog_eval(bytecode, event)
+        assert result["error"] is None
+        assert result["verdict"] is False
+        assert "not in the allowed list" in result["reasoning"]
+
     def test_quickstart_handles_plain_string_input_and_output(self):
         bytecode = compile_hog(_get_source("Quickstart"), "destination")
         event = _make_event()

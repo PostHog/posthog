@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconExternal, IconSparkles, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconExternal, IconMinus, IconSparkles, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -42,6 +42,7 @@ function HogTestResultsPanel(): JSX.Element | null {
 
     const passed = hogTestResults?.filter((r) => r.result === true).length ?? 0
     const failed = hogTestResults?.filter((r) => r.result === false).length ?? 0
+    const na = hogTestResults?.filter((r) => r.result === null && !r.error).length ?? 0
     const errors = hogTestResults?.filter((r) => r.error !== null).length ?? 0
 
     return (
@@ -57,6 +58,11 @@ function HogTestResultsPanel(): JSX.Element | null {
                             <LemonTag type="danger" icon={<IconX />}>
                                 {failed} failed
                             </LemonTag>
+                            {na > 0 && (
+                                <LemonTag type="muted" icon={<IconMinus />}>
+                                    {na} N/A
+                                </LemonTag>
+                            )}
                             {errors > 0 && (
                                 <LemonTag type="danger" icon={<IconWarning />}>
                                     {errors} errors
@@ -85,6 +91,13 @@ function HogTestResultsPanel(): JSX.Element | null {
                                             </LemonTag>
                                         </span>
                                     </Tooltip>
+                                )
+                            }
+                            if (row.result === null) {
+                                return (
+                                    <LemonTag type="muted" icon={<IconMinus />}>
+                                        N/A
+                                    </LemonTag>
                                 )
                             }
                             return row.result ? (
@@ -210,7 +223,11 @@ export function EvaluationCodeEditor(): JSX.Element {
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Expected output:</span>
-                        <LemonTag type="completion">Boolean (true/false)</LemonTag>
+                        <LemonTag type="completion">
+                            {evaluation.output_config.allows_na
+                                ? 'Boolean or null (true/false/null)'
+                                : 'Boolean (true/false)'}
+                        </LemonTag>
                     </div>
                 </div>
             </div>
@@ -259,7 +276,18 @@ export function EvaluationCodeEditor(): JSX.Element {
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                     <li>
                         Return <code>true</code> (pass) or <code>false</code> (fail)
+                        {evaluation.output_config.allows_na ? (
+                            <>
+                                {' '}
+                                or <code>null</code> (N/A)
+                            </>
+                        ) : null}
                     </li>
+                    {evaluation.output_config.allows_na && (
+                        <li>
+                            Return <code>null</code> when the evaluation criteria doesn't apply
+                        </li>
+                    )}
                     <li>
                         Use <code>print()</code> to add reasoning (visible in evaluation runs)
                     </li>
