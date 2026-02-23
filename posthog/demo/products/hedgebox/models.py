@@ -865,8 +865,9 @@ class HedgeboxPerson(SimPerson):
         invite_id = str(self.cluster.roll_uuidt())
         self.schedule_effect(
             self.cluster.simulation_time,
-            lambda other: other.set_attribute("invite_to_use_id", invite_id)
-            and other.set_attribute("is_invitable", False),
+            lambda other: (
+                other.set_attribute("invite_to_use_id", invite_id) and other.set_attribute("is_invitable", False)
+            ),
             Effect.Target.RANDOM_NEIGHBOR,
             condition=lambda other: cast(HedgeboxPerson, other).is_invitable,
         )

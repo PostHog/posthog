@@ -84,4 +84,4 @@ Shared code that exists today: `hogli` (developer CLI), `hogql_parser`, and othe
 
 ### Tools (aspirational)
 
-Developer tooling: CLIs, linters, formatters, code generators, scaffolding scripts. Not imported by runtime code. Can be standalone packages or internal utilities. Currently `common/hogli/` serves this purpose.
+Developer tooling: CLIs, linters, formatters, code generators, scaffolding scripts. Not imported by runtime code. Can be standalone packages or internal utilities. Currently `tools/hogli/` (framework) and `common/posthog_hogli/` (PostHog command extensions) serve this purpose.

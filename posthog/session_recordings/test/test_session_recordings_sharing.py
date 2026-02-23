@@ -84,8 +84,9 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             ),
             (
                 "accessing the same session from a different team",
-                lambda self,
-                token: f"/api/projects/{self.other_team.id}/session_recordings/{self.session_id}?sharing_access_token={token}",
+                lambda self, token: (
+                    f"/api/projects/{self.other_team.id}/session_recordings/{self.session_id}?sharing_access_token={token}"
+                ),
             ),
         ]
     )

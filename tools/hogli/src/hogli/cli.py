@@ -10,10 +10,9 @@ import os
 from collections import defaultdict
 
 import click
-from hogli.core.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
-from hogli.core.manifest import REPO_ROOT, load_manifest
 
-BIN_DIR = REPO_ROOT / "bin"
+from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
+from hogli.manifest import get_manifest, load_manifest
 
 
 class CategorizedGroup(click.Group):
@@ -21,7 +20,7 @@ class CategorizedGroup(click.Group):
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format commands grouped by category, git-style with extends tree."""
-        from hogli.core.manifest import (
+        from hogli.manifest import (
             get_category_for_command as get_cat_for_cmd,
             get_manifest,
         )
@@ -84,7 +83,7 @@ class CategorizedGroup(click.Group):
 
 def _auto_update_manifest() -> None:
     """Automatically update manifest with missing entries."""
-    from hogli.core.validate import auto_update_manifest
+    from hogli.validate import auto_update_manifest
 
     added = auto_update_manifest()
     if added:
@@ -142,7 +141,7 @@ def quickstart() -> None:
 @cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
 def meta_check() -> None:
     """Validate that all bin scripts are in the manifest."""
-    from hogli.core.validate import find_missing_manifest_entries
+    from hogli.validate import find_missing_manifest_entries
 
     missing = find_missing_manifest_entries()
 
@@ -160,7 +159,7 @@ def meta_check() -> None:
 @cli.command(name="meta:concepts", help="Show services and infrastructure concepts")
 def concepts() -> None:
     """Display infrastructure concepts and services with descriptions and related commands."""
-    from hogli.core.manifest import get_services_for_command
+    from hogli.manifest import get_services_for_command
 
     manifest = load_manifest()
     services_dict = manifest.get("metadata", {}).get("services", {})
@@ -208,15 +207,14 @@ def _register_script_commands() -> None:
     """Dynamically register commands from scripts_manifest.yaml.
 
     Supports three types of entries:
-    1. bin_script: Delegate to a shell script
+    1. bin_script: Delegate to a shell script (in config.scripts_dir, default: bin/)
     2. steps: Compose multiple hogli commands in sequence
     3. cmd: Execute a direct shell command
     """
-    manifest = load_manifest()
-    if not manifest:
-        return
+    manifest = get_manifest()
+    scripts_dir = manifest.scripts_dir
 
-    for _category, scripts in manifest.items():
+    for _category, scripts in manifest.data.items():
         if not isinstance(scripts, dict):
             continue
 
@@ -253,7 +251,7 @@ def _register_script_commands() -> None:
 
             # Handle bin_script delegation
             if bin_script:
-                script_path = BIN_DIR / bin_script
+                script_path = scripts_dir / bin_script
                 if not script_path.exists():
                     continue
 
@@ -264,11 +262,51 @@ def _register_script_commands() -> None:
 # Register all script commands from manifest before app runs
 _register_script_commands()
 
-# Import developer commands module to register any @cli.command() decorated functions
-try:
-    import hogli.commands  # noqa: F401
-except ImportError:
-    pass  # No developer commands yet
+
+def _import_custom_commands() -> None:
+    """Import custom commands from configured commands_dir.
+
+    Looks for commands in:
+    1. config.commands_dir in hogli.yaml (e.g., common/posthog_hogli)
+    2. Default: hogli/ folder next to hogli.yaml
+    """
+    import sys
+    import importlib.util
+
+    from hogli.manifest import get_manifest
+
+    manifest = get_manifest()
+    commands_dir = manifest.commands_dir
+
+    if not commands_dir:
+        return
+
+    # Add commands dir to path so imports work
+    parent_dir = str(commands_dir.parent)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+
+    # Import the commands package (expects __init__.py or commands.py)
+    # NOTE: commands_dir should NOT be named "hogli" to avoid clobbering the hogli package
+    package_name = commands_dir.name
+    init_file = commands_dir / "__init__.py"
+    commands_file = commands_dir / "commands.py"
+
+    if init_file.exists():
+        spec = importlib.util.spec_from_file_location(package_name, init_file)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[package_name] = module
+            spec.loader.exec_module(module)
+    elif commands_file.exists():
+        spec = importlib.util.spec_from_file_location(f"{package_name}.commands", commands_file)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+
+# Import custom commands from configured location
+_import_custom_commands()
 
 
 def main() -> None:

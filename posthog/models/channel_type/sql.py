@@ -9,8 +9,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
 CHANNEL_DEFINITION_TABLE_NAME = "channel_definition"
 CHANNEL_DEFINITION_DICTIONARY_NAME = "channel_definition_dict"
 
-CHANNEL_DEFINITION_TABLE_SQL = (
-    lambda on_cluster=True: """
+CHANNEL_DEFINITION_TABLE_SQL = lambda on_cluster=True: """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     domain String NOT NULL,
     kind String NOT NULL,
@@ -20,10 +19,9 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
 ) ENGINE = {engine}
 ORDER BY (domain, kind);
 """.format(
-        table_name=CHANNEL_DEFINITION_TABLE_NAME,
-        engine=MergeTreeEngine("channel_definition", replication_scheme=ReplicationScheme.REPLICATED),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    )
+    table_name=CHANNEL_DEFINITION_TABLE_NAME,
+    engine=MergeTreeEngine("channel_definition", replication_scheme=ReplicationScheme.REPLICATED),
+    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
 )
 
 
@@ -49,8 +47,8 @@ def format_value(value):
         raise ValueError(f"Unknown value type {type(value)}")
 
 
-CHANNEL_DEFINITION_DATA_SQL = (
-    lambda channel_definitions=CHANNEL_DEFINITIONS: f"""
+CHANNEL_DEFINITION_DATA_SQL = lambda channel_definitions=CHANNEL_DEFINITIONS: (
+    f"""
 INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if_organic) VALUES
 {
         ''',
@@ -61,8 +59,8 @@ INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if
 )
 
 # Use COMPLEX_KEY_HASHED, as we have a composite key
-CHANNEL_DEFINITION_DICTIONARY_SQL = (
-    lambda on_cluster=True: f"""
+CHANNEL_DEFINITION_DICTIONARY_SQL = lambda on_cluster=True: (
+    f"""
 CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE(on_cluster)} (
     domain String,
     kind String,

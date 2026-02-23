@@ -444,11 +444,9 @@ async def test_store_export_data_success(tmp_path):
 
         mock_path_cls.return_value.__truediv__ = MagicMock(side_effect=truediv_side_effect)
         mock_export_dir.__truediv__ = MagicMock(
-            side_effect=lambda p: mock_clickhouse_dir
-            if p == "clickhouse"
-            else mock_data_dir
-            if p == "data"
-            else MagicMock()
+            side_effect=lambda p: (
+                mock_clickhouse_dir if p == "clickhouse" else mock_data_dir if p == "data" else MagicMock()
+            )
         )
 
         mock_storage_client.return_value.__aenter__.return_value = mock_storage

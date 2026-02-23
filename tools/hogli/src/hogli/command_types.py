@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import click
-from hogli.core.manifest import get_services_for_command
+
+from hogli.manifest import get_services_for_command
 
 
 def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: bool = False) -> None:
     """Execute a shell command."""
-    from hogli.core.manifest import REPO_ROOT
+    from hogli.manifest import REPO_ROOT
 
     if isinstance(command, list):
         display = " ".join(command)
@@ -52,7 +53,7 @@ def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -
     Note: Click will rewrap long lines, but we add paragraph breaks between
     services for better readability.
     """
-    from hogli.core.manifest import get_manifest
+    from hogli.manifest import get_manifest
 
     parts = []
 
@@ -184,7 +185,13 @@ def _run_prechecks(prechecks: list[dict[str, Any]], yes: bool = False) -> bool:
             # Check for orphaned migrations (in DB but not in code)
             # Pending migrations are fine - they'll be applied by manage.py migrate
             try:
-                from hogli.migrations import _compute_migration_diff, _get_cached_migration
+                try:
+                    from posthog_hogli.migrations import _compute_migration_diff, _get_cached_migration
+                except ModuleNotFoundError:
+                    from hogli.migrations import (  # type: ignore[attr-defined]
+                        _compute_migration_diff,
+                        _get_cached_migration,
+                    )
 
                 diff = _compute_migration_diff()
 
@@ -223,7 +230,7 @@ class BinScriptCommand(Command):
 
     def get_underlying_command(self) -> str:
         """Return the script path relative to repo root."""
-        from hogli.core.manifest import REPO_ROOT
+        from hogli.manifest import REPO_ROOT
 
         try:
             return str(self.script_path.relative_to(REPO_ROOT))
@@ -321,7 +328,7 @@ def execute_command_config(
     - Dict with cmd: inline shell command
     - Dict with steps: composite (each step follows same rules)
     """
-    from hogli.core.manifest import REPO_ROOT
+    from hogli.manifest import REPO_ROOT
 
     bin_hogli = str(REPO_ROOT / "bin" / "hogli")
 

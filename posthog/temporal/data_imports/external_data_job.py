@@ -106,9 +106,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
     if inputs.job_id is None:
         job: ExternalDataJob | None = await database_sync_to_async_pool(
-            lambda: ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
-            .order_by("-created_at")
-            .first()
+            lambda: (
+                ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
+                .order_by("-created_at")
+                .first()
+            )
         )()
         if job is None:
             logger.info("No job to update status on")

@@ -14,7 +14,7 @@ class TestRateLimit(BaseTest):
         super().setUp()
         self.limit = RateLimit(
             max_concurrency=1,
-            applicable=lambda *args, **kwargs: (kwargs.get("is_api") if "is_api" in kwargs else args[0]),
+            applicable=lambda *args, **kwargs: kwargs.get("is_api") if "is_api" in kwargs else args[0],
             limit_name="api_per_team",
             get_task_name=lambda *args, **kwargs: f"rate-limit-test-task:{kwargs.get('team_id') or args[1]}",
             get_task_key=lambda *args, **kwargs: f"limit:rate-limit-test-task:{kwargs.get('team_id') or args[1]}",

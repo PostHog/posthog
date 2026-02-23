@@ -34,9 +34,9 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         cleanup_materialized_columns()
 
     def test_properties_used_in_filter(self):
-        properties_used_in_filter = lambda filter: EnterpriseColumnOptimizer(
-            filter, self.team.id
-        ).properties_used_in_filter
+        properties_used_in_filter = lambda filter: (
+            EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter
+        )
 
         self.assertEqual(properties_used_in_filter(BASE_FILTER), {})
         self.assertEqual(

@@ -47,8 +47,8 @@ BASE_APP_METRICS2_COLUMNS = """
 # we need to revisit producers (e.g. the webhook service currently known as rusty-hook or pgqueue).
 APP_METRICS2_TIMESTAMP_TRUNCATION = "toStartOfHour(timestamp)"
 
-APP_METRICS2_DATA_TABLE_SQL = (
-    lambda: f"""
+APP_METRICS2_DATA_TABLE_SQL = lambda: (
+    f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS2_SHARDED_TABLE}
 (
     {BASE_APP_METRICS2_COLUMNS}
@@ -61,8 +61,8 @@ ORDER BY (team_id, app_source, app_source_id, instance_id, {APP_METRICS2_TIMESTA
 """
 )
 
-DISTRIBUTED_APP_METRICS2_TABLE_SQL = (
-    lambda: f"""
+DISTRIBUTED_APP_METRICS2_TABLE_SQL = lambda: (
+    f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS2_TABLE}
 (
     {BASE_APP_METRICS2_COLUMNS}
@@ -72,8 +72,8 @@ ENGINE={Distributed(data_table=APP_METRICS2_SHARDED_TABLE, sharding_key="rand()"
 """
 )
 
-WRITABLE_APP_METRICS2_TABLE_SQL = (
-    lambda: f"""
+WRITABLE_APP_METRICS2_TABLE_SQL = lambda: (
+    f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS2_WRITABLE_TABLE}
 (
     {BASE_APP_METRICS2_COLUMNS}
@@ -83,8 +83,8 @@ ENGINE={Distributed(data_table=APP_METRICS2_SHARDED_TABLE, sharding_key="rand()"
 """
 )
 
-KAFKA_APP_METRICS2_TABLE_SQL = (
-    lambda: f"""
+KAFKA_APP_METRICS2_TABLE_SQL = lambda: (
+    f"""
 CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS2_TABLE}
 (
     team_id Int64,
@@ -100,8 +100,8 @@ ENGINE={kafka_engine(topic=KAFKA_APP_METRICS2, group=CONSUMER_GROUP_APP_METRICS2
 """
 )
 
-APP_METRICS2_MV_TABLE_SQL = (
-    lambda target_table=APP_METRICS2_WRITABLE_TABLE: f"""
+APP_METRICS2_MV_TABLE_SQL = lambda target_table=APP_METRICS2_WRITABLE_TABLE: (
+    f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv
 TO {target_table}
 AS SELECT

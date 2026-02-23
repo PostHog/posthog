@@ -902,7 +902,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
         workload: Workload = Workload.DEFAULT,
-        extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
+        extract_modifiers=lambda query: query.modifiers if hasattr(query, "modifiers") else None,
     ):
         self.team = team
         self.timings = timings or HogQLTimings()

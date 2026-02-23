@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
-from hogli.core.cli import cli
+from hogli.cli import cli
 
 MAX_SAMPLE_PATHS = 8
 PYTHON_CACHE_PATTERNS = ("__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache")
@@ -133,7 +133,7 @@ def doctor_disk(
     --yes to skip prompts.
     """
 
-    from hogli.core.manifest import REPO_ROOT
+    from hogli.manifest import REPO_ROOT
 
     click.echo("🔍 PostHog Disk Space Cleanup\n")
 

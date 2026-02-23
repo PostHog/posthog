@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hogli"
+version = "0.1.0"
+description = "Developer CLI framework with YAML-based command definitions"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "PostHog", email = "engineering@posthog.com" }
+]
+keywords = ["cli", "developer-tools", "devex", "yaml"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+hogli = "hogli.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/PostHog/posthog"
+Documentation = "https://github.com/PostHog/posthog/tree/master/tools/hogli"
+Repository = "https://github.com/PostHog/posthog"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hogli"]
