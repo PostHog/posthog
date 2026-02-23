@@ -997,6 +997,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     )
                 else:
                     aggregation_value_expr = parse_expr("sum(actor_activity.retention_value)")
+                assert aggregation_value_expr is not None
 
             # Add breakdown if needed
             if self.breakdowns_in_query:

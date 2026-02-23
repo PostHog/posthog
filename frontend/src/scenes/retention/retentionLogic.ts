@@ -286,7 +286,7 @@ export const retentionLogic = kea<retentionLogicType>([
                                     validRows,
                                     (row) =>
                                         (isPropertyValueAggregation
-                                            ? row.values[intervalIndex]?.aggregation_value
+                                            ? row.values[intervalIndex]?.aggregation_value || 0
                                             : row.values[intervalIndex]?.count || 0) * (row.values[0]?.count || 0)
                                 )
                                 const totalWeight = sum(validRows, (row) => row.values[0]?.count || 0)
