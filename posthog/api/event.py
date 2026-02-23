@@ -186,7 +186,7 @@ class EventViewSet(
 
         for throttle in throttles:
             if not throttle.allow_request(request_to_check, self):
-                self.throttled(request_to_check, throttle.wait())
+                self.throttled(request_to_check, throttle.wait() or 0.0)
 
     def _build_next_url(
         self,
