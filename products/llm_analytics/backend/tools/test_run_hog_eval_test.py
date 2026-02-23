@@ -114,6 +114,32 @@ class TestRunHogEvalTestTool(BaseTest):
         assert "Result: PASS" in result
 
     @patch("products.llm_analytics.backend.tools.run_hog_eval_test.execute_hogql_query")
+    def test_null_return_shows_na(self, mock_query):
+        mock_response = MagicMock()
+        mock_response.results = [_make_event()]
+        mock_query.return_value = mock_response
+
+        tool = self._make_tool()
+        result, artifact = _run_tool(tool, source="return null;", sample_count=1)
+
+        assert artifact is None
+        assert "N/A" in result
+        assert "ERROR" not in result
+
+    @patch("products.llm_analytics.backend.tools.run_hog_eval_test.execute_hogql_query")
+    def test_runtime_error_shows_error_not_na(self, mock_query):
+        mock_response = MagicMock()
+        mock_response.results = [_make_event()]
+        mock_query.return_value = mock_response
+
+        tool = self._make_tool()
+        result, artifact = _run_tool(tool, source="return 42;", sample_count=1)
+
+        assert artifact is None
+        assert "Result: ERROR" in result
+        assert "Result: N/A" not in result
+
+    @patch("products.llm_analytics.backend.tools.run_hog_eval_test.execute_hogql_query")
     def test_ai_metric_event_type(self, mock_query):
         mock_response = MagicMock()
         event_row = [

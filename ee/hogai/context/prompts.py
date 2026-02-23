@@ -54,6 +54,7 @@ Available globals:
 - `event`: object with `uuid`, `event`, `distinct_id` fields
 
 Return type: boolean — `true` (pass) or `false` (fail)
+When "Allow N/A responses" is enabled on the evaluation, `return null` means "not applicable" (the evaluation criteria doesn't apply to this event).
 Use `print('...')` to add reasoning visible in evaluation results.
 
 When generating Hog code, use comments liberally (`//`) to explain what each section does and why.
@@ -69,6 +70,7 @@ Syntax essentials:
 - For loops: `for (let i, item in array) { ... }`
 - Arrays/tuples are 1-indexed: `let a := [1,2,3]; print(a[1])` prints 1
 - Objects use single-quoted keys: `let o := {'key': 'value'}`
+- `null` is the null/missing value (used for N/A returns when enabled)
 
 CRITICAL — null handling (properties can be null!):
 - `ifNull(value, default)`: returns default if value is null

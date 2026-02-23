@@ -134,7 +134,7 @@ class RunHogEvalTestTool(MaxTool):
             properties = event_data["properties"]
             event_type = event_data["event"]
 
-            result = run_hog_eval(bytecode, event_data)
+            result = run_hog_eval(bytecode, event_data, allows_na=True)
 
             if event_type == "$ai_generation":
                 input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
@@ -151,12 +151,14 @@ class RunHogEvalTestTool(MaxTool):
             output_preview = extract_text_from_messages(output_raw)[:200]
 
             verdict = result["verdict"]
-            if verdict is True:
+            if result.get("error"):
+                verdict_str = "ERROR"
+            elif verdict is True:
                 verdict_str = "PASS"
             elif verdict is False:
                 verdict_str = "FAIL"
             else:
-                verdict_str = "ERROR"
+                verdict_str = "N/A"
 
             lines.append(f"Event {event_data['uuid']} ({event_type}):")
             lines.append(f"  Input:  {input_preview}")

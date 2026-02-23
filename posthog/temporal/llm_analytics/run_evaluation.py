@@ -477,11 +477,12 @@ Output: {output_data}"""
     return result_dict
 
 
-def run_hog_eval(bytecode: list, event_data: dict[str, Any]) -> dict[str, Any]:
+def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
     """Run compiled Hog bytecode against a single event.
 
     Used by both the Temporal activity and the test endpoint.
     Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
+    When allows_na=True, a `return null` is treated as N/A (not an error).
     """
     properties = event_data["properties"]
     if isinstance(properties, str):
@@ -534,14 +535,21 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any]) -> dict[str, Any]:
 
     reasoning = "\n".join(response.stdout) if response.stdout else ""
 
+    if response.result is None and allows_na:
+        return {"verdict": None, "applicable": False, "reasoning": reasoning, "error": None}
+
     if not isinstance(response.result, bool):
+        hint = " (or null if N/A is enabled)" if allows_na else ""
         return {
             "verdict": None,
             "reasoning": reasoning,
-            "error": f"Must return boolean, got {type(response.result).__name__}: {response.result}",
+            "error": f"Must return boolean{hint}, got {type(response.result).__name__}: {response.result}",
         }
 
-    return {"verdict": response.result, "reasoning": reasoning, "error": None}
+    result: dict[str, Any] = {"verdict": response.result, "reasoning": reasoning, "error": None}
+    if allows_na:
+        result["applicable"] = True
+    return result
 
 
 @temporalio.activity.defn
@@ -558,8 +566,11 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
     if not bytecode:
         raise ApplicationError("Missing bytecode in evaluation_config", non_retryable=True)
 
+    output_config = evaluation.get("output_config", {})
+    allows_na = output_config.get("allows_na", False)
+
     def _execute():
-        return run_hog_eval(bytecode, event_data)
+        return run_hog_eval(bytecode, event_data, allows_na=allows_na)
 
     result = await database_sync_to_async(_execute, thread_sensitive=False)()
 
@@ -569,10 +580,15 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
             non_retryable=True,
         )
 
-    return {
+    activity_result: dict[str, Any] = {
         "verdict": result["verdict"],
         "reasoning": result["reasoning"],
+        "allows_na": allows_na,
     }
+    if allows_na:
+        activity_result["applicable"] = result.get("applicable", True)
+
+    return activity_result
 
 
 @temporalio.activity.defn

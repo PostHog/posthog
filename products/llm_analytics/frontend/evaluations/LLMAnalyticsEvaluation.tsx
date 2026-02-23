@@ -238,31 +238,39 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 </div>
                             </Field>
 
-                            {!isHog && (
-                                <Field
-                                    name="allows_na"
-                                    label={
-                                        <div className="flex items-center gap-1">
-                                            <span>Allow N/A responses</span>
-                                            <Tooltip title="Sometimes forcing a True or False is not enough and you want the LLM to decide if the eval is applicable or not. Enable this when the evaluation criteria may not apply to all generations.">
-                                                <IconInfo className="text-muted text-base" />
-                                            </Tooltip>
-                                        </div>
-                                    }
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <LemonSwitch
-                                            checked={evaluation.output_config.allows_na ?? false}
-                                            onChange={setAllowsNA}
-                                        />
-                                        <span className="text-muted text-sm">
-                                            {evaluation.output_config.allows_na
-                                                ? 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
-                                                : 'Evaluation returns true or false'}
-                                        </span>
+                            <Field
+                                name="allows_na"
+                                label={
+                                    <div className="flex items-center gap-1">
+                                        <span>Allow N/A responses</span>
+                                        <Tooltip
+                                            title={
+                                                isHog
+                                                    ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
+                                                    : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the eval is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
+                                            }
+                                        >
+                                            <IconInfo className="text-muted text-base" />
+                                        </Tooltip>
                                     </div>
-                                </Field>
-                            )}
+                                }
+                            >
+                                <div className="flex items-center gap-2">
+                                    <LemonSwitch
+                                        checked={evaluation.output_config.allows_na ?? false}
+                                        onChange={setAllowsNA}
+                                    />
+                                    <span className="text-muted text-sm">
+                                        {evaluation.output_config.allows_na
+                                            ? isHog
+                                                ? 'Returning null means "Not Applicable"'
+                                                : 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
+                                            : isHog
+                                              ? 'Evaluation must return true or false'
+                                              : 'Evaluation returns true or false'}
+                                    </span>
+                                </div>
+                            </Field>
                         </div>
                     </div>
 
@@ -391,7 +399,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         </div>
                                         <div className="text-muted">Success Rate</div>
                                     </div>
-                                    {!isHog && evaluation.output_config.allows_na && (
+                                    {evaluation.output_config.allows_na && (
                                         <div className="text-center">
                                             <div className="font-semibold text-lg">
                                                 {runsSummary.applicabilityRate}%
