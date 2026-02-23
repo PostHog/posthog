@@ -18,12 +18,7 @@ import { HogFunctionType, SlackChannelType } from '~/types'
 import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../alertNotificationLogic'
 
 function resolveSlackChannelName(channelValue: string, slackChannels: SlackChannelType[]): string | null {
-    const parts = channelValue.split('|')
-    const namePart = parts[1]?.replace('#', '')
-    if (namePart) {
-        return namePart
-    }
-    const channelId = parts[0]
+    const channelId = channelValue.split('|')[0]
     return slackChannels.find((c) => c.id === channelId)?.name ?? null
 }
 
@@ -78,7 +73,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         if (firstSlackIntegration) {
             loadAllSlackChannels()
         }
-    }, [firstSlackIntegration?.id, loadAllSlackChannels])
+    }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
 
     const handleAdd = (): void => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {

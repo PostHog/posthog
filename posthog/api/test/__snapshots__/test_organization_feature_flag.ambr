@@ -2566,7 +2566,8 @@
          "posthog_survey"."enable_iframe_embedding",
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
-         "posthog_survey"."question_summaries"
+         "posthog_survey"."question_summaries",
+         "posthog_survey"."form_content"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -2608,7 +2609,8 @@
          "posthog_survey"."enable_iframe_embedding",
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
-         "posthog_survey"."question_summaries"
+         "posthog_survey"."question_summaries",
+         "posthog_survey"."form_content"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -2881,7 +2883,8 @@
          "posthog_survey"."enable_iframe_embedding",
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
-         "posthog_survey"."question_summaries"
+         "posthog_survey"."question_summaries",
+         "posthog_survey"."form_content"
   FROM "posthog_survey"
   WHERE "posthog_survey"."linked_flag_id" = 99999
   '''
@@ -3021,6 +3024,15 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.76
   '''
+  SELECT 1 AS "a"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."project_id" = 99999
+         AND "posthog_team"."session_recording_linked_flag" @> '{"id": 65}'::jsonb)
+  LIMIT 1
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.77
+  '''
   SELECT "posthog_featureflagevaluationtag"."id",
          "posthog_featureflagevaluationtag"."feature_flag_id",
          "posthog_featureflagevaluationtag"."tag_id",
@@ -3033,7 +3045,7 @@
   WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.77
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.78
   '''
   SELECT "posthog_tag"."name"
   FROM "posthog_taggeditem"

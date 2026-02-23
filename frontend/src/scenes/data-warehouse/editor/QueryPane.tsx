@@ -13,7 +13,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryPaneProps {
     queryInput: string
@@ -32,8 +32,8 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
         onAcceptSuggestedQueryInput,
         onRejectSuggestedQueryInput,
         reportAIQueryPromptOpen,
-    } = useActions(multitabEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton } = useValues(multitabEditorLogic)
+    } = useActions(sqlEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton } = useValues(sqlEditorLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (

@@ -52,14 +52,17 @@ function OpenEndedResponsesSection({
     questionIndex: number
 }): JSX.Element {
     return (
-        <div>
-            <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
+        <div className="space-y-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">Open-ended responses</h4>
             <OpenQuestionSummaryV2
                 questionId={questionId}
                 questionIndex={questionIndex}
                 totalResponses={openEndedResponses.length}
             />
-            <VirtualizedResponseList responses={toOpenQuestionFormat(openEndedResponses)} />
+            <VirtualizedResponseList
+                responses={toOpenQuestionFormat(openEndedResponses)}
+                className="rounded-md border bg-surface-secondary/60 p-2"
+            />
         </div>
     )
 }

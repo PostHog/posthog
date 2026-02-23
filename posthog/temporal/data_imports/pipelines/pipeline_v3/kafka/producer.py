@@ -3,7 +3,7 @@ from typing import Any, Optional
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS
+from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
     ExportSignalMessage,
@@ -124,7 +124,7 @@ class KafkaBatchProducer:
         )
 
         future = self._producer.produce(
-            topic=KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS,
+            topic=KAFKA_WAREHOUSE_SOURCES_JOBS,
             data=message.to_dict(),
             key=self._get_key(),
         )
@@ -134,20 +134,19 @@ class KafkaBatchProducer:
         self._logger.debug(f"Flushing {len(self._pending_futures)} pending Kafka messages")
         self._producer.flush(timeout=timeout)
 
-        errors = 0
+        errors: list[Exception] = []
         for future in self._pending_futures:
             try:
                 future.get(timeout=0)
             except Exception as e:
                 capture_exception(e)
-                errors += 1
+                errors.append(e)
 
         flushed_count = len(self._pending_futures)
         self._pending_futures = []
 
-        if errors > 0:
-            self._logger.warning(f"Flushed {flushed_count} messages with {errors} errors")
-        else:
-            self._logger.debug(f"Successfully flushed {flushed_count} messages")
+        if errors:
+            raise Exception(f"Failed to deliver {len(errors)}/{flushed_count} Kafka messages: {errors[0]}")
 
-        return flushed_count - errors
+        self._logger.debug(f"Successfully flushed {flushed_count} messages")
+        return flushed_count

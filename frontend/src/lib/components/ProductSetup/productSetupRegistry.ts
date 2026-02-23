@@ -1,9 +1,10 @@
 import { urls } from 'scenes/urls'
 
+import { AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, ReplayTabs } from '~/types'
 
-import { type ProductSetupConfig, type SetupTask, SetupTaskId } from './types'
+import type { ProductSetupConfig, SetupTask } from './types'
 
 // ============================================================================
 // Shared Tasks - reusable across products
@@ -61,7 +62,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 targetSelector: '[data-attr="insight-option-trends"]',
             },
             {
-                id: SetupTaskId.ExploreFunnelInsight,
+                id: SetupTaskId.CreateFunnel,
                 title: 'Create a funnel insight',
                 description: 'Track how users move through steps like signup → activation → purchase.',
                 taskType: 'explore',
@@ -387,7 +388,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
         title: 'Get started with Data warehouse',
         tasks: [
             {
-                id: SetupTaskId.ConnectFirstSource,
+                id: SetupTaskId.ConnectSource,
                 title: 'Connect your first data source',
                 description: 'Import data from Stripe, Hubspot, Postgres, or other sources.',
                 skipWarning: "Without a data source, you can't query data in the warehouse.",
@@ -400,7 +401,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 title: 'Run your first SQL query',
                 description: 'Query your data using SQL in the data warehouse.',
                 taskType: 'onboarding',
-                dependsOn: [SetupTaskId.ConnectFirstSource],
+                dependsOn: [SetupTaskId.ConnectSource],
                 getUrl: () => urls.sqlEditor(),
                 targetSelector: '[data-attr="sql-editor-button"]',
             },
@@ -512,7 +513,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 getUrl: () => urls.llmAnalyticsEvaluations(),
             },
             {
-                id: SetupTaskId.RunAIPlayground,
+                id: SetupTaskId.RunAiPlayground,
                 title: 'Run your first AI playground',
                 description: 'Test and refine your AI prompts with real-time feedback.',
                 taskType: 'explore',

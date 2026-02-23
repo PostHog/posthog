@@ -268,6 +268,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
             "materialization": self._build_materialization_info(version),
+            "columns": version.get_columns() if version else [],
         }
 
         if isinstance(obj, EndpointVersion):
@@ -430,6 +431,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 derived_from_insight=data.derived_from_insight,
             )
 
+            columns = EndpointVersion.extract_columns(query_dict, team_id=self.team.pk)
             EndpointVersion.objects.create(
                 endpoint=endpoint,
                 version=1,
@@ -437,6 +439,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 description=data.description or "",
                 cache_age_seconds=data.cache_age_seconds,
                 created_by=cast(User, request.user),
+                columns=columns,
             )
 
             log_activity(

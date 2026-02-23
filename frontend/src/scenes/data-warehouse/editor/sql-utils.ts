@@ -15,7 +15,7 @@ export const buildQueryForColumnClick = (
     columnName: string
 ): string => {
     const limitOffsetClause = currentQuery ? extractLimitOffsetClause(currentQuery) : null
-    const baseQuery = `select ${columnName} from ${tableName} ${limitOffsetClause ?? 'limit 2000'}`
+    const baseQuery = `select ${columnName} from ${tableName} ${limitOffsetClause ?? 'limit 100'}`
 
     if (!currentQuery) {
         return baseQuery
@@ -55,7 +55,7 @@ export const buildQueryForColumnClick = (
         columns = ['*']
     }
 
-    return `select ${columns.join(', ')} from ${tableName} ${limitOffsetClause ?? 'limit 2000'}`
+    return `select ${columns.join(', ')} from ${tableName} ${limitOffsetClause ?? 'limit 100'}`
 }
 
 const normalizeKeywordSpacing = (query: string): string => {

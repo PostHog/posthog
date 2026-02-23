@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconBrackets, IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconWrench, IconX } from '@posthog/icons'
@@ -87,6 +87,7 @@ export function SceneTitlePanelButton({
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
+                    data-attr="open-context-panel-ai-button"
                 >
                     <div className="relative">
                         <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
@@ -106,13 +107,14 @@ export function SceneTitlePanelButton({
                     }}
                     tooltip={
                         <>
-                            {sidePanelOpen ? 'Close scene panel' : 'Open scene panel'}{' '}
-                            <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
+                            Open context panel
+                            <RenderKeybind className="relative -top-px ml-1" keybind={[keyBinds.toggleRightNav]} />
                         </>
                     }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
+                    data-attr="open-context-panel-button"
                 >
                     <IconSidePanel className="text-primary group-hover:text-primary z-10" />
                 </ButtonPrimitive>
@@ -247,6 +249,7 @@ export function SceneTitleSection({
     const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
+    const sentinelRef = useRef<HTMLDivElement>(null)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const effectiveDescription = description
 
@@ -259,8 +262,8 @@ export function SceneTitleSection({
         </>
     )
 
-    useEffect(() => {
-        const stickyElement = document.querySelector('[data-sticky-sentinel]')
+    useLayoutEffect(() => {
+        const stickyElement = sentinelRef.current
         if (!stickyElement) {
             return
         }
@@ -293,7 +296,12 @@ export function SceneTitleSection({
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
             {effectiveDescription != null && (
                 // When this element touches top of the scene, we set the sticky bar to be sticky
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
+                <div
+                    ref={sentinelRef}
+                    data-sticky-sentinel
+                    className="h-px w-px pointer-events-none absolute -top-4"
+                    aria-hidden
+                />
             )}
 
             <div

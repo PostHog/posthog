@@ -14,10 +14,8 @@ import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'
 
 export function ExperimentWizard(): JSX.Element {
-    const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, showGuide, stepValidationErrors } =
-        useValues(experimentWizardLogic)
-    const { nextStep, prevStep, setStep, saveExperiment, openFullEditor, toggleGuide } =
-        useActions(experimentWizardLogic)
+    const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, showGuide, stepValidationErrors, hasFormErrors } = useValues(experimentWizardLogic)
+    const { nextStep, prevStep, setStep, saveExperiment, toggleGuide } = useActions(experimentWizardLogic)
 
     const header = (
         <div className="flex items-center justify-between">
@@ -65,7 +63,12 @@ export function ExperimentWizard(): JSX.Element {
                 </div>
                 <div className="flex items-center gap-2">
                     {isLastStep ? (
-                        <LemonButton type="primary" onClick={saveExperiment} loading={isExperimentSubmitting}>
+                        <LemonButton
+                            type="primary"
+                            onClick={saveExperiment}
+                            loading={isExperimentSubmitting}
+                            disabledReason={hasFormErrors ? 'Please fix all errors before saving' : undefined}
+                        >
                             Save as draft
                         </LemonButton>
                     ) : (
@@ -76,13 +79,7 @@ export function ExperimentWizard(): JSX.Element {
                 </div>
             </div>
 
-            <div className="text-center text-xs text-muted space-y-1">
-                <p>
-                    Prefer the old layout?{' '}
-                    <button type="button" onClick={openFullEditor} className="text-link hover:underline cursor-pointer">
-                        Open full editor
-                    </button>
-                </p>
+            <div className="text-center text-xs text-muted">
                 <p>
                     Looking for no-code? They are created using the toolbar,{' '}
                     <Link

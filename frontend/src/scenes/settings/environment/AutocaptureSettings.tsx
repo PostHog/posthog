@@ -98,6 +98,10 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
                 bordered
             />
             <LemonDivider />
+            <p>
+                You can also choose to only capture specific web vitals metrics. By default, all four core web vitals
+                metrics are captured: CLS, FCP, LCP, and INP.
+            </p>
             <div className="inline-grid grid-cols-2 gap-2 xs:grid xs:w-full">
                 <WebVitalsAllowedMetricSwitch metric="CLS" />
                 <WebVitalsAllowedMetricSwitch metric="FCP" />

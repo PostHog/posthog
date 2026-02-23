@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Sequence
 
 from django.db import transaction
@@ -266,11 +267,12 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         old_status = instance.status
         old_priority = instance.priority
 
-        # Handle assignee separately since it's not a direct model field
-        assignee = request.data.pop("assignee", None) if "assignee" in request.data else ...
+        # Extract assignee without mutating request.data
+        assignee = request.data.get("assignee", ...) if "assignee" in request.data else ...
+        data = {k: v for k, v in request.data.items() if k != "assignee"}
 
         # Update other fields normally
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
 
@@ -351,6 +353,15 @@ def validate_assignee(assignee) -> None:
         raise serializers.ValidationError({"assignee": "must have 'type' and 'id'"})
     if assignee["type"] not in ("user", "role"):
         raise serializers.ValidationError({"assignee": "type must be 'user' or 'role'"})
+
+    if assignee["type"] == "user":
+        if not isinstance(assignee["id"], int):
+            raise serializers.ValidationError({"assignee": "user id must be an integer"})
+    elif assignee["type"] == "role":
+        try:
+            uuid.UUID(str(assignee["id"]))
+        except (ValueError, AttributeError):
+            raise serializers.ValidationError({"assignee": "role id must be a valid UUID"})
 
 
 def validate_assignee_membership(assignee, organization) -> None:

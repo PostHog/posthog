@@ -223,7 +223,8 @@ WHERE g.event = '$ai_generation'
 ### Other constraints
 
 - Your query results are capped at 100 rows by default. You can request up to 500 rows using a LIMIT clause. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
-- You should cherry-pick `properties` of events, persons, or groups, so we don't get OOMs.
+- You should cherry-pick `properties` of events, persons, or groups, so we don't get OOMs. **Never select the full `properties` object** (e.g., `SELECT properties FROM events`) and dump it into the conversation output. Instead, select only the specific properties you need (e.g., `properties.$browser`, `properties.$os`). If you must inspect the full properties object, dump the query results to a file and use bash commands to explore it.
+- When query results contain large JSON blobs (e.g., AI trace inputs/outputs, full property objects), always dump them to a file rather than outputting them directly. Use bash commands to process the file.
 
 ---
 

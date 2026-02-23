@@ -389,6 +389,11 @@ def get_generated_mprocs_path() -> Path:
     if main_repo:
         main_path = main_repo / ".posthog" / ".generated" / "mprocs.yaml"
         if main_path.exists():
+            # Create local symlink so bin/start (which uses $REPOSITORY_ROOT) finds it
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            if local_path.is_symlink():
+                local_path.unlink()
+            local_path.symlink_to(main_path)
             return main_path
 
     return local_path

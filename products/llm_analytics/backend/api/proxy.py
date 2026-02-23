@@ -21,6 +21,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.monitoring import monitor
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.models import User
@@ -28,6 +29,7 @@ from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrot
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.llm import (
     SUPPORTED_MODELS_WITH_THINKING,
     Client,
@@ -280,6 +282,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
         return properties
 
     @action(detail=False, methods=["GET"])
+    @llma_track_latency("llma_proxy_models")
+    @monitor(feature=None, endpoint="llma_proxy_models", method="GET")
     def models(self, request):
         """Return a list of available models across providers.
 
@@ -304,5 +308,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         return Response(get_default_models())
 
     @action(detail=False, methods=["POST"])
+    @llma_track_latency("llma_proxy_completion")
+    @monitor(feature=None, endpoint="llma_proxy_completion", method="POST")
     def completion(self, request, *args, **kwargs):
         return self._handle_completion_request(request)

@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconMagicWand } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -531,15 +530,6 @@ export function Experiments(): JSX.Element {
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <div className="flex items-center gap-2">
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    icon={<IconMagicWand />}
-                                    data-attr="create-experiment-wizard"
-                                    to={urls.experimentWizard()}
-                                >
-                                    Guided creation
-                                </LemonButton>
                                 <MaxTool
                                     identifier="create_experiment"
                                     initialMaxPrompt="Create an experiment for "

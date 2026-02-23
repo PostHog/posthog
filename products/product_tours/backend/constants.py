@@ -7,6 +7,7 @@ class ProductTourEventName(StrEnum):
     LAUNCHED = "product tour launched"
     STOPPED = "product tour stopped"
     DELETED = "product tour deleted"
+    AI_CONTENT_GENERATED = "product tour ai generated"
 
 
 class ProductTourEventProperties(StrEnum):

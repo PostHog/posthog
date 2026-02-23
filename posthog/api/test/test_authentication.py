@@ -1466,6 +1466,8 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertFalse(self.user.check_password("a12345678"))
 
     def test_e2e_test_special_handlers(self):
+        self.ensure_url_patterns_loaded()
+
         with self.settings(E2E_TESTING=True):
             response = self.client.get("/api/reset/e2e_test_user/?token=e2e_test_token")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1623,7 +1625,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }
@@ -1646,7 +1648,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }

@@ -45,7 +45,7 @@ export const DEFAULT_CLUSTERING_PARAMS: ClusteringRunParams = {
     dimensionality_reduction_method: 'umap',
     dimensionality_reduction_ndims: 100,
     clustering_method: 'hdbscan',
-    min_cluster_size_fraction: 0.01,
+    min_cluster_size_fraction: 0.05,
     hdbscan_min_samples: 5,
     kmeans_min_k: 2,
     kmeans_max_k: 10,

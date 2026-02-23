@@ -120,8 +120,8 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             code: dedent`
                               final config = PostHogConfig('<ph_project_api_key>');
                               // Configure error tracking
-                              config.errorTrackingConfig.inAppIncludes = ['package:your_app'];
-                              config.errorTrackingConfig.inAppExcludes = ['package:third_party_lib'];
+                              config.errorTrackingConfig.inAppIncludes.add('package:your_app');
+                              config.errorTrackingConfig.inAppExcludes.add('package:third_party_lib');
                               config.errorTrackingConfig.inAppByDefault = true;
                               await Posthog().setup(config);
                             `,

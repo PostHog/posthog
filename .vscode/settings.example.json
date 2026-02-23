@@ -24,5 +24,6 @@
         "editor.codeActionsOnSave": {
             "source.organizeImports.ruff": "explicit"
         }
-    }
+    },
+    "git.fetchTags": false
 }

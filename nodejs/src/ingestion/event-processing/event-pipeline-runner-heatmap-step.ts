@@ -5,7 +5,7 @@ import { EventHeaders, PipelineEvent, PreIngestionEvent, Team } from '../../type
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunner, EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, drop, isOkResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -15,7 +15,6 @@ export interface EventPipelineRunnerHeatmapStepInput {
     timestamp: DateTime
     team: Team
     headers: EventHeaders
-    groupStoreForBatch: GroupStoreForBatch
 }
 
 export type EventPipelineRunnerHeatmapStepResult<TInput> = TInput & {
@@ -27,12 +26,13 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
     kafkaProducer: KafkaProducerWrapper,
     teamManager: TeamManager,
     groupTypeManager: GroupTypeManager,
-    personsStore: PersonsStore
+    personsStore: PersonsStore,
+    groupStore: BatchWritingGroupStore
 ): ProcessingStep<TInput, EventPipelineRunnerHeatmapStepResult<TInput>> {
     return async function eventPipelineRunnerHeatmapStep(
         input: TInput
     ): Promise<PipelineResult<EventPipelineRunnerHeatmapStepResult<TInput>>> {
-        const { normalizedEvent, timestamp, team, headers, groupStoreForBatch } = input
+        const { normalizedEvent, timestamp, team, headers } = input
 
         // Skip heatmap processing if team has explicitly opted out
         if (team.heatmaps_opt_in === false) {
@@ -46,7 +46,7 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
             groupTypeManager,
             normalizedEvent,
             personsStore,
-            groupStoreForBatch,
+            groupStore,
             headers
         )
         const result = await runner.runHeatmapPipeline(normalizedEvent, timestamp, team)

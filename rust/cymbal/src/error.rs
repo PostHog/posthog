@@ -162,7 +162,7 @@ pub enum ProguardError {
     InvalidClass,
 }
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error, Clone, Serialize)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
@@ -253,5 +253,14 @@ impl From<(usize, UnhandledError)> for PipelineFailure {
 impl From<(usize, Arc<UnhandledError>)> for PipelineFailure {
     fn from((index, error): (usize, Arc<UnhandledError>)) -> Self {
         PipelineFailure { index, error }
+    }
+}
+
+impl From<UnhandledError> for PipelineFailure {
+    fn from(error: UnhandledError) -> Self {
+        PipelineFailure {
+            index: 0,
+            error: Arc::new(error),
+        }
     }
 }

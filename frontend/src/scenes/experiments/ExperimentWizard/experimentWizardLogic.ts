@@ -1,8 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { urls } from 'scenes/urls'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
@@ -80,7 +78,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         _applyStep: (step: ExperimentWizardStep) => ({ step }),
         markStepDeparted: (step: ExperimentWizardStep) => ({ step }),
         resetWizard: true,
-        openFullEditor: true,
         toggleGuide: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     }),
@@ -162,21 +159,24 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     errors.about.push(featureFlagKeyValidation.error)
                 }
 
-                const variants = experiment.parameters?.feature_flag_variants ?? []
-                const variantKeys = variants.map((v) => v.key)
-                const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
-                const hasEmptyKeys = variants.some((v) => !v.key || v.key.trim().length === 0)
+                // Linked feature flags show variants read-only so we skip validations
+                if (!linkedFeatureFlag) {
+                    const variants = experiment.parameters?.feature_flag_variants ?? []
+                    const variantKeys = variants.map((v) => v.key)
+                    const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
+                    const hasEmptyKeys = variants.some((v) => !v.key || v.key.trim().length === 0)
 
-                if (hasEmptyKeys) {
-                    errors.variants.push('All variants must have a key')
-                }
-                if (hasDuplicateKeys) {
-                    errors.variants.push('Variant keys must be unique')
-                }
+                    if (hasEmptyKeys) {
+                        errors.variants.push('All variants must have a key')
+                    }
+                    if (hasDuplicateKeys) {
+                        errors.variants.push('Variant keys must be unique')
+                    }
 
-                const totalRollout = variants.reduce((sum, v) => sum + (v.rollout_percentage ?? 0), 0)
-                if (variants.length >= 2 && totalRollout !== 100) {
-                    errors.variants.push('Variant percentages must sum to 100%')
+                    const totalRollout = variants.reduce((sum, v) => sum + (v.rollout_percentage ?? 0), 0)
+                    if (variants.length >= 2 && totalRollout !== 100) {
+                        errors.variants.push('Variant percentages must sum to 100%')
+                    }
                 }
 
                 return errors
@@ -188,6 +188,11 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 return errors[currentStep]?.length > 0
             },
         ],
+        hasFormErrors: [
+            (s) => [s.stepValidationErrors],
+            (errors: Record<ExperimentWizardStep, string[]>): boolean =>
+                WIZARD_STEPS.some((step) => errors[step]?.length > 0),
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -198,10 +203,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             } catch {
                 // Ignore localStorage errors
             }
-        },
-        openFullEditor: () => {
-            actions.reportExperimentCreationFormSwitched('wizard', 'classic_form', values.currentStep)
-            router.actions.push(urls.experiment('new'))
         },
         loadFeatureFlagsSuccess: ({
             featureFlags,
