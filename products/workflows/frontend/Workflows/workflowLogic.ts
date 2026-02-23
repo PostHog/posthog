@@ -660,43 +660,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 return changed
             },
         ],
-
-        draftChangesSummary: [
-            (s) => [s.workflow, s.originalWorkflow, s.draftDeletedActionIds],
-            (
-                workflow,
-                originalWorkflow,
-                draftDeletedActionIds
-            ): { added: string[]; modified: string[]; deleted: string[] } => {
-                const empty = { added: [], modified: [], deleted: [] }
-                if (!originalWorkflow || originalWorkflow.status !== 'active') {
-                    return empty
-                }
-                const liveActionsById = new Map(originalWorkflow.actions.map((a) => [a.id, a]))
-
-                const added: string[] = []
-                const modified: string[] = []
-                const deleted: string[] = []
-
-                for (const action of workflow.actions) {
-                    if (action.type === 'trigger' || action.type === 'exit') {
-                        continue
-                    }
-                    if (draftDeletedActionIds.has(action.id)) {
-                        deleted.push(action.name)
-                        continue
-                    }
-                    const liveAction = liveActionsById.get(action.id)
-                    if (!liveAction) {
-                        added.push(action.name)
-                    } else if (!configsEqual(liveAction.config, action.config)) {
-                        modified.push(action.name)
-                    }
-                }
-
-                return { added, modified, deleted }
-            },
-        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         saveWorkflowPartial: async ({ workflow }) => {

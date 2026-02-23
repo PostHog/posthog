@@ -3,7 +3,7 @@ import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconClock } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -33,46 +33,6 @@ function formatDateTime(isoString: string): string {
     })
 }
 
-function DraftChangesSummary({
-    summary,
-}: {
-    summary: { added: string[]; modified: string[]; deleted: string[] }
-}): JSX.Element | null {
-    const { added, modified, deleted } = summary
-    const totalChanges = added.length + modified.length + deleted.length
-    if (totalChanges === 0) {
-        return null
-    }
-
-    const panels = [
-        {
-            key: 'changes',
-            header: `${totalChanges} action${totalChanges === 1 ? '' : 's'} changed`,
-            content: (
-                <ul className="list-none p-0 m-0 space-y-0.5">
-                    {added.map((name) => (
-                        <li key={`add-${name}`} className="text-success font-medium">
-                            + {name}
-                        </li>
-                    ))}
-                    {modified.map((name) => (
-                        <li key={`mod-${name}`} className="text-warning font-medium">
-                            ~ {name}
-                        </li>
-                    ))}
-                    {deleted.map((name) => (
-                        <li key={`del-${name}`} className="text-danger font-medium">
-                            &minus; {name}
-                        </li>
-                    ))}
-                </ul>
-            ),
-        },
-    ]
-
-    return <LemonCollapse panels={panels} size="xsmall" className="mt-1" />
-}
-
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
     logic: workflowSceneLogic,
@@ -94,8 +54,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { futureJobs } = useValues(batchJobsLogic)
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow, hasPendingDraft, isDraftSaving, draftSavedAt, draftChangesSummary } =
-        useValues(logic)
+    const { workflowLoading, originalWorkflow, hasPendingDraft, isDraftSaving, draftSavedAt } = useValues(logic)
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -166,7 +125,6 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                                   ? ` Last autosaved ${formatDateTime(draftSavedAt)}.`
                                   : ''}
                         </div>
-                        <DraftChangesSummary summary={draftChangesSummary} />
                     </LemonBanner>
                 )}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
