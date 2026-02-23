@@ -271,7 +271,8 @@ class TestLLMPromptAPI(APIBaseTest):
         assert second_response.status_code == status.HTTP_200_OK
         assert second_response.json()["prompt"] == "Created via model save"
 
-    def test_update_prompt_invalidates_cached_prompt_by_name_result(self, mock_feature_enabled):
+    @patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: callback())
+    def test_update_prompt_invalidates_cached_prompt_by_name_result(self, mock_on_commit, mock_feature_enabled):
         prompt = LLMPrompt.objects.create(
             team=self.team,
             name="update-cached-prompt",
@@ -294,7 +295,8 @@ class TestLLMPromptAPI(APIBaseTest):
         assert second_response.status_code == status.HTTP_200_OK
         assert second_response.json()["prompt"] == "Updated content"
 
-    def test_soft_delete_invalidates_cached_prompt_by_name_result(self, mock_feature_enabled):
+    @patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: callback())
+    def test_soft_delete_invalidates_cached_prompt_by_name_result(self, mock_on_commit, mock_feature_enabled):
         prompt = LLMPrompt.objects.create(
             team=self.team,
             name="delete-cached-prompt",
