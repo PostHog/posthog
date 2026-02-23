@@ -58,7 +58,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-INTERNAL-SECRET': 'posthog123',
+                        'X-INTERNAL-SECRET': 'internal-secret',
                     },
                     body: JSON.stringify({
                         filters,
@@ -153,7 +153,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Internal-Secret': 'posthog123',
+                        'X-Internal-Secret': 'internal-secret',
                     },
                     body: JSON.stringify({
                         filters,
@@ -168,7 +168,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Internal-Secret': 'posthog123',
+                        'X-Internal-Secret': 'internal-secret',
                     },
                     body: JSON.stringify({
                         filters,
@@ -199,7 +199,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'x-internal-secret': 'posthog123',
+                        'X-Internal-Secret': 'internal-secret',
                     },
                     body: JSON.stringify({
                         filters,
