@@ -139,6 +139,10 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(call_args[0][1], "dashboard created")
         properties = call_args[0][2]
         self.assertTrue(properties["from_posthog_ai"])
+        self.assertFalse(properties["from_template"])
+        self.assertIsNone(properties["template_key"])
+        self.assertFalse(properties["duplicated"])
+        self.assertIsNotNone(properties["dashboard_id"])
         self.assertEqual(properties["item_count"], 1)
         self.assertEqual(call_args[1]["team"], self.team)
 
