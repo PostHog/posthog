@@ -374,19 +374,23 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
 
                 if (teamId) {
                     try {
-                        let activeProviderKeyId: string | null = null
-                        try {
-                            const configResponse = (await api.get(
+                        const [configResult, keysResult] = await Promise.allSettled([
+                            api.get(
                                 `/api/environments/${teamId}/llm_analytics/evaluation_config/`
-                            )) as EvaluationConfigResponse
-                            activeProviderKeyId = configResponse?.active_provider_key?.id ?? null
-                        } catch {
-                            // Non-critical — activeProviderKeyId stays null
-                        }
+                            ) as Promise<EvaluationConfigResponse>,
+                            api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`),
+                        ])
+
+                        const activeProviderKeyId =
+                            configResult.status === 'fulfilled'
+                                ? (configResult.value?.active_provider_key?.id ?? null)
+                                : null
                         llmAnalyticsPlaygroundLogic.actions.setActiveProviderKeyId(activeProviderKeyId)
 
-                        const keysResponse = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
-                        const allKeys = (keysResponse.results ?? []) as LLMProviderKey[]
+                        if (keysResult.status === 'rejected') {
+                            throw keysResult.reason
+                        }
+                        const allKeys = (keysResult.value.results ?? []) as LLMProviderKey[]
                         llmAnalyticsPlaygroundLogic.actions.setFetchedProviderKeys(allKeys)
 
                         const validKeys = allKeys.filter((key) => key.state === 'ok')
@@ -473,8 +477,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     return
                 }
 
-                const providerKeyId =
-                    selectedModel.providerKeyId ?? values.providerKeyForCurrentModel?.id ?? values.activeProviderKeyId
+                const providerKeyId = values.providerKeyForCurrentModel?.id ?? values.activeProviderKeyId
 
                 const requestData: any = {
                     system: requestSystemPrompt,

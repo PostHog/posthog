@@ -411,6 +411,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
 
             const testLogic = llmAnalyticsPlaygroundLogic()
             testLogic.mount()
+            testLogic.actions.loadModelOptions()
             await expectLogic(testLogic).toFinishAllListeners()
 
             expect(testLogic.values.modelOptions).toEqual(
@@ -458,6 +459,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
 
             const testLogic = llmAnalyticsPlaygroundLogic()
             testLogic.mount()
+            testLogic.actions.loadModelOptions()
             await expectLogic(testLogic).toFinishAllListeners()
 
             // claude-sonnet-4 should appear once (from key-1, which comes first)

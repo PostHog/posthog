@@ -552,6 +552,8 @@ function ConfigurationPanel(): JSX.Element {
                         onChange={(value) => setModel(value)}
                         options={groupedModelOptions}
                         searchPlaceholder="Search models..."
+                        // 'provider' is a custom property on the option objects (not part of LemonSelectOption)
+                        // but Fuse.js searches arbitrary object keys so it works for provider-based filtering
                         searchKeys={['label', 'value', 'provider']}
                         loading={modelOptionsLoading}
                         disabledReason={
