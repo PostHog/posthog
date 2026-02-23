@@ -1,4 +1,4 @@
-import { afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { afterMount, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -96,6 +96,16 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
     })),
     afterMount(({ actions, values, props }) => {
         if (props.traceCreatedAt && values.surveyEvents === null && !values.surveyEventsLoading) {
+            actions.loadSurveyEvents(props.traceCreatedAt)
+        }
+    }),
+    propsChanged(({ actions, values, props }, oldProps) => {
+        if (
+            props.traceCreatedAt &&
+            props.traceCreatedAt !== oldProps.traceCreatedAt &&
+            values.surveyEvents === null &&
+            !values.surveyEventsLoading
+        ) {
             actions.loadSurveyEvents(props.traceCreatedAt)
         }
     }),
