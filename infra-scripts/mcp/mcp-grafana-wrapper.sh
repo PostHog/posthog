@@ -145,9 +145,17 @@ is_port_forward_healthy() {
 # Function to start port-forward
 start_port_forward() {
     # Check if we can connect to the cluster (use /healthz for faster response)
-    if ! kubectl --context="$K8S_CONTEXT" get --raw /healthz &> /dev/null; then
-        echo "Error: Cannot connect to K8s cluster ($CURRENT_REGION). Ensure kubectl is configured and K8S_CONTEXT ('$K8S_CONTEXT') is valid." >&2
-        echo "Also ensure your AWS SSO session is active (try: aws sso login)." >&2
+    local kubectl_err
+    if ! kubectl_err=$(kubectl --context="$K8S_CONTEXT" get --raw /healthz 2>&1); then
+        echo "Error: Cannot connect to K8s cluster ($CURRENT_REGION)." >&2
+        if echo "$kubectl_err" | grep -q "no such host"; then
+            echo "Cause: DNS resolution failed. Connect to the VPN and try again." >&2
+        elif echo "$kubectl_err" | grep -Eq "token has expired|no valid bearer token|Unauthorized"; then
+            echo "Cause: AWS SSO session expired. Run: aws sso login" >&2
+        else
+            echo "kubectl error: $kubectl_err" >&2
+            echo "Ensure K8S_CONTEXT ('$K8S_CONTEXT') is valid and VPN/SSO are active." >&2
+        fi
         exit 1
     fi
 

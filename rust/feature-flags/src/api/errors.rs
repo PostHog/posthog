@@ -123,6 +123,8 @@ pub enum FlagError {
     CacheMiss,
     #[error("Failed to parse data")]
     DataParsingError,
+    #[error("Parallel batch evaluation task panicked")]
+    BatchEvaluationPanicked,
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
 }
@@ -170,6 +172,7 @@ impl FlagError {
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
             FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
             FlagError::DataParsingError => ("data_parsing_error", 500),
+            FlagError::BatchEvaluationPanicked => ("batch_evaluation_panicked", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
 
             // Data parsing errors (500) - internal errors, not service unavailability
@@ -300,6 +303,7 @@ impl FlagError {
             | FlagError::CohortFiltersParsingError
             | FlagError::DependencyCycle(_, _)
             | FlagError::DataParsingError
+            | FlagError::BatchEvaluationPanicked
             | FlagError::DataParsingErrorWithContext(_)
             | FlagError::HashKeyOverrideError => StatusCode::INTERNAL_SERVER_ERROR,
 
@@ -491,6 +495,10 @@ impl IntoResponse for FlagError {
                 tracing::error!("Failed to parse data");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse internal data. This is likely a temporary issue. Please try again later.".to_string())
             }
+            FlagError::BatchEvaluationPanicked => {
+                tracing::error!("Parallel batch evaluation task panicked");
+                (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred during flag evaluation. Please try again later.".to_string())
+            }
             FlagError::CookielessError(err) => {
                 match err {
                     // 400 Bad Request errors - client-side issues
@@ -603,6 +611,7 @@ mod tests {
         assert!(FlagError::DatabaseUnavailable.is_5xx());
         assert!(FlagError::RedisUnavailable.is_5xx());
         assert!(FlagError::TimeoutError(None).is_5xx());
+        assert!(FlagError::BatchEvaluationPanicked.is_5xx());
         assert!(FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).is_5xx());
 
         // Test 4XX errors
@@ -720,6 +729,7 @@ mod tests {
             FlagError::StaticCohortMatchesNotCached,
             FlagError::CacheMiss,
             FlagError::DataParsingError,
+            FlagError::BatchEvaluationPanicked,
             CookielessManagerError::MissingProperty("test".to_string()).into(), // CookielessError
         ];
 
@@ -820,6 +830,7 @@ mod tests {
             FlagError::CohortFiltersParsingError,
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::DataParsingError,
+            FlagError::BatchEvaluationPanicked,
             FlagError::DataParsingErrorWithContext("test".to_string()),
             FlagError::RedisUnavailable,
             FlagError::DatabaseUnavailable,
@@ -915,6 +926,7 @@ mod tests {
             FlagError::StaticCohortMatchesNotCached,
             FlagError::CacheMiss,
             FlagError::DataParsingError,
+            FlagError::BatchEvaluationPanicked,
             CookielessManagerError::MissingProperty("test".to_string()).into(),
         ];
 

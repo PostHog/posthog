@@ -73,7 +73,6 @@
         "@opentelemetry/semantic-conventions": "^1.36.0",
         "@posthog/cyclotron": "workspace:*",
         "@posthog/hogvm": "workspace:*",
-        "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
         "@pyroscope/nodejs": "^0.4.8",
         "@segment/action-destinations": "^3.383.0",
