@@ -361,6 +361,18 @@ class TestResolver(BaseTest):
             "WITH params AS (SELECT 1 AS a, 2 AS b), (SELECT a FROM params) AS val_a, (SELECT b FROM params) AS val_b SELECT plus(val_a, val_b) FROM events LIMIT 50000",
         )
 
+    def test_ctes_with_scalar_subquery_column(self):
+        # A table CTE that uses a scalar subquery as a SELECT column,
+        # then referenced by another CTE — the resolver must unwrap
+        # SelectQueryType to determine the column's field type
+        self._print_hogql(
+            "WITH latest AS (SELECT max(timestamp) AS ts FROM events), "
+            "date_info AS ("
+            "  SELECT (SELECT ts FROM latest) AS period_end FROM events"
+            ") "
+            "SELECT d.period_end FROM date_info d CROSS JOIN events e"
+        )
+
     def test_ctes_table_subquery_as_scalar_error(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")

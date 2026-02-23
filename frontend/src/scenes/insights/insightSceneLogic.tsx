@@ -441,9 +441,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const currentScene = sceneLogic.findMounted()?.values
 
-            const alertChanged = alert_id !== values.alertId
+            const alertChanged = (alert_id ?? null) !== values.alertId
+            const isExistingInsight = shortId !== 'new'
 
             if (
+                isExistingInsight &&
                 currentScene?.activeSceneId === Scene.Insight &&
                 currentScene.activeSceneLogic &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
@@ -451,7 +453,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     insightMode &&
                 !alertChanged
             ) {
-                // If nothing about the scene has changed, don't do anything
+                // Nothing about the scene has changed, skip re-processing.
+                // New insights (/insights/new) are excluded because the insight type
+                // or dashboard in hash/search params may have changed.
                 return
             }
 
@@ -468,14 +472,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
-                itemId !== values.itemId ||
+                (itemId ?? null) !== values.itemId ||
                 (sceneSource ?? null) !== values.sceneSource ||
                 alertChanged ||
-                !objectsEqual(variablesOverride, values.variablesOverride) ||
-                !objectsEqual(filtersOverride, values.filtersOverride) ||
-                !objectsEqual(tileFiltersOverride, values.tileFiltersOverride) ||
-                dashboard !== values.dashboardId ||
-                dashboardName !== values.dashboardName
+                !objectsEqual(variablesOverride ?? null, values.variablesOverride) ||
+                !objectsEqual(filtersOverride ?? null, values.filtersOverride) ||
+                !objectsEqual(tileFiltersOverride ?? null, values.tileFiltersOverride) ||
+                (dashboard ?? null) !== values.dashboardId ||
+                (dashboardName ?? null) !== values.dashboardName
             ) {
                 actions.setSceneState(
                     insightId,

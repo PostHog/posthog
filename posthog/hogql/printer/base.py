@@ -180,6 +180,10 @@ class HogQLPrinter(Visitor[str]):
             columns = ["1"]
 
         ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
+        has_recursive_cte = any(cte.recursive for cte in node.ctes.values()) if node.ctes else False
+
+        if has_recursive_cte and self.dialect != "postgres":
+            raise ImpossibleASTError("Recursive CTEs are only supported in PostgreSQL dialect")
 
         window = (
             ", ".join(
@@ -211,7 +215,7 @@ class HogQLPrinter(Visitor[str]):
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
         clauses = [
-            f"WITH{space}{comma.join(ctes)}" if ctes else None,
+            f"WITH{' RECURSIVE' if has_recursive_cte else ''}{space}{comma.join(ctes)}" if ctes else None,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,

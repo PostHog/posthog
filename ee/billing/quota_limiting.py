@@ -2,6 +2,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
+from time import time
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.db import close_old_connections
 from django.db.models import Q
 from django.utils import timezone
 
+import structlog
 import dateutil.parser
 import posthoganalytics
 
@@ -37,6 +39,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_workflow_emails_sent_in_period,
 )
 from posthog.utils import get_current_day
+
+logger = structlog.get_logger(__name__)
 
 QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
@@ -591,6 +595,13 @@ def set_org_usage_summary(
     return has_changed
 
 
+def _timed_query(name, fn, *args, **kwargs):
+    start = time()
+    result = fn(*args, **kwargs)
+    logger.info("quota_limiting_query", query=name, duration_ms=round((time() - start) * 1000, 1))
+    return result
+
+
 def update_all_orgs_billing_quotas(
     dry_run: bool = False,
 ) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]]]:
@@ -604,55 +615,71 @@ def update_all_orgs_billing_quotas(
     period = get_current_day()
     period_start, period_end = period
 
-    api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
-    _, exception_metrics = get_teams_with_exceptions_captured_in_period(period_start, period_end)
+    api_queries_usage = _timed_query(
+        "api_queries_metrics", get_teams_with_api_queries_metrics, period_start, period_end
+    )
+    _, exception_metrics = _timed_query(
+        "exceptions_captured", get_teams_with_exceptions_captured_in_period, period_start, period_end
+    )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
         "teams_with_event_count_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_billable_event_count_in_period(period_start, period_end)
+            _timed_query("billable_events", get_teams_with_billable_event_count_in_period, period_start, period_end)
         ),
         "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(exception_metrics),
         "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_recording_count_in_period(period_start, period_end)
+            _timed_query("recordings", get_teams_with_recording_count_in_period, period_start, period_end)
         ),
         "teams_with_rows_synced_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_rows_synced_in_period(period_start, period_end)
+            _timed_query("rows_synced", get_teams_with_rows_synced_in_period, period_start, period_end)
         ),
         "teams_with_decide_requests_count": convert_team_usage_rows_to_dict(
-            get_teams_with_feature_flag_requests_count_in_period(period_start, period_end, FlagRequestType.DECIDE)
+            _timed_query(
+                "decide_requests",
+                get_teams_with_feature_flag_requests_count_in_period,
+                period_start,
+                period_end,
+                FlagRequestType.DECIDE,
+            )
         ),
         "teams_with_local_evaluation_requests_count": convert_team_usage_rows_to_dict(
-            get_teams_with_feature_flag_requests_count_in_period(
-                period_start, period_end, FlagRequestType.LOCAL_EVALUATION
+            _timed_query(
+                "local_evaluation_requests",
+                get_teams_with_feature_flag_requests_count_in_period,
+                period_start,
+                period_end,
+                FlagRequestType.LOCAL_EVALUATION,
             )
         ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
         "teams_with_cdp_trigger_events_metrics": convert_team_usage_rows_to_dict(
-            get_teams_with_cdp_billable_invocations_in_period(period_start, period_end)
+            _timed_query("cdp_invocations", get_teams_with_cdp_billable_invocations_in_period, period_start, period_end)
         ),
         "teams_with_rows_exported_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_rows_exported_in_period(period_start, period_end)
+            _timed_query("rows_exported", get_teams_with_rows_exported_in_period, period_start, period_end)
         ),
         "teams_with_survey_responses_count_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_survey_responses_count_in_period(period_start, period_end)
+            _timed_query("survey_responses", get_teams_with_survey_responses_count_in_period, period_start, period_end)
         ),
         "teams_with_ai_event_count_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_ai_event_count_in_period(period_start, period_end)
+            _timed_query("ai_events", get_teams_with_ai_event_count_in_period, period_start, period_end)
         ),
         "teams_with_ai_credits_used_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_ai_credits_used_in_period(period_start, period_end)
+            _timed_query("ai_credits", get_teams_with_ai_credits_used_in_period, period_start, period_end)
         ),
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_workflow_emails_sent_in_period(period_start, period_end)
+            _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period_start, period_end)
         ),
         "teams_with_workflow_destinations_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_workflow_billable_invocations_in_period(period_start, period_end)
+            _timed_query(
+                "workflow_invocations", get_teams_with_workflow_billable_invocations_in_period, period_start, period_end
+            )
         ),
         "teams_with_logs_mb_in_period": {
             team_id: int(bytes_val // 1_000_000)
             for team_id, bytes_val in convert_team_usage_rows_to_dict(
-                get_teams_with_logs_bytes_in_period(period_start, period_end)
+                _timed_query("logs_bytes", get_teams_with_logs_bytes_in_period, period_start, period_end)
             ).items()
         },
     }

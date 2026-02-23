@@ -10,6 +10,15 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 
+export function useWizardCommand(): { wizardCommand: string; isCloudOrDev: boolean } {
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
+    const region = preflight?.region || Region.US
+    return {
+        wizardCommand: `npx -y @posthog/wizard@latest${region === Region.EU ? ' --region eu' : ''}`,
+        isCloudOrDev: isCloudOrDev ?? false,
+    }
+}
+
 const SetupWizardBanner = ({
     integrationName,
     hide,
@@ -17,14 +26,11 @@ const SetupWizardBanner = ({
     integrationName: string
     hide?: boolean
 }): JSX.Element | null => {
-    const { preflight, isCloudOrDev } = useValues(preflightLogic)
+    const { wizardCommand, isCloudOrDev } = useWizardCommand()
 
     if (hide || !isCloudOrDev) {
         return null
     }
-
-    const region = preflight?.region || Region.US
-    const wizardCommand = `npx -y @posthog/wizard@latest${region === Region.EU ? ` --region eu` : ''}`
 
     return (
         <>

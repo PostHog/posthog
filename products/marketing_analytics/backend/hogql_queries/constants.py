@@ -18,7 +18,7 @@ from posthog.schema import (
     LinkedinAdsTableKeywords,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsItem,
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
@@ -417,7 +417,7 @@ def to_marketing_analytics_data(
             break
     else:
         # Check if it's a conversion goal or cost per conversion
-        if key.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER):
+        if key.startswith(MarketingAnalyticsConstants.COST_PER):
             kind = "currency"
             is_increase_bad = True  # Cost per conversion - higher is bad
         else:

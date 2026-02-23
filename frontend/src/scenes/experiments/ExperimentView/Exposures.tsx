@@ -19,7 +19,7 @@ import {
 import { useChartColors } from '../MetricsView/shared/colors'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getExposureConfigDisplayName } from '../utils'
+import { filterLowMultipleVariant, getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
 
 const srmFailureTooltipText =
@@ -166,6 +166,8 @@ export function Exposures(): JSX.Element {
         }
     }
 
+    const filteredVariants = filterLowMultipleVariant(variants)
+
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
 
@@ -281,9 +283,9 @@ export function Exposures(): JSX.Element {
                                         : humanFriendlyNumber(totalExposures)}
                                 </span>
                                 {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
-                                {variants.length > 0 && (
+                                {filteredVariants.length > 0 && (
                                     <div className="ml-2 flex items-center gap-4">
-                                        {variants.map(({ variant, percentage }) => (
+                                        {filteredVariants.map(({ variant, percentage }) => (
                                             <div key={variant} className="flex items-center gap-2">
                                                 <div className="metric-cell">
                                                     <VariantTag variantKey={variant} />
@@ -368,7 +370,10 @@ export function Exposures(): JSX.Element {
                                     <h3 className="card-secondary">Total exposures</h3>
                                     <LemonTable
                                         dataSource={[
-                                            ...(exposures?.timeseries || []),
+                                            ...(exposures?.timeseries || []).filter(
+                                                (series: ExperimentExposureTimeSeries) =>
+                                                    filteredVariants.some((v) => v.variant === series.variant)
+                                            ),
                                             { variant: '__total__', isTotal: true },
                                         ]}
                                         columns={[

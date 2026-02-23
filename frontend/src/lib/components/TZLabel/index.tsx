@@ -203,7 +203,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             : displayTime.fromNow()
     }, [formatDate, formatTime, displayTime, timestampStyle, displayTimezone])
 
-    const [formattedContent, setFormattedContent] = useState(format())
+    const [formattedContent, setFormattedContent] = useState(format)
 
     const { isVisible: isPageVisible } = usePageVisibility()
 
