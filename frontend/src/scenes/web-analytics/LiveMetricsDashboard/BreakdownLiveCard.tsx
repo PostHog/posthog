@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useMemo } from 'react'
+import React, { useMemo } from 'react'
 
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
@@ -22,7 +22,7 @@ interface BreakdownLiveCardProps<T extends BreakdownItem> {
     isLoading?: boolean
 }
 
-export const BreakdownLiveCard = <T extends BreakdownItem>({
+const BreakdownLiveCardInner = <T extends BreakdownItem>({
     title,
     data,
     getKey,
@@ -130,3 +130,39 @@ export const BreakdownLiveCard = <T extends BreakdownItem>({
         </div>
     )
 }
+
+function breakdownLiveCardPropsAreEqual<T extends BreakdownItem>(
+    prev: BreakdownLiveCardProps<T>,
+    next: BreakdownLiveCardProps<T>
+): boolean {
+    if (
+        prev.title !== next.title ||
+        prev.emptyMessage !== next.emptyMessage ||
+        prev.statLabel !== next.statLabel ||
+        prev.totalCount !== next.totalCount ||
+        prev.isLoading !== next.isLoading ||
+        prev.getKey !== next.getKey ||
+        prev.getLabel !== next.getLabel ||
+        prev.renderIcon !== next.renderIcon
+    ) {
+        return false
+    }
+
+    if (prev.data === next.data) {
+        return true
+    }
+    if (prev.data.length !== next.data.length) {
+        return false
+    }
+    for (let i = 0; i < prev.data.length; i++) {
+        if (prev.data[i].count !== next.data[i].count || prev.data[i].percentage !== next.data[i].percentage) {
+            return false
+        }
+    }
+    return true
+}
+
+export const BreakdownLiveCard = React.memo(
+    BreakdownLiveCardInner,
+    breakdownLiveCardPropsAreEqual
+) as typeof BreakdownLiveCardInner

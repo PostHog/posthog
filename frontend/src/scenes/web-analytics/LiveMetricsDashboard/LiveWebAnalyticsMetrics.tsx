@@ -15,6 +15,15 @@ import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 
 const STATS_POLL_INTERVAL_MS = 1000
 
+const renderBrowserIcon = (d: BrowserBreakdownItem): JSX.Element => {
+    const Logo = getBrowserLogo(d.browser)
+    return <Logo className="w-4 h-4 flex-shrink-0" />
+}
+const getBrowserKey = (d: BrowserBreakdownItem): string => d.browser
+const getBrowserLabel = (d: BrowserBreakdownItem): string => d.browser
+const getDeviceKey = (d: DeviceBreakdownItem): string => d.device
+const getDeviceLabel = (d: DeviceBreakdownItem): string => d.device
+
 export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     const {
         chartData,
@@ -73,8 +82,8 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 <BreakdownLiveCard<DeviceBreakdownItem>
                     title="Devices"
                     data={deviceBreakdown}
-                    getKey={(d) => d.device}
-                    getLabel={(d) => d.device}
+                    getKey={getDeviceKey}
+                    getLabel={getDeviceLabel}
                     emptyMessage="No device data"
                     statLabel="unique devices"
                     isLoading={isLoading}
@@ -82,12 +91,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 <BreakdownLiveCard<BrowserBreakdownItem>
                     title="Browsers"
                     data={browserBreakdown}
-                    getKey={(d) => d.browser}
-                    getLabel={(d) => d.browser}
-                    renderIcon={(d) => {
-                        const Logo = getBrowserLogo(d.browser)
-                        return <Logo className="w-4 h-4 flex-shrink-0" />
-                    }}
+                    getKey={getBrowserKey}
+                    getLabel={getBrowserLabel}
+                    renderIcon={renderBrowserIcon}
                     emptyMessage="No browser data"
                     statLabel="unique browsers"
                     totalCount={totalBrowsers}
