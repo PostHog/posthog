@@ -20,9 +20,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-01',
-        testOptions: {
-            waitForSelector: '.PlayerSeekbar__segments__item',
-        },
     },
     decorators: [
         mswDecorator({
