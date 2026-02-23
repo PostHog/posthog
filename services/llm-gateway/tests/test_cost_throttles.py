@@ -640,7 +640,9 @@ class TestUnconfiguredProductsNotLimitedPerUser:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_logs_warning_for_unconfigured_product_with_end_user(self, capsys: pytest.CaptureFixture[str]) -> None:
+    async def test_logs_warning_for_unconfigured_product_with_end_user(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle, _UserCostThrottleBase
 
@@ -662,7 +664,9 @@ class TestUnconfiguredProductsNotLimitedPerUser:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_no_warning_for_unconfigured_product_without_end_user(self, capsys: pytest.CaptureFixture[str]) -> None:
+    async def test_no_warning_for_unconfigured_product_without_end_user(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle, _UserCostThrottleBase
 
