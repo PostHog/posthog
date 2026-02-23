@@ -2,7 +2,10 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
+import { SessionBatchRecorder } from '../../session-recording/sessions/session-batch-recorder'
 import { TeamForReplay } from '../../session-recording/teams/types'
+import { TopTracker } from '../../session-recording/top-tracker'
 import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { parseJSON } from '../../utils/json-parse'
@@ -15,6 +18,19 @@ jest.mock('../event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
     createApplyEventRestrictionsStep: jest.fn(),
 }))
+
+function createMockSessionBatchManager(): jest.Mocked<SessionBatchManager> {
+    const mockBatchRecorder = {
+        record: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<SessionBatchRecorder>
+
+    return {
+        getCurrentBatch: jest.fn().mockReturnValue(mockBatchRecorder),
+        shouldFlush: jest.fn().mockReturnValue(false),
+        flush: jest.fn().mockResolvedValue(undefined),
+        discardPartitions: jest.fn(),
+    } as unknown as jest.Mocked<SessionBatchManager>
+}
 
 const mockCreateParseHeadersStep = createParseHeadersStep as jest.Mock
 const mockCreateApplyEventRestrictionsStep = createApplyEventRestrictionsStep as jest.Mock
@@ -34,7 +50,12 @@ describe('session-replay-pipeline', () => {
     let mockIngestionWarningProducer: jest.Mocked<KafkaProducerWrapper>
     let mockRestrictionManager: EventIngestionRestrictionManager
     let mockTeamService: TeamService
+    let mockSessionBatchManager: jest.Mocked<SessionBatchManager>
     let promiseScheduler: PromiseScheduler
+    let topTracker: TopTracker
+
+    // Debug logging disabled by default in tests
+    const isDebugLoggingEnabled = () => false
 
     const defaultTeam: TeamForReplay = {
         teamId: 1,
@@ -96,6 +117,9 @@ describe('session-replay-pipeline', () => {
             getTeamByToken: jest.fn().mockResolvedValue(defaultTeam),
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
+
+        mockSessionBatchManager = createMockSessionBatchManager()
+        topTracker = new TopTracker()
 
         promiseScheduler = new PromiseScheduler()
 
@@ -183,7 +207,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             const messages = [createMessage(0, 1, 'session-1'), createMessage(0, 2, 'session-2')]
@@ -215,7 +242,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             const messages = [
@@ -240,7 +270,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             // Create a message with invalid payload
@@ -273,7 +306,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             // Create a message with invalid payload
@@ -322,7 +358,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             const messages = [
@@ -357,7 +396,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             const result = await runSessionReplayPipeline(pipeline, [])
@@ -384,7 +426,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             // Create 1000 messages
@@ -428,7 +473,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             const messages = [
@@ -454,7 +502,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             // Create 500 messages
@@ -492,7 +543,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: teamServiceThatDropsSecond,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             const messages = [
@@ -517,7 +571,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             // Explicitly pass empty headers (no token)
@@ -538,7 +595,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             const messages = [createMessage(0, 1, 'session-1', { token: 'test-token', lib_version: '1.74.0' })]
@@ -569,7 +629,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             const messages = [createMessage(0, 1, 'session-1', { token: 'test-token', lib_version: '1.75.0' })]
@@ -589,7 +652,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             const messages = [createMessage(0, 1, 'session-1', { token: 'test-token' })]
@@ -609,7 +675,10 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
+                topTracker,
                 ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
             })
 
             // Create a message with timestamps 10 days old (threshold is 7 days)
@@ -627,6 +696,120 @@ describe('session-replay-pipeline', () => {
             const messageValue = parseJSON(call.messages[0].value as string)
             expect(messageValue.team_id).toBe(1)
             expect(messageValue.type).toBe('message_timestamp_diff_too_large')
+        })
+
+        it('records messages to session batch', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                topTracker,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1')]
+
+            await runSessionReplayPipeline(pipeline, messages)
+
+            expect(mockSessionBatchManager.getCurrentBatch).toHaveBeenCalled()
+            const mockBatch = mockSessionBatchManager.getCurrentBatch()
+            expect(mockBatch.record).toHaveBeenCalledTimes(1)
+            expect(mockBatch.record).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    team: defaultTeam,
+                    message: expect.objectContaining({
+                        session_id: 'session-1',
+                    }),
+                })
+            )
+        })
+
+        it('records multiple messages to session batch', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                topTracker,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [
+                createMessage(0, 1, 'session-1'),
+                createMessage(0, 2, 'session-2'),
+                createMessage(0, 3, 'session-3'),
+            ]
+
+            await runSessionReplayPipeline(pipeline, messages)
+
+            const mockBatch = mockSessionBatchManager.getCurrentBatch()
+            expect(mockBatch.record).toHaveBeenCalledTimes(3)
+        })
+
+        it('does not record dropped messages to session batch', async () => {
+            // Drop every message via restrictions
+            mockCreateApplyEventRestrictionsStep.mockReturnValue(() => Promise.resolve(drop('dropped by restriction')))
+
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                topTracker,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1')]
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(result).toHaveLength(0)
+            const mockBatch = mockSessionBatchManager.getCurrentBatch()
+            expect(mockBatch.record).not.toHaveBeenCalled()
+        })
+
+        it('does not record messages with invalid team to session batch', async () => {
+            const teamServiceThatReturnsNull = {
+                getTeamByToken: jest.fn().mockResolvedValue(null),
+            } as unknown as TeamService
+
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: teamServiceThatReturnsNull,
+                topTracker,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1', { token: 'invalid-token' })]
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(result).toHaveLength(0)
+            const mockBatch = mockSessionBatchManager.getCurrentBatch()
+            expect(mockBatch.record).not.toHaveBeenCalled()
         })
     })
 })

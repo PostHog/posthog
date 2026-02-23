@@ -2,9 +2,11 @@ import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { ParsedMessageData } from '../../session-recording/kafka/types'
+import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
 import { TeamForReplay } from '../../session-recording/teams/types'
 import { TopTracker } from '../../session-recording/top-tracker'
 import { TeamService } from '../../session-replay/shared/teams/team-service'
+import { ValueMatcher } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
@@ -14,6 +16,7 @@ import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
+import { createRecordSessionStep } from './record-session-step'
 import { createTeamFilterStep } from './team-filter-step'
 
 export interface SessionReplayPipelineInput {
@@ -33,19 +36,24 @@ export interface SessionReplayPipelineConfig {
     dlqTopic: string
     promiseScheduler: PromiseScheduler
     teamService: TeamService
-    topTracker?: TopTracker
+    topTracker: TopTracker
     /** Producer for ingestion warnings. */
     ingestionWarningProducer: KafkaProducerWrapper
+    /** Session batch manager for recording sessions. */
+    sessionBatchManager: SessionBatchManager
+    /** Debug logging matcher for partition-based debugging. */
+    isDebugLoggingEnabled: ValueMatcher<number>
 }
 
 /**
- * Creates the session replay preprocessing pipeline.
+ * Creates the session replay pipeline.
  *
  * The pipeline processes messages through these phases:
  * 1. Restrictions - Parse headers and apply event ingestion restrictions (drop/overflow)
  * 2. Team Filter - Validate team ownership and enrich with team context
  * 3. Parse - Parse Kafka messages into structured session recording data (inside teamAware for warning handling)
  * 4. Version Monitor - Check library version and emit warnings for old versions
+ * 5. Record - Record parsed messages to session batches
  */
 export function createSessionReplayPipeline(
     config: SessionReplayPipelineConfig
@@ -60,6 +68,8 @@ export function createSessionReplayPipeline(
         teamService,
         topTracker,
         ingestionWarningProducer,
+        sessionBatchManager,
+        isDebugLoggingEnabled,
     } = config
 
     const pipelineConfig: PipelineConfig = {
@@ -104,6 +114,14 @@ export function createSessionReplayPipeline(
                                             .pipe(createParseMessageStep({ topTracker }))
                                             // Monitor library version and emit warnings for old versions
                                             .pipe(createLibVersionMonitorStep())
+                                            // Record to session batch
+                                            .pipe(
+                                                createRecordSessionStep({
+                                                    sessionBatchManager,
+                                                    topTracker,
+                                                    isDebugLoggingEnabled,
+                                                })
+                                            )
                                     )
                                     .gather()
                             )

@@ -41,11 +41,9 @@ import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-b
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
-import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
-import { MessageWithTeam } from './teams/types'
 import { TopTracker } from './top-tracker'
 
 /** Narrowed Hub type for SessionRecordingIngester */
@@ -255,6 +253,8 @@ export class SessionRecordingIngester {
             teamService: this.teamService,
             topTracker: this.topTracker,
             ingestionWarningProducer: this.kafkaMetadataProducer,
+            sessionBatchManager: this.sessionBatchManager,
+            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
         })
     }
 
@@ -296,22 +296,9 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        // Run messages through the pipeline (handles restrictions, parsing, and team filtering)
-        const pipelineOutputs = await instrumentFn(
-            `recordingingesterv2.handleEachBatch.runPipeline`,
-            async () => await runSessionReplayPipeline(this.sessionReplayPipeline, messages)
-        )
-
-        // Convert pipeline output to MessageWithTeam format for downstream processing
-        const messagesWithTeam: MessageWithTeam[] = pipelineOutputs.map((output) => ({
-            team: output.team,
-            message: output.parsedMessage,
-        }))
-
-        this.kafkaConsumer.heartbeat()
-
-        await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () =>
-            this.processMessages(messagesWithTeam)
+        // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
+        await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
+            runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
 
         this.kafkaConsumer.heartbeat()
@@ -321,56 +308,6 @@ export class SessionRecordingIngester {
                 this.sessionBatchManager.flush()
             )
         }
-    }
-
-    private async processMessages(parsedMessages: MessageWithTeam[]) {
-        const batch = this.sessionBatchManager.getCurrentBatch()
-        for (const message of parsedMessages) {
-            await this.consume(message, batch)
-        }
-    }
-
-    private async consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
-        const consumeStartTime = performance.now()
-
-        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
-        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        SessionRecordingIngesterMetrics.resetSessionsRevoked()
-        const { team, message: parsedMessage } = message
-        const debugEnabled = this.isDebugLoggingEnabled(parsedMessage.metadata.partition)
-
-        if (debugEnabled) {
-            logger.debug('🔄', 'processing_session_recording', {
-                partition: parsedMessage.metadata.partition,
-                offset: parsedMessage.metadata.offset,
-                distinct_id: parsedMessage.distinct_id,
-                session_id: parsedMessage.session_id,
-                raw_size: parsedMessage.metadata.rawSize,
-            })
-        }
-
-        const { partition } = parsedMessage.metadata
-        const isDebug = this.isDebugLoggingEnabled(partition)
-        if (isDebug) {
-            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
-                ...parsedMessage.metadata,
-                team_id: team.teamId,
-                session_id: parsedMessage.session_id,
-            })
-        }
-
-        SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
-
-        // Track message size per session_id
-        const trackingKey = `token:${parsedMessage.token ?? 'unknown'}:session_id:${parsedMessage.session_id}`
-        this.topTracker.increment('message_size_by_session_id', trackingKey, parsedMessage.metadata.rawSize)
-
-        await batch.record(message)
-
-        // Track consume time per session_id
-        const consumeEndTime = performance.now()
-        const consumeDurationMs = consumeEndTime - consumeStartTime
-        this.topTracker.increment('consume_time_ms_by_session_id', trackingKey, consumeDurationMs)
     }
 
     public async start(): Promise<void> {
