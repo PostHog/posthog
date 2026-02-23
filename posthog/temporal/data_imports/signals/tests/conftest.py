@@ -1,5 +1,24 @@
 import pytest
 
+MOCK_GITHUB_ISSUE_RECORD: dict = {
+    "id": 12345,
+    "number": 87,
+    "title": "Charts fail to render when filter contains special characters",
+    "body": (
+        "When I add a filter with special characters like `&` or `<` in the value, "
+        "the chart component throws a rendering error and shows a blank white area. "
+        "Reproducible on both Chrome and Firefox. Expected: chart renders normally with escaped values."
+    ),
+    "state": "open",
+    "html_url": "https://github.com/acme/analytics/issues/87",
+    "labels": '[{"id": 1, "name": "bug"}, {"id": 2, "name": "frontend"}]',
+    "created_at": "2025-06-10T14:30:00Z",
+    "updated_at": "2025-06-11T09:15:00Z",
+    "comments": 3,
+    "locked": False,
+}
+
+
 MOCK_ZENDESK_TICKET_RECORD: dict = {
     "id": 42,
     "url": "https://testcorp.zendesk.com/api/v2/tickets/42.json",
@@ -40,6 +59,11 @@ MOCK_ZENDESK_TICKET_RECORD: dict = {
     "sharing_agreement_ids": [],
     "from_messaging_channel": False,
 }
+
+
+@pytest.fixture
+def github_issue_record() -> dict:
+    return {**MOCK_GITHUB_ISSUE_RECORD}
 
 
 @pytest.fixture

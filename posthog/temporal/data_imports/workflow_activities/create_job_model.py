@@ -8,6 +8,7 @@ import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.models.organization import Organization
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.signals import EMIT_SIGNALS_FEATURE_FLAG, is_signal_emission_registered
 
@@ -87,9 +88,16 @@ def create_external_data_job_model_activity(
             f"Created external data job for external data source {inputs.source_id}",
         )
 
-        # Cheap check if to start signals workflow to avoid spawning it for all teams
+        # Cheap check if to start signals workflow to avoid spawning it for all teams.
+        # AI consent + Signals FF + source supported
+        ai_consent = (
+            Organization.objects.filter(team__id=inputs.team_id)
+            .values_list("is_ai_data_processing_approved", flat=True)
+            .first()
+        )
         emit_signals_enabled = (
-            is_signal_emission_registered(source.source_type, schema.name)
+            ai_consent is True
+            and is_signal_emission_registered(source.source_type, schema.name)
             and posthoganalytics.feature_enabled(EMIT_SIGNALS_FEATURE_FLAG, str(inputs.team_id)) is True
         )
 

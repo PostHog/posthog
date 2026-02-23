@@ -218,6 +218,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "enable_partial_responses",
             "enable_iframe_embedding",
             "user_access_level",
+            "form_content",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -282,6 +283,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "enable_partial_responses",
             "enable_iframe_embedding",
             "_create_in_folder",
+            "form_content",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
