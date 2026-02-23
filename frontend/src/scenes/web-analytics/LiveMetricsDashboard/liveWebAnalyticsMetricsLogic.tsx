@@ -39,25 +39,13 @@ const MAX_RETRY_DELAY_MS = 30000
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
 const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
 
-interface UpdateMask {
-    chart: boolean
-    deviceBreakdown: boolean
-    browserBreakdown: boolean
-    topPaths: boolean
-    totals: boolean
-}
-
 export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType>([
     path(['scenes', 'web-analytics', 'livePageviewsLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
     })),
     actions(() => ({
-        addEvents: (events: LiveEvent[], newerThan: Date, updateMask: UpdateMask) => ({
-            events,
-            newerThan,
-            updateMask,
-        }),
+        addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
         setInitialData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
         setIsLoading: (loading: boolean) => ({ loading }),
         loadInitialData: true,
@@ -109,43 +97,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 },
             },
         ],
-        chartVersion: [
+        windowVersion: [
             0,
             {
                 setInitialData: (v) => v + 1,
-                addEvents: (v, { updateMask }) => (updateMask.chart ? v + 1 : v),
-                tickCurrentMinute: (v) => v + 1,
-            },
-        ],
-        deviceBreakdownVersion: [
-            0,
-            {
-                setInitialData: (v) => v + 1,
-                addEvents: (v, { updateMask }) => (updateMask.deviceBreakdown ? v + 1 : v),
-                tickCurrentMinute: (v) => v + 1,
-            },
-        ],
-        browserBreakdownVersion: [
-            0,
-            {
-                setInitialData: (v) => v + 1,
-                addEvents: (v, { updateMask }) => (updateMask.browserBreakdown ? v + 1 : v),
-                tickCurrentMinute: (v) => v + 1,
-            },
-        ],
-        topPathsVersion: [
-            0,
-            {
-                setInitialData: (v) => v + 1,
-                addEvents: (v, { updateMask }) => (updateMask.topPaths ? v + 1 : v),
-                tickCurrentMinute: (v) => v + 1,
-            },
-        ],
-        totalsVersion: [
-            0,
-            {
-                setInitialData: (v) => v + 1,
-                addEvents: (v, { updateMask }) => (updateMask.totals ? v + 1 : v),
+                addEvents: (v) => v + 1,
                 tickCurrentMinute: (v) => v + 1,
             },
         ],
@@ -158,7 +114,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     }),
     selectors({
         chartData: [
-            (s) => [s.slidingWindow, s.chartVersion],
+            (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): ChartDataPoint[] => {
                 const bucketMap = new Map(slidingWindow.getSortedBuckets())
                 const result: ChartDataPoint[] = []
@@ -197,30 +153,30 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             },
         ],
         deviceBreakdown: [
-            (s) => [s.slidingWindow, s.deviceBreakdownVersion],
+            (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => slidingWindow.getDeviceBreakdown(),
             { resultEqualityCheck: equal },
         ],
         browserBreakdown: [
-            (s) => [s.slidingWindow, s.browserBreakdownVersion],
+            (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): BrowserBreakdownItem[] => slidingWindow.getBrowserBreakdown(6),
             { resultEqualityCheck: equal },
         ],
         topPaths: [
-            (s) => [s.slidingWindow, s.topPathsVersion],
+            (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): PathItem[] => slidingWindow.getTopPaths(10),
             { resultEqualityCheck: equal },
         ],
         totalPageviews: [
-            (s) => [s.slidingWindow, s.totalsVersion],
+            (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalPageviews(),
         ],
         totalUniqueVisitors: [
-            (s) => [s.slidingWindow, s.totalsVersion],
+            (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalUniqueUsers(),
         ],
         totalBrowsers: [
-            (s) => [s.slidingWindow, s.browserBreakdownVersion],
+            (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBrowsers(),
         ],
     }),
@@ -327,29 +283,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     // Flush events when we have enough or enough time has passed
                     const timeSinceLastBatch = performance.now() - cache.lastBatchTime
                     if (cache.batch.length >= BATCH_SIZE_THRESHOLD || timeSinceLastBatch > BATCH_FLUSH_INTERVAL_MS) {
-                        const batch = cache.batch as LiveEvent[]
-                        const mask: UpdateMask = {
-                            chart: true,
-                            totals: true,
-                            deviceBreakdown: false,
-                            browserBreakdown: false,
-                            topPaths: false,
-                        }
-                        for (const ev of batch) {
-                            if (ev.properties?.$device_type) {
-                                mask.deviceBreakdown = true
-                            }
-                            if (ev.properties?.$browser) {
-                                mask.browserBreakdown = true
-                            }
-                            if (ev.event === '$pageview' && ev.properties?.$pathname) {
-                                mask.topPaths = true
-                            }
-                            if (mask.deviceBreakdown && mask.browserBreakdown && mask.topPaths) {
-                                break
-                            }
-                        }
-                        actions.addEvents(batch, cache.newerThan, mask)
+                        actions.addEvents(cache.batch, cache.newerThan)
                         cache.batch = []
                         cache.lastBatchTime = performance.now()
                     }

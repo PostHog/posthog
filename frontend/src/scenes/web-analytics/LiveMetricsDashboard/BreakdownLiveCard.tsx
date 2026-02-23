@@ -131,38 +131,4 @@ const BreakdownLiveCardInner = <T extends BreakdownItem>({
     )
 }
 
-function breakdownLiveCardPropsAreEqual<T extends BreakdownItem>(
-    prev: BreakdownLiveCardProps<T>,
-    next: BreakdownLiveCardProps<T>
-): boolean {
-    if (
-        prev.title !== next.title ||
-        prev.emptyMessage !== next.emptyMessage ||
-        prev.statLabel !== next.statLabel ||
-        prev.totalCount !== next.totalCount ||
-        prev.isLoading !== next.isLoading ||
-        prev.getKey !== next.getKey ||
-        prev.getLabel !== next.getLabel ||
-        prev.renderIcon !== next.renderIcon
-    ) {
-        return false
-    }
-
-    if (prev.data === next.data) {
-        return true
-    }
-    if (prev.data.length !== next.data.length) {
-        return false
-    }
-    for (let i = 0; i < prev.data.length; i++) {
-        if (prev.data[i].count !== next.data[i].count || prev.data[i].percentage !== next.data[i].percentage) {
-            return false
-        }
-    }
-    return true
-}
-
-export const BreakdownLiveCard = React.memo(
-    BreakdownLiveCardInner,
-    breakdownLiveCardPropsAreEqual
-) as typeof BreakdownLiveCardInner
+export const BreakdownLiveCard = React.memo(BreakdownLiveCardInner) as typeof BreakdownLiveCardInner
