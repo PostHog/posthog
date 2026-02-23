@@ -51,6 +51,7 @@ import { FeatureFlagEvaluationRuntime } from '~/types'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { featureFlagDetectionLogic } from './featureFlagDetectionLogic'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
@@ -66,6 +67,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         openVariants,
         payloadExpanded,
     } = useValues(featureFlagLogic)
+    const { findings } = useValues(featureFlagDetectionLogic({ id }))
     const {
         setMultivariateEnabled,
         setFeatureFlag,
@@ -762,6 +764,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
+                                        findings={findings}
                                     />
                                 </div>
                             )}
