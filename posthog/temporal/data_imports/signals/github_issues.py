@@ -58,13 +58,16 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         body = record["body"]
     except KeyError as e:
         msg = f"GitHub issue record missing required field {e}"
-        logger.exception(msg, record=record, team_id=team_id)
+        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg) from e
     if not issue_id or not title:
         msg = f"GitHub issue record has empty required field: id={issue_id!r}, title={title!r}"
-        logger.exception(msg, record=record, team_id=team_id)
+        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
     if not body:
+        logger.info(
+            "Ignoring GitHub issue without a body", record=record, team_id=team_id, signals_type="data-import-signals"
+        )
         return None
     return SignalEmitterOutput(
         source_product="github",

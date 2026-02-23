@@ -3,6 +3,7 @@ from unittest import mock
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
@@ -806,6 +807,50 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # =========================================================================
     # MATERIALIZED INSIGHT ENDPOINTS
     # =========================================================================
+
+    @parameterized.expand(
+        [
+            # (test_name, query_limit, request_limit, expected_limit)
+            ("original_limit_preserved", 50, None, 50),
+            ("request_limit_used_when_no_original", None, 25, 25),
+            ("request_limit_capped_by_original", 50, 200, 50),
+            ("request_limit_lower_than_original", 50, 10, 10),
+            ("no_limit_set", None, None, None),
+        ]
+    )
+    def test_materialized_endpoint_limit(self, _name, query_limit, request_limit, expected_limit):
+        query_sql = "SELECT event, distinct_id FROM events WHERE event = '$pageview'"
+        if query_limit is not None:
+            query_sql += f" LIMIT {query_limit}"
+
+        endpoint = create_endpoint_with_version(
+            name="mat_hogql_limit",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": query_sql},
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+            run_data = {}
+            if request_limit is not None:
+                run_data["limit"] = request_limit
+
+            self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                run_data,
+                format="json",
+            )
+
+            mock_exec.assert_called()
+            query_payload = mock_exec.call_args[0][0]["query"]
+            materialized_sql = query_payload["query"].lower()
+
+            if expected_limit is not None:
+                assert f"limit {expected_limit}" in materialized_sql
+            else:
+                assert "\nlimit " not in materialized_sql and " limit " not in materialized_sql
 
     def test_materialized_insight_endpoint_filters_by_breakdown(self):
         endpoint = create_endpoint_with_version(
