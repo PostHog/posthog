@@ -130,19 +130,13 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         ],
 
         // Resource access level
-        displayedResourceLevel: [
-            (s) => [s.formResourceLevels],
-            (formAccessLevels) =>
-                (resource: APIScopeObject): AccessControlLevel | null =>
-                    formAccessLevels[resource] ?? null,
-        ],
         isResourceLevelShowingInherited: [
-            (s) => [s.displayedResourceLevel, s.entry],
-            (displayedResourceLevel, entry) => (resource: APIScopeObject) => {
-                const displayed = displayedResourceLevel(resource)
+            (s) => [s.formResourceLevels, s.entry],
+            (formResourceLevels, entry) => (resource: APIScopeObject) => {
                 const resourceEntry = entry.resources[resource] as EffectiveAccessControlEntry
                 return (
-                    displayed === resourceEntry.inherited_access_level && resourceEntry.inherited_access_level !== null
+                    formResourceLevels[resource] === resourceEntry.inherited_access_level &&
+                    resourceEntry.inherited_access_level !== null
                 )
             },
         ],
@@ -181,8 +175,8 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                 },
         ],
         showResourceAddOverrideButton: [
-            (s) => [s.displayedResourceLevel],
-            (displayedResourceLevel) => (resource: APIScopeObject) => displayedResourceLevel(resource) === null,
+            (s) => [s.formResourceLevels],
+            (formResourceLevels) => (resource: APIScopeObject) => formResourceLevels[resource] === null,
         ],
     }),
 

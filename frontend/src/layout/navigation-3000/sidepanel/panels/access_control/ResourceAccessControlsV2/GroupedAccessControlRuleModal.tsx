@@ -74,11 +74,11 @@ function GroupedAccessControlRuleModalContent(props: {
     const {
         loading,
         formProjectLevel,
+        formResourceLevels,
         projectDisabledReason,
         projectInheritedReasonTooltip,
         projectLevelOptions,
         featuresDisabledReason,
-        displayedResourceLevel,
         isResourceLevelShowingInherited,
         resourceInheritedReasonTooltip,
         resourceLevelOptions,
@@ -187,11 +187,11 @@ function GroupedAccessControlRuleModalContent(props: {
                                     <LemonSelect
                                         className="w-36"
                                         size="small"
-                                        value={displayedResourceLevel(resource.key)}
+                                        value={formResourceLevels[resource.key]}
                                         disabledReason={featuresDisabledReason}
                                         tooltip={resourceInheritedReasonTooltip(resource.key)}
                                         renderButtonContent={(leaf) => {
-                                            const level = displayedResourceLevel(resource.key)
+                                            const level = formResourceLevels[resource.key]
                                             if (isResourceLevelShowingInherited(resource.key) && level) {
                                                 return toSentenceCase(level)
                                             }
