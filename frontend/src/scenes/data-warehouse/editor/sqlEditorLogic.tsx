@@ -1284,13 +1284,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 if (editorSource === 'endpoint') {
+                    const forceBackTo: Breadcrumb = {
+                        key: 'endpoints',
+                        name: 'Back to endpoints',
+                        path: urls.endpoints(),
+                        iconType: 'endpoint',
+                    }
+
                     return {
-                        forceBackTo: {
-                            key: 'endpoints',
-                            name: 'Back to endpoints',
-                            path: urls.endpoints(),
-                            iconType: 'endpoint',
-                        },
+                        forceBackTo,
                         name: 'New endpoint',
                         resourceType: { type: 'sql_editor' },
                     }
