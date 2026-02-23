@@ -54,7 +54,14 @@ function getMinLevelDisabledReason(
     return undefined
 }
 
-function getProjectDisabledReason(entry: AccessControlSettingsEntry, canEdit: boolean): string | undefined {
+function getProjectDisabledReason(
+    entry: AccessControlSettingsEntry,
+    canEdit: boolean,
+    loading: boolean
+): string | undefined {
+    if (loading) {
+        return 'Loading...'
+    }
     if (!canEdit) {
         return 'Cannot edit'
     }
@@ -225,7 +232,7 @@ function GroupedAccessControlRuleModalContent(props: {
     const logic = accessControlsLogic({ projectId: props.projectId })
     const { resourcesWithProject, availableProjectLevels, availableResourceLevels } = useValues(logic)
 
-    const projectDisabledReason = getProjectDisabledReason(props.entry, props.canEdit)
+    const projectDisabledReason = getProjectDisabledReason(props.entry, props.canEdit, props.loading)
     const featuresDisabledReason = getFeaturesDisabledReason(props.entry, props.canEdit, props.loading)
 
     // Display the form state value for project
