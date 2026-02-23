@@ -65,7 +65,7 @@ ENDPOINTS = tuple(INTERCOM_ENDPOINTS.keys())
 _UPDATED_AT_FIELD: list[IncrementalField] = [
     {
         "label": "updated_at",
-        "type": IncrementalFieldType.Integer,
+        "type": IncrementalFieldType.DateTime,
         "field": "updated_at",
         "field_type": IncrementalFieldType.Integer,
     },
