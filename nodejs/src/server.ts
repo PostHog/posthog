@@ -121,17 +121,24 @@ export class PluginServer {
 
                 for (const consumerOption of consumersOptions) {
                     serviceLoaders.push(async () => {
-                        const consumer = new IngestionConsumer(hub, createHogTransformerService(hub), {
-                            INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
-                            INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                        })
+                        const consumer = new IngestionConsumer(
+                            hub,
+                            { ...hub, hogTransformer: createHogTransformerService(hub) },
+                            {
+                                INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
+                                INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
+                            }
+                        )
                         await consumer.start()
                         return consumer.service
                     })
                 }
             } else if (capabilities.ingestionV2) {
                 serviceLoaders.push(async () => {
-                    const consumer = new IngestionConsumer(hub, createHogTransformerService(hub))
+                    const consumer = new IngestionConsumer(hub, {
+                        ...hub,
+                        hogTransformer: createHogTransformerService(hub),
+                    })
                     await consumer.start()
                     return consumer.service
                 })
