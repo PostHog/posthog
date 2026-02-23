@@ -12,58 +12,34 @@ class TestZendeskTicketEmitter:
         result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
         assert result is not None
-        assert result.source_type == "zendesk_ticket"
+        assert result.source_product == "zendesk"
+        assert result.source_type == "ticket"
         assert result.source_id == "42"
         assert result.weight == 1.0
         assert "Dashboard charts not loading" in result.description
         assert "403 errors" in result.description
 
-    def test_includes_status_in_description(self, zendesk_ticket_record):
-        zendesk_ticket_record["status"] = "pending"
+    def test_description_contains_only_subject_and_body(self, zendesk_ticket_record):
         result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
         assert result is not None
-        assert "Status: pending." in result.description
+        assert result.description == f"{zendesk_ticket_record['subject']}\n{zendesk_ticket_record['description']}"
 
-    def test_includes_priority_in_description(self, zendesk_ticket_record):
-        zendesk_ticket_record["priority"] = "urgent"
-        result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
-
-        assert result is not None
-        assert "Priority: urgent." in result.description
-
-    def test_omits_status_when_absent(self, zendesk_ticket_record):
-        zendesk_ticket_record["status"] = None
-        result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
-
-        assert result is not None
-        assert "Status:" not in result.description
-
-    def test_omits_priority_when_absent(self, zendesk_ticket_record):
-        zendesk_ticket_record["priority"] = None
-        result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
-
-        assert result is not None
-        assert "Priority:" not in result.description
-
-    @pytest.mark.parametrize(
-        "missing_field",
-        ["id", "subject", "description"],
-    )
-    def test_returns_none_when_required_field_missing(self, zendesk_ticket_record, missing_field):
+    @pytest.mark.parametrize("missing_field", ["id", "subject", "description"])
+    def test_raises_when_required_field_falsy(self, zendesk_ticket_record, missing_field):
         zendesk_ticket_record[missing_field] = None
-        assert zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record) is None
+        with pytest.raises(ValueError, match="empty required field"):
+            zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
-    @pytest.mark.parametrize(
-        "missing_field",
-        ["id", "subject", "description"],
-    )
-    def test_returns_none_when_required_field_empty(self, zendesk_ticket_record, missing_field):
+    @pytest.mark.parametrize("missing_field", ["id", "subject", "description"])
+    def test_raises_when_required_field_empty(self, zendesk_ticket_record, missing_field):
         zendesk_ticket_record[missing_field] = ""
-        assert zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record) is None
+        with pytest.raises(ValueError, match="empty required field"):
+            zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
-    def test_returns_none_for_empty_record(self):
-        assert zendesk_ticket_emitter(team_id=1, record={}) is None
+    def test_raises_for_empty_record(self):
+        with pytest.raises(ValueError, match="missing required field"):
+            zendesk_ticket_emitter(team_id=1, record={})
 
     def test_extra_contains_only_meaningful_fields(self, zendesk_ticket_record):
         result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
@@ -77,7 +53,6 @@ class TestZendeskTicketEmitter:
         result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
         assert result is not None
-        assert result.extra["brand_id"] == 1001
         assert result.extra["created_at"] == "2025-01-15 10:30:00-05:00"
         assert result.extra["url"] == "https://testcorp.zendesk.com/api/v2/tickets/42.json"
 
