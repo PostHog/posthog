@@ -609,7 +609,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
-                "groups_count": 1,  # 1 is always created by default
+                "groups_count": 0,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
@@ -643,7 +643,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
-                "groups_count": 1,
+                "groups_count": 0,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
