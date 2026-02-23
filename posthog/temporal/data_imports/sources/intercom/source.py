@@ -39,6 +39,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         return SourceConfig(
             name=SchemaExternalDataSourceType.INTERCOM,
             label="Intercom",
+            betaSource=True,
             caption="Connect your Intercom account to automatically pull contacts, companies, conversations, and more into the PostHog Data warehouse.",
             iconPath="/static/services/intercom.png",
             fields=cast(
