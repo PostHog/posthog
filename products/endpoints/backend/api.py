@@ -332,6 +332,47 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         self._validate_variable_placeholders(ast_node, query.variables or {})
 
+    def _sync_hogql_query_variables(self, query: HogQLQuery) -> None:
+        """Sync query variable definitions with the placeholders used in the query string."""
+        try:
+            ast_node = parse_select(query.query)
+        except Exception:
+            # Validation runs separately and will surface parse errors.
+            return
+
+        finder = VariablePlaceholderFinder()
+        finder.visit(ast_node)
+
+        placeholder_names = {str(p.chain[1]) for p in finder.variable_placeholders if p.chain and len(p.chain) > 1}
+        if not placeholder_names:
+            query.variables = None
+            return
+
+        existing_variables = query.variables or {}
+        synced_variables: dict[str, HogQLVariable] = {}
+        existing_code_names: set[str] = set()
+
+        for variable_id, variable in existing_variables.items():
+            if variable.code_name and variable.code_name in placeholder_names:
+                synced_variables[variable_id] = variable
+                existing_code_names.add(variable.code_name)
+
+        missing_code_names = placeholder_names - existing_code_names
+        if missing_code_names:
+            missing_variables = InsightVariable.objects.filter(team=self.team, code_name__in=missing_code_names)
+
+            for variable in missing_variables:
+                if not variable.code_name:
+                    continue
+                synced_variables[str(variable.id)] = HogQLVariable(
+                    variableId=str(variable.id),
+                    code_name=variable.code_name,
+                    value=variable.default_value,
+                    isNull=variable.default_value is None,
+                )
+
+        query.variables = synced_variables or None
+
     def _validate_variable_placeholders(self, node: ast.AST, variables: Optional[dict[str, HogQLVariable]]) -> None:
         """Validate that every {variables.X} placeholder in the query has a matching variable definition."""
         finder = VariablePlaceholderFinder()
@@ -406,6 +447,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
 
         if query and isinstance(query, HogQLQuery) and query.query:
+            self._sync_hogql_query_variables(query)
             self._validate_hogql_query(query)
 
         self._validate_cache_age_seconds(data.cache_age_seconds)
@@ -518,6 +560,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError({"sync_frequency": "Cannot set sync_frequency when disabling materialization."})
 
         if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
+            self._sync_hogql_query_variables(data.query)
             self._validate_hogql_query(data.query)
 
     @extend_schema(
