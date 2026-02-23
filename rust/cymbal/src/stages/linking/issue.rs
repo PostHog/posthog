@@ -150,7 +150,7 @@ async fn resolve_issue(
     if !was_created {
         txn.rollback().await?;
         // Replace the attempt issue with the existing one
-        issue = Issue::load(&mut *conn, team_id, issue_override.id)
+        issue = Issue::load(&mut *conn, team_id, issue_override.issue_id)
             .await?
             .unwrap_or(issue);
 

@@ -111,6 +111,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             options={options}
+            size="small"
         />
     )
 }

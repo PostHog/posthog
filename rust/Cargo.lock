@@ -233,6 +233,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "assignment-coordination"
+version = "0.1.0"
+dependencies = [
+ "etcd-client",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ast_node"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6051,6 +6061,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 name = "personhog-coordination"
 version = "0.1.0"
 dependencies = [
+ "assignment-coordination",
  "async-trait",
  "etcd-client",
  "serde",

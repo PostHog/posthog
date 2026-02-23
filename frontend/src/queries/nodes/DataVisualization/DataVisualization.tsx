@@ -53,6 +53,7 @@ export interface DataTableVisualizationProps {
     cachedResults?: AnyResponseType
     editMode?: boolean
     readOnly?: boolean
+    embedded?: boolean
     exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
@@ -72,6 +73,7 @@ export function DataTableVisualization({
     variablesOverride,
     attachTo,
     editMode,
+    embedded,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
@@ -144,6 +146,7 @@ export function DataTableVisualization({
                                 readOnly={readOnly}
                                 exportContext={exportContext}
                                 editMode={editMode}
+                                embedded={embedded}
                             />
                         </BindLogic>
                     </BindLogic>
@@ -312,7 +315,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     </>
                 )}
 
-                <VariablesForInsight />
+                {!props.embedded && <VariablesForInsight />}
 
                 <div className="flex flex-1 flex-row gap-4">
                     <div className="w-full h-full flex-1 overflow-auto">{component}</div>

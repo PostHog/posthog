@@ -28715,8 +28715,11 @@
         "RetentionValue": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_value": {
+                    "type": "number"
+                },
                 "count": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 },
                 "label": {
                     "type": "string"
