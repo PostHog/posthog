@@ -13,8 +13,7 @@ import { RaceConditionError } from '../../../utils/utils'
 import { FlushResult } from '../persons/persons-store'
 import { captureIngestionWarning } from '../utils'
 import { logMissingRow, logVersionMismatch } from './group-logging'
-import { CacheMetrics, GroupStoreForBatch } from './group-store-for-batch.interface'
-import { GroupStore } from './group-store.interface'
+import { CacheMetrics, GroupStore } from './group-store.interface'
 import { GroupUpdate, calculateUpdate, fromGroup } from './group-update'
 import {
     groupCacheOperationsCounter,
@@ -96,6 +95,15 @@ class GroupCache {
         return this.cache.entries()
     }
 
+    reset(): void {
+        this.cache.clear()
+        this.fetchPromises.clear()
+        this.metrics = {
+            cacheHits: 0,
+            cacheMisses: 0,
+        }
+    }
+
     private getCacheKey(teamId: TeamId, groupKey: string): string {
         return `${teamId}:${groupKey}`
     }
@@ -118,47 +126,29 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
     optimisticUpdateRetryInterval: 50,
 }
 
-export class BatchWritingGroupStore implements GroupStore {
-    private options: BatchWritingGroupStoreOptions
-
-    constructor(
-        private groupHub: GroupHub,
-        options?: Partial<BatchWritingGroupStoreOptions>
-    ) {
-        this.options = { ...DEFAULT_OPTIONS, ...options }
-    }
-
-    forBatch(): GroupStoreForBatch {
-        return new BatchWritingGroupStoreForBatch(
-            this.groupHub.kafkaProducer,
-            this.groupHub.groupRepository,
-            this.groupHub.clickhouseGroupRepository,
-            this.options
-        )
-    }
-}
-
 /**
  * This class is used to write groups to the database in batches.
  * It will use a cache to avoid reading the same group from the database multiple times.
  * And will accumulate all changes for the same group in a single batch. At the
  * end of the batch processing, it flushes all changes to the database.
+ *
+ * After each batch, call reset() to clear the cache and prepare for the next batch.
  */
-
-export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
+export class BatchWritingGroupStore implements GroupStore {
     private groupCache: GroupCache
     private databaseOperationCounts: Map<string, number>
     private options: BatchWritingGroupStoreOptions
+    private kafkaProducer: KafkaProducerWrapper
+    private groupRepository: GroupRepository
+    private clickhouseGroupRepository: ClickhouseGroupRepository
 
-    constructor(
-        private kafkaProducer: KafkaProducerWrapper,
-        private groupRepository: GroupRepository,
-        private clickhouseGroupRepository: ClickhouseGroupRepository,
-        options?: Partial<BatchWritingGroupStoreOptions>
-    ) {
+    constructor(groupHub: GroupHub, options?: Partial<BatchWritingGroupStoreOptions>) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()
+        this.kafkaProducer = groupHub.kafkaProducer
+        this.groupRepository = groupHub.groupRepository
+        this.clickhouseGroupRepository = groupHub.clickhouseGroupRepository
     }
 
     getGroupCache(): GroupCache {
@@ -594,5 +584,11 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         for (const [operation, count] of this.databaseOperationCounts.entries()) {
             groupDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
         }
+    }
+
+    reset(): void {
+        this.groupCache.reset()
+        this.databaseOperationCounts.clear()
+        groupOptimisticUpdateConflictsPerBatchCounter.reset()
     }
 }

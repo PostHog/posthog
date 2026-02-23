@@ -412,11 +412,17 @@ export function formatBreakdownLabel(
     }
 
     if (typeof breakdown_value == 'string') {
-        return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? BREAKDOWN_OTHER_DISPLAY
-            : isNullBreakdown(breakdown_value) || breakdown_value === ''
-              ? BREAKDOWN_NULL_DISPLAY
-              : breakdown_value
+        const label =
+            isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
+                ? BREAKDOWN_OTHER_DISPLAY
+                : isNullBreakdown(breakdown_value) || breakdown_value === ''
+                  ? BREAKDOWN_NULL_DISPLAY
+                  : breakdown_value
+
+        if (label.length > 200) {
+            return label.slice(0, 200) + '…'
+        }
+        return label
     }
 
     return ''

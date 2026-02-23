@@ -3,6 +3,7 @@
 from django.urls import path, re_path
 
 from .external import ExternalTicketView
+from .restore import WidgetRestoreRedeemView, WidgetRestoreRequestView
 from .slack_channels import SlackChannelsView
 from .slack_events import supporthog_event_handler
 from .slack_oauth import SupportSlackAuthorizeView, SupportSlackDisconnectView, support_slack_oauth_callback
@@ -13,6 +14,8 @@ urlpatterns = [
     path("v1/widget/messages/<uuid:ticket_id>", WidgetMessagesView.as_view(), name="widget-messages-v1"),
     path("v1/widget/messages/<uuid:ticket_id>/read", WidgetMarkReadView.as_view(), name="widget-mark-read-v1"),
     path("v1/widget/tickets", WidgetTicketsView.as_view(), name="widget-tickets-v1"),
+    path("v1/widget/restore/request", WidgetRestoreRequestView.as_view(), name="widget-restore-request-v1"),
+    path("v1/widget/restore", WidgetRestoreRedeemView.as_view(), name="widget-restore-v1"),
     # SupportHog Slack app events (public, no auth)
     path("v1/slack/events", supporthog_event_handler, name="supporthog-slack-events"),
     path("v1/slack/authorize", SupportSlackAuthorizeView.as_view(), name="supporthog-slack-authorize"),

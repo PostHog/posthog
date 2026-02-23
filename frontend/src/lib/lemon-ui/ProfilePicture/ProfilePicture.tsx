@@ -5,11 +5,11 @@ import { useValues } from 'kea'
 import md5 from 'md5'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 
-import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
+import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
-import { MinimalHedgehogConfig, UserBasicType } from '~/types'
+import { HedgehogConfig, MinimalHedgehogConfig, UserBasicType } from '~/types'
 
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { IconRobot } from '../icons'
@@ -17,7 +17,7 @@ import { IconRobot } from '../icons'
 export interface ProfilePictureProps {
     user?:
         | (Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name'> & {
-              hedgehog_config?: Partial<MinimalHedgehogConfig>
+              hedgehog_config?: MinimalHedgehogConfig | HedgehogConfig
           })
         | null
     name?: string
@@ -84,22 +84,20 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
 
     const pictureComponent = (
         <span className={clsx('ProfilePicture ph-no-capture', size, className)} ref={ref}>
-            {hedgehogProfile ? (
-                <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
+            {hedgehogProfile && user.hedgehog_config ? (
+                <HedgehogModeProfile config={user.hedgehog_config} size="100%" />
             ) : (
                 gravatarLoaded !== true && (
                     <>
                         {type === 'bot' ? (
                             <IconRobot className="p-0.5" />
-                        ) : !hedgehogProfile ? (
+                        ) : (
                             <Lettermark
                                 name={combinedNameAndEmail}
                                 index={index}
                                 rounded
                                 color={type === 'system' ? LettermarkColor.Gray : undefined}
                             />
-                        ) : (
-                            <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
                         )}
                     </>
                 )

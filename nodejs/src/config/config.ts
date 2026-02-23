@@ -13,6 +13,7 @@ import {
     KAFKA_LOGS_INGESTION_DLQ,
     KAFKA_LOGS_INGESTION_OVERFLOW,
     KAFKA_LOG_ENTRIES,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './kafka-topics'
@@ -72,6 +73,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000, // 1 minute - consider loop stalled after this
@@ -155,6 +157,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
 
+        // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
+        OTEL_SERVICE_NAME: null,
+        OTEL_SERVICE_ENVIRONMENT: null,
         // Internal API authentication
         INTERNAL_API_SECRET: '',
 
@@ -293,12 +298,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_SESSION_FILTER_ENABLED: true, // When false, skip all Redis calls for session filtering
         SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
         SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+        SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0.01, // 1% of encrypted blocks
 
         // Session replay ingestion consumer config
         INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: SESSION_RECORDING_DEFAULT_GROUP_ID,
         INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-        INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: '',
+        INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

@@ -210,7 +210,7 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
     # Clustering parameters used for this run (for debugging/analysis)
     "$ai_clustering_params": {
         "clustering_method": "hdbscan",
-        "clustering_method_params": {"min_cluster_size_fraction": 0.01, "min_samples": 5},
+        "clustering_method_params": {"min_cluster_size_fraction": 0.05, "min_samples": 5},
         "embedding_normalization": "l2",
         "dimensionality_reduction_method": "umap",
         "dimensionality_reduction_ndims": 100,

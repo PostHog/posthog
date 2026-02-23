@@ -53,16 +53,6 @@ export function SlackIntegration(): JSX.Element {
 
     return (
         <div>
-            <p>
-                Integrate with Slack directly to get more advanced options such as{' '}
-                <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack channels of your choice.
-                Guidance on integrating with Slack available{' '}
-                <Link to="https://posthog.com/docs/product-analytics/subscriptions#slack-subscriptions">
-                    in our docs
-                </Link>
-                .
-            </p>
-
             <div className="deprecated-space-y-2">
                 {slackIntegrations?.map((integration) => (
                     <IntegrationView key={integration.id} integration={integration} />

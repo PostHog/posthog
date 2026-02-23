@@ -210,8 +210,7 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_client_metadata")
 
-    def test_client_secret_not_returned(self):
-        """DCR should never return client_secret since we only support public clients."""
+    def test_public_client_no_secret_returned(self):
         response = self.client.post(
             "/oauth/register/",
             {
@@ -222,21 +221,45 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         data = response.json()
-        # Response must not contain client_secret (public clients don't use secrets)
         self.assertNotIn("client_secret", data)
         self.assertNotIn("client_secret_expires_at", data)
 
-        # Verify the client type is public
         app = OAuthApplication.objects.get(client_id=data["client_id"])
         self.assertEqual(app.client_type, "public")
 
-    def test_only_public_client_type_supported(self):
-        """Requesting confidential client auth method should be rejected."""
+    def test_confidential_client_registration(self):
         response = self.client.post(
             "/oauth/register/",
             {
                 "redirect_uris": ["https://example.com/callback"],
                 "token_endpoint_auth_method": "client_secret_post",
+                "client_name": "Claude",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        data = response.json()
+        self.assertIn("client_secret", data)
+        self.assertEqual(data["client_secret_expires_at"], 0)
+        self.assertEqual(data["token_endpoint_auth_method"], "client_secret_post")
+
+        app = OAuthApplication.objects.get(client_id=data["client_id"])
+        self.assertEqual(app.client_type, "confidential")
+        self.assertTrue(app.is_dcr_client)
+
+        # The returned secret must be plaintext (not a hash) and must verify against the stored hash
+        from django.contrib.auth.hashers import check_password
+
+        self.assertFalse(data["client_secret"].startswith("pbkdf2_sha256$"))
+        self.assertTrue(check_password(data["client_secret"], app.client_secret))
+
+    def test_unsupported_auth_method_rejected(self):
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "redirect_uris": ["https://example.com/callback"],
+                "token_endpoint_auth_method": "client_secret_basic",
             },
             format="json",
         )

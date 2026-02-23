@@ -15,6 +15,37 @@ import { formatUnitByQuantity } from '../utils'
 import { DataCollectionCalculator } from './DataCollectionCalculator'
 import { EllipsisAnimation } from './components'
 
+function GoalTooltip({
+    experiment,
+    hasHighRunningTime,
+}: {
+    experiment: Experiment | null
+    hasHighRunningTime: boolean
+}): JSX.Element {
+    if (!experiment?.parameters?.minimum_detectable_effect) {
+        return <></>
+    }
+
+    return (
+        <Tooltip
+            title={
+                <div>
+                    <div>{`Based on the Minimum detectable effect of ${experiment.parameters.minimum_detectable_effect}%.`}</div>
+                    {hasHighRunningTime && (
+                        <div className="mt-2">
+                            Given the current data, this experiment might take a while to reach statistical
+                            significance. Please make sure events are being tracked correctly and consider if this
+                            timeline works for you.
+                        </div>
+                    )}
+                </div>
+            }
+        >
+            <IconInfo className="text-secondary text-base" />
+        </Tooltip>
+    )
+}
+
 export function DataCollection(): JSX.Element {
     const {
         experimentId,
@@ -39,30 +70,6 @@ export function DataCollection(): JSX.Element {
             : (actualRunningTime / recommendedRunningTime) * 100
 
     const hasHighRunningTime = recommendedRunningTime > 62
-    const GoalTooltip = (): JSX.Element => {
-        if (!experiment?.parameters?.minimum_detectable_effect) {
-            return <></>
-        }
-
-        return (
-            <Tooltip
-                title={
-                    <div>
-                        <div>{`Based on the Minimum detectable effect of ${experiment.parameters.minimum_detectable_effect}%.`}</div>
-                        {hasHighRunningTime && (
-                            <div className="mt-2">
-                                Given the current data, this experiment might take a while to reach statistical
-                                significance. Please make sure events are being tracked correctly and consider if this
-                                timeline works for you.
-                            </div>
-                        )}
-                    </div>
-                }
-            >
-                <IconInfo className="text-secondary text-base" />
-            </Tooltip>
-        )
-    }
 
     return (
         <div>
@@ -101,7 +108,7 @@ export function DataCollection(): JSX.Element {
                                     </span>
                                 )}
                                 <span className="ml-1 text-xs">
-                                    <GoalTooltip />
+                                    <GoalTooltip experiment={experiment} hasHighRunningTime={hasHighRunningTime} />
                                 </span>
                             </span>
                         </div>
@@ -117,7 +124,7 @@ export function DataCollection(): JSX.Element {
                                     </b>{' '}
                                     {formatUnitByQuantity(recommendedSampleSize, 'participant')}
                                 </span>
-                                <GoalTooltip />
+                                <GoalTooltip experiment={experiment} hasHighRunningTime={hasHighRunningTime} />
                             </div>
                         </div>
                     )}

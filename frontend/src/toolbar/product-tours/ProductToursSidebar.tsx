@@ -33,6 +33,7 @@ export function ProductToursSidebar(): JSX.Element | null {
         isPreviewing,
         sessionRecordingConsent,
         sidebarPosition,
+        launchedFromMainApp,
     } = useValues(productToursLogic)
     const {
         selectTour,
@@ -213,7 +214,7 @@ export function ProductToursSidebar(): JSX.Element | null {
                             center
                             className="flex-1"
                         >
-                            Save
+                            {launchedFromMainApp && tourForm?.id ? 'Done' : 'Save'}
                         </LemonButton>
                     </div>
                 </div>

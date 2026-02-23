@@ -88,6 +88,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: false,
         layout: 'plain',
     },
+    [Scene.CLILive]: {
+        name: 'Authorize Live',
+        projectBased: false,
+        organizationBased: false,
+        layout: 'plain',
+    },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
     [Scene.Cohorts]: {
@@ -470,6 +476,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'plain',
         hideProjectNotice: true,
     },
+    [Scene.ResourceTransfer]: {
+        projectBased: true,
+        name: 'Copy to project',
+        layout: 'app-container',
+    },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
         name: 'Revenue analytics',
@@ -521,7 +532,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
-    [Scene.SessionProfile]: { projectBased: true, name: 'Session profile' },
+    [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.Signup]: { onlyUnauthenticated: true },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
@@ -810,6 +821,7 @@ export const routes: Record<string, [Scene | string, string]> = {
         },
         {} as Record<string, [Scene, string]>
     ),
+    [urls.resourceTransfer(':resourceKind', ':resourceId')]: [Scene.ResourceTransfer, 'resourceTransfer'],
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
     [urls.replayKiosk()]: [Scene.ReplayKiosk, 'replayKiosk'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
@@ -842,6 +854,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
+    [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
@@ -881,6 +894,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
+    [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
     [urls.signup()]: [Scene.Signup, 'signup'],

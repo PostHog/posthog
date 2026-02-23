@@ -17,7 +17,6 @@ use uuid::Uuid;
 use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
-    frames::resolver::Resolver,
     stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
         caching::{Caching, SymbolSetCache},
@@ -46,7 +45,7 @@ pub struct AppContext {
     pub posthog_pool: PgPool,
     pub persons_pool: PgPool,
     pub catalog: Arc<Catalog>,
-    pub resolver: Resolver,
+    pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub config: Config,
     pub geoip_client: GeoIpClient,
 
@@ -56,8 +55,6 @@ pub struct AppContext {
 
     pub filtered_teams: Vec<i32>,
     pub filter_mode: FilterMode,
-
-    pub symbol_resolver: Arc<dyn SymbolResolver>,
 }
 
 impl AppContext {
@@ -203,7 +200,6 @@ impl AppContext {
         );
 
         let catalog = Arc::new(Catalog::new(smp_atmostonce, hmp_caching, pgp_caching));
-        let resolver = Resolver::new(config);
 
         let team_manager = TeamManager::new(config);
 
@@ -248,7 +244,6 @@ impl AppContext {
             posthog_pool,
             persons_pool,
             catalog,
-            resolver,
             config: config.clone(),
             team_manager,
             geoip_client,

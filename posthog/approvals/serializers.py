@@ -110,15 +110,10 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
         return False
 
     def get_can_cancel(self, obj: ChangeRequest) -> bool:
-        """Check if current user can cancel this change request."""
-        from posthog.approvals.models import ChangeRequestState
-
         request = self.context.get("request")
         if not request or not request.user:
             return False
-
-        # Only the requester can cancel, and only if it's still pending
-        return obj.created_by_id == request.user.id and obj.state == ChangeRequestState.PENDING
+        return obj.can_be_canceled_by(request.user.id)
 
     def get_is_requester(self, obj: ChangeRequest) -> bool:
         """Check if current user is the requester."""

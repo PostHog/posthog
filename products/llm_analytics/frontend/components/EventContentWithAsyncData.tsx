@@ -8,6 +8,7 @@ import { AIDataLoading } from './AIDataLoading'
 
 interface EventContentGenerationProps {
     eventId: string
+    traceId?: string | null
     rawInput: unknown
     rawOutput: unknown
     tools: unknown
@@ -15,10 +16,12 @@ interface EventContentGenerationProps {
     httpStatus: unknown
     raisedError: boolean
     searchQuery?: string
+    displayOption?: 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
 }
 
 export function EventContentGeneration({
     eventId,
+    traceId,
     rawInput,
     rawOutput,
     tools,
@@ -26,6 +29,7 @@ export function EventContentGeneration({
     httpStatus,
     raisedError,
     searchQuery,
+    displayOption,
 }: EventContentGenerationProps): JSX.Element {
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
@@ -45,6 +49,8 @@ export function EventContentGeneration({
             httpStatus={typeof httpStatus === 'number' ? httpStatus : undefined}
             raisedError={raisedError}
             searchQuery={searchQuery}
+            displayOption={displayOption}
+            traceId={traceId}
         />
     )
 }

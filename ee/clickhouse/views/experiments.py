@@ -97,6 +97,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
+            "exposure_preaggregation_enabled",
             "user_access_level",
         ]
         read_only_fields = [

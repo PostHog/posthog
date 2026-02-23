@@ -47,15 +47,18 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         after_cursor = query_data.get("after", None)
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
 
+        order_by = query_data.get("orderBy")
+        # Default to latest instead of erroring on invalid order_by
+        if order_by not in (OrderBy3.EARLIEST, OrderBy3.LATEST):
+            order_by = OrderBy3.LATEST
         # When using cursor pagination, narrow the date range based on the cursor timestamp.
         # This allows time-slicing optimization to work on progressively smaller ranges
         # as the user pages through results.
-        order_by = query_data.get("orderBy")
         if after_cursor:
             try:
                 cursor = json.loads(base64.b64decode(after_cursor).decode("utf-8"))
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-                if order_by == OrderBy3.EARLIEST or order_by == "earliest":
+                if order_by == OrderBy3.EARLIEST:
                     # For "earliest" ordering, we're looking for logs AFTER the cursor
                     date_range = DateRange(
                         date_from=cursor_ts.isoformat(),
@@ -75,7 +78,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),
             "serviceNames": query_data.get("serviceNames", []),
-            "orderBy": query_data.get("orderBy"),
+            "orderBy": order_by,
             "searchTerm": query_data.get("searchTerm", None),
             "filterGroup": query_data.get("filterGroup", None),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),

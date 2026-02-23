@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -7,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { LogEntry, parseLogs } from '../lib/parse-logs'
 import { TaskRun } from '../types'
+import { CollapsibleContent } from './CollapsibleContent'
 import { TaskRunStatusBadge } from './TaskRunStatusBadge'
 import { ConsoleLogEntry } from './session/ConsoleLogEntry'
 import { ToolCallEntry } from './session/ToolCallEntry'
@@ -42,7 +44,9 @@ function HedgehogStatus(): JSX.Element {
     return (
         <div className="flex items-center gap-2 py-2 text-muted">
             <Spinner className="text-xs" />
-            <span className="text-xs">{HEDGEHOG_STATUSES[statusIndex]}</span>
+            <TextMorph as="span" className="text-xs">
+                {HEDGEHOG_STATUSES[statusIndex]}
+            </TextMorph>
         </div>
     )
 }
@@ -83,7 +87,9 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                         )}
                     </div>
                     <div className="border-r-2 border-muted pr-3 max-w-[90%] text-right">
-                        <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        <CollapsibleContent gradientColor="--bg-3000">
+                            <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        </CollapsibleContent>
                     </div>
                 </div>
             )

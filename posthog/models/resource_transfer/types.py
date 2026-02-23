@@ -5,7 +5,7 @@ from typing import Any, Literal
 from django.db import models
 
 ResourceKind = Literal["Action", "Cohort", "Dashboard", "DashboardTile", "Insight", "Text", "Team", "Project", "User"]
-ResourceTransferKey = tuple[type, Any]  # tuple of (model type, primary key)
+ResourceTransferKey = tuple[ResourceKind, Any]  # tuple of (kind, primary key)
 ResourcePayload = dict[str, Any]
 ResourceMap = dict[ResourceTransferKey, "ResourceTransferVertex"]
 RewriteRelationFn = Callable[
@@ -22,7 +22,14 @@ class ResourceTransferEdge:
 
     @property
     def key(self) -> ResourceTransferKey:
-        return (self.target_model, self.target_primary_key)
+        from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
+
+        visitor = ResourceTransferVisitor.get_visitor(self.target_model)
+
+        if visitor is None:
+            raise TypeError(f"Model has no configured visitor: {self.target_model.__name__}")
+
+        return (visitor.kind, self.target_primary_key)
 
 
 @dataclass
@@ -35,4 +42,11 @@ class ResourceTransferVertex:
 
     @property
     def key(self) -> ResourceTransferKey:
-        return (self.model, self.primary_key)
+        from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
+
+        visitor = ResourceTransferVisitor.get_visitor(self.model)
+
+        if visitor is None:
+            raise TypeError(f"Model has no configured visitor: {self.model.__name__}")
+
+        return (visitor.kind, self.primary_key)

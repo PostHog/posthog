@@ -404,6 +404,9 @@ Accepts either:
 - {"ids": [...]} - Explicit list of flag IDs (no limit)
 
 Returns same format as bulk_delete for UI compatibility.
+
+Uses bulk operations for efficiency: database updates are batched and cache
+invalidation happens once at the end rather than per-flag.
  */
 export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_delete/`

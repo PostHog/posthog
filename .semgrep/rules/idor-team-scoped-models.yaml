@@ -65,9 +65,11 @@ rules:
                               |BatchExportBackfill
                               |BatchImport
                               |ChangeRequest
+                              |ClusteringConfig
                               |Cohort
                               |Comment
                               |Conversation
+                              |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
@@ -97,6 +99,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
+                              |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingStackFrame
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
@@ -132,6 +135,7 @@ rules:
                               |MessageTemplate
                               |Node
                               |Notebook
+                              |ObjectMediaPreview
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -222,9 +226,11 @@ rules:
                         |BatchExportBackfill
                         |BatchImport
                         |ChangeRequest
+                        |ClusteringConfig
                         |Cohort
                         |Comment
                         |Conversation
+                        |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
@@ -254,6 +260,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
+                        |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
@@ -289,6 +296,7 @@ rules:
                         |MessageTemplate
                         |Node
                         |Notebook
+                        |ObjectMediaPreview
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey

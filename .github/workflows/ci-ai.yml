@@ -47,7 +47,10 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d --wait
+                  docker compose -f docker-compose.dev.yml up -d
+
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
 
             - name: Set up Python
               uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
@@ -57,9 +60,9 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Install python dependencies
               shell: bash
@@ -83,9 +86,6 @@ jobs:
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
-
-            - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
 
             - name: Run LLM evals
               run: pytest ee/hogai/eval/ci -vv --junitxml=junit.xml

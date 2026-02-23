@@ -17,10 +17,13 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     PrimeSessionEmbeddingsActivityInputs,
 )
 
-from ee.hogai.session_summaries.constants import MIN_SESSION_DURATION_FOR_SUMMARY_MS
+from ee.hogai.session_summaries.constants import MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S
 from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
+
+
+MAX_SESSIONS_TO_PRIME_EMBEDDINGS = 200
 
 
 @activity.defn
@@ -89,11 +92,12 @@ def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
     query = RecordingsQuery(
         filter_test_accounts=True,
         date_from=f"-{lookback_hours}h",
+        limit=MAX_SESSIONS_TO_PRIME_EMBEDDINGS,
         having_predicates=[
             RecordingPropertyFilter(
-                key="duration",  # Ignore sessions that are too short
+                key="active_seconds",  # Ignore sessions that are too short
                 operator=PropertyOperator.GTE,
-                value=MIN_SESSION_DURATION_FOR_SUMMARY_MS / 1000,
+                value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
             ),
             RecordingPropertyFilter(
                 key="ongoing",  # Only include finished sessions
