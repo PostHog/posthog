@@ -4,22 +4,26 @@
  * Decodes PNG to raw RGBA pixel buffer, then hashes the pixels.
  * This ensures identical visual content = identical hash,
  * regardless of PNG compression settings or metadata.
+ *
+ * Uses pngjs (pure JS) instead of sharp to avoid native binary issues
+ * when the CLI is distributed as a tarball across platforms.
  */
 import { createHash } from 'node:crypto'
-import sharp from 'sharp'
+import { PNG } from 'pngjs'
+
+function decodePng(pngData: Buffer): { data: Buffer; width: number; height: number } {
+    const png = PNG.sync.read(pngData)
+    return { data: png.data, width: png.width, height: png.height }
+}
 
 /**
  * Hash PNG image data by decoding to RGBA and hashing the pixel buffer.
  * Returns hex-encoded SHA256 hash.
  */
 export async function hashImage(pngData: Buffer): Promise<string> {
-    // Decode PNG to raw RGBA pixel buffer
-    const { data } = await sharp(pngData).raw().ensureAlpha().toBuffer({ resolveWithObject: true })
-
-    // Hash the raw RGBA pixels
+    const { data } = decodePng(pngData)
     const hash = createHash('sha256')
     hash.update(data)
-
     return hash.digest('hex')
 }
 
@@ -27,11 +31,8 @@ export async function hashImage(pngData: Buffer): Promise<string> {
  * Get image dimensions from PNG data.
  */
 export async function getImageDimensions(pngData: Buffer): Promise<{ width: number; height: number }> {
-    const metadata = await sharp(pngData).metadata()
-    return {
-        width: metadata.width ?? 0,
-        height: metadata.height ?? 0,
-    }
+    const { width, height } = decodePng(pngData)
+    return { width, height }
 }
 
 /**
@@ -40,14 +41,14 @@ export async function getImageDimensions(pngData: Buffer): Promise<{ width: numb
 export async function hashImageWithDimensions(
     pngData: Buffer
 ): Promise<{ hash: string; width: number; height: number }> {
-    const { data, info } = await sharp(pngData).raw().ensureAlpha().toBuffer({ resolveWithObject: true })
+    const { data, width, height } = decodePng(pngData)
 
     const hash = createHash('sha256')
     hash.update(data)
 
     return {
         hash: hash.digest('hex'),
-        width: info.width,
-        height: info.height,
+        width,
+        height,
     }
 }
