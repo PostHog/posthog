@@ -8,6 +8,7 @@ from .evaluations import EvaluationViewSet
 from .models import LLMModelsViewSet
 from .provider_keys import LLMProviderKeyValidationViewSet, LLMProviderKeyViewSet
 from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
+from .sentiment import LLMAnalyticsSentimentViewSet
 from .summarization import LLMAnalyticsSummarizationViewSet
 from .text_repr import LLMAnalyticsTextReprViewSet
 from .translate import LLMAnalyticsTranslateViewSet
@@ -29,4 +30,5 @@ __all__ = [
     "EvaluationConfigViewSet",
     "LLMProviderKeyViewSet",
     "LLMProviderKeyValidationViewSet",
+    "LLMAnalyticsSentimentViewSet",
 ]

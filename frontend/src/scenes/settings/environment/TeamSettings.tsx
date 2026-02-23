@@ -128,9 +128,9 @@ export function TeamVariables(): JSX.Element {
     const openDialog = (): void => {
         LemonDialog.openForm({
             maxWidth: 480,
-            title: 'Reset project API key?',
+            title: 'Reset project token?',
             description:
-                'This will immediately invalidate your current API key. Any apps, websites, or services using it will stop sending data to PostHog until you update them with the new key. This action cannot be undone.',
+                'This will immediately invalidate your current project token. Any apps, websites, or services using it will stop sending data to PostHog until you update them with the new token. This action cannot be undone.',
             initialValues: { confirmation: '' },
             content: (
                 <LemonField name="confirmation">
@@ -149,7 +149,7 @@ export function TeamVariables(): JSX.Element {
             },
             primaryButtonProps: {
                 status: 'danger',
-                children: 'Reset API key',
+                children: 'Reset token',
             },
             onSubmit: () => {
                 resetToken()
@@ -160,18 +160,13 @@ export function TeamVariables(): JSX.Element {
     return (
         <div className="space-y-4 max-w-200">
             <div className="border rounded p-4 space-y-3 bg-bg-light">
-                <LemonLabel className="mb-0">Project API key</LemonLabel>
+                <LemonLabel className="mb-0">Project token</LemonLabel>
                 <CodeSnippet
                     compact
-                    thing="project API key"
+                    thing="project token"
                     actions={
                         isTeamTokenResetAvailable ? (
-                            <LemonButton
-                                icon={<IconRefresh />}
-                                noPadding
-                                onClick={openDialog}
-                                tooltip="Reset API key"
-                            />
+                            <LemonButton icon={<IconRefresh />} noPadding onClick={openDialog} tooltip="Reset token" />
                         ) : undefined
                     }
                 >
