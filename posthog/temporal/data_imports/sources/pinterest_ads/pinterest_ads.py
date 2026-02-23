@@ -30,7 +30,7 @@ def pinterest_ads_source(
     session = build_session(access_token)
 
     if endpoint_config.endpoint_type == EndpointType.ENTITY:
-        items = _fetch_entity_items(session, ad_account_id, endpoint)
+        items = fetch_entities(session, ad_account_id, endpoint)
     elif endpoint_config.endpoint_type == EndpointType.ANALYTICS:
         items = _fetch_analytics_items(
             session, ad_account_id, endpoint, should_use_incremental_field, db_incremental_field_last_value
@@ -48,14 +48,6 @@ def pinterest_ads_source(
         partition_format=endpoint_config.partition_format,
         partition_keys=endpoint_config.partition_keys,
     )
-
-
-def _fetch_entity_items(
-    session: Any,
-    ad_account_id: str,
-    endpoint: str,
-) -> list[dict[str, Any]]:
-    return fetch_entities(session, ad_account_id, endpoint)
 
 
 def _fetch_analytics_items(

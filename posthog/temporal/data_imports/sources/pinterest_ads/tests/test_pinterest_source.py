@@ -54,13 +54,9 @@ class TestPinterestAdsSource:
         assert error_message is not None
         assert "Ad Account ID and Pinterest Ads integration are required" in error_message
 
-    @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.source.validate_ad_account")
     @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.source.PinterestAdsSource.get_oauth_integration")
-    def test_validate_credentials_success(self, mock_get_oauth, mock_validate):
-        mock_integration = mock.MagicMock()
-        mock_integration.access_token = "test_token"
-        mock_get_oauth.return_value = mock_integration
-        mock_validate.return_value = (True, None)
+    def test_validate_credentials_success(self, mock_get_oauth):
+        mock_get_oauth.return_value = mock.MagicMock()
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 

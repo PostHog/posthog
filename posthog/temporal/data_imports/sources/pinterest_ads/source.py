@@ -17,7 +17,6 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import PinterestAdsSourceConfig
 from posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads import pinterest_ads_source
 from posthog.temporal.data_imports.sources.pinterest_ads.settings import PINTEREST_ADS_CONFIG
-from posthog.temporal.data_imports.sources.pinterest_ads.utils import validate_ad_account
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -66,15 +65,7 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
             return False, "Ad Account ID and Pinterest Ads integration are required"
 
         try:
-            integration = self.get_oauth_integration(config.pinterest_ads_integration_id, team_id)
-
-            if not integration.access_token:
-                return False, "Pinterest Ads access token not found"
-
-            is_valid, error_message = validate_ad_account(integration.access_token, config.ad_account_id)
-            if not is_valid:
-                return False, error_message
-
+            self.get_oauth_integration(config.pinterest_ads_integration_id, team_id)
             return True, None
         except Exception as e:
             capture_exception(e)
