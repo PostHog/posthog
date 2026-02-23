@@ -43,6 +43,7 @@ export function SceneTabs(): JSX.Element {
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const { showOfframpModal } = useActions(sidePanelOfframpLogic)
     const { isSceneTabsOfframpDismissed } = useValues(sidePanelOfframpLogic)
+    const shouldShowTabRow = tabs.length >= 2
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -91,75 +92,79 @@ export function SceneTabs(): JSX.Element {
                 <div className="w-full bottom-0 h-px border-b border-primary z-10" />
             </div>
 
-            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-                <SortableContext
-                    items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
-                    strategy={horizontalListSortingStrategy}
-                >
-                    <div
-                        className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2"
-                        onMouseLeave={clearFrozenWidths}
+            {shouldShowTabRow ? (
+                <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                    <SortableContext
+                        items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
+                        strategy={horizontalListSortingStrategy}
                     >
-                        {tabs.map((tab, index) => {
-                            const sortableId = getSortableId(tab, index)
-                            const isLastPinned =
-                                tab.pinned &&
-                                // last tab OR next tab is not pinned
-                                (index === tabs.length - 1 || !tabs[index + 1]?.pinned)
+                        <div
+                            className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2"
+                            onMouseLeave={clearFrozenWidths}
+                        >
+                            {tabs.map((tab, index) => {
+                                const sortableId = getSortableId(tab, index)
+                                const isLastPinned =
+                                    tab.pinned &&
+                                    // last tab OR next tab is not pinned
+                                    (index === tabs.length - 1 || !tabs[index + 1]?.pinned)
 
-                            return (
-                                <Fragment key={sortableId}>
-                                    <SortableSceneTab
-                                        tab={tab}
-                                        index={index}
-                                        sortableId={sortableId}
-                                        onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
-                                    />
-                                    {isLastPinned && (
-                                        <div
-                                            className="h-4 w-px bg-border-secondary shrink-0 rounded opacity-50"
-                                            aria-hidden="true"
+                                return (
+                                    <Fragment key={sortableId}>
+                                        <SortableSceneTab
+                                            tab={tab}
+                                            index={index}
+                                            sortableId={sortableId}
+                                            onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
                                         />
-                                    )}
-                                </Fragment>
-                            )
-                        })}
-                        <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
-                            <Link
-                                to={urls.newTab()}
-                                data-attr="scene-tab-new-button"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    const currentPath = router.values.location.pathname
-                                    const isSqlRoute = currentPath.endsWith('/sql')
-                                    const openSqlTab = isSqlRoute && sqlEditorNewTabPreference === 'editor'
-                                    const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
-                                    newTab(openSqlTab ? '/sql' : null, { source })
-                                }}
-                                tooltip="New tab"
-                                tooltipCloseDelayMs={0}
-                                buttonProps={{
-                                    iconOnly: true,
-                                    className: 'p-1 flex items-center gap-1 cursor-pointer rounded border-b z-20',
-                                }}
-                            >
-                                <IconPlus className="!ml-0 size-3" />
-                            </Link>
-                        </AppShortcut>
+                                        {isLastPinned && (
+                                            <div
+                                                className="h-4 w-px bg-border-secondary shrink-0 rounded opacity-50"
+                                                aria-hidden="true"
+                                            />
+                                        )}
+                                    </Fragment>
+                                )
+                            })}
+                            <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
+                                <Link
+                                    to={urls.newTab()}
+                                    data-attr="scene-tab-new-button"
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        const currentPath = router.values.location.pathname
+                                        const isSqlRoute = currentPath.endsWith('/sql')
+                                        const openSqlTab = isSqlRoute && sqlEditorNewTabPreference === 'editor'
+                                        const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
+                                        newTab(openSqlTab ? '/sql' : null, { source })
+                                    }}
+                                    tooltip="New tab"
+                                    tooltipCloseDelayMs={0}
+                                    buttonProps={{
+                                        iconOnly: true,
+                                        className: 'p-1 flex items-center gap-1 cursor-pointer rounded border-b z-20',
+                                    }}
+                                >
+                                    <IconPlus className="!ml-0 size-3" />
+                                </Link>
+                            </AppShortcut>
 
-                        {isRemovingSidePanelFlag && !isSceneTabsOfframpDismissed && (
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    showOfframpModal()
-                                }}
-                                className="ml-auto text-tertiary hover:text-primary"
-                            >
-                                Where's the panel? 🤔
-                            </ButtonPrimitive>
-                        )}
-                    </div>
-                </SortableContext>
-            </DndContext>
+                            {isRemovingSidePanelFlag && !isSceneTabsOfframpDismissed && (
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        showOfframpModal()
+                                    }}
+                                    className="ml-auto text-tertiary hover:text-primary"
+                                >
+                                    Where's the panel? 🤔
+                                </ButtonPrimitive>
+                            )}
+                        </div>
+                    </SortableContext>
+                </DndContext>
+            ) : (
+                <div className="flex-1" />
+            )}
             <ConfigurePinnedTabsModal
                 isOpen={isConfigurePinnedTabsOpen}
                 onClose={() => setIsConfigurePinnedTabsOpen(false)}

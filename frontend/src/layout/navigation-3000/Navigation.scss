@@ -731,6 +731,16 @@
         }
     }
 
+    &.app-layout--no-top-nav {
+        grid-template:
+            'left top right' 0 'left content right' 1fr / var(--left-nav-width)
+            minmax(0, 1fr) var(--side-panel-width);
+
+        &.app-layout--scene-side-panel {
+            grid-template: 'left top' 0 'left content' 1fr / var(--left-nav-width) minmax(0, 1fr);
+        }
+    }
+
     /* flag for moving sidepanel to the scene */
     &.app-layout--scene-side-panel {
         grid-template: 'left top' var(--scene-layout-header-height) 'left content' 1fr / var(--left-nav-width) minmax(

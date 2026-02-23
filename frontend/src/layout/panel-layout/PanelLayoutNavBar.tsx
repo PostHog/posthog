@@ -14,6 +14,7 @@ import {
     IconHome,
     IconNotification,
     IconPeople,
+    IconPlus,
     IconSearch,
     IconShortcut,
     IconSidebarClose,
@@ -40,6 +41,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -101,7 +103,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { user } = useValues(userLogic)
-    const { firstTabIsActive } = useValues(sceneLogic)
+    const { sqlEditorNewTabPreference } = useValues(userPreferencesLogic)
+    const { firstTabIsActive, tabs } = useValues(sceneLogic)
+    const { newTab } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
@@ -347,22 +351,86 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             tooltip: 'Switch organization',
                                         }}
                                     />
-                                    <ProjectMenu
-                                        buttonProps={{
-                                            className: 'max-w-full flex-1',
-                                            variant: 'panel',
-                                            tooltipCloseDelayMs: 0,
-                                            iconOnly: isLayoutNavCollapsed,
-                                            tooltipPlacement: 'bottom',
-                                            tooltip: 'Switch project',
-                                        }}
-                                    />
+                                    <div className="flex items-center gap-1 w-full">
+                                        <ProjectMenu
+                                            buttonProps={{
+                                                className: 'max-w-full flex-1',
+                                                variant: 'panel',
+                                                tooltipCloseDelayMs: 0,
+                                                iconOnly: isLayoutNavCollapsed,
+                                                tooltipPlacement: 'bottom',
+                                                tooltip: 'Switch project',
+                                            }}
+                                        />
+                                        {tabs.length < 2 && (
+                                            <AppShortcut
+                                                name="NewTab"
+                                                keybind={[keyBinds.newTab]}
+                                                intent="New tab"
+                                                interaction="click"
+                                            >
+                                                <Link
+                                                    to={urls.newTab()}
+                                                    data-attr="scene-tab-new-button"
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        const currentPath = router.values.location.pathname
+                                                        const isSqlRoute = currentPath.endsWith('/sql')
+                                                        const openSqlTab =
+                                                            isSqlRoute && sqlEditorNewTabPreference === 'editor'
+                                                        const source =
+                                                            e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
+                                                        newTab(openSqlTab ? '/sql' : null, { source })
+                                                    }}
+                                                    tooltip="New tab"
+                                                    tooltipCloseDelayMs={0}
+                                                    buttonProps={{
+                                                        iconOnly: true,
+                                                        className: 'p-1 flex items-center gap-1 cursor-pointer rounded',
+                                                    }}
+                                                >
+                                                    <IconPlus className="!ml-0 size-3" />
+                                                </Link>
+                                            </AppShortcut>
+                                        )}
+                                    </div>
                                     <RecentItemsMenu />
                                 </>
                             ) : (
-                                <>
+                                <div className="flex items-center gap-1 w-full">
                                     <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
-                                </>
+                                    {tabs.length < 2 && (
+                                        <AppShortcut
+                                            name="NewTab"
+                                            keybind={[keyBinds.newTab]}
+                                            intent="New tab"
+                                            interaction="click"
+                                        >
+                                            <Link
+                                                to={urls.newTab()}
+                                                data-attr="scene-tab-new-button"
+                                                onClick={(e) => {
+                                                    e.preventDefault()
+                                                    const currentPath = router.values.location.pathname
+                                                    const isSqlRoute = currentPath.endsWith('/sql')
+                                                    const openSqlTab =
+                                                        isSqlRoute && sqlEditorNewTabPreference === 'editor'
+                                                    const source =
+                                                        e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
+                                                    newTab(openSqlTab ? '/sql' : null, { source })
+                                                }}
+                                                tooltip="New tab"
+                                                tooltipCloseDelayMs={0}
+                                                buttonProps={{
+                                                    iconOnly: true,
+                                                    className: 'p-1 flex items-center gap-1 cursor-pointer rounded',
+                                                }}
+                                            >
+                                                <IconPlus className="!ml-0 size-3" />
+                                            </Link>
+                                        </AppShortcut>
+                                    )}
+                                </div>
                             )}
                         </div>
                     </div>

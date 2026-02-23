@@ -45,12 +45,12 @@ export function Navigation({
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
-    const { activeTabId } = useValues(sceneLogic)
+    const { activeTabId, firstTabIsActive, tabs } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const { firstTabIsActive } = useValues(sceneLogic)
+    const shouldShowSceneTabs = mobileLayout || tabs.length >= 2
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     // Set container ref so we can measure the width of the scene layout in logic
@@ -85,6 +85,7 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
+                    'app-layout--no-top-nav': !shouldShowSceneTabs,
                     'app-layout--scene-side-panel reduce-visual-noise': isRemovingSidePanelFlag,
                 })}
                 style={
@@ -109,8 +110,13 @@ export function Navigation({
                 <ProjectDragAndDropProvider>
                     <PanelLayout className="left-nav" />
 
-                    <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start mt-px">
-                        <SceneTabs />
+                    <div
+                        className={cn('top-nav sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start', {
+                            'h-[var(--scene-layout-header-height)] mt-px': shouldShowSceneTabs,
+                            'h-0 mt-0 overflow-hidden': !shouldShowSceneTabs,
+                        })}
+                    >
+                        {shouldShowSceneTabs && <SceneTabs />}
                     </div>
 
                     <div
