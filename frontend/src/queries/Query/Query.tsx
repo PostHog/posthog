@@ -150,6 +150,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                embedded={embedded}
                 editMode={!!editMode}
                 variablesOverride={props.variablesOverride}
             />

@@ -146,6 +146,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
     const { openNewVariableModal, openExistingVariableModal } = useActions(variableModalLogic)
     const { insertTextAtCursor } = useActions(sqlEditorLogic)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
+    const hasVariablesInUse = variablesUsedInQuery.length > 0
 
     const closeMenu = (): void => {
         setIsMenuOpen(false)
@@ -287,9 +288,16 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         <>
             <LemonMenu items={menuItems} visible={isMenuOpen} onVisibilityChange={setIsMenuOpen}>
                 <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    icon={<IconBrackets />}
+                    type="secondary"
+                    size="small"
+                    icon={
+                        <span className="relative inline-flex">
+                            <IconBrackets />
+                            {hasVariablesInUse ? (
+                                <span className="absolute -top-0.5 -right-1 block h-2 w-2 rounded-full bg-danger" />
+                            ) : null}
+                        </span>
+                    }
                     disabledReason={disabledReason}
                     data-attr="sql-editor-variables-button"
                 >

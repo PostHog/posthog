@@ -437,6 +437,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
                 'loadNextSnapshotSource',
+                'loadAllSources',
                 'setTargetTimestamp',
                 'updatePlaybackPosition',
                 'setPlayerActive',
@@ -481,7 +482,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: true,
         pauseIframePlayback: true,
         restartIframePlayback: true,
-        setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
+        setCurrentSegment: (segment: RecordingSegment, shouldSeek: boolean = true) => ({ segment, shouldSeek }),
         setRootFrame: (frame: HTMLDivElement | null) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
@@ -1374,7 +1375,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
         },
-        setCurrentSegment: ({ segment }) => {
+        setCurrentSegment: ({ segment, shouldSeek }) => {
             // Check if we should skip this segment
             if (!segment.isActive && values.skipInactivitySetting && segment.kind !== 'buffer') {
                 // In video export mode with metadata footer, instantly seek past inactive segments
@@ -1407,7 +1408,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 // Otherwise keep existing player visible (last valid frame)
             }
-            if (values.currentTimestamp !== undefined) {
+            // Only seek if requested - prevents infinite recursion when called from updateAnimation
+            if (shouldSeek && values.currentTimestamp !== undefined) {
                 actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
@@ -1826,7 +1828,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // NOTE: confusingly this setCurrentTimestamp call is essential to playback
                     // we rely on the segmentation to travel smoothly through the recording
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
-                    actions.setCurrentSegment(nextSegment)
+                    // Pass false to prevent seeking - we're already updating animation, don't recurse
+                    actions.setCurrentSegment(nextSegment, false)
                 } else {
                     // At the end of the recording. Pause the player and set fully to the end
                     actions.setEndReached()
@@ -1933,15 +1936,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             const doExport = async (): Promise<void> => {
                 actions.setPause()
+                actions.loadAllSources()
 
                 const delayTime = 1000
-                let maxWaitTime = 30000
+                const maxStallIterations = 15
+                let stallCount = 0
+                let lastSnapshotCount = 0
                 while (!values.sessionPlayerData.fullyLoaded) {
-                    if (maxWaitTime <= 0) {
+                    const currentCount = values.sessionPlayerData.snapshotsByWindowId
+                        ? Object.values(values.sessionPlayerData.snapshotsByWindowId).reduce(
+                              (sum, snaps) => sum + snaps.length,
+                              0
+                          )
+                        : 0
+                    if (currentCount > lastSnapshotCount) {
+                        stallCount = 0
+                        lastSnapshotCount = currentCount
+                    } else {
+                        stallCount++
+                    }
+                    if (stallCount >= maxStallIterations) {
                         throw new Error('Timeout waiting for recording to load')
                     }
                     actions.loadNextSnapshotSource()
-                    maxWaitTime -= delayTime
                     await delay(delayTime)
                 }
 

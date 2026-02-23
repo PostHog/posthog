@@ -66,7 +66,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { updateAssignee, updateStatus, updateName } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
-        posthog.capture('error_tracking_issue_viewed', { issue_id: issueId })
+        const utmSource = new URLSearchParams(window.location.search).get('utm_source')
+        posthog.capture('error_tracking_issue_viewed', {
+            issue_id: issueId,
+            ...(utmSource ? { utm_source: utmSource } : {}),
+        })
     }, [issueId])
 
     return (

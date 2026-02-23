@@ -1,3 +1,4 @@
+from posthog.temporal.llm_analytics.emit_eval_signal import emit_eval_signal_activity
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor  # noqa: F401
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
@@ -39,6 +40,7 @@ EVAL_ACTIVITIES = [
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    emit_eval_signal_activity,
 ]
 
 WORKFLOWS = [
@@ -74,4 +76,5 @@ ACTIVITIES = [
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    emit_eval_signal_activity,
 ]

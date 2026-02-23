@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -445,9 +445,7 @@ const WorkflowsInstallHeader = (): JSX.Element => {
             {isCloudOrDev && (
                 <>
                     <LemonBanner type="info" hideIcon>
-                        <h3 className="flex items-center gap-2 pb-1">
-                            <LemonTag type="warning">BETA</LemonTag> AI setup wizard
-                        </h3>
+                        <h3 className="pb-1">AI setup wizard</h3>
                         <div className="flex flex-col p-2">
                             <p className="font-normal pb-1">
                                 The fastest way to get started. Run this command from your project root — it
