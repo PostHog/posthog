@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { SurveyEventProperties } from '~/types'
 
+import { llmAnalyticsTraceDataLogic } from '../llmAnalyticsTraceDataLogic'
 import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { feedbackViewLogic } from './feedbackViewLogic'
 import { SurveyResponseCard } from './survey-responses/SurveyResponseCard'
@@ -15,9 +16,11 @@ import { FeedbackSurveyWizard } from './wizard/FeedbackSurveyWizard'
 
 export function FeedbackViewDisplay(): JSX.Element {
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
     const { traceId } = useValues(traceLogic)
+    const { trace } = useValues(traceDataLogic)
     const { surveyEvents, surveyEventsLoading, surveys, surveysLoading, hasLoadingError } = useValues(
-        feedbackViewLogic({ traceId })
+        feedbackViewLogic({ traceId, traceCreatedAt: trace?.createdAt ?? null })
     )
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)

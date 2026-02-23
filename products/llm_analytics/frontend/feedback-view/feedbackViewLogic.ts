@@ -1,28 +1,24 @@
-import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { Survey, SurveyEventProperties } from '~/types'
 
-import { llmAnalyticsTraceDataLogic } from '../llmAnalyticsTraceDataLogic'
 import type { feedbackViewLogicType } from './feedbackViewLogicType'
 
 export interface FeedbackViewLogicProps {
     traceId: string
+    traceCreatedAt: string | null
 }
 
 export const feedbackViewLogic = kea<feedbackViewLogicType>([
     path(['scenes', 'llm-analytics', 'feedbackViewLogic']),
     props({} as FeedbackViewLogicProps),
     key((props) => props.traceId),
-    connect({
-        values: [llmAnalyticsTraceDataLogic, ['trace']],
-    }),
     loaders(({ props, values }) => ({
         surveyEvents: [
             null as LLMTraceEvent[] | null,
@@ -98,17 +94,9 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
             actions.loadSurveys()
         },
     })),
-    subscriptions(({ actions, values }) => ({
-        trace: (trace: LLMTrace | undefined) => {
-            if (trace?.createdAt && values.surveyEvents === null && !values.surveyEventsLoading) {
-                actions.loadSurveyEvents(trace.createdAt)
-            }
-        },
-    })),
-    afterMount(({ actions, values }) => {
-        const trace = values.trace
-        if (trace?.createdAt && values.surveyEvents === null && !values.surveyEventsLoading) {
-            actions.loadSurveyEvents(trace.createdAt)
+    afterMount(({ actions, values, props }) => {
+        if (props.traceCreatedAt && values.surveyEvents === null && !values.surveyEventsLoading) {
+            actions.loadSurveyEvents(props.traceCreatedAt)
         }
     }),
 ])
