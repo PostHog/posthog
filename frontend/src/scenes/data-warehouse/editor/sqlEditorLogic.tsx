@@ -205,6 +205,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         saveAsInsightSubmit: (name: string) => ({ name }),
         saveAsEndpoint: true,
         saveAsEndpointSubmit: (name: string, description?: string) => ({ name, description }),
+        updateEndpoint: true,
         updateInsight: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
@@ -249,6 +250,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
+        setEditingEndpointName: (endpointName: string | null) => ({ endpointName }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -301,6 +303,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             'insight' as SqlEditorSource,
             {
                 setEditorSource: (_, { source }) => source,
+            },
+        ],
+        editingEndpointName: [
+            null as string | null,
+            {
+                setEditingEndpointName: (_, { endpointName }) => endpointName,
             },
         ],
         editingInsight: [
@@ -916,6 +924,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 lemonToast.error('Failed to create endpoint')
             }
         },
+        updateEndpoint: async () => {
+            if (!values.editingEndpointName) {
+                return
+            }
+
+            try {
+                await api.endpoint.update(values.editingEndpointName, {
+                    query: {
+                        ...(values.sourceQuery.source as HogQLQuery),
+                        query: values.queryInput ?? '',
+                    },
+                })
+                lemonToast.success('Endpoint updated')
+                router.actions.push(urls.endpoint(values.editingEndpointName))
+            } catch {
+                lemonToast.error('Failed to update endpoint')
+            }
+        },
         updateInsight: async () => {
             if (!values.editingInsight) {
                 return
@@ -1359,6 +1385,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene)) {
                 return
             }
+
+            actions.setEditingEndpointName(searchParams.endpoint_name || null)
 
             if (searchParams.source === 'endpoint' || searchParams.source === 'insight') {
                 actions.setEditorSource(searchParams.source)

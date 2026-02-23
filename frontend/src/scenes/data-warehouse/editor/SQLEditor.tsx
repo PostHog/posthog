@@ -206,8 +206,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         titleSectionProps,
         updateInsightButtonEnabled,
         saveAsMenuItems,
+        editingEndpointName,
     } = useValues(sqlEditorLogic)
-    const { updateView, updateInsight, saveAsInsight, saveAsView, saveAsEndpoint, openHistoryModal } =
+    const { updateView, updateInsight, updateEndpoint, saveAsInsight, saveAsView, saveAsEndpoint, openHistoryModal } =
         useActions(sqlEditorLogic)
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
@@ -361,6 +362,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 }}
                             >
                                 Update insight
+                            </LemonButton>
+                        ) : editingEndpointName ? (
+                            <LemonButton type="primary" size="small" onClick={() => updateEndpoint()}>
+                                Update endpoint
                             </LemonButton>
                         ) : (
                             <LemonButton

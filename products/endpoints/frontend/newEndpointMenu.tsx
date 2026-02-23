@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconGraph, IconServer } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
 
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
@@ -24,7 +25,7 @@ export function OverlayForNewEndpointMenu(): JSX.Element {
             icon: IconServer,
             name: 'SQL-based endpoint',
             description: 'Create an endpoint from a query in the SQL editor.',
-            onClick: () => router.actions.push(urls.sqlEditor({ source: 'endpoint' })),
+            onClick: () => router.actions.push(urls.sqlEditor({ outputTab: OutputTab.Endpoint })),
             dataAttr: 'new-endpoint-overlay-hogql',
         },
         {
