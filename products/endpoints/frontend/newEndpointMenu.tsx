@@ -1,3 +1,4 @@
+import { useActions } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGraph, IconServer } from '@posthog/icons'
@@ -6,41 +7,43 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
 
+import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
+
 interface EndpointTypeOption {
     icon: React.ComponentType
     name: string
     description: string
-    url: string
+    onClick: () => void
     dataAttr: string
 }
 
-const ENDPOINT_TYPE_OPTIONS: EndpointTypeOption[] = [
-    {
-        icon: IconServer,
-        name: 'HogQL endpoint',
-        description: 'Create an endpoint from a HogQL query in the SQL editor.',
-        url: urls.sqlEditor({ outputTab: OutputTab.Endpoint }),
-        dataAttr: 'new-endpoint-overlay-hogql',
-    },
-    {
-        icon: IconGraph,
-        name: 'Insight endpoint',
-        description: 'Create an endpoint from a new insight.',
-        url: urls.insightNew(),
-        dataAttr: 'new-endpoint-overlay-insight',
-    },
-]
-
 export function OverlayForNewEndpointMenu(): JSX.Element {
+    const { openModal } = useActions(insightPickerEndpointModalLogic)
+
+    const options: EndpointTypeOption[] = [
+        {
+            icon: IconServer,
+            name: 'SQL-based endpoint',
+            description: 'Create an endpoint from a query in the SQL editor.',
+            onClick: () => router.actions.push(urls.sqlEditor({ outputTab: OutputTab.Endpoint })),
+            dataAttr: 'new-endpoint-overlay-hogql',
+        },
+        {
+            icon: IconGraph,
+            name: 'Insight-based endpoint',
+            description: 'Create an endpoint from a new or existing insight.',
+            onClick: openModal,
+            dataAttr: 'new-endpoint-overlay-insight',
+        },
+    ]
+
     return (
         <>
-            {ENDPOINT_TYPE_OPTIONS.map((option) => (
+            {options.map((option) => (
                 <LemonButton
                     key={option.name}
                     icon={<option.icon />}
-                    onClick={() => {
-                        router.actions.push(option.url)
-                    }}
+                    onClick={option.onClick}
                     data-attr={option.dataAttr}
                     data-attr-endpoint-type={option.name}
                     fullWidth

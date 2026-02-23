@@ -25,6 +25,7 @@ import {
     isOpenAIFileMessage,
     isOpenAIImageURLMessage,
     looksLikeXml,
+    parsePartialJSON,
 } from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
@@ -495,28 +496,24 @@ export const LLMMessageDisplay = React.memo(
             }
             const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
 
-            // If content is valid JSON (we only check when it starts and ends with {} or [] to avoid false positives)
-            if (
-                (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-                (trimmed.startsWith('[') && trimmed.endsWith(']'))
-            ) {
+            // If content looks like JSON (starts with { or [), try to parse it
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
                 try {
-                    const parsed = typeof content === 'string' ? JSON.parse(content) : content
-                    //check if special type
-                    if (parsed.type === 'image') {
+                    const parsed = typeof content === 'string' ? parsePartialJSON(content) : content
+                    if (isObject(parsed) && parsed.type === 'image') {
                         return <ImageMessageDisplay message={parsed} />
                     }
-                    if (parsed.type === 'input_image') {
+                    if (isObject(parsed) && parsed.type === 'input_image') {
                         const message = {
                             content: {
                                 type: 'image',
-                                image: parsed.image_url,
+                                image: String((parsed as Record<string, unknown>).image_url),
                             },
                         }
                         return <ImageMessageDisplay message={message} />
                     }
-                    if (parsed.type === 'output_text' && parsed.text) {
-                        return <span className="whitespace-pre-wrap">{parsed.text}</span>
+                    if (isObject(parsed) && parsed.type === 'output_text' && 'text' in parsed) {
+                        return <span className="whitespace-pre-wrap">{String(parsed.text)}</span>
                     }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return (

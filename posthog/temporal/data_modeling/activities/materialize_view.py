@@ -443,14 +443,13 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 )
             else:
                 await logger.adebug(
-                    f"Writing batch to delta table: index={index} mode=append schema_mode=merge batch_row_count={batch.num_rows}"
+                    f"Writing batch to delta table: index={index} mode=append batch_row_count={batch.num_rows}"
                 )
                 await asyncio.to_thread(
                     deltalake.write_deltalake,
                     table_or_uri=table_uri,
                     data=batch,
                     mode="append",
-                    schema_mode="merge",
                     storage_options=storage_options,
                 )
             if index == 0:

@@ -27,8 +27,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { LLMProviderKeysSettings } from '../settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
+import { providerKeyStateLabel, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import {
     EvaluationMetrics,
@@ -46,8 +46,14 @@ export const scene: SceneExport = {
 }
 
 function LLMAnalyticsEvaluationsContent(): JSX.Element {
-    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter, dateFilter } =
-        useValues(llmEvaluationsLogic)
+    const {
+        evaluations,
+        filteredEvaluations,
+        evaluationsLoading,
+        evaluationsFilter,
+        dateFilter,
+        unhealthyProviderKeysUsedByEvaluations,
+    } = useValues(llmEvaluationsLogic)
     const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
         useActions(llmEvaluationsLogic)
     const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
@@ -55,6 +61,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.llmAnalyticsEvaluation(id), searchParams).url
+    const settingsUrl = combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url
 
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
         filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
@@ -210,6 +217,24 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
         <div className="space-y-4">
             <TrialUsageMeter showSettingsLink={false} />
 
+            {unhealthyProviderKeysUsedByEvaluations.length > 0 && (
+                <LemonBanner type="warning">
+                    <div className="space-y-2">
+                        <p>Some evaluations are using API keys that need attention.</p>
+                        <ul className="list-disc pl-5 space-y-1">
+                            {unhealthyProviderKeysUsedByEvaluations.map((providerKey) => (
+                                <li key={providerKey.id}>
+                                    <span className="font-semibold">{providerKey.name}</span> (
+                                    {providerLabel(providerKey.provider)}) - {providerKeyStateLabel(providerKey.state)}:{' '}
+                                    {providerKey.error_message || 'Unknown error'}
+                                </li>
+                            ))}
+                        </ul>
+                        <Link to={settingsUrl}>Go to settings to fix API keys.</Link>
+                    </div>
+                </LemonBanner>
+            )}
+
             <LemonBanner type="info" dismissKey="evals-billing-notice">
                 Each evaluation run counts as an LLM analytics event.
             </LemonBanner>
@@ -270,8 +295,6 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 export function LLMAnalyticsEvaluationsScene(): JSX.Element {
     const { searchParams } = useValues(router)
 
-    const activeTab = searchParams.tab || 'evaluations'
-
     const tabs: LemonTab<string>[] = [
         {
             key: 'evaluations',
@@ -289,8 +312,8 @@ export function LLMAnalyticsEvaluationsScene(): JSX.Element {
         {
             key: 'settings',
             label: 'Settings',
-            content: <LLMProviderKeysSettings />,
-            link: combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url,
+            link: urls.settings('environment-llm-analytics', 'llm-analytics-byok'),
+            content: <></>,
             'data-attr': 'settings-tab',
         },
     ]
@@ -314,8 +337,7 @@ export function LLMAnalyticsEvaluationsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-
-            <LemonTabs activeKey={activeTab} data-attr="evaluations-tabs" tabs={tabs} sceneInset />
+            <LemonTabs activeKey="evaluations" data-attr="evaluations-tabs" tabs={tabs} sceneInset />
         </SceneContent>
     )
 }

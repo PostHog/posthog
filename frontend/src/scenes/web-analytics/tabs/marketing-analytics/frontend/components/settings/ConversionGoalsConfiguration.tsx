@@ -43,7 +43,7 @@ export function ConversionGoalsConfiguration({
 }): JSX.Element {
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { addOrUpdateConversionGoal, removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
-    const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState())
+    const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState)
     const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
 

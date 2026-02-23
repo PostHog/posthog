@@ -19,6 +19,7 @@ export type State = {
     distinctId: string | undefined
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
+    clientName: string | undefined
 } & Record<PrefixedString<'session'>, SessionState>
 
 export type Env = {
