@@ -43,6 +43,8 @@ class DistinctIdUsageForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
+        if cleaned is None:
+            return cleaned
         dt_from = cleaned.get("datetime_from")
         dt_to = cleaned.get("datetime_to")
         if dt_from and dt_to:
@@ -341,7 +343,7 @@ def distinct_id_usage_view(request):
                 "restriction_status": "exists",
                 "restriction_edit_url": edit_url,
                 "restriction_type": first.get_restriction_type_display(),
-                "restriction_count": len(restrictions),
+                "restriction_count": str(len(restrictions)),
             }
 
         for row in high_usage_raw:
