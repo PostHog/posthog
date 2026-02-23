@@ -51,7 +51,7 @@ export class VisualReviewClient {
     }
 
     private url(path: string): string {
-        return `${this.apiUrl}/api/repos/${this.teamId}${path}`
+        return `${this.apiUrl}/api/projects/${this.teamId}${path}`
     }
 
     private async request<T>(path: string, options: RequestInit = {}): Promise<T> {

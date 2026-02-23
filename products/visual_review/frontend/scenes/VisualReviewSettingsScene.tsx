@@ -122,7 +122,7 @@ export function VisualReviewSettingsScene(): JSX.Element {
         githubIntegrations.forEach((integration: { id: number }) => {
             loadGitHubRepositories(integration.id)
         })
-    }, [integrations?.length, githubIntegrations, loadGitHubRepositories])
+    }, [integrations?.length])
 
     // Sync form state when repo loads
     useEffect(() => {

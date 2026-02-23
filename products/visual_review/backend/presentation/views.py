@@ -23,7 +23,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
-from ..facade.contracts import ApproveRunInput, CreateRunInput, UpdateRepoInput
+from ..facade.contracts import ApproveRunInput, UpdateRepoInput
 from .serializers import (
     ApproveRunInputSerializer,
     CreateRepoInputSerializer,
@@ -64,7 +64,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: ValidatedRequest, **kwargs) -> Response:
         """Create a new repo."""
-        repo = api.create_repo(team_id=self.team_id, name=request.validated_data["name"])
+        repo = api.create_repo(team_id=self.team_id, name=request.validated_data.name)
         return Response(RepoSerializer(instance=repo).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: RepoSerializer})
@@ -85,9 +85,9 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         body = request.validated_data
         input_dto = UpdateRepoInput(
             repo_id=UUID(pk),
-            name=body["name"],
-            repo_full_name=body["repo_full_name"],
-            baseline_file_paths=body["baseline_file_paths"],
+            name=body.name,
+            repo_full_name=body.repo_full_name,
+            baseline_file_paths=body.baseline_file_paths,
         )
 
         try:
@@ -125,7 +125,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: ValidatedRequest, **kwargs) -> Response:
         """Create a new run from a CI manifest."""
-        result = api.create_run(CreateRunInput(**request.validated_data))
+        result = api.create_run(request.validated_data)
         return Response(CreateRunResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: RunSerializer})
@@ -172,8 +172,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         input_dto = ApproveRunInput(
             run_id=UUID(pk),
             user_id=cast(int, request.user.id),
-            snapshots=body["snapshots"],
-            commit_to_github=body["commit_to_github"],
+            snapshots=body.snapshots,
+            commit_to_github=body.commit_to_github,
         )
 
         try:

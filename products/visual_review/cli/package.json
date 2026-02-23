@@ -4,7 +4,7 @@
     "private": true,
     "type": "module",
     "bin": {
-        "vr": "./dist/index.js"
+        "vr": "./dist/cli/src/index.js"
     },
     "scripts": {
         "build": "tsc",
