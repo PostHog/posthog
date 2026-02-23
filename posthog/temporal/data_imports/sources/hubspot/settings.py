@@ -81,6 +81,7 @@ DEFAULT_COMPANY_PROPS = [
 DEFAULT_CONTACT_PROPS = [
     "createdate",
     "email",
+    "hs_additional_emails",
     "firstname",
     "hs_object_id",
     "hs_lead_status",
