@@ -61,6 +61,7 @@ class TestAITemporalModuleIntegrity:
             "consolidate_video_segments_activity",
             "embed_and_store_segments_activity",
             "store_video_session_summary_activity",
+            "cleanup_gemini_file_activity",
             "capture_timing_activity",
             "get_sessions_to_prime_activity",
             "fetch_segments_activity",
@@ -83,6 +84,7 @@ class TestAITemporalModuleIntegrity:
             "reset_report_to_potential_activity",
             "run_signal_semantic_search_activity",
             "safety_judge_activity",
+            "wait_for_signal_in_clickhouse_activity",
             "summarize_signals_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]

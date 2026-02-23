@@ -1,4 +1,5 @@
 import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import { router } from 'kea-router'
 
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
@@ -205,9 +206,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         },
         resetExperimentState: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            if (payload.experimentConfig) {
-                values.experimentLogicRef?.logic.actions.resetExperiment(payload.experimentConfig)
-            }
         },
     })),
     tabAwareActionToUrl(({ values }) => {
@@ -228,7 +226,9 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                       ? undefined
                       : formMode
 
-            return [urls.experiment(id, effectiveFormMode), undefined, undefined]
+            // Preserve search params (e.g. ?metric=...) when navigating to a new experiment
+            const search = id === 'new' ? router.values.currentLocation.searchParams : undefined
+            return [urls.experiment(id, effectiveFormMode), search, undefined]
         }
 
         return {

@@ -160,7 +160,7 @@ describe('createParseMessageStep', () => {
         }
     })
 
-    it('should send messages with no valid rrweb events to DLQ', async () => {
+    it('should drop messages with no valid rrweb events with ingestion warning', async () => {
         const step = createParseMessageStep()
         const event = {
             event: '$snapshot_items',
@@ -178,9 +178,14 @@ describe('createParseMessageStep', () => {
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.DLQ)
-        if (result.type === PipelineResultType.DLQ) {
+        expect(result.type).toBe(PipelineResultType.DROP)
+        if (result.type === PipelineResultType.DROP) {
             expect(result.reason).toBe('message_contained_no_valid_rrweb_events')
+            expect(result.warnings).toHaveLength(1)
+            expect(result.warnings[0]).toEqual({
+                type: 'message_contained_no_valid_rrweb_events',
+                details: {},
+            })
         }
     })
 

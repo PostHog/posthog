@@ -19,6 +19,7 @@ from .box.source import BoxSource
 from .braintree.source import BraintreeSource
 from .braze.source import BrazeSource
 from .brevo.source import BrevoSource
+from .buildbetter.source import BuildBetterSource
 from .calendly.source import CalendlySource
 from .campaign_monitor.source import CampaignMonitorSource
 from .chargebee.source import ChargebeeSource
@@ -161,6 +162,7 @@ __all__ = [
     "BraintreeSource",
     "BrazeSource",
     "BrevoSource",
+    "BuildBetterSource",
     "CalendlySource",
     "CampaignMonitorSource",
     "ChargebeeSource",

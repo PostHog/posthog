@@ -4,6 +4,30 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
+class SignalSourceConfig(UUIDModel):
+    class SourceProduct(models.TextChoices):
+        SESSION_REPLAY = "session_replay", "Session replay"
+
+    class SourceType(models.TextChoices):
+        SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
+    source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
+    source_type = models.CharField(max_length=100, choices=SourceType.choices)
+    enabled = models.BooleanField(default=True)
+    config = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "source_product", "source_type"], name="unique_team_source_product_type"
+            )
+        ]
+
+
 class SignalReport(UUIDModel):
     class Status(models.TextChoices):
         POTENTIAL = "potential"

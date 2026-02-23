@@ -614,13 +614,6 @@ export function LLMProviderKeysSettings(): JSX.Element {
                 ) : (
                     <>
                         <div className="flex justify-between items-start">
-                            <div>
-                                <h2 className="text-xl font-semibold">API keys</h2>
-                                <p className="text-muted">
-                                    Add your API keys to run evaluations with your own account. Supports OpenAI,
-                                    Anthropic, Google Gemini, OpenRouter, and Fireworks.
-                                </p>
-                            </div>
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.LlmAnalytics}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -644,9 +637,9 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <IconKey className="text-muted text-4xl mb-4" />
                                 <h3 className="font-semibold mb-2">No API keys configured</h3>
                                 <p className="text-muted mb-4 text-center">
-                                    Add your API key to run evaluations with your own account.
+                                    Add your API key for LLM analytics features with your own account.
                                     <br />
-                                    Supports OpenAI, Anthropic, Google Gemini, OpenRouter, and Fireworks.
+                                    Supports evaluations today and playground support coming soon.
                                 </p>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmAnalytics}

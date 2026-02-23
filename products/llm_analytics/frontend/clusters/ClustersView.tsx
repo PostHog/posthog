@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight, IconFilter, IconGear } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconFilter, IconGear, IconQuestion } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -231,6 +231,42 @@ export function ClustersView(): JSX.Element {
                     {isScatterPlotExpanded && (
                         <div className="border-t p-4">
                             <ClusterScatterPlot traceSummaries={traceSummaries} />
+                            <div className="flex items-center justify-between mt-2">
+                                <span className="text-xs text-muted">Drag to zoom &middot; Double-click to reset</span>
+                                <Tooltip
+                                    title={
+                                        <div className="space-y-1.5">
+                                            <p className="font-semibold mb-0">WTH (What The Hog) is this?</p>
+                                            <p className="mb-0">
+                                                Each dot is a{' '}
+                                                {clusteringLevel === 'generation' ? 'generation' : 'trace'}. We crunched
+                                                them through embeddings and squished them into 2D so similar ones land
+                                                near each other.
+                                            </p>
+                                            <p className="mb-0">
+                                                Clusters of dots = groups of{' '}
+                                                {clusteringLevel === 'generation' ? 'generations' : 'traces'} that your
+                                                LLM handled in a similar way. Outliers are the loners that didn't fit
+                                                any group.
+                                            </p>
+                                            <p className="mb-0">
+                                                Click any dot to drill into that specific{' '}
+                                                {clusteringLevel === 'generation' ? 'generation' : 'trace'}.
+                                            </p>
+                                        </div>
+                                    }
+                                    placement="left"
+                                    docLink="https://posthog.com/docs/llm-analytics/clusters"
+                                >
+                                    <span
+                                        className="inline-flex items-center gap-1 text-xs text-muted hover:text-default cursor-pointer transition-colors"
+                                        data-attr="clusters-scatter-plot-wth"
+                                    >
+                                        <IconQuestion className="text-sm" />
+                                        WTH is this?
+                                    </span>
+                                </Tooltip>
+                            </div>
                         </div>
                     )}
                 </div>

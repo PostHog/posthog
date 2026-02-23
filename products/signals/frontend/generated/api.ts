@@ -8,7 +8,11 @@
  * OpenAPI spec version: 1.0.0
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
-import type { PaginatedSignalReportListApi, SignalReportApi, SignalReportsListParams } from './api.schemas'
+import type {
+    PaginatedSignalSourceConfigListApi,
+    SignalSourceConfigApi,
+    SignalSourceConfigsListParams,
+} from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -27,21 +31,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getSignalsEmitCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/signals/emit/`
-}
-
-export const signalsEmitCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSignalsEmitCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-/**
- * API for reading signal reports. Reports are auto-generated from video segment clustering.
- */
-export const getSignalReportsListUrl = (projectId: string, params?: SignalReportsListParams) => {
+export const getSignalSourceConfigsListUrl = (projectId: string, params?: SignalSourceConfigsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -53,38 +43,34 @@ export const getSignalReportsListUrl = (projectId: string, params?: SignalReport
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signal_reports/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signal_reports/`
+        ? `/api/projects/${projectId}/signal_source_configs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signal_source_configs/`
 }
 
-export const signalReportsList = async (
+export const signalSourceConfigsList = async (
     projectId: string,
-    params?: SignalReportsListParams,
+    params?: SignalSourceConfigsListParams,
     options?: RequestInit
-): Promise<PaginatedSignalReportListApi> => {
-    return apiMutator<PaginatedSignalReportListApi>(getSignalReportsListUrl(projectId, params), {
+): Promise<PaginatedSignalSourceConfigListApi> => {
+    return apiMutator<PaginatedSignalSourceConfigListApi>(getSignalSourceConfigsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.
- * @summary Run session analysis
- */
-export const getSignalReportsAnalyzeSessionsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signal_reports/analyze_sessions/`
+export const getSignalSourceConfigsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signal_source_configs/`
 }
 
-export const signalReportsAnalyzeSessionsCreate = async (
+export const signalSourceConfigsCreate = async (
     projectId: string,
-    signalReportApi: NonReadonly<SignalReportApi>,
+    signalSourceConfigApi: NonReadonly<SignalSourceConfigApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSignalReportsAnalyzeSessionsCreateUrl(projectId), {
+): Promise<SignalSourceConfigApi> => {
+    return apiMutator<SignalSourceConfigApi>(getSignalSourceConfigsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalReportApi),
+        body: JSON.stringify(signalSourceConfigApi),
     })
 }

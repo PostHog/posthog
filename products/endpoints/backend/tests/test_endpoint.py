@@ -4,6 +4,7 @@ from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest import TestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -11,6 +12,7 @@ from rest_framework import status
 from posthog.schema import EndpointLastExecutionTimesRequest
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -119,8 +121,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("event_name", response.json()["detail"])
 
     def test_create_endpoint_with_defined_variable_placeholders(self):
-        from posthog.models.insight_variable import InsightVariable
-
         variable = InsightVariable.objects.create(
             team=self.team, name="Event Name", code_name="event_name", type="String"
         )
@@ -145,8 +145,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
 
     def test_cannot_create_endpoint_with_partially_defined_variables(self):
-        from posthog.models.insight_variable import InsightVariable
-
         variable = InsightVariable.objects.create(
             team=self.team, name="Event Name", code_name="event_name", type="String"
         )
@@ -191,6 +189,68 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
         self.assertIn("event_name", response.json()["detail"])
+
+    def test_update_endpoint_syncs_query_variables_from_placeholders(self):
+        event_name_variable = InsightVariable.objects.create(
+            team=self.team, name="Event Name", code_name="event_name", type="String", default_value="$pageview"
+        )
+        browser_variable = InsightVariable.objects.create(
+            team=self.team, name="Browser", code_name="browser", type="String", default_value="Chrome"
+        )
+        city_variable = InsightVariable.objects.create(
+            team=self.team, name="City", code_name="city", type="String", default_value="Paris"
+        )
+
+        create_data = {
+            "name": "test_query",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.$browser = {variables.browser}",
+                "variables": {
+                    str(event_name_variable.id): {
+                        "variableId": str(event_name_variable.id),
+                        "code_name": "event_name",
+                        "value": "$identify",
+                    },
+                    str(browser_variable.id): {
+                        "variableId": str(browser_variable.id),
+                        "code_name": "browser",
+                        "value": "Safari",
+                    },
+                },
+            },
+        }
+        create_response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
+        self.assertEqual(status.HTTP_201_CREATED, create_response.status_code, create_response.json())
+
+        update_data = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.$geoip_city_name = {variables.city}",
+                "variables": {
+                    str(event_name_variable.id): {
+                        "variableId": str(event_name_variable.id),
+                        "code_name": "event_name",
+                        "value": "$pageleave",
+                    },
+                    str(browser_variable.id): {
+                        "variableId": str(browser_variable.id),
+                        "code_name": "browser",
+                        "value": "Firefox",
+                    },
+                },
+            }
+        }
+        update_response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/test_query/", update_data, format="json"
+        )
+
+        self.assertEqual(status.HTTP_200_OK, update_response.status_code, update_response.json())
+
+        variables = update_response.json()["query"]["variables"]
+        self.assertEqual({v["code_name"] for v in variables.values()}, {"event_name", "city"})
+        self.assertEqual(variables[str(event_name_variable.id)]["value"], "$pageleave")
+        self.assertEqual(variables[str(city_variable.id)]["value"], "Paris")
 
     def test_cannot_create_endpoint_with_non_uuid_variable_id(self):
         create_data = {
@@ -936,3 +996,105 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("abc123xyz", response_data["derived_from_insight"])
         endpoint = Endpoint.objects.get(name="test_with_insight", team=self.team)
         self.assertEqual(endpoint.derived_from_insight, "abc123xyz")
+
+
+class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "simple_select_with_alias",
+                {"kind": "HogQLQuery", "query": "SELECT event AS ev FROM events"},
+                [{"name": "ev", "type": "string"}],
+            ),
+            (
+                "multiple_columns",
+                {"kind": "HogQLQuery", "query": "SELECT event, distinct_id, timestamp FROM events"},
+                [
+                    {"name": "event", "type": "string"},
+                    {"name": "distinct_id", "type": "string"},
+                    {"name": "timestamp", "type": "datetime"},
+                ],
+            ),
+            (
+                "non_hogql_query",
+                {"kind": "TrendsQuery", "series": [{"kind": "EventsNode"}]},
+                [],
+            ),
+            (
+                "empty_query",
+                {"kind": "HogQLQuery", "query": ""},
+                [],
+            ),
+            (
+                "literal_expressions",
+                {"kind": "HogQLQuery", "query": "SELECT 100 AS total, 'hello' AS greeting"},
+                [
+                    {"name": "total", "type": "integer"},
+                    {"name": "greeting", "type": "string"},
+                ],
+            ),
+            (
+                "aggregate_functions",
+                {"kind": "HogQLQuery", "query": "SELECT count() AS cnt, min(timestamp) AS first_seen FROM events"},
+                [
+                    {"name": "cnt", "type": "integer"},
+                    {"name": "first_seen", "type": "datetime"},
+                ],
+            ),
+            (
+                "nullable_result",
+                {"kind": "HogQLQuery", "query": "SELECT nullIf(event, '') AS maybe_event FROM events"},
+                [{"name": "maybe_event", "type": "string"}],
+            ),
+            (
+                "query_with_variable_placeholders",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT event, count() AS cnt FROM events WHERE event = {variables.event_name} GROUP BY event",
+                },
+                [
+                    {"name": "event", "type": "string"},
+                    {"name": "cnt", "type": "integer"},
+                ],
+            ),
+        ]
+    )
+    def test_extract_columns(self, _name: str, query: dict, expected: list[dict]):
+        from products.endpoints.backend.models import EndpointVersion
+
+        result = EndpointVersion.extract_columns(query, team_id=self.team.pk)
+        self.assertEqual(result, expected)
+
+
+class TestClickhouseTypeMapping(TestCase):
+    @parameterized.expand(
+        [
+            ("String", "string"),
+            ("UInt64", "integer"),
+            ("Int32", "integer"),
+            ("Float64", "float"),
+            ("DateTime64(6, 'UTC')", "datetime"),
+            ("Date", "date"),
+            ("Date32", "date"),
+            ("Bool", "boolean"),
+            ("Decimal(18, 4)", "decimal"),
+            ("UUID", "string"),
+            ("Enum8('a' = 1, 'b' = 2)", "string"),
+            ("FixedString(16)", "string"),
+            ("Array(String)", "array"),
+            ("Tuple(String, Int32)", "json"),
+            ("Map(String, String)", "json"),
+            ("Nullable(String)", "string"),
+            ("LowCardinality(String)", "string"),
+            ("LowCardinality(Nullable(String))", "string"),
+            ("Nullable(LowCardinality(String))", "string"),
+            ("SimpleAggregateFunction(max, DateTime64(6, 'UTC'))", "datetime"),
+            ("SimpleAggregateFunction(any, String)", "string"),
+            ("AggregateFunction(count, UInt64)", "integer"),
+            ("SomeFutureType", "unknown"),
+        ]
+    )
+    def test_clickhouse_type_to_serialized_type(self, ch_type: str, expected: str):
+        from products.endpoints.backend.models import _clickhouse_type_to_serialized_type
+
+        self.assertEqual(_clickhouse_type_to_serialized_type(ch_type), expected)

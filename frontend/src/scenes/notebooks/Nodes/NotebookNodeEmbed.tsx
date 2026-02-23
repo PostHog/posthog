@@ -65,6 +65,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
                     <iframe
                         className="w-full h-full"
                         src={validUrl.toString()}
+                        title="Embedded content"
                         allowFullScreen
                         onLoad={() => {
                             setLoaded(true)

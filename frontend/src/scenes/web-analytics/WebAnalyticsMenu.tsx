@@ -124,6 +124,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                     <ScenePanelLabel title="Visible tiles" className="px-1.5">
                         {availableTiles.map((tileId) => (
                             <ButtonPrimitive
+                                key={tileId}
                                 menuItem
                                 onClick={() => {
                                     setTileVisibility(tileId, hiddenTiles.includes(tileId))
