@@ -199,7 +199,9 @@ export function SupportTicketsScene(): JSX.Element {
                     return {
                         onClick: (e: React.MouseEvent) => {
                             if (e.metaKey || e.ctrlKey) {
-                                window.open(ticketUrl, '_blank')
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
                             } else {
                                 push(ticketUrl)
                             }
