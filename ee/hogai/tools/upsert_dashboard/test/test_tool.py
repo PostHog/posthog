@@ -25,7 +25,7 @@ from posthog.schema import (
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.models.dashboard_tile import Text
 
-from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
+from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
@@ -931,10 +931,9 @@ class TestUpsertDashboardTool(BaseTest):
             name="New Insight",
             description="From state",
         )
-        state_result = StateArtifactResult(content=state_content)
+        state_result: VisualizationWithSourceResult = StateArtifactResult(content=state_content)
 
         tool = self._create_tool()
-        tool._context_manager.artifacts.aget_visualizations = AsyncMock(return_value=[state_result])
 
         action = CreateDashboardToolArgs(
             insight_ids=["state-id"],
@@ -942,7 +941,10 @@ class TestUpsertDashboardTool(BaseTest):
             description="Test",
         )
 
-        await tool._arun_impl(action)
+        with patch.object(
+            tool._context_manager.artifacts, "aget_visualizations", new=AsyncMock(return_value=[state_result])
+        ):
+            await tool._arun_impl(action)
 
         insight_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "insight created"]
         self.assertEqual(len(insight_created_calls), 1)

@@ -145,14 +145,15 @@ class UpsertDashboardTool(MaxTool):
         if missing_ids:
             raise MaxToolRetryableError(format_prompt_string(MISSING_INSIGHT_IDS_PROMPT, missing_ids=missing_ids))
 
-        insights = self._resolve_insights(cast(list[VisualizationWithSourceResult], artifacts))
+        validated_artifacts = cast(list[VisualizationWithSourceResult], artifacts)
+        insights = self._resolve_insights(validated_artifacts)
 
         if not insights:
             return CREATE_NO_INSIGHTS_PROMPT, None
 
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
         await self._report_dashboard_action(dashboard, "dashboard created")
-        await self._report_new_insights(artifacts, insights)
+        await self._report_new_insights(validated_artifacts, insights)
         output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
@@ -167,7 +168,7 @@ class UpsertDashboardTool(MaxTool):
         insight_ids = action.insight_ids or []
         artifacts = await self._get_visualization_artifacts(insight_ids) if insight_ids else []
 
-        dashboard = await self._update_dashboard_with_tiles(
+        dashboard, resolved_insights = await self._update_dashboard_with_tiles(
             dashboard,
             action.name,
             action.description,
@@ -176,12 +177,12 @@ class UpsertDashboardTool(MaxTool):
         )
         await self._report_dashboard_action(dashboard, "dashboard updated")
 
+        if artifacts:
+            await self._report_new_insights(cast(list[VisualizationWithSourceResult], artifacts), resolved_insights)
+
         # Re-fetch sorted tiles to get the latest state
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
         insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
-
-        if artifacts:
-            await self._report_new_insights(artifacts, insights)
 
         output = await self._format_dashboard_output(dashboard, insights)
 
@@ -282,7 +283,7 @@ class UpsertDashboardTool(MaxTool):
         description: str | None,
         insight_ids: list[str],
         artifacts: list[VisualizationWithSourceResult],
-    ) -> Dashboard:
+    ) -> tuple[Dashboard, list[Insight]]:
         """Update dashboard tiles based on provided insight IDs.
 
         Args:
@@ -291,6 +292,10 @@ class UpsertDashboardTool(MaxTool):
             description: New dashboard description (if provided)
             insight_ids: Ordered list of insight IDs for the dashboard
             artifacts: Resolved visualization artifacts matching insight_ids order
+
+        Returns:
+            Tuple of (dashboard, resolved_insights) where resolved_insights
+            corresponds 1:1 with artifacts in the same order.
         """
         if name is not None:
             dashboard.name = name
@@ -300,7 +305,7 @@ class UpsertDashboardTool(MaxTool):
             dashboard.save(update_fields=["name", "description"])
 
         if not insight_ids:
-            return dashboard
+            return dashboard, []
 
         # 1. Get all existing tiles including soft deleted
         all_tiles = list(
@@ -385,7 +390,7 @@ class UpsertDashboardTool(MaxTool):
             tile.save(update_fields=["layouts", "deleted"])
             xs_y += 5
 
-        return dashboard
+        return dashboard, resolved_insights
 
     async def _format_dashboard_output(
         self,
