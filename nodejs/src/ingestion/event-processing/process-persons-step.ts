@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Person, Team } from '../../types'

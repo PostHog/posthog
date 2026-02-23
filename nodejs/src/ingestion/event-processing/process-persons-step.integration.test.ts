@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
+import { PluginEvent } from '~/plugin-scaffold'
 import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
