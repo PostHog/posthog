@@ -108,7 +108,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, view
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "INTERNAL"
+    scope_object = "task"
     queryset = SignalReport.objects.all()
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["signal_count", "total_weight", "created_at", "updated_at"]

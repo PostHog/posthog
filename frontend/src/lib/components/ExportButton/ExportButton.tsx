@@ -22,6 +22,7 @@ export interface ExportButtonProps
     extends Pick<LemonButtonProps, 'disabledReason' | 'icon' | 'sideIcon' | 'id' | 'type' | 'fullWidth'> {
     items: ExportButtonItem[]
     buttonCopy?: string
+    size?: LemonButtonProps['size']
 }
 
 export const ExportButton: React.FunctionComponent<ExportButtonProps & React.RefAttributes<HTMLButtonElement>> =

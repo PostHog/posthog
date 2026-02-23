@@ -953,9 +953,9 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(
                 lines,
                 [
-                    "actor.id,actor.is_identified,actor.created_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
-                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,user_1,2,user_1",
-                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,user_2,1,user_2",
+                    "actor.id,actor.is_identified,actor.created_at,actor.last_seen_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
+                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,,user_1,2,user_1",
+                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,,user_2,1,user_2",
                 ],
             )
 
