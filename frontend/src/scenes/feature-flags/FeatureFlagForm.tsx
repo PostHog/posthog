@@ -32,6 +32,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { HogSenseProvider } from 'lib/components/HogSense'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -51,6 +52,7 @@ import { FeatureFlagEvaluationRuntime } from '~/types'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { v2FormRenderMap } from './featureFlagDetectionConfig'
 import { featureFlagDetectionLogic } from './featureFlagDetectionLogic'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 
@@ -759,13 +761,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             {/* Release conditions card - skip for remote config */}
                             {!featureFlag.is_remote_configuration && (
                                 <div className="rounded border p-3 bg-bg-light">
-                                    <FeatureFlagReleaseConditionsCollapsible
-                                        id={String(props.id)}
-                                        filters={featureFlag.filters}
-                                        onChange={setFeatureFlagFilters}
-                                        variants={nonEmptyVariants}
-                                        findings={findings}
-                                    />
+                                    <HogSenseProvider findings={findings} renderMap={v2FormRenderMap}>
+                                        <FeatureFlagReleaseConditionsCollapsible
+                                            id={String(props.id)}
+                                            filters={featureFlag.filters}
+                                            onChange={setFeatureFlagFilters}
+                                            variants={nonEmptyVariants}
+                                        />
+                                    </HogSenseProvider>
                                 </div>
                             )}
 

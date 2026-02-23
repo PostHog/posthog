@@ -1,10 +1,11 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 
-import { evaluateDetections } from '~/lib/components/HogSense'
+import { evaluateDetections, resolveFindings } from '~/lib/components/HogSense'
 import type { Finding } from '~/lib/components/HogSense'
 import { cohortsModel } from '~/models/cohortsModel'
 import { CohortType, FeatureFlagType } from '~/types'
 
+import { featureFlagKnowledge } from './featureFlagDetectionConfig'
 import type { featureFlagDetectionLogicType } from './featureFlagDetectionLogicType'
 import { featureFlagDetections } from './featureFlagDetections'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -30,10 +31,11 @@ export const featureFlagDetectionLogic = kea<featureFlagDetectionLogicType>([
                     return []
                 }
                 const context = { ...featureFlag, _cohortsById: cohortsById }
-                return evaluateDetections(featureFlagDetections, context, {
+                const results = evaluateDetections(featureFlagDetections, context, {
                     entityType: 'feature_flag',
                     entityId: featureFlag.id ?? undefined,
                 })
+                return resolveFindings(results, featureFlagKnowledge)
             },
         ],
     }),

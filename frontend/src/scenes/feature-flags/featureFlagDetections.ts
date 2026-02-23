@@ -14,13 +14,6 @@ const REGEX_LOOKAHEAD = /(?<!\\)\(\?[=!]/
 const REGEX_LOOKBEHIND = /(?<!\\)\(\?<[=!]/
 const REGEX_BACKREFERENCE = /(?<!\\)\\[1-9]/
 
-const LOCAL_EVAL_DOCS = [
-    {
-        label: 'Learn more',
-        url: 'https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation',
-    },
-]
-
 export type FeatureFlagDetectionContext = FeatureFlagType & {
     _cohortsById: Partial<Record<string | number, CohortType>>
 }
@@ -36,6 +29,7 @@ function allProperties(context: FeatureFlagDetectionContext): AnyPropertyFilter[
 export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[] = [
     {
         id: 'non-instant-properties',
+        severity: 'info',
         trigger: (context) =>
             context.filters.groups.some((group) =>
                 (group.properties ?? []).some(
@@ -44,33 +38,19 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
                         !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
                 )
             ),
-        summary: 'Non-instant properties',
-        description:
-            "These properties aren't immediately available on first page load for unidentified persons. This feature flag requires that at least one event is sent prior to becoming available to your product or website.",
-        severity: 'info',
-        docs: [
-            {
-                label: 'Learn more about how to make feature flags available instantly',
-                url: 'https://posthog.com/docs/feature-flags/bootstrapping',
-            },
-        ],
     },
     {
         id: 'is-not-set-operator',
+        severity: 'warning',
         trigger: (context) =>
             isServerEvaluable(context) &&
             allProperties(context).some(
                 (property) => isPropertyFilterWithOperator(property) && property.operator === 'is_not_set'
             ),
-        summary: 'is_not_set operator',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: is_not_set operator. The flag will still evaluate correctly when not using local evaluation.',
-        severity: 'warning',
-
-        docs: LOCAL_EVAL_DOCS,
     },
     {
         id: 'static-cohort',
+        severity: 'warning',
         trigger: (context) => {
             if (!isServerEvaluable(context)) {
                 return false
@@ -85,15 +65,10 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
                 return cohort?.is_static === true
             })
         },
-        summary: 'Static cohorts',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: static cohorts. The flag will still evaluate correctly when not using local evaluation.',
-        severity: 'warning',
-
-        docs: LOCAL_EVAL_DOCS,
     },
     {
         id: 'regex-lookahead',
+        severity: 'warning',
         trigger: (context) =>
             isServerEvaluable(context) &&
             allProperties(context).some(
@@ -102,15 +77,10 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
                     property.operator === 'regex' &&
                     REGEX_LOOKAHEAD.test(String(property.value))
             ),
-        summary: 'Lookahead in regex',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: lookahead in regex. The flag will still evaluate correctly when not using local evaluation.',
-        severity: 'warning',
-
-        docs: LOCAL_EVAL_DOCS,
     },
     {
         id: 'regex-lookbehind',
+        severity: 'warning',
         trigger: (context) =>
             isServerEvaluable(context) &&
             allProperties(context).some(
@@ -119,15 +89,10 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
                     property.operator === 'regex' &&
                     REGEX_LOOKBEHIND.test(String(property.value))
             ),
-        summary: 'Lookbehind in regex',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: lookbehind in regex. The flag will still evaluate correctly when not using local evaluation.',
-        severity: 'warning',
-
-        docs: LOCAL_EVAL_DOCS,
     },
     {
         id: 'regex-backreferences',
+        severity: 'warning',
         trigger: (context) =>
             isServerEvaluable(context) &&
             allProperties(context).some(
@@ -136,11 +101,5 @@ export const featureFlagDetections: DetectionEntry<FeatureFlagDetectionContext>[
                     property.operator === 'regex' &&
                     REGEX_BACKREFERENCE.test(String(property.value))
             ),
-        summary: 'Backreferences in regex',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: backreferences in regex. The flag will still evaluate correctly when not using local evaluation.',
-        severity: 'warning',
-
-        docs: LOCAL_EVAL_DOCS,
     },
 ]

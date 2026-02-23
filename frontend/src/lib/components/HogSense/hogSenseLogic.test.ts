@@ -1,130 +1,88 @@
-import { expectLogic } from 'kea-test-utils'
+import { evaluateDetections, resolveFindings } from './hogSenseLogic'
+import type { DetectionEntry, KnowledgeEntry } from './types'
 
-import { initKeaTests } from '~/test/init'
-
-import { hogSenseLogic } from './hogSenseLogic'
-import type { DetectionEntry } from './types'
-
-describe('hogSenseLogic', () => {
-    beforeEach(() => {
-        initKeaTests()
-    })
-
-    it('returns empty findings when no entries match', () => {
+describe('evaluateDetections', () => {
+    it('returns empty results when no entries match', () => {
         const entries: DetectionEntry<{ active: boolean }>[] = [
-            {
-                id: 'test-entry',
-                trigger: (ctx) => ctx.active,
-                summary: 'Active',
-                description: 'This is active',
-                severity: 'info',
-            },
+            { id: 'test-entry', trigger: (ctx) => ctx.active, severity: 'info' },
         ]
-
-        const logic = hogSenseLogic({ key: 'test-empty', entries, context: { active: false } })
-        logic.mount()
-
-        expectLogic(logic).toMatchValues({ findings: [] })
+        expect(evaluateDetections(entries, { active: false })).toEqual([])
     })
 
-    it('returns findings for matching entries', () => {
+    it('returns results for matching entries', () => {
         const entries: DetectionEntry<{ active: boolean }>[] = [
-            {
-                id: 'test-entry',
-                trigger: (ctx) => ctx.active,
-                summary: 'Active',
-                description: 'This is active',
-                severity: 'warning',
-                docs: [{ label: 'Learn more', url: 'https://example.com' }],
-            },
+            { id: 'test-entry', trigger: (ctx) => ctx.active, severity: 'warning' },
         ]
-
-        const logic = hogSenseLogic({ key: 'test-match', entries, context: { active: true } })
-        logic.mount()
-
-        expectLogic(logic).toMatchValues({
-            findings: [
-                {
-                    id: 'test-entry',
-                    summary: 'Active',
-                    description: 'This is active',
-                    severity: 'warning',
-                    docs: [{ label: 'Learn more', url: 'https://example.com' }],
-                    entityType: undefined,
-                    entityId: undefined,
-                },
-            ],
-        })
+        expect(evaluateDetections(entries, { active: true })).toEqual([
+            { id: 'test-entry', severity: 'warning', entityType: undefined, entityId: undefined },
+        ])
     })
 
-    it('preserves entity metadata on findings', () => {
+    it('preserves entity metadata on results', () => {
         const entries: DetectionEntry<{ value: number }>[] = [
-            {
-                id: 'threshold',
-                trigger: (ctx) => ctx.value > 100,
-                summary: 'Over threshold',
-                description: 'Value exceeds 100',
-                severity: 'error',
-            },
+            { id: 'threshold', trigger: (ctx) => ctx.value > 100, severity: 'error' },
         ]
-
-        const logic = hogSenseLogic({
-            key: 'test-entity',
-            entries,
-            context: { value: 200 },
-            entityType: 'feature_flag',
-            entityId: 42,
-        })
-        logic.mount()
-
-        expectLogic(logic).toMatchValues({
-            findings: [
-                expect.objectContaining({
-                    id: 'threshold',
-                    entityType: 'feature_flag',
-                    entityId: 42,
-                }),
-            ],
-        })
+        expect(evaluateDetections(entries, { value: 200 }, { entityType: 'feature_flag', entityId: 42 })).toEqual([
+            { id: 'threshold', severity: 'error', entityType: 'feature_flag', entityId: 42 },
+        ])
     })
 
-    it('returns multiple findings when multiple entries match', () => {
+    it('returns multiple results when multiple entries match', () => {
         const entries: DetectionEntry<{ a: boolean; b: boolean }>[] = [
-            {
-                id: 'entry-a',
-                trigger: (ctx) => ctx.a,
-                summary: 'A is true',
-                description: 'A',
-                severity: 'info',
-            },
-            {
-                id: 'entry-b',
-                trigger: (ctx) => ctx.b,
-                summary: 'B is true',
-                description: 'B',
-                severity: 'warning',
-            },
-            {
-                id: 'entry-c',
-                trigger: () => false,
-                summary: 'Never',
-                description: 'C',
-                severity: 'error',
-            },
+            { id: 'entry-a', trigger: (ctx) => ctx.a, severity: 'info' },
+            { id: 'entry-b', trigger: (ctx) => ctx.b, severity: 'warning' },
+            { id: 'entry-c', trigger: () => false, severity: 'error' },
         ]
-
-        const logic = hogSenseLogic({ key: 'test-multi', entries, context: { a: true, b: true } })
-        logic.mount()
-
-        expectLogic(logic).toMatchValues({
-            findings: [expect.objectContaining({ id: 'entry-a' }), expect.objectContaining({ id: 'entry-b' })],
-        })
+        const results = evaluateDetections(entries, { a: true, b: true })
+        expect(results).toHaveLength(2)
+        expect(results.map((r) => r.id)).toEqual(['entry-a', 'entry-b'])
     })
 
-    it('returns empty findings for empty entries array', () => {
-        const logic = hogSenseLogic({ key: 'test-no-entries', entries: [], context: {} })
-        logic.mount()
+    it('returns empty results for empty entries array', () => {
+        expect(evaluateDetections([], {})).toEqual([])
+    })
+})
 
-        expectLogic(logic).toMatchValues({ findings: [] })
+describe('resolveFindings', () => {
+    const knowledge: Record<string, KnowledgeEntry> = {
+        'known-id': {
+            summary: 'Known',
+            description: 'A known detection',
+            docs: [{ label: 'Docs', url: 'https://example.com' }],
+        },
+        'another-id': { summary: 'Another', description: 'Another detection' },
+    }
+
+    it('enriches detection results with knowledge', () => {
+        const results = [{ id: 'known-id', severity: 'warning' as const }]
+        expect(resolveFindings(results, knowledge)).toEqual([
+            {
+                id: 'known-id',
+                severity: 'warning',
+                summary: 'Known',
+                description: 'A known detection',
+                docs: [{ label: 'Docs', url: 'https://example.com' }],
+            },
+        ])
+    })
+
+    it('filters out results without knowledge entries', () => {
+        const results = [
+            { id: 'known-id', severity: 'info' as const },
+            { id: 'unknown-id', severity: 'error' as const },
+        ]
+        expect(resolveFindings(results, knowledge)).toHaveLength(1)
+        expect(resolveFindings(results, knowledge)[0].id).toBe('known-id')
+    })
+
+    it('preserves entity metadata through resolution', () => {
+        const results = [{ id: 'known-id', severity: 'info' as const, entityType: 'flag', entityId: 7 }]
+        const findings = resolveFindings(results, knowledge)
+        expect(findings[0].entityType).toBe('flag')
+        expect(findings[0].entityId).toBe(7)
+    })
+
+    it('returns empty for empty results', () => {
+        expect(resolveFindings([], knowledge)).toEqual([])
     })
 })

@@ -1,11 +1,12 @@
 import { kea, key, path, props, selectors } from 'kea'
 
 import type { hogSenseLogicType } from './hogSenseLogicType'
-import type { DetectionEntry, Finding } from './types'
+import type { DetectionEntry, DetectionResult, Finding, KnowledgeEntry } from './types'
 
 export interface HogSenseLogicProps {
     key: string
     entries: DetectionEntry<any>[]
+    knowledge: Record<string, KnowledgeEntry>
     context: Record<string, any>
     entityType?: string
     entityId?: string | number
@@ -15,17 +16,25 @@ export function evaluateDetections<T>(
     entries: DetectionEntry<T>[],
     context: T,
     meta?: { entityType?: string; entityId?: string | number }
-): Finding[] {
+): DetectionResult[] {
     return entries
         .filter((entry) => entry.trigger(context))
         .map((entry) => ({
             id: entry.id,
-            summary: entry.summary,
-            description: entry.description,
             severity: entry.severity,
-            docs: entry.docs,
             entityType: meta?.entityType,
             entityId: meta?.entityId,
+        }))
+}
+
+export function resolveFindings(results: DetectionResult[], knowledge: Record<string, KnowledgeEntry>): Finding[] {
+    return results
+        .filter((r) => r.id in knowledge)
+        .map((r) => ({
+            ...r,
+            summary: knowledge[r.id].summary,
+            description: knowledge[r.id].description,
+            docs: knowledge[r.id].docs,
         }))
 }
 
@@ -36,13 +45,17 @@ export const hogSenseLogic = kea<hogSenseLogicType>([
 
     selectors({
         findings: [
-            (_, p) => [p.entries, p.context, p.entityType, p.entityId],
+            (_, p) => [p.entries, p.knowledge, p.context, p.entityType, p.entityId],
             (
                 entries: DetectionEntry<any>[],
+                knowledge: Record<string, KnowledgeEntry>,
                 context: Record<string, any>,
                 entityType?: string,
                 entityId?: string | number
-            ): Finding[] => evaluateDetections(entries, context, { entityType, entityId }),
+            ): Finding[] => {
+                const results = evaluateDetections(entries, context, { entityType, entityId })
+                return resolveFindings(results, knowledge)
+            },
         ],
     }),
 ])

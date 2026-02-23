@@ -7,8 +7,7 @@ import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinne
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import type { Finding } from 'lib/components/HogSense'
-import { HogSenseHint, HogSenseRenderer } from 'lib/components/HogSense'
+import { HogSensePosition } from 'lib/components/HogSense'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -20,7 +19,6 @@ import { clamp } from 'lib/utils'
 
 import { AnyPropertyFilter, FeatureFlagGroupType, MultivariateFlagVariant, PropertyFilterType } from '~/types'
 
-import { FF_DETECTION_GROUPS } from './featureFlagDetectionConfig'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
@@ -29,7 +27,6 @@ import {
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
-    findings?: Finding[]
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -172,9 +169,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onChange,
     readOnly,
     variants,
-    findings: findingsProp,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
-    const findings = findingsProp ?? []
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
         readOnly,
@@ -399,6 +394,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 />
                                             </div>
 
+                                            <HogSensePosition name="above-filters" className="flex flex-col gap-1" />
+
                                             <div>
                                                 <LemonLabel className="mb-1">Match filters</LemonLabel>
                                                 <PropertyFilters
@@ -415,25 +412,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                     hasRowOperator={false}
                                                     sendAllKeyUpdates
                                                 />
-                                            </div>
-
-                                            <div className="flex flex-col gap-1">
-                                                <HogSenseRenderer
-                                                    findings={findings}
-                                                    ids={FF_DETECTION_GROUPS.PROPERTY_HINTS}
-                                                >
-                                                    {(matched) =>
-                                                        matched.map((f) => <HogSenseHint key={f.id} finding={f} />)
-                                                    }
-                                                </HogSenseRenderer>
-                                                <HogSenseRenderer
-                                                    findings={findings}
-                                                    ids={FF_DETECTION_GROUPS.LOCAL_EVAL_WARNINGS}
-                                                >
-                                                    {(matched) =>
-                                                        matched.map((f) => <HogSenseHint key={f.id} finding={f} />)
-                                                    }
-                                                </HogSenseRenderer>
                                             </div>
 
                                             <div>

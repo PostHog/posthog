@@ -24,7 +24,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { HogSenseBanner, HogSenseRenderer } from 'lib/components/HogSense'
+import { HogSensePosition, HogSenseProvider } from 'lib/components/HogSense'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -109,7 +109,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { FF_DETECTION_GROUPS } from './featureFlagDetectionConfig'
+import { v1FormRenderMap, v1ReadOnlyRenderMap } from './featureFlagDetectionConfig'
 import { featureFlagDetectionLogic } from './featureFlagDetectionLogic'
 import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
@@ -244,19 +244,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <SceneDivider />
                                 {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
                                 {featureFlag.filters.super_groups && featureFlag.filters.super_groups.length > 0 && (
-                                    <FeatureFlagReleaseConditions
-                                        readOnly
-                                        isSuper
-                                        filters={featureFlag.filters}
-                                        findings={findings}
-                                    />
+                                    <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
                                 )}
 
-                                <FeatureFlagReleaseConditions
-                                    readOnly
-                                    filters={featureFlag.filters}
-                                    findings={findings}
-                                />
+                                <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
 
                                 <SceneDivider />
 
@@ -451,13 +442,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <SceneDivider />
                             {!featureFlag.is_remote_configuration && (
                                 <>
-                                    <FeatureFlagReleaseConditions
-                                        id={`${featureFlag.id}`}
-                                        filters={featureFlag.filters}
-                                        onChange={setFeatureFlagFilters}
-                                        evaluationRuntime={featureFlag.evaluation_runtime}
-                                        findings={findings}
-                                    />
+                                    <HogSenseProvider findings={findings} renderMap={v1FormRenderMap}>
+                                        <FeatureFlagReleaseConditions
+                                            id={`${featureFlag.id}`}
+                                            filters={featureFlag.filters}
+                                            onChange={setFeatureFlagFilters}
+                                            evaluationRuntime={featureFlag.evaluation_runtime}
+                                        />
+                                    </HogSenseProvider>
                                     <SceneDivider />
                                 </>
                             )}
@@ -1134,9 +1126,9 @@ function FeatureFlagRollout({
         <SceneContent>
             {readOnly ? (
                 <>
-                    <HogSenseRenderer findings={findings} ids={FF_DETECTION_GROUPS.LOCAL_EVAL_WARNINGS}>
-                        {(matched) => matched.map((f) => <HogSenseBanner key={f.id} finding={f} />)}
-                    </HogSenseRenderer>
+                    <HogSenseProvider findings={findings} renderMap={v1ReadOnlyRenderMap}>
+                        <HogSensePosition name="top-warnings" />
+                    </HogSenseProvider>
                     <div className="flex flex-col">
                         <div className="grid grid-cols-2">
                             <div className="card-secondary">Status</div>

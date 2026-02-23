@@ -10,8 +10,7 @@ import { LemonInput, LemonLabel, LemonSelect, LemonSnack, Tooltip } from '@posth
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import type { Finding } from 'lib/components/HogSense'
-import { HogSenseBanner, HogSenseRenderer } from 'lib/components/HogSense'
+import { HogSensePosition } from 'lib/components/HogSense'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -41,7 +40,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { FF_DETECTION_GROUPS } from './featureFlagDetectionConfig'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -99,14 +97,12 @@ export function FeatureFlagReleaseConditions({
     nonEmptyFeatureFlagVariants,
     showTrashIconWithOneCondition = false,
     removedLastConditionCallback,
-    findings: findingsProp,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
     showTrashIconWithOneCondition?: boolean
     removedLastConditionCallback?: () => void
-    findings?: Finding[]
 }): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -154,8 +150,6 @@ export function FeatureFlagReleaseConditions({
     // Get flag key data for all flag dependencies
     const { getFlagKey, flagKeysLoading } = useValues(releaseConditionsLogic)
     const flagKeyData = (flagId: string): string => getFlagKey(flagId)
-
-    const findings = findingsProp ?? []
 
     const isEarlyAccessFeatureCondition = (group: FeatureFlagGroupType): boolean => {
         return !!(
@@ -262,20 +256,7 @@ export function FeatureFlagReleaseConditions({
                     )}
                     {readOnly && group.description && <div className="mt-2 text-muted">{group.description}</div>}
                     <LemonDivider className="my-3" />
-                    {!readOnly && (
-                        <HogSenseRenderer findings={findings} ids={FF_DETECTION_GROUPS.PROPERTY_HINTS}>
-                            {(matched) =>
-                                matched.map((f) => <HogSenseBanner key={f.id} finding={f} className="mt-3 mb-3" />)
-                            }
-                        </HogSenseRenderer>
-                    )}
-                    {!readOnly && (
-                        <HogSenseRenderer findings={findings} ids={FF_DETECTION_GROUPS.LOCAL_EVAL_WARNINGS}>
-                            {(matched) =>
-                                matched.map((f) => <HogSenseBanner key={f.id} finding={f} className="mt-3 mb-3" />)
-                            }
-                        </HogSenseRenderer>
-                    )}
+                    {!readOnly && <HogSensePosition name="above-filters" />}
                     {readOnly ? (
                         <>
                             {group.properties?.map((property, idx) => (

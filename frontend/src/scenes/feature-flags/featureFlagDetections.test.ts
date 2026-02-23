@@ -51,8 +51,6 @@ describe('featureFlagDetections', () => {
     describe('registry shape', () => {
         it.each(featureFlagDetections.map((e) => [e.id, e]))('%s has required fields', (_id, entry) => {
             expect(entry.id).toBeTruthy()
-            expect(entry.summary).toBeTruthy()
-            expect(entry.description).toBeTruthy()
             expect(['info', 'warning', 'error']).toContain(entry.severity)
             expect(typeof entry.trigger).toBe('function')
         })
