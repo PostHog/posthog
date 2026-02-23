@@ -92,8 +92,8 @@ function InsightCard({
     query: InsightVizNode<TrendsQuery>
 }): JSX.Element {
     return (
-        <div className="border rounded-lg bg-surface-primary flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <div className="border rounded-lg bg-surface-primary flex flex-col h-100">
+            <div className="flex items-center justify-between px-4 pt-3 pb-1 shrink-0">
                 <div>
                     <h3 className="font-semibold text-base m-0">{title}</h3>
                     <p className="text-xs text-secondary m-0">{description}</p>
@@ -108,7 +108,7 @@ function InsightCard({
                     Open as insight
                 </LemonButton>
             </div>
-            <div className="h-80">
+            <div className="ErrorTracking__insights flex-1 min-h-0 p-2">
                 <Query query={query} readOnly={true} />
             </div>
         </div>
