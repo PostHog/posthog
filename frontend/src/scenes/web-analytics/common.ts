@@ -18,11 +18,11 @@ import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    colSpanClassName?: `@4xl/main-content:col-span-${number}` | '@4xl/main-content:col-span-full'
+    colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    rowSpanClassName?: `@4xl/main-content:row-span-${number}`
+    rowSpanClassName?: `md:row-span-${number}`
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    orderWhenLargeClassName?: `@7xl/main-content:order-${number}`
+    orderWhenLargeClassName?: `xxl:order-${number}`
     className?: string
 }
 

@@ -34,6 +34,7 @@ import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     isQuickFilterItem,
     quickFilterToPropertyFilters,
@@ -184,9 +185,12 @@ export interface ActionFilterRowProps {
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */
     addFilterDocLink?: string
+    /** Doc link to show in the tooltip of the Combine events button */
+    inlineEventsDocLink?: string
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export function ActionFilterRow({
@@ -225,6 +229,8 @@ export function ActionFilterRow({
     excludedProperties,
     allowNonCapturedEvents,
     hogQLGlobals,
+    inlineEventsDocLink,
+    definitionPopoverRenderer,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
     const effectiveActionsTaxonomicGroupTypes = showQuickFilters
@@ -485,6 +491,7 @@ export function ActionFilterRow({
             }
             excludedProperties={excludedProperties}
             allowNonCapturedEvents={allowNonCapturedEvents}
+            definitionPopoverRenderer={definitionPopoverRenderer}
         />
     )
 
@@ -562,7 +569,7 @@ export function ActionFilterRow({
                 })
             }}
             tooltip="Combine events"
-            tooltipDocLink="https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline"
+            tooltipDocLink={inlineEventsDocLink}
         />
     )
 

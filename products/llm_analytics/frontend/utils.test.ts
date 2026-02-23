@@ -540,6 +540,16 @@ describe('LLM Analytics utils', () => {
         it('throws on completely invalid input', () => {
             expect(() => parsePartialJSON('not json at all')).toThrow()
         })
+
+        it.each([
+            ['bracket-prefixed text', '[Thinking: The user wants to build a todo app.]I will build it'],
+            ['bracket-prefixed with tool call', '[Tool Call: lov-write, Input: {"file_path":"src/index.tsx"}]'],
+        ])('returns empty array for %s (not actual JSON)', (_label, input) => {
+            // These strings start with "[" so they look like JSON arrays,
+            // but the partial parser can't extract any valid elements
+            const result = parsePartialJSON(input)
+            expect(result).toEqual([])
+        })
     })
 
     describe('looksLikeXml', () => {
