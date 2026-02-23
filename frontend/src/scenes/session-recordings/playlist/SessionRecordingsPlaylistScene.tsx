@@ -91,6 +91,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             playlist_id: playlist.id,
             playlist_name: playlist.name,
             is_synthetic: playlist.is_synthetic,
+            playlist_type: playlist.type === 'filters' ? 'saved_filter' : 'collection',
         })
     }, [playlist, playlistLoading])
 
