@@ -4918,6 +4918,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lifecycle"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "metrics",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "limiters"
 version = "0.1.0"
 dependencies = [
@@ -9283,6 +9295,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "pin-project-lite",
+ "slab",
  "tokio",
 ]
 
