@@ -119,6 +119,29 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertIn("Test Dashboard", result)
         self.assertIn(str(dashboard.id), result)
 
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_create_dashboard_reports_user_action_with_from_posthog_ai(self, mock_report_user_action):
+        insight = await self._create_insight("Analytics Insight")
+
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight.short_id],
+            name="AI Created Dashboard",
+            description="Dashboard created by PostHog AI",
+        )
+
+        await tool._arun_impl(action)
+
+        mock_report_user_action.assert_called_once()
+        call_args = mock_report_user_action.call_args
+        self.assertEqual(call_args[0][0], self.user)
+        self.assertEqual(call_args[0][1], "dashboard created")
+        properties = call_args[0][2]
+        self.assertTrue(properties["from_posthog_ai"])
+        self.assertEqual(properties["item_count"], 1)
+        self.assertEqual(call_args[1]["team"], self.team)
+
     async def test_create_dashboard_output_includes_correct_url(self):
         insight = await self._create_insight("URL Test Insight")
 

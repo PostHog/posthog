@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
+from posthog.event_usage import report_user_action
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
@@ -151,6 +152,16 @@ class UpsertDashboardTool(MaxTool):
 
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
         output = await self._format_dashboard_output(dashboard, insights)
+
+        await database_sync_to_async(report_user_action)(
+            self._user,
+            "dashboard created",
+            {
+                **await database_sync_to_async(dashboard.get_analytics_metadata)(),
+                "from_posthog_ai": True,
+            },
+            team=self._team,
+        )
 
         return output, {"dashboard_id": dashboard.id}
 
