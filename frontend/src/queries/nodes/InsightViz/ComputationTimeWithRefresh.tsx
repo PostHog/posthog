@@ -46,7 +46,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
                     >
                         <Link
                             onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
-                            className={disabledReason ? 'opacity-50' : ''}
+                            className={`bg-[var(--color-accent)] text-white rounded px-1.5 py-0.5 no-underline hover:text-white ${disabledReason ? 'opacity-50' : ''}`}
                             disabledReason={canBypassRefreshDisabled ? '' : disabledReason}
                         >
                             Refresh
