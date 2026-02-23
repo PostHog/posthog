@@ -230,15 +230,18 @@ async def _summarize_description(
                     model=GEMINI_MODEL,
                     contents=prompt_parts,
                     config=types.GenerateContentConfig(
-                        max_output_tokens=max(threshold // 4, 256),
+                        max_output_tokens=LLM_THINKING_BUDGET_TOKENS + max(threshold // 4, 256),
                         thinking_config=types.ThinkingConfig(
                             thinking_budget=LLM_THINKING_BUDGET_TOKENS,
-                            include_thoughts=True,
+                            # We don't need to log thoughts for summarization yet
+                            include_thoughts=False,
                         ),
                     ),
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
+            if response.candidates and response.candidates[0].finish_reason == types.FinishReason.MAX_TOKENS:
+                raise ValueError("LLM summary response was truncated due to token limit")
             summary = (response.text or "").strip()
             if not summary:
                 raise ValueError("Empty response from LLM when summarizing description")
@@ -353,9 +356,10 @@ async def _check_actionability(
                     model=GEMINI_MODEL,
                     contents=[prompt],
                     config=types.GenerateContentConfig(
-                        max_output_tokens=128,
+                        max_output_tokens=LLM_THINKING_BUDGET_TOKENS + 128,
                         thinking_config=types.ThinkingConfig(
                             thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                            # Increasing max output tokens to include the thoughts
                             include_thoughts=True,
                         ),
                     ),
