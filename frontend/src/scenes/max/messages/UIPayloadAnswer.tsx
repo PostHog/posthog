@@ -75,9 +75,6 @@ export function UIPayloadAnswer({
         const filters = toolPayload as MaxErrorTrackingSearchResponse
         return <ErrorTrackingFiltersWidget toolCallId={toolCallId} filters={filters} />
     }
-    if (toolName === 'summarize_sessions') {
-        return <SummarizeSessionsWidget payload={toolPayload} />
-    }
 
     // Check if this is a dangerous operation requiring approval
     if (isDangerousOperationResponse(toolPayload)) {
@@ -302,24 +299,28 @@ function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrack
     )
 }
 
-function SummarizeSessionsWidget({
+export function SummarizeSessionsWidget({
     payload,
+    title,
 }: {
     payload: { title?: string; session_group_summary_id?: string } | null | undefined
+    title?: string
 }): JSX.Element | null {
     if (!payload?.session_group_summary_id) {
         return null
     }
 
     return (
-        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
+        <div className="flex items-center justify-between border rounded-lg bg-surface-primary px-2 py-1.5 w-full">
+            <span className="text-xs font-semibold text-secondary">{title || 'Sessions summary'}</span>
             <LemonButton
                 to={`/session-summaries/${payload.session_group_summary_id}`}
-                size="small"
-                type="primary"
+                icon={<IconOpenInNew />}
+                size="xsmall"
                 targetBlank
+                tooltip="Open full analysis"
             >
-                Open report
+                Open full analysis
             </LemonButton>
         </div>
     )
