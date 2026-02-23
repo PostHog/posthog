@@ -404,8 +404,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                                 return byokModels
                             }
                         }
-                    } catch {
-                        // Fall back to default model list below
+                    } catch (e) {
+                        console.warn('Failed to load BYOK models, falling back to default list', e)
                     }
                 }
 
@@ -438,7 +438,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             actions.clearToolCalls()
         },
         submitPrompt: async (_, breakpoint) => {
-            const requestModel = values.model
             const requestSystemPrompt = values.systemPrompt
             const messagesToSend = values.messages.filter(
                 (m) => (m.role === 'user' || m.role === 'assistant' || m.role === 'system') && m.content.trim()
@@ -587,7 +586,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             if (values.currentResponse !== null) {
                 const runDetails: ComparisonItem = {
                     id: uuid(),
-                    model: requestModel,
+                    model: values.model,
                     systemPrompt: requestSystemPrompt,
                     requestMessages: requestMessages,
                     response: values.currentResponse,
@@ -707,7 +706,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                             .map((option) => ({
                                 label: option.name,
                                 value: option.id,
-                                provider: option.provider,
                                 tooltip: option.description || `Provider: ${option.provider}`,
                             })),
                     }))
