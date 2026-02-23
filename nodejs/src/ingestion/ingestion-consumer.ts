@@ -3,11 +3,7 @@ import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import {
-    HogTransformerService,
-    HogTransformerServiceDeps,
-    createHogTransformerService,
-} from '../cdp/hog-transformations/hog-transformer.service'
+import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
@@ -42,16 +38,10 @@ import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redi
 
 /**
  * Narrowed Hub type for IngestionConsumer.
- * This includes all fields needed by IngestionConsumer and its dependencies:
- * - HogTransformerService (via HogTransformerHub)
- * - BatchWritingGroupStore
- * - EventIngestionRestrictionManager
- * - KafkaProducerWrapper
- * - BatchWritingPersonsStore
- * - Preprocessing and ingestion pipelines
+ * HogTransformerService is passed pre-built to the constructor,
+ * so this type only includes fields directly used by IngestionConsumer.
  */
-export type IngestionConsumerHub = HogTransformerServiceDeps &
-    IngestionConsumerConfig &
+export type IngestionConsumerHub = IngestionConsumerConfig &
     Pick<
         Hub,
         // EventIngestionRestrictionManager
@@ -61,9 +51,12 @@ export type IngestionConsumerHub = HogTransformerServiceDeps &
         | 'clickhouseGroupRepository'
         // KafkaProducerWrapper.create
         | 'KAFKA_CLIENT_RACK'
-        // PreprocessingHub (additional fields not in HogTransformerHub)
+        // PreprocessingHub
         | 'cookielessManager'
-        // BatchWritingPersonsStore
+        | 'teamManager'
+        | 'CDP_HOG_WATCHER_SAMPLE_RATE'
+        // BatchWritingPersonsStore / BatchWritingGroupStore
+        | 'kafkaProducer'
         | 'personRepository'
         // GroupTypeManager
         | 'groupTypeManager'
@@ -109,6 +102,7 @@ export class IngestionConsumer {
 
     constructor(
         private hub: IngestionConsumerHub,
+        hogTransformer: HogTransformerService,
         overrides: Partial<
             Pick<
                 PluginsServerConfig,
@@ -165,7 +159,7 @@ export class IngestionConsumer {
             })
         }
 
-        this.hogTransformer = createHogTransformerService(hub)
+        this.hogTransformer = hogTransformer
 
         this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
