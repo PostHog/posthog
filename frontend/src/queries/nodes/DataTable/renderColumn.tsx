@@ -407,8 +407,14 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
-        const key = (record as any[])[1] // 'key' is the second column in the groups query
-        return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
+        const columns = query.source.select ?? ['group_name', 'key', 'created_at']
+        const keyIndex = columns.indexOf('key')
+        const groupKey = keyIndex >= 0 ? (record as any[])[keyIndex] : undefined
+        return groupKey !== undefined ? (
+            <Link to={urls.group(query.source.group_type_index, groupKey, true)}>{value}</Link>
+        ) : (
+            <>{String(value)}</>
+        )
     } else if (trimQuotes(key).endsWith('$virt_mrr') || trimQuotes(key).endsWith('$virt_revenue')) {
         if (value === null || value === undefined) {
             return '—'
