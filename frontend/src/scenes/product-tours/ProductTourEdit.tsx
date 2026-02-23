@@ -15,10 +15,10 @@ import { ProductTourStepsEditor } from './editor'
 import { productTourLogic } from './productTourLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
-    const { productTour, productTourForm, isProductTourFormSubmitting, pendingToolbarOpen } = useValues(
+    const { productTour, productTourForm, isEditingProductTour, draftSaveStatus, draftActionInProgress } = useValues(
         productTourLogic({ id })
     )
-    const { editingProductTour, setProductTourFormValue, submitProductTourForm, submitAndOpenToolbar } = useActions(
+    const { discardDraft, publishDraft, setProductTourFormValue, openToolbarModal } = useActions(
         productTourLogic({ id })
     )
 
@@ -43,23 +43,29 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     }}
                     actions={
                         <div className="flex items-center gap-2">
-                            <ProductTourStatusTag tour={productTour} />
+                            <ProductTourStatusTag
+                                tour={productTour}
+                                isEditing={isEditingProductTour}
+                                draftSaveStatus={draftSaveStatus}
+                            />
+                            <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
+                                Preview
+                            </LemonButton>
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={() => submitAndOpenToolbar('preview')}
-                                loading={pendingToolbarOpen}
+                                onClick={discardDraft}
+                                loading={draftActionInProgress === 'discard'}
+                                disabledReason={draftActionInProgress ? 'Discarding draft...' : undefined}
                             >
-                                Preview
-                            </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={() => editingProductTour(false)}>
                                 Cancel
                             </LemonButton>
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                onClick={() => submitProductTourForm()}
-                                loading={isProductTourFormSubmitting && !pendingToolbarOpen}
+                                onClick={publishDraft}
+                                loading={draftActionInProgress === 'publish'}
+                                disabledReason={draftActionInProgress ? 'Saving...' : undefined}
                             >
                                 Save
                             </LemonButton>

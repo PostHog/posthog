@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconGear, IconMessage, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
@@ -41,11 +41,9 @@ export const scene: SceneExport = {
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
-    return (
-        <BindLogic logic={llmAnalyticsPlaygroundLogic} props={{ key: 'llm-analytics-playground-scene' }}>
-            <PlaygroundLayout />
-        </BindLogic>
-    )
+    useMountedLogic(llmAnalyticsPlaygroundLogic)
+
+    return <PlaygroundLayout />
 }
 
 function RateLimitBanner(): JSX.Element | null {
