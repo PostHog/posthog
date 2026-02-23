@@ -317,6 +317,8 @@ posthog/dags/backfill_materialized_column.py:0: error: Need type annotation for 
 posthog/dags/backups.py:0: error: "DynamicOutput[Any]" has no attribute "map"  [attr-defined]
 posthog/dags/backups.py:0: error: Argument 1 to "_bucket_base_path" of "Backup" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/dags/backups.py:0: error: Argument 1 to "_bucket_base_path" of "Backup" has incompatible type "str | None"; expected "str"  [arg-type]
+posthog/dags/backups.py:0: error: Item "None" of "Backup | None" has no attribute "date"  [union-attr]
+posthog/dags/backups.py:0: error: Item "None" of "Backup | None" has no attribute "date"  [union-attr]
 posthog/dags/backups.py:0: error: Missing return statement  [return]
 posthog/dags/backups.py:0: error: Missing return statement  [return]
 posthog/dags/backups.py:0: error: Return value expected  [return-value]

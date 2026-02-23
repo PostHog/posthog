@@ -12,8 +12,10 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { objectsEqual } from 'lib/utils'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -43,9 +45,14 @@ import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
+import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
-import { sanitizeTraceUrlSearchParams, truncateValue } from './utils'
+import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
+import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
+import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
+import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -113,20 +120,36 @@ function LLMAnalyticsDashboard(): JSX.Element {
         () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
         []
     )
+    const { externalFilters } = useValues(dashboardLogicInstance || fallbackLogicInstance)
     const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
     const setExternalFilters =
         dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : () => {}
+    useAttachedLogic(dashboardLogicInstance || fallbackLogicInstance, llmAnalyticsSharedLogic)
+
+    const nextExternalFilters = React.useMemo(
+        () => ({
+            date_from: dashboardDateFilter.dateFrom,
+            date_to: dashboardDateFilter.dateTo,
+            properties: propertyFilters.length > 0 ? propertyFilters : null,
+        }),
+        [dashboardDateFilter.dateFrom, dashboardDateFilter.dateTo, propertyFilters]
+    )
+
+    const currentExternalFilters = React.useMemo(
+        () => ({
+            date_from: externalFilters?.date_from ?? null,
+            date_to: externalFilters?.date_to ?? null,
+            properties: externalFilters?.properties ?? null,
+        }),
+        [externalFilters?.date_from, externalFilters?.date_to, externalFilters?.properties]
+    )
 
     // Set filters using useLayoutEffect to ensure they're set before Dashboard's afterMount event fires
     React.useLayoutEffect(() => {
-        if (selectedDashboardId && setExternalFilters) {
-            setExternalFilters({
-                date_from: dashboardDateFilter.dateFrom,
-                date_to: dashboardDateFilter.dateTo,
-                properties: propertyFilters.length > 0 ? propertyFilters : null,
-            })
+        if (selectedDashboardId && setExternalFilters && !objectsEqual(currentExternalFilters, nextExternalFilters)) {
+            setExternalFilters(nextExternalFilters)
         }
-    }, [dashboardDateFilter, propertyFilters, selectedDashboardId, setExternalFilters])
+    }, [currentExternalFilters, nextExternalFilters, selectedDashboardId, setExternalFilters])
 
     return (
         <LLMAnalyticsSetupPrompt>
@@ -158,7 +181,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
 
     // Helper to safely extract uuid and traceId from a result row based on current column configuration
-    const getRowIds = (result: unknown): { uuid: string; traceId: string } | null => {
+    const getRowIds = (result: unknown): { uuid: string; traceId: string; traceTimestamp?: string } | null => {
         if (!Array.isArray(result) || !isEventsQuery(generationsQuery.source)) {
             return null
         }
@@ -169,6 +192,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
         const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
+        const timestampIndex = columns.findIndex((col) => col === 'timestamp')
 
         if (uuidIndex < 0 || traceIdIndex < 0) {
             return null
@@ -176,9 +200,14 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
         const uuid = result[uuidIndex]
         const traceId = result[traceIdIndex]
+        const timestampValue = timestampIndex >= 0 ? result[timestampIndex] : null
 
         if (typeof uuid === 'string' && typeof traceId === 'string') {
-            return { uuid, traceId }
+            const parsedTimestamp =
+                timestampValue != null && dayjs(String(timestampValue)).isValid()
+                    ? getTraceTimestamp(String(timestampValue))
+                    : undefined
+            return { uuid, traceId, traceTimestamp: parsedTimestamp }
         }
 
         return null
@@ -186,6 +215,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
     return (
         <DataTable
+            attachTo={llmAnalyticsSharedLogic}
             query={{
                 ...generationsQuery,
                 showSavedFilters: true,
@@ -236,6 +266,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                                 combineUrl(urls.llmAnalyticsTrace(ids.traceId), {
                                                     ...nonTraceSearchParams,
                                                     event: value,
+                                                    timestamp: ids.traceTimestamp,
                                                     back_to: 'generations',
                                                 }).url
                                             }
@@ -354,7 +385,35 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     playground: 'Test and experiment with LLM prompts in a sandbox environment.',
 }
 
-export function LLMAnalyticsScene(): JSX.Element {
+export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+    const sharedLogic = llmAnalyticsSharedLogic({ tabId })
+    const dataCollectionLogic = dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID })
+    useAttachedLogic(dataCollectionLogic, sharedLogic)
+
+    return (
+        <BindLogic logic={llmAnalyticsSharedLogic} props={{ tabId }}>
+            <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
+                <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                    <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
+                        <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
+                            <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
+                                <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
+                                    <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
+                                        <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
+                                            <LLMAnalyticsSceneContent />
+                                        </BindLogic>
+                                    </BindLogic>
+                                </BindLogic>
+                            </BindLogic>
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+function LLMAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
@@ -524,48 +583,46 @@ export function LLMAnalyticsScene(): JSX.Element {
     }, [featureFlags, searchParams, toggleProduct])
 
     return (
-        <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <SceneContent>
-                <SceneTitleSection
-                    name={sceneConfigurations[Scene.LLMAnalytics].name}
-                    description={TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.LLMAnalytics].description}
-                    resourceType={{
-                        type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
-                    }}
-                    actions={
-                        <>
-                            <LemonButton
-                                to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
-                                type="secondary"
-                                targetBlank
-                                size="small"
-                            >
-                                Documentation
-                            </LemonButton>
-                        </>
-                    }
-                />
-
-                {availableItemsInSidebar.length > 0 ? (
+        <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.LLMAnalytics].name}
+                description={TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.LLMAnalytics].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
+                }}
+                actions={
                     <>
-                        <LemonBanner type="info" className="mb-2" dismissKey="llm-analytics-sidebar-moved-banner">
-                            We've moved{' '}
-                            {availableItemsInSidebar.map((el, i) => (
-                                <React.Fragment key={i}>
-                                    {i > 0 && ', '}
-                                    {el}
-                                </React.Fragment>
-                            ))}{' '}
-                            out of LLM Analytics and into their own apps. You can access them by clicking in the links
-                            above, or by clicking "All apps" in the sidebar. You can also customize your sidebar{' '}
-                            <Link onClick={openEditCustomProductsModal}>here</Link>.
-                        </LemonBanner>
-                        <EditCustomProductsModal />
+                        <LemonButton
+                            to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
+                            type="secondary"
+                            targetBlank
+                            size="small"
+                        >
+                            Documentation
+                        </LemonButton>
                     </>
-                ) : null}
+                }
+            />
 
-                <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
-            </SceneContent>
-        </BindLogic>
+            {availableItemsInSidebar.length > 0 ? (
+                <>
+                    <LemonBanner type="info" className="mb-2" dismissKey="llm-analytics-sidebar-moved-banner">
+                        We've moved{' '}
+                        {availableItemsInSidebar.map((el, i) => (
+                            <React.Fragment key={i}>
+                                {i > 0 && ', '}
+                                {el}
+                            </React.Fragment>
+                        ))}{' '}
+                        out of LLM Analytics and into their own apps. You can access them by clicking in the links
+                        above, or by clicking "All apps" in the sidebar. You can also customize your sidebar{' '}
+                        <Link onClick={openEditCustomProductsModal}>here</Link>.
+                    </LemonBanner>
+                    <EditCustomProductsModal />
+                </>
+            ) : null}
+
+            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
+        </SceneContent>
     )
 }

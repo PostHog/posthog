@@ -277,12 +277,18 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         endpoint_id = endpoint.id
         self.assertEqual(4, EndpointVersion.objects.filter(endpoint_id=endpoint_id).count())
 
-        # Delete endpoint
+        # Delete endpoint (soft delete)
         response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
         self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
 
-        # Versions should be deleted too (CASCADE)
-        self.assertEqual(0, EndpointVersion.objects.filter(endpoint_id=endpoint_id).count())
+        # Endpoint should be soft-deleted and no longer accessible
+        endpoint.refresh_from_db()
+        self.assertTrue(endpoint.deleted)
+
+        # Versions still exist in DB but endpoint is not accessible via API
+        self.assertEqual(4, EndpointVersion.objects.filter(endpoint_id=endpoint_id).count())
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_version_query_immutability(self):
         """Version queries should be immutable."""

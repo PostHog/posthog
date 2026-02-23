@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { NodeKind, TracesQuery } from '~/queries/schema/schema-general'
@@ -12,12 +13,19 @@ import { PropertyFilterType } from '~/types'
 
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
 
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { LLMAnalyticsSession: blankScene }
+
 describe('llmAnalyticsSessionLogic', () => {
     let logic: ReturnType<typeof llmAnalyticsSessionLogic.build>
 
     beforeEach(async () => {
         initKeaTests()
-        logic = llmAnalyticsSessionLogic()
+        sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([
+            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
+        ])
+        logic = llmAnalyticsSessionLogic({ tabId: '1' })
         logic.mount()
     })
 
