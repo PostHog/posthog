@@ -18,13 +18,17 @@ class SlackThreadContext:
     integration_id: int
     channel: str
     thread_ts: str
+    user_message_ts: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "integration_id": self.integration_id,
             "channel": self.channel,
             "thread_ts": self.thread_ts,
         }
+        if self.user_message_ts is not None:
+            d["user_message_ts"] = self.user_message_ts
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SlackThreadContext":
@@ -32,6 +36,7 @@ class SlackThreadContext:
             integration_id=data["integration_id"],
             channel=data["channel"],
             thread_ts=data["thread_ts"],
+            user_message_ts=data.get("user_message_ts"),
         )
 
 
@@ -88,21 +93,22 @@ class SlackThreadHandler:
         return None
 
     def update_reaction(self, emoji: str, remove: str | None = "seedling") -> None:
-        """Swap the reaction on the original thread message."""
+        """Swap the reaction on the user's mention message."""
+        target_ts = self.context.user_message_ts or self.context.thread_ts
         try:
             client = self._get_client()
             if remove:
                 try:
                     client.reactions_remove(
                         channel=self.context.channel,
-                        timestamp=self.context.thread_ts,
+                        timestamp=target_ts,
                         name=remove,
                     )
                 except Exception:
                     pass
             client.reactions_add(
                 channel=self.context.channel,
-                timestamp=self.context.thread_ts,
+                timestamp=target_ts,
                 name=emoji,
             )
         except Exception as e:
