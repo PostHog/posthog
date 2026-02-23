@@ -1288,7 +1288,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         key: 'endpoints',
                         name: 'Endpoints',
                         path: urls.endpoints(),
-                        iconType: 'endpoint',
+                        iconType: 'endpoints',
                     }
 
                     return {
