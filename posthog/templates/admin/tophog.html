@@ -177,7 +177,6 @@
                 <thead>
                     <tr>
                         <th scope="col">Rank</th>
-                        <th scope="col">Type</th>
                         <th scope="col">Key</th>
                         <th scope="col">Value</th>
                         <th scope="col">Count</th>
@@ -189,7 +188,6 @@
                     {% for entry in entries %}
                     <tr>
                         <td>{{ forloop.counter }}</td>
-                        <td>{{ entry.type }}</td>
                         <td>{{ entry.key }}</td>
                         <td>{{ entry.value }}</td>
                         <td>{{ entry.count }}</td>

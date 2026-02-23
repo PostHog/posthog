@@ -31,7 +31,7 @@ SELECT metric, type, key, total, obs, pipeline, lane
 FROM (
     SELECT
         *,
-        ROW_NUMBER() OVER (PARTITION BY metric ORDER BY total DESC) AS rn
+        ROW_NUMBER() OVER (PARTITION BY metric, type ORDER BY total DESC) AS rn
     FROM (
         SELECT
             metric,
@@ -52,7 +52,7 @@ FROM (
     )
 )
 WHERE rn <= 10
-ORDER BY metric, rn
+ORDER BY metric, type, rn
 """
 
 FILTER_OPTIONS_QUERY = """
@@ -126,9 +126,9 @@ def tophog_dashboard_view(request):
         rows = sync_execute(query, params)
 
         for metric, type_, key, total, obs, pipeline, lane in rows:
-            metrics[metric].append(
+            table_name = f"{metric} ({type_})"
+            metrics[table_name].append(
                 {
-                    "type": type_,
                     "key": _format_key(key),
                     "value": total,
                     "count": obs,
