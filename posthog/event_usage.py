@@ -5,6 +5,7 @@ Module to centralize event reporting on the server-side.
 from typing import Optional
 
 import posthoganalytics
+from rest_framework.authentication import SessionAuthentication
 
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
@@ -259,8 +260,6 @@ def report_user_organization_membership_level_changed(
 
 def get_event_source(request) -> str:
     """Determine the source of an API request for analytics."""
-    from rest_framework.authentication import SessionAuthentication
-
     user_agent = request.META.get("HTTP_USER_AGENT", "")
     if "posthog/terraform-provider" in user_agent:
         return "terraform"
