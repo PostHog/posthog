@@ -299,13 +299,56 @@ async function waitForCanvasRenderingSignal(
 
     await page.waitForFunction(
         ([selectors, renderedAttribute]: [string[], string]) => {
+            const hasRenderedPixels = (canvas: HTMLCanvasElement): boolean => {
+                if (
+                    canvas.width === 0 ||
+                    canvas.height === 0 ||
+                    canvas.clientWidth === 0 ||
+                    canvas.clientHeight === 0
+                ) {
+                    return false
+                }
+
+                try {
+                    const sampleSize = 16
+                    const sampleCanvas = document.createElement('canvas')
+                    sampleCanvas.width = sampleSize
+                    sampleCanvas.height = sampleSize
+                    const sampleContext = sampleCanvas.getContext('2d', { willReadFrequently: true })
+
+                    if (!sampleContext) {
+                        return false
+                    }
+
+                    sampleContext.drawImage(canvas, 0, 0, sampleSize, sampleSize)
+                    const imageData = sampleContext.getImageData(0, 0, sampleSize, sampleSize).data
+
+                    let nonTransparentPixelCount = 0
+                    for (let i = 3; i < imageData.length; i += 4) {
+                        if (imageData[i] !== 0 && ++nonTransparentPixelCount >= 8) {
+                            return true
+                        }
+                    }
+                } catch {
+                    // If canvas pixels are unreadable, fall back to the rendered signal.
+                    return true
+                }
+
+                return false
+            }
+
             const canvases = selectors.flatMap((selector) =>
                 Array.from(document.querySelectorAll(selector)).filter(
                     (element): element is HTMLCanvasElement => element instanceof HTMLCanvasElement
                 )
             )
 
-            return canvases.length > 0 && canvases.every((canvas) => canvas.getAttribute(renderedAttribute) === 'true')
+            return (
+                canvases.length > 0 &&
+                canvases.every(
+                    (canvas) => canvas.getAttribute(renderedAttribute) === 'true' && hasRenderedPixels(canvas)
+                )
+            )
         },
         [canvasSelectors, STORYBOOK_CANVAS_RENDERED_ATTRIBUTE],
         { timeout: 5000 }

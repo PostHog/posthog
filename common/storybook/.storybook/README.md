@@ -42,4 +42,4 @@ MyStory.parameters = {
 }
 ```
 
-When `enableCanvasRendering` is on, the test runner automatically waits for a `canvas` selector and then waits for the chart canvas to report it has rendered before taking a snapshot.
+When `enableCanvasRendering` is on, the test runner automatically waits for a `canvas` selector and then waits for the chart canvas to report it has rendered with non-empty pixels before taking a snapshot.
