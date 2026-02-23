@@ -1,5 +1,5 @@
+import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
-import isEqual from 'lodash.isequal'
 import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -99,7 +99,7 @@ function EndpointHogQLQuery({
     useEffect(() => {
         const sourceVariables = isHogQLQuery(sourceQuery.source) ? sourceQuery.source.variables : undefined
         const hasQueryChanges = queryInput !== query.query
-        const hasVariableChanges = !isEqual(sourceVariables || {}, query.variables || {})
+        const hasVariableChanges = !equal(sourceVariables || {}, query.variables || {})
 
         if (!hasQueryChanges && !hasVariableChanges) {
             setLocalQuery(null)
