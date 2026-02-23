@@ -16,22 +16,22 @@ const GUIDE_CONTENT: Record<ExperimentWizardStep, GuideContent> = {
         tips: [
             'Feature flags are placed in your codebase to switch between variants. We will give you a code snippet at the end of the wizard.',
             'Feature flags also control the rollout process, which you can configure in the next step.',
-            'In most cases you will want a new feature flag for this experiment. If you however want to use an existing one, keep in mind that changing the rollout configuration will modify the feature flag directly.',
+            'In most cases you will want a new feature flag for this experiment. If you however want to use an existing one, the rollout configuration can only be modified on the feature flag directly.',
         ],
     },
     variants: {
         title: 'Configuring variants',
         tips: [
-            'Start with a simple A/B test (control vs. one variant). The more variants you add, the more traffic you need to get reliable results.',
-            'Variants by default have an equal split of traffic. If you adjust it, please consider the implication on the measurements.',
+            'The more variants you add, the more traffic you need to get reliable results.',
+            'It is recommended to split traffic equally between variants. The lower the traffic a variant has, the longer it will take to reach reliable results.',
         ],
     },
     analytics: {
         title: 'Measuring impact',
         tips: [
             'By default every user exposed to the experiment is included in the analysis.',
-            'You can customize it to narrow it down further, but be careful not to introduce a bias.',
-            'You can change inclusion criteria and metrics afterwards, it is just used for evaluation, events are always gathered.',
+            'You can customize it to narrow it down further, but be careful not to introduce bias.',
+            'You can change inclusion criteria and metrics afterwards. This impacts only the analysis, not what your user sees or data collection.',
         ],
     },
 }
