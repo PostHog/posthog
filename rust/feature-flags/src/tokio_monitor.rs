@@ -43,20 +43,22 @@ impl TokioRuntimeMonitor {
         let mut stable_state = WorkerState::new(num_workers, &self.metrics);
 
         #[cfg(tokio_unstable)]
-        {
-            let mut unstable_state = UnstableWorkerState::new(num_workers, &self.metrics);
-            self.run_unstable_loop(&mut stable_state, &mut unstable_state)
-                .await;
-        }
+        let mut unstable_state = UnstableWorkerState::new(num_workers, &self.metrics);
 
-        #[cfg(not(tokio_unstable))]
-        {
-            self.run_stable_loop(&mut stable_state).await;
-        }
+        self.run_loop(
+            &mut stable_state,
+            #[cfg(tokio_unstable)]
+            &mut unstable_state,
+        )
+        .await;
     }
 
-    #[cfg(not(tokio_unstable))]
-    async fn run_stable_loop(&self, state: &mut WorkerState) {
+    async fn run_loop(
+        &self,
+        stable_state: &mut WorkerState,
+        #[cfg(tokio_unstable)] unstable_state: &mut UnstableWorkerState,
+    ) {
+        #[cfg(not(tokio_unstable))]
         tracing::warn!(
             "tokio_unstable not enabled — blocking pool and some per-worker metrics \
              (poll count, steal count, overflow count, local queue depth, mean poll time) \
@@ -71,31 +73,12 @@ impl TokioRuntimeMonitor {
             ticker.tick().await;
 
             let now = Instant::now();
-            let elapsed = now.duration_since(state.last_sample);
-            state.last_sample = now;
-
-            self.report_stable_metrics(state, elapsed);
-        }
-    }
-
-    #[cfg(tokio_unstable)]
-    async fn run_unstable_loop(
-        &self,
-        stable_state: &mut WorkerState,
-        unstable_state: &mut UnstableWorkerState,
-    ) {
-        let mut ticker = interval(SAMPLING_INTERVAL);
-        // Skip the immediate first tick so the first report comes after a full interval
-        ticker.tick().await;
-
-        loop {
-            ticker.tick().await;
-
-            let now = Instant::now();
             let elapsed = now.duration_since(stable_state.last_sample);
             stable_state.last_sample = now;
 
             self.report_stable_metrics(stable_state, elapsed);
+
+            #[cfg(tokio_unstable)]
             self.report_unstable_metrics(unstable_state, &stable_state.worker_labels);
         }
     }
@@ -363,7 +346,8 @@ mod tests {
         let elapsed = start.elapsed();
 
         let mut total_busy_delta = Duration::ZERO;
-        for (i, busy_now) in busy_before.iter().enumerate().take(num_workers) {
+        for i in 0..num_workers {
+            let busy_now = metrics.worker_total_busy_duration(i);
             total_busy_delta += busy_now.saturating_sub(busy_before[i]);
         }
 
