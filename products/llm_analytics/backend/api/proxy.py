@@ -81,26 +81,15 @@ class LLMProxyViewSet(viewsets.ViewSet):
             if serializer.is_valid():
                 provider_key_id = serializer.validated_data.get("provider_key_id")
                 provider = serializer.validated_data.get("provider")
-                if (
-                    provider_key_id
-                    and provider
-                    and self._has_valid_provider_key(str(provider_key_id), provider, self.request.user)
-                ):
-                    return []
+                if provider_key_id and provider:
+                    try:
+                        key = self._get_provider_key(str(provider_key_id), self.request.user, touch_last_used=False)
+                        if key and key.provider == provider:
+                            return []
+                    except ValueError:
+                        pass
 
         return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle(), LLMProxyDailyRateThrottle()]
-
-    def _has_valid_provider_key(self, provider_key_id: str, provider: str, user) -> bool:
-        team = getattr(user, "current_team", None)
-        if not team:
-            return False
-
-        key = LLMProviderKey.objects.filter(id=provider_key_id, team=team).first()
-        if not key:
-            return False
-
-        api_key = key.encrypted_config.get("api_key")
-        return bool(api_key) and key.provider == provider
 
     def _get_provider_key(
         self, provider_key_id: str | None, user, *, touch_last_used: bool = True
