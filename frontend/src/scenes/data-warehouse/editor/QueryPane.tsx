@@ -43,7 +43,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     height: `${queryPaneHeight}px`,
-                    maxHeight: queryPaneDesiredSize === null ? '30%' : undefined,
+                    maxHeight: queryPaneDesiredSize === null ? '35%' : undefined,
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
