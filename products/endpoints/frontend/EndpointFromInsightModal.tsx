@@ -4,7 +4,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
@@ -16,99 +15,60 @@ import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
 export interface EndpointFromInsightModalProps {
-    isOpen: boolean
-    closeModal: () => void
     tabId: string
     insightQuery: HogQLQuery | InsightQueryNode
     insightShortId?: string
 }
 
 export function EndpointFromInsightModal({
-    isOpen,
-    closeModal,
     tabId,
     insightQuery,
     insightShortId,
 }: EndpointFromInsightModalProps): JSX.Element {
-    const {
-        createEndpoint,
-        updateEndpoint,
-        setEndpointName,
-        setEndpointDescription,
-        setIsUpdateMode,
-        setSelectedEndpointName,
-    } = useActions(endpointLogic({ tabId }))
-    const { endpointName, endpointDescription, isUpdateMode, selectedEndpointName } = useValues(
+    const { createEndpoint, setEndpointName, setEndpointDescription, closeCreateFromInsightModal } = useActions(
+        endpointLogic({ tabId })
+    )
+    const { endpointName, endpointDescription, createFromInsightModalOpen, duplicateEndpoint } = useValues(
         endpointLogic({ tabId })
     )
     const { endpoints } = useValues(endpointsLogic({ tabId }))
 
-    // Filter endpoints that were created from this insight
     const endpointsFromThisInsight = insightShortId
         ? endpoints.filter((endpoint) => endpoint.derived_from_insight === insightShortId)
         : []
 
     const handleSubmit = (): void => {
-        if (isUpdateMode) {
-            if (!selectedEndpointName) {
-                return
-            }
-            updateEndpoint(selectedEndpointName, {
-                description: endpointDescription?.trim() || undefined,
-                query: insightQuery,
-            })
-        } else {
-            if (!endpointName?.trim()) {
-                return
-            }
-            createEndpoint({
-                name: endpointName.trim(),
-                description: endpointDescription?.trim() || undefined,
-                query: insightQuery,
-                derived_from_insight: insightShortId,
-            })
+        if (!endpointName?.trim()) {
+            return
         }
-
-        closeModal()
+        createEndpoint({
+            name: endpointName.trim(),
+            description: endpointDescription?.trim() || undefined,
+            query: insightQuery,
+            derived_from_insight: insightShortId,
+        })
     }
 
     const handleClose = (): void => {
         setEndpointName('')
         setEndpointDescription('')
-        setIsUpdateMode(false)
-        setSelectedEndpointName(null)
-        closeModal()
+        closeCreateFromInsightModal()
     }
 
     return (
-        <LemonModal isOpen={isOpen} onClose={handleClose} width={600}>
+        <LemonModal isOpen={createFromInsightModalOpen} onClose={handleClose} width={600}>
             <LemonModal.Header>
-                <h3>{isUpdateMode ? 'Update endpoint' : 'Create endpoint'}</h3>
+                <h3>{duplicateEndpoint ? 'Duplicate insight-based endpoint' : 'Create endpoint from insight'}</h3>
             </LemonModal.Header>
 
             <LemonModal.Content>
                 <div className="space-y-4">
-                    <div>
-                        <LemonField.Pure label="Mode">
-                            <LemonSelect
-                                value={isUpdateMode ? 'update' : 'create'}
-                                onChange={(value) => {
-                                    setIsUpdateMode(value === 'update')
-                                    if (value === 'update') {
-                                        setEndpointName('')
-                                    } else {
-                                        setSelectedEndpointName(null)
-                                    }
-                                }}
-                                options={[
-                                    { value: 'create', label: 'Create new endpoint' },
-                                    { value: 'update', label: 'Update existing endpoint' },
-                                ]}
-                            />
-                        </LemonField.Pure>
-                    </div>
-
-                    {!isUpdateMode && endpointsFromThisInsight.length > 0 && (
+                    {duplicateEndpoint && (
+                        <div className="text-sm text-secondary">
+                            Duplicating <strong>{duplicateEndpoint.name}</strong>
+                        </div>
+                    )}
+                    {endpointsFromThisInsight.length > 0 && (
                         <div>
                             <div className="text-muted mb-2">Endpoints already created from this insight:</div>
                             <LemonTable
@@ -136,43 +96,23 @@ export function EndpointFromInsightModal({
                         </div>
                     )}
 
-                    {isUpdateMode ? (
-                        <div>
-                            <LemonField.Pure label="Select endpoint">
-                                <LemonSelect
-                                    value={selectedEndpointName}
-                                    onChange={(value) => setSelectedEndpointName(value)}
-                                    options={endpoints.map((endpoint) => ({
-                                        value: endpoint.name,
-                                        label: endpoint.name,
-                                    }))}
-                                    placeholder="Select an endpoint to update"
-                                />
-                            </LemonField.Pure>
-                        </div>
-                    ) : (
-                        <div>
-                            <LemonField.Pure label="Name">
-                                <LemonInput
-                                    value={endpointName || ''}
-                                    onChange={setEndpointName}
-                                    placeholder="Enter endpoint name"
-                                    autoFocus
-                                />
-                            </LemonField.Pure>
-                        </div>
-                    )}
+                    <LemonField.Pure label="Name">
+                        <LemonInput
+                            value={endpointName || ''}
+                            onChange={setEndpointName}
+                            placeholder="Enter endpoint name"
+                            autoFocus
+                        />
+                    </LemonField.Pure>
 
-                    <div>
-                        <LemonField.Pure label="Description">
-                            <LemonTextArea
-                                value={endpointDescription || ''}
-                                onChange={setEndpointDescription}
-                                placeholder="Enter endpoint description (optional)"
-                                rows={3}
-                            />
-                        </LemonField.Pure>
-                    </div>
+                    <LemonField.Pure label="Description">
+                        <LemonTextArea
+                            value={endpointDescription || ''}
+                            onChange={setEndpointDescription}
+                            placeholder="Enter endpoint description (optional)"
+                            rows={3}
+                        />
+                    </LemonField.Pure>
                 </div>
             </LemonModal.Content>
 
@@ -184,17 +124,9 @@ export function EndpointFromInsightModal({
                 <LemonButton
                     type="primary"
                     onClick={handleSubmit}
-                    disabledReason={
-                        isUpdateMode
-                            ? !selectedEndpointName
-                                ? 'Select an endpoint to update'
-                                : undefined
-                            : !endpointName
-                              ? 'Endpoint name is required'
-                              : undefined
-                    }
+                    disabledReason={!endpointName?.trim() ? 'Endpoint name is required' : undefined}
                 >
-                    {isUpdateMode ? 'Update endpoint' : 'Create endpoint'}
+                    Create endpoint
                 </LemonButton>
             </LemonModal.Footer>
         </LemonModal>

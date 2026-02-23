@@ -153,7 +153,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
     '/llm-analytics/prompts': ['LLMAnalyticsPrompts', 'llmAnalyticsPrompts'],
     '/llm-analytics/prompts/:name': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
-    '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
     '/llm-analytics/clusters': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
@@ -188,6 +187,8 @@ export const productRedirects: Record<
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     '/llm-analytics': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
+    '/llm-analytics/settings': (_params, searchParams) =>
+        combineUrl(urls.settings('environment-llm-analytics', 'llm-analytics-byok'), searchParams).url,
     '/llm-observability': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
@@ -360,16 +361,18 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsDatasets: {
         projectBased: true,
-        name: 'LLM analytics datasets',
+        name: 'Datasets',
         description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_datasets',
     },
     LLMAnalyticsDataset: {
         projectBased: true,
         name: 'LLM analytics dataset',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_datasets',
     },
     LLMAnalyticsEvaluations: {
         projectBased: true,
@@ -378,6 +381,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/evaluations',
+        iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluation: {
         projectBased: true,
@@ -385,6 +389,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluationTemplates: {
         projectBased: true,
@@ -392,6 +397,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_evaluations',
     },
     LLMAnalyticsPrompts: {
         projectBased: true,
@@ -399,12 +405,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/prompts',
+        iconType: 'llm_prompts',
     },
     LLMAnalyticsPrompt: {
         projectBased: true,
         name: 'LLM analytics prompt',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_prompts',
     },
     LLMAnalyticsClusters: {
         projectBased: true,
@@ -412,12 +420,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Discover patterns and clusters in your LLM usage.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/clusters',
+        iconType: 'llm_clusters',
     },
     LLMAnalyticsCluster: {
         projectBased: true,
         name: 'LLM analytics cluster',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_clusters',
     },
     Logs: {
         projectBased: true,
@@ -665,7 +675,6 @@ export const productUrls = {
     llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
     llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
     llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
-    llmAnalyticsSettings: (): string => '/llm-analytics/settings',
     llmAnalyticsClusters: (runId?: string): string =>
         runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
     llmAnalyticsCluster: (runId: string, clusterId: number): string =>

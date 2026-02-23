@@ -14,8 +14,8 @@
 export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
 
 export const PropertyTypeEnumApi = {
-    AND: 'AND',
-    OR: 'OR',
+    And: 'AND',
+    Or: 'OR',
 } as const
 
 /**
@@ -40,23 +40,23 @@ export const PropertyTypeEnumApi = {
 export type OperatorEnumApi = (typeof OperatorEnumApi)[keyof typeof OperatorEnumApi]
 
 export const OperatorEnumApi = {
-    exact: 'exact',
-    is_not: 'is_not',
-    icontains: 'icontains',
-    not_icontains: 'not_icontains',
-    regex: 'regex',
-    not_regex: 'not_regex',
-    gt: 'gt',
-    lt: 'lt',
-    gte: 'gte',
-    lte: 'lte',
-    is_set: 'is_set',
-    is_not_set: 'is_not_set',
-    is_date_exact: 'is_date_exact',
-    is_date_after: 'is_date_after',
-    is_date_before: 'is_date_before',
-    in: 'in',
-    not_in: 'not_in',
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Lt: 'lt',
+    Gte: 'gte',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateAfter: 'is_date_after',
+    IsDateBefore: 'is_date_before',
+    In: 'in',
+    NotIn: 'not_in',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -98,30 +98,30 @@ export const NullEnumApi = {} as const
 export type PropertyItemTypeEnumApi = (typeof PropertyItemTypeEnumApi)[keyof typeof PropertyItemTypeEnumApi]
 
 export const PropertyItemTypeEnumApi = {
-    event: 'event',
-    event_metadata: 'event_metadata',
-    feature: 'feature',
-    person: 'person',
-    cohort: 'cohort',
-    element: 'element',
-    'static-cohort': 'static-cohort',
-    'dynamic-cohort': 'dynamic-cohort',
-    'precalculated-cohort': 'precalculated-cohort',
-    group: 'group',
-    recording: 'recording',
-    log_entry: 'log_entry',
-    behavioral: 'behavioral',
-    session: 'session',
-    hogql: 'hogql',
-    data_warehouse: 'data_warehouse',
-    data_warehouse_person_property: 'data_warehouse_person_property',
-    error_tracking_issue: 'error_tracking_issue',
-    log: 'log',
-    log_attribute: 'log_attribute',
-    log_resource_attribute: 'log_resource_attribute',
-    revenue_analytics: 'revenue_analytics',
-    flag: 'flag',
-    workflow_variable: 'workflow_variable',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Feature: 'feature',
+    Person: 'person',
+    Cohort: 'cohort',
+    Element: 'element',
+    StaticCohort: 'static-cohort',
+    DynamicCohort: 'dynamic-cohort',
+    PrecalculatedCohort: 'precalculated-cohort',
+    Group: 'group',
+    Recording: 'recording',
+    LogEntry: 'log_entry',
+    Behavioral: 'behavioral',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+    RevenueAnalytics: 'revenue_analytics',
+    Flag: 'flag',
+    WorkflowVariable: 'workflow_variable',
 } as const
 
 export interface PropertyItemApi {
@@ -243,8 +243,8 @@ export type PersonsListParams = {
 export type PersonsListFormat = (typeof PersonsListFormat)[keyof typeof PersonsListFormat]
 
 export const PersonsListFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsRetrieveParams = {
@@ -254,8 +254,8 @@ export type PersonsRetrieveParams = {
 export type PersonsRetrieveFormat = (typeof PersonsRetrieveFormat)[keyof typeof PersonsRetrieveFormat]
 
 export const PersonsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsUpdateParams = {
@@ -265,8 +265,8 @@ export type PersonsUpdateParams = {
 export type PersonsUpdateFormat = (typeof PersonsUpdateFormat)[keyof typeof PersonsUpdateFormat]
 
 export const PersonsUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsPartialUpdateParams = {
@@ -276,8 +276,8 @@ export type PersonsPartialUpdateParams = {
 export type PersonsPartialUpdateFormat = (typeof PersonsPartialUpdateFormat)[keyof typeof PersonsPartialUpdateFormat]
 
 export const PersonsPartialUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsActivityRetrieve2Params = {
@@ -288,8 +288,8 @@ export type PersonsActivityRetrieve2Format =
     (typeof PersonsActivityRetrieve2Format)[keyof typeof PersonsActivityRetrieve2Format]
 
 export const PersonsActivityRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsDeletePropertyCreateParams = {
@@ -304,8 +304,8 @@ export type PersonsDeletePropertyCreateFormat =
     (typeof PersonsDeletePropertyCreateFormat)[keyof typeof PersonsDeletePropertyCreateFormat]
 
 export const PersonsDeletePropertyCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsPropertiesTimelineRetrieveParams = {
@@ -316,8 +316,8 @@ export type PersonsPropertiesTimelineRetrieveFormat =
     (typeof PersonsPropertiesTimelineRetrieveFormat)[keyof typeof PersonsPropertiesTimelineRetrieveFormat]
 
 export const PersonsPropertiesTimelineRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsSplitCreateParams = {
@@ -327,8 +327,8 @@ export type PersonsSplitCreateParams = {
 export type PersonsSplitCreateFormat = (typeof PersonsSplitCreateFormat)[keyof typeof PersonsSplitCreateFormat]
 
 export const PersonsSplitCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsUpdatePropertyCreateParams = {
@@ -347,8 +347,8 @@ export type PersonsUpdatePropertyCreateFormat =
     (typeof PersonsUpdatePropertyCreateFormat)[keyof typeof PersonsUpdatePropertyCreateFormat]
 
 export const PersonsUpdatePropertyCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsActivityRetrieveParams = {
@@ -359,8 +359,8 @@ export type PersonsActivityRetrieveFormat =
     (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
 
 export const PersonsActivityRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsBatchByDistinctIdsCreateParams = {
@@ -371,8 +371,8 @@ export type PersonsBatchByDistinctIdsCreateFormat =
     (typeof PersonsBatchByDistinctIdsCreateFormat)[keyof typeof PersonsBatchByDistinctIdsCreateFormat]
 
 export const PersonsBatchByDistinctIdsCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsBulkDeleteCreateParams = {
@@ -403,8 +403,8 @@ export type PersonsBulkDeleteCreateFormat =
     (typeof PersonsBulkDeleteCreateFormat)[keyof typeof PersonsBulkDeleteCreateFormat]
 
 export const PersonsBulkDeleteCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsCohortsRetrieveParams = {
@@ -415,8 +415,8 @@ export type PersonsCohortsRetrieveFormat =
     (typeof PersonsCohortsRetrieveFormat)[keyof typeof PersonsCohortsRetrieveFormat]
 
 export const PersonsCohortsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsFunnelRetrieveParams = {
@@ -426,8 +426,8 @@ export type PersonsFunnelRetrieveParams = {
 export type PersonsFunnelRetrieveFormat = (typeof PersonsFunnelRetrieveFormat)[keyof typeof PersonsFunnelRetrieveFormat]
 
 export const PersonsFunnelRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsFunnelCreateParams = {
@@ -437,8 +437,8 @@ export type PersonsFunnelCreateParams = {
 export type PersonsFunnelCreateFormat = (typeof PersonsFunnelCreateFormat)[keyof typeof PersonsFunnelCreateFormat]
 
 export const PersonsFunnelCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsFunnelCorrelationRetrieveParams = {
@@ -449,8 +449,8 @@ export type PersonsFunnelCorrelationRetrieveFormat =
     (typeof PersonsFunnelCorrelationRetrieveFormat)[keyof typeof PersonsFunnelCorrelationRetrieveFormat]
 
 export const PersonsFunnelCorrelationRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsFunnelCorrelationCreateParams = {
@@ -461,8 +461,8 @@ export type PersonsFunnelCorrelationCreateFormat =
     (typeof PersonsFunnelCorrelationCreateFormat)[keyof typeof PersonsFunnelCorrelationCreateFormat]
 
 export const PersonsFunnelCorrelationCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsLifecycleRetrieveParams = {
@@ -473,8 +473,8 @@ export type PersonsLifecycleRetrieveFormat =
     (typeof PersonsLifecycleRetrieveFormat)[keyof typeof PersonsLifecycleRetrieveFormat]
 
 export const PersonsLifecycleRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsResetPersonDistinctIdCreateParams = {
@@ -485,8 +485,8 @@ export type PersonsResetPersonDistinctIdCreateFormat =
     (typeof PersonsResetPersonDistinctIdCreateFormat)[keyof typeof PersonsResetPersonDistinctIdCreateFormat]
 
 export const PersonsResetPersonDistinctIdCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsStickinessRetrieveParams = {
@@ -497,8 +497,8 @@ export type PersonsStickinessRetrieveFormat =
     (typeof PersonsStickinessRetrieveFormat)[keyof typeof PersonsStickinessRetrieveFormat]
 
 export const PersonsStickinessRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsTrendsRetrieveParams = {
@@ -508,8 +508,8 @@ export type PersonsTrendsRetrieveParams = {
 export type PersonsTrendsRetrieveFormat = (typeof PersonsTrendsRetrieveFormat)[keyof typeof PersonsTrendsRetrieveFormat]
 
 export const PersonsTrendsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type PersonsValuesRetrieveParams = {
@@ -519,6 +519,6 @@ export type PersonsValuesRetrieveParams = {
 export type PersonsValuesRetrieveFormat = (typeof PersonsValuesRetrieveFormat)[keyof typeof PersonsValuesRetrieveFormat]
 
 export const PersonsValuesRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
