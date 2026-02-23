@@ -16,24 +16,42 @@ from posthog.models.team.team import Team
 
 logger = logging.getLogger(__name__)
 
-LOOKBACK_CHOICES = [
-    (6, "6 hours"),
-    (12, "12 hours"),
-    (24, "1 day"),
-    (72, "3 days"),
-    (168, "7 days"),
-]
-
 QUERY_SETTINGS = {"max_execution_time": 30}
+
+DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
+
+
+def _default_from():
+    return (datetime.now(tz=UTC) - timedelta(hours=6)).strftime(DATETIME_FORMAT)
+
+
+def _default_to():
+    return datetime.now(tz=UTC).strftime(DATETIME_FORMAT)
 
 
 class DistinctIdUsageForm(forms.Form):
-    lookback_hours = forms.TypedChoiceField(
-        coerce=int,
-        choices=LOOKBACK_CHOICES,
-        initial=6,
-        label="Lookback period",
+    datetime_from = forms.DateTimeField(
+        label="From",
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format=DATETIME_FORMAT),
+        input_formats=[DATETIME_FORMAT],
     )
+    datetime_to = forms.DateTimeField(
+        label="To",
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format=DATETIME_FORMAT),
+        input_formats=[DATETIME_FORMAT],
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        dt_from = cleaned.get("datetime_from")
+        dt_to = cleaned.get("datetime_to")
+        if dt_from and dt_to:
+            if dt_from >= dt_to:
+                raise forms.ValidationError("'From' must be before 'To'.")
+            if (dt_to - dt_from).days > 7:
+                raise forms.ValidationError("Range cannot exceed 7 days (table TTL).")
+        return cleaned
+
     high_usage_percentage_threshold = forms.IntegerField(
         initial=30,
         min_value=1,
@@ -162,7 +180,8 @@ def distinct_id_usage_view(request):
     if request.method == "POST":
         return _handle_post_action(request)
 
-    form = DistinctIdUsageForm(request.GET or None)
+    initial = {"datetime_from": _default_from(), "datetime_to": _default_to()}
+    form = DistinctIdUsageForm(request.GET or None, initial=initial)
 
     high_usage_rows: list[dict] = []
     high_cardinality_rows: list[dict] = []
@@ -172,7 +191,8 @@ def distinct_id_usage_view(request):
 
     if form.is_valid():
         queried = True
-        lookback_start = datetime.now(tz=UTC) - timedelta(hours=form.cleaned_data["lookback_hours"])
+        dt_from = form.cleaned_data["datetime_from"]
+        dt_to = form.cleaned_data["datetime_to"]
         table = f"{settings.CLICKHOUSE_DATABASE}.{TABLE_BASE_NAME}"
 
         high_usage_raw: list[tuple] = []
@@ -186,14 +206,14 @@ def distinct_id_usage_view(request):
                 WITH team_totals AS (
                     SELECT team_id, sum(event_count) as total_events
                     FROM {table}
-                    WHERE minute >= %(lookback_start)s
+                    WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
                     GROUP BY team_id
                     HAVING total_events >= %(min_events_threshold)s
                 ),
                 distinct_id_totals AS (
                     SELECT team_id, distinct_id, sum(event_count) as event_count
                     FROM {table}
-                    WHERE minute >= %(lookback_start)s
+                    WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
                     GROUP BY team_id, distinct_id
                 )
                 SELECT d.team_id, d.distinct_id, d.event_count, t.total_events,
@@ -206,7 +226,8 @@ def distinct_id_usage_view(request):
                 LIMIT 100
                 """,
                 {
-                    "lookback_start": lookback_start,
+                    "dt_from": dt_from,
+                    "dt_to": dt_to,
                     "threshold": form.cleaned_data["high_usage_percentage_threshold"],
                     "min_events_threshold": form.cleaned_data["high_usage_min_events_threshold"],
                     "distinct_id_min_events": form.cleaned_data["high_usage_distinct_id_min_events"],
@@ -223,14 +244,15 @@ def distinct_id_usage_view(request):
                 f"""
                 SELECT team_id, uniq(distinct_id) as distinct_id_count
                 FROM {table}
-                WHERE minute >= %(lookback_start)s
+                WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
                 GROUP BY team_id
                 HAVING distinct_id_count >= %(threshold)s
                 ORDER BY distinct_id_count DESC
                 LIMIT 100
                 """,
                 {
-                    "lookback_start": lookback_start,
+                    "dt_from": dt_from,
+                    "dt_to": dt_to,
                     "threshold": form.cleaned_data["high_cardinality_threshold"],
                 },
                 settings=QUERY_SETTINGS,
@@ -245,13 +267,14 @@ def distinct_id_usage_view(request):
                 f"""
                 SELECT team_id, distinct_id, minute, event_count
                 FROM {table}
-                WHERE minute >= %(lookback_start)s
+                WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
                   AND event_count >= %(threshold)s
                 ORDER BY event_count DESC
                 LIMIT 100
                 """,
                 {
-                    "lookback_start": lookback_start,
+                    "dt_from": dt_from,
+                    "dt_to": dt_to,
                     "threshold": form.cleaned_data["burst_threshold"],
                 },
                 settings=QUERY_SETTINGS,

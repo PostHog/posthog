@@ -49,14 +49,17 @@
 <form method="get" id="distinct-id-usage-form">
     <fieldset class="module aligned">
         <h2>Configuration</h2>
-        <div class="form-row">
-            <label for="{{ form.lookback_hours.id_for_label }}">{{ form.lookback_hours.label }}:</label>
-            {{ form.lookback_hours }}
+        <div class="form-row" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <label for="{{ form.datetime_from.id_for_label }}">{{ form.datetime_from.label }}:</label>
+            {{ form.datetime_from }}
+            <label for="{{ form.datetime_to.id_for_label }}">{{ form.datetime_to.label }}:</label>
+            {{ form.datetime_to }}
         </div>
+        {{ form.non_field_errors }}
         <h3>Thresholds</h3>
         <div class="threshold-fields">
             {% for field in form %}
-                {% if field.name != "lookback_hours" %}
+                {% if field.name != "datetime_from" and field.name != "datetime_to" %}
                 <div class="form-row">
                     <label for="{{ field.id_for_label }}">{{ field.label }}:</label>
                     {{ field }}
