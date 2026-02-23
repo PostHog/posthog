@@ -16,6 +16,7 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
 
                 const headers = new Headers()
                 headers.set('Authorization', `Bearer ${config.apiToken}`)
+                headers.set('User-Agent', 'posthog/mcp-server')
 
                 // Handle query parameters
                 if (input.urlSearchParams) {

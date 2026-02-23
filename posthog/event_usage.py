@@ -263,6 +263,8 @@ def get_event_source(request) -> str:
     user_agent = request.META.get("HTTP_USER_AGENT", "")
     if "posthog/terraform-provider" in user_agent:
         return "terraform"
+    if "posthog/mcp-server" in user_agent:
+        return "mcp"
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return "web"
     return "api"

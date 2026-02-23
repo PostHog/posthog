@@ -145,6 +145,7 @@ export class ApiClient {
         return {
             Authorization: `Bearer ${this.config.apiToken}`,
             'Content-Type': 'application/json',
+            'User-Agent': 'posthog/mcp-server',
         }
     }
 
