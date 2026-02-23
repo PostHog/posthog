@@ -3,6 +3,7 @@ import uuid
 import logging
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Count
 
 from asgiref.sync import async_to_sync
@@ -25,8 +26,12 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.api import emit_signal
-from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.serializers import (
+    SignalReportArtefactSerializer,
+    SignalReportSerializer,
+    SignalSourceConfigSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +74,30 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
 
 
+class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    serializer_class = SignalSourceConfigSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "INTERNAL"
+    queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
+
+    def perform_create(self, serializer):
+        try:
+            serializer.save(team_id=self.team_id, created_by=self.request.user)
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"source_product": "A configuration for this source product and type already exists for this team."}
+            )
+
+    def perform_update(self, serializer):
+        try:
+            serializer.save()
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"source_product": "A configuration for this source product and type already exists for this team."}
+            )
+
+
 @extend_schema_view(
     list=extend_schema(exclude=True),
     retrieve=extend_schema(exclude=True),
@@ -77,7 +106,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
+    scope_object = "INTERNAL"
     queryset = SignalReport.objects.all()
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["signal_count", "total_weight", "created_at", "updated_at"]
@@ -96,7 +125,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         return {**super().get_serializer_context(), "team": self.team}
 
     @extend_schema(exclude=True)
-    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["signal_report:read"])
+    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         from typing import cast
 
@@ -113,7 +142,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         )
 
     @extend_schema(exclude=True)
-    @action(detail=True, methods=["get"], url_path="signals")
+    @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
         report = self.get_object()
