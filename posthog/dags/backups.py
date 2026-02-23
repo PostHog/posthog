@@ -547,6 +547,7 @@ def cleanup_old_backups(
 
     s3_client = s3.get_client()
     for old_backup in backups_to_delete:
+        context.log.info(f"Deleting backup {old_backup.path}.")
         paginator = s3_client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=f"{old_backup.path}/"):
             objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
