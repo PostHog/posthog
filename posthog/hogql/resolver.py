@@ -186,16 +186,33 @@ class Resolver(CloningVisitor):
         cte_expr = self.visit(cte_expr)
 
         # If the CTE has a column name list, remap the type's columns
-        if node.columns and isinstance(node.expr, ast.SelectQuery):
-            if len(node.columns) != len(cte_expr.select):
-                raise QueryError(
-                    f"CTE '{node.name}' has {len(cte_expr.select)} column(s) but {len(node.columns)} column name(s) were provided"
-                )
+        if node.columns:
+            if isinstance(cte_expr, ast.SelectQuery):
+                if len(node.columns) != len(cte_expr.select):
+                    raise QueryError(
+                        f"CTE '{node.name}' has {len(cte_expr.select)} column(s) but {len(node.columns)} column name(s) were provided"
+                    )
 
-            # Remap the columns in the CTE's type to use the provided column names instead of the original ones.
-            cte_expr.type.columns = {
-                new_name: cte_expr.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
-            }
+                # Remap the columns in the CTE's type to use the provided column names instead of the original ones.
+                cte_expr.type.columns = {
+                    new_name: cte_expr.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
+                }
+            elif isinstance(cte_expr, ast.SelectSetQuery):
+                initial = cte_expr.initial_select_query
+                while isinstance(initial, ast.SelectSetQuery):
+                    initial = initial.initial_select_query
+                if len(node.columns) != len(initial.select):
+                    raise QueryError(
+                        f"CTE '{node.name}' has {len(initial.select)} column(s) but {len(node.columns)} column name(s) were provided"
+                    )
+
+                # Remap the columns in the first type of the set query's type list.
+                first_type = cte_expr.type.types[0]
+                while isinstance(first_type, ast.SelectSetQueryType):
+                    first_type = first_type.types[0]
+                first_type.columns = {
+                    new_name: initial.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
+                }
 
         # Create a new CTE node instead of modifying the input
         # This ensures we can resolve CTEs even if they appear multiple times

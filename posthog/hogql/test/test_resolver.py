@@ -1094,3 +1094,34 @@ class TestResolver(BaseTest):
             "CTE 'stats' has 2 column(s) but 1 column name(s) were provided",
         ):
             resolve_types(self._select(query), self.context, dialect="postgres")
+
+    def test_cte_column_name_list_union_all_resolves_columns(self):
+        expr = self._select("WITH stats(a, b) AS (SELECT 'x', 'y' UNION ALL SELECT 'p', 'q') SELECT a, b FROM stats")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert resolved.ctes is not None
+        cte = resolved.ctes["stats"]
+        assert isinstance(cte.expr, ast.SelectSetQuery)
+        assert isinstance(cte.expr.type, ast.SelectSetQueryType)
+        first_type = cte.expr.type.types[0]
+        while isinstance(first_type, ast.SelectSetQueryType):
+            first_type = first_type.types[0]
+        assert list(first_type.columns.keys()) == ["a", "b"]
+
+    @parameterized.expand(
+        [
+            (
+                "too_many",
+                "WITH stats (a, b, c) AS (SELECT 'x', 'y' UNION ALL SELECT 'p', 'q') SELECT a FROM stats",
+                2,
+                3,
+            ),
+            ("too_few", "WITH stats (a) AS (SELECT 'x', 'y' UNION ALL SELECT 'p', 'q') SELECT a FROM stats", 2, 1),
+        ]
+    )
+    def test_cte_column_name_list_union_all_mismatch(self, _name, query, n_cols, n_names):
+        with self.assertRaisesMessage(
+            QueryError,
+            f"CTE 'stats' has {n_cols} column(s) but {n_names} column name(s) were provided",
+        ):
+            resolve_types(self._select(query), self.context, dialect="postgres")
