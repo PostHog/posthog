@@ -1228,7 +1228,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
 
             # Step 3: Aggregate results, grouping less frequent breakdowns into 'Other'
-            aggregated_count_data: dict[str, dict[int, dict[int, int]]] = {}
+            aggregated_count_data: dict[str, dict[int, dict[int, float]]] = {}
             aggregated_value_data: dict[str, dict[int, dict[int, float]]] = {}
             for row in original_results:
                 if self.aggregation_target:
@@ -1270,13 +1270,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
 
             for breakdown_value in ordered_breakdown_keys:
-                count_intervals_data: dict[int, dict[int, int]] = aggregated_count_data.get(breakdown_value, {})
+                count_intervals_data: dict[int, dict[int, float]] = aggregated_count_data.get(breakdown_value, {})
                 value_intervals_data: dict[int, dict[int, float]] = aggregated_value_data.get(breakdown_value, {})
                 labels = self.get_bracket_labels()
 
                 breakdown_results = []
                 for start_interval in range(self.query_date_range.intervals_between):
-                    count_result_dict: dict[int, int] = count_intervals_data.get(start_interval, {})
+                    count_result_dict: dict[int, float] = count_intervals_data.get(start_interval, {})
                     value_result_dict: dict[int, float] = value_intervals_data.get(start_interval, {})
                     values = [
                         {
