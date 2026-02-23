@@ -60,12 +60,16 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
 
     defaults({
         recordingTimestamp: null as number | null,
+        exceptionTimestamp: null as number | null,
     }),
 
     reducers({
         recordingTimestamp: {
             setRecordingTimestamp: (_, { timestamp, offset }: { timestamp: Dayjs; offset: number }) =>
                 dayjs(timestamp).valueOf() - offset,
+        },
+        exceptionTimestamp: {
+            setRecordingTimestamp: (_, { timestamp }: { timestamp: Dayjs }) => dayjs(timestamp).valueOf(),
         },
     }),
     selectors({
@@ -78,23 +82,23 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             },
         ],
         isTimestampOutsideRecording: [
-            (s) => [s.recordingTimestamp, s.sessionPlayerData, s.sessionPlayerMetaDataLoading],
+            (s) => [s.exceptionTimestamp, s.sessionPlayerData, s.sessionPlayerMetaDataLoading],
             (
-                recordingTimestamp: number | null,
+                exceptionTimestamp: number | null,
                 sessionPlayerData: SessionPlayerData,
                 sessionPlayerMetaDataLoading: boolean
             ): boolean => {
                 if (
                     sessionPlayerMetaDataLoading ||
-                    !recordingTimestamp ||
+                    !exceptionTimestamp ||
                     !sessionPlayerData.start ||
                     !sessionPlayerData.end
                 ) {
                     return false
                 }
                 return (
-                    recordingTimestamp < sessionPlayerData.start.valueOf() ||
-                    recordingTimestamp > sessionPlayerData.end.valueOf()
+                    exceptionTimestamp < sessionPlayerData.start.valueOf() ||
+                    exceptionTimestamp > sessionPlayerData.end.valueOf()
                 )
             },
         ],
