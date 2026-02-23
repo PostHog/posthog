@@ -43,8 +43,10 @@ export interface SignalSourceConfig {
 
 export enum SignalSourceProduct {
     SESSION_REPLAY = 'session_replay',
+    LLM_ANALYTICS = 'llm_analytics',
 }
 
 export enum SignalSourceType {
     SESSION_ANALYSIS_CLUSTER = 'session_analysis_cluster',
+    EVALUATION = 'evaluation',
 }

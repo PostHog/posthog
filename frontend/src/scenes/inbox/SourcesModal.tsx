@@ -6,10 +6,11 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { SessionAnalysisSetup } from './SessionAnalysisSetup'
 import { SourcesList } from './SourcesList'
+import { signalSourcesLogic } from './signalSourcesLogic'
 
 export function SourcesModal(): JSX.Element {
-    const { sourcesModalOpen, sessionAnalysisSetupOpen } = useValues(inboxSceneLogic)
-    const { closeSourcesModal, closeSessionAnalysisSetup } = useActions(inboxSceneLogic)
+    const { sourcesModalOpen, sessionAnalysisSetupOpen } = useValues(signalSourcesLogic)
+    const { closeSourcesModal, closeSessionAnalysisSetup } = useActions(signalSourcesLogic)
 
     return (
         <LemonModal
