@@ -375,6 +375,20 @@ export const workflowLogic = kea<workflowLogicType>([
                 saveWorkflowSuccess: () => false,
             },
         ],
+        // True when the form has been edited since the last draft save.
+        // Drives the "Save draft" vs "Publish" button: if dirty, the server
+        // draft is stale and needs saving before we can publish.
+        dirtyAfterDraftSave: [
+            false,
+            {
+                setWorkflowValues: () => true,
+                saveDraftToServerSuccess: () => false,
+                loadWorkflowSuccess: () => false,
+                saveWorkflowSuccess: () => false,
+                publishDraftToServerSuccess: () => false,
+                discardDraftOnServerSuccess: () => false,
+            },
+        ],
     }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
@@ -916,7 +930,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             ;(window as any).__workflowAutosaveTimer = setTimeout(() => {
                 actions.saveDraftNow()
-            }, 10000)
+            }, 5000)
         },
     })),
     beforeUnmount(() => {

@@ -26,6 +26,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         workflowHasErrors,
         workflowHasActionErrors,
         hasPendingDraft,
+        dirtyAfterDraftSave,
         isDraftSaving,
         isDraftPublishing,
         canPublish,
@@ -170,8 +171,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             >
                                 Update template
                             </LemonButton>
-                        ) : isActive && hasPendingDraft ? (
-                            /* Active workflow with draft: show Publish as primary action */
+                        ) : isActive && hasPendingDraft && !dirtyAfterDraftSave ? (
+                            /* Active workflow with up-to-date draft: ready to publish */
                             <LemonButton
                                 type="primary"
                                 size="small"
@@ -182,8 +183,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             >
                                 Publish
                             </LemonButton>
-                        ) : isActive && workflowContentChanged ? (
-                            /* Active workflow with content changes but no draft yet: offer Save draft */
+                        ) : isActive && (workflowContentChanged || dirtyAfterDraftSave) ? (
+                            /* Active workflow with unsaved content changes: save draft first */
                             <LemonButton
                                 type="secondary"
                                 size="small"
