@@ -90,7 +90,7 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
             emptyState="No access control rules match these filters"
             pagination={{ pageSize: 50, hideOnSinglePage: true }}
             onRow={(entry) => ({
-                className: props.canEditAny ? 'group cursor-pointer hover:bg-surface-secondary' : undefined,
+                className: props.canEditAny ? 'cursor-pointer hover:bg-surface-secondary' : undefined,
                 onClick: (event) => {
                     if (!props.canEditAny) {
                         return
@@ -132,12 +132,12 @@ function AccessSummary({ entry }: { entry: AccessControlSettingsEntry }): JSX.El
     return (
         <div className="flex gap-2 flex-wrap items-center">
             {projectTag && (
-                <LemonTag key="project" type="default" className="font-semibold border-border-bold-3000">
+                <LemonTag key="project" type="default">
                     Project: {capitalizeFirstLetter(projectTag.level)}
                 </LemonTag>
             )}
             {visibleResourceTags.map(({ resource, level }) => (
-                <LemonTag key={resource} type="muted" className="group-hover:bg-transparent">
+                <LemonTag key={resource} type="default">
                     {capitalizeFirstLetter(pluralizeResource(resource as APIScopeObject))}:{' '}
                     {capitalizeFirstLetter(level)}
                 </LemonTag>
