@@ -827,9 +827,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         </LemonField>
                         <div className="mt-3">
                             <div className="text-muted text-xs mb-1">Preview</div>
-                            <div className="border rounded bg-bg-light p-3 h-[24rem] overflow-hidden">
+                            <div className="bg-bg-light max-h-[60vh] overflow-auto">
                                 <Query
                                     readOnly
+                                    embedded
                                     query={{
                                         ...values.sourceQuery,
                                         display: defaultDisplay,
