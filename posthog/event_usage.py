@@ -256,6 +256,18 @@ def report_user_organization_membership_level_changed(
     )
 
 
+def get_event_source(request) -> str:
+    """Determine the source of an API request for analytics."""
+    from rest_framework.authentication import SessionAuthentication
+
+    user_agent = request.META.get("HTTP_USER_AGENT", "")
+    if "posthog/terraform-provider" in user_agent:
+        return "terraform"
+    if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
+        return "web"
+    return "api"
+
+
 def report_user_action(user: User, event: str, properties: Optional[dict] = None, team: Optional[Team] = None):
     if not user.distinct_id:
         return

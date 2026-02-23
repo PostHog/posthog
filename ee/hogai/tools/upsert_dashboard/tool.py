@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
+from posthog.event_usage import report_user_action
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
@@ -150,6 +151,8 @@ class UpsertDashboardTool(MaxTool):
             return CREATE_NO_INSIGHTS_PROMPT, None
 
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
+        await self._report_dashboard_action(dashboard, "dashboard created")
+        await self._report_new_insights(artifacts, insights)
         output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
@@ -171,10 +174,15 @@ class UpsertDashboardTool(MaxTool):
             insight_ids,
             artifacts,
         )
+        await self._report_dashboard_action(dashboard, "dashboard updated")
 
         # Re-fetch sorted tiles to get the latest state
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
         insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
+
+        if artifacts:
+            await self._report_new_insights(artifacts, insights)
+
         output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
@@ -212,6 +220,32 @@ class UpsertDashboardTool(MaxTool):
                 resolved.append(insight)
 
         return resolved
+
+    async def _report_dashboard_action(self, dashboard: Dashboard, event: str) -> None:
+        await database_sync_to_async(report_user_action)(
+            self._user,
+            event,
+            {
+                **await database_sync_to_async(dashboard.get_analytics_metadata)(),
+                "source": "posthog_ai",
+            },
+            team=self._team,
+        )
+
+    async def _report_new_insights(
+        self, artifacts: list[VisualizationWithSourceResult], insights: list[Insight]
+    ) -> None:
+        for artifact, insight in zip(artifacts, insights):
+            if not isinstance(artifact, ModelArtifactResult):
+                await database_sync_to_async(report_user_action)(
+                    self._user,
+                    "insight created",
+                    {
+                        "insight_id": insight.short_id,
+                        "source": "posthog_ai",
+                    },
+                    team=self._team,
+                )
 
     def _create_resolved_insights(self, results: list[Insight]) -> list[Insight]:
         """
