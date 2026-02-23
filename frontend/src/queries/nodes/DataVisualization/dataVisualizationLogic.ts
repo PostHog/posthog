@@ -706,7 +706,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (key, dashboardId, activeSceneId) => {
                 // Keys for SQL editor visualizations can render outside the SQLEditor scene,
                 // e.g. in embedded mode, so key matching keeps sizing consistent.
-                const sqlEditorVisualization = activeSceneId === Scene.SQLEditor || key.includes('SQLEditor')
+                const sqlEditorVisualization =
+                    activeSceneId === Scene.SQLEditor ||
+                    key.includes('SQLEditor') ||
+                    key.startsWith('data-warehouse-editor-data-node-')
 
                 if (activeSceneId === Scene.Insight) {
                     return true
