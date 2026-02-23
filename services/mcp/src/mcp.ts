@@ -50,6 +50,7 @@ export class MCP extends McpAgent<Env> {
         distinctId: undefined,
         region: undefined,
         apiKey: undefined,
+        clientName: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined

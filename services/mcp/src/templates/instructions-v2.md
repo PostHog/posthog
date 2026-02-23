@@ -35,3 +35,7 @@ If you cannot answer the user's PostHog related request or question using other 
 PostHog tools have lowercase kebab-case naming and always have a domain.
 
 {guidelines}
+
+### Examples
+
+Before writing any queries, read the PostHog's skill `query-examples` to see if there are any relevant query examples and follow them.

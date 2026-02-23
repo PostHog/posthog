@@ -309,7 +309,3 @@ WHERE NOT deleted
 ORDER BY created_at DESC
 LIMIT 20
 ```
-
-### Examples
-
-Read the PostHog's skill `query-examples` to see all available query examples.
