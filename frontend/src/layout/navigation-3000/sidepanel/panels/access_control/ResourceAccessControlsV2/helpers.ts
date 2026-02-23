@@ -2,6 +2,8 @@ import { toSentenceCase } from 'lib/utils'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
+import { AccessControlSettingsEntry, InheritedReason, ScopeType } from './types'
+
 export function describeAccessControlLevel(
     level: AccessControlLevel | null | undefined,
     resourceKey: APIScopeObject
@@ -66,4 +68,82 @@ export function getLevelOptionsForResource(
             disabledReason: isDisabled ? (customDisabledReason ?? 'Not available for this feature') : undefined,
         }
     })
+}
+
+export function getInheritedReasonTooltip(reason: InheritedReason): string | undefined {
+    switch (reason) {
+        case 'project_default':
+            return 'Based on project default permissions'
+        case 'role_override':
+            return 'Based on role permissions'
+        default:
+            return undefined
+    }
+}
+
+export function getMinLevelDisabledReason(
+    level: AccessControlLevel | null | undefined,
+    reason: InheritedReason,
+    resourceLabel?: string
+): string | undefined {
+    if (reason === 'organization_admin') {
+        return 'User is an organization admin'
+    }
+    if (level && level !== 'none') {
+        switch (reason) {
+            case 'project_default':
+                return `Project default is ${toSentenceCase(level)}`
+            case 'role_override':
+                return `User has a role with ${toSentenceCase(level)} access`
+        }
+    }
+    if (level && level !== 'none' && resourceLabel) {
+        return `Minimum level for ${resourceLabel} is ${toSentenceCase(level)}`
+    }
+    return undefined
+}
+
+export function getProjectDisabledReason(
+    entry: AccessControlSettingsEntry,
+    canEdit: boolean,
+    loading: boolean
+): string | undefined {
+    if (loading) {
+        return 'Loading...'
+    }
+    if (!canEdit) {
+        return 'Cannot edit'
+    }
+    if (entry.project.inherited_access_level_reason === 'organization_admin') {
+        return 'User is an organization admin'
+    }
+    return undefined
+}
+
+export function getFeaturesDisabledReason(
+    entry: AccessControlSettingsEntry,
+    canEdit: boolean,
+    loading: boolean
+): string | undefined {
+    if (loading) {
+        return 'Loading...'
+    }
+    if (!canEdit) {
+        return 'Cannot edit'
+    }
+    if (entry.project.inherited_access_level_reason === 'organization_admin') {
+        return 'User is an organization admin and has access to all features'
+    }
+    return undefined
+}
+
+export function getGroupedAccessControlRuleModalTitle(scopeType: ScopeType): string {
+    switch (scopeType) {
+        case 'default':
+            return 'Update default access'
+        case 'role':
+            return 'Update role access'
+        case 'member':
+            return 'Update member access'
+    }
 }
