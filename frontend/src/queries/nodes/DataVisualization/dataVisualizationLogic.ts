@@ -1148,6 +1148,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 if (xAxisTypes) {
                     actions.updateXSeries(xAxisTypes.name)
+                } else {
+                    const yAxisColumnNames = new Set(yAxisTypes.map((column) => column.name))
+                    const firstRemainingColumn = value.find((column) => !yAxisColumnNames.has(column.name))
+
+                    if (firstRemainingColumn) {
+                        actions.updateXSeries(firstRemainingColumn.name)
+                    }
                 }
             }
 

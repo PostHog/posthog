@@ -94,6 +94,35 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('auto-selects the first non-y-axis column as x-axis for bar charts', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['fruit', 'count'],
+            types: [
+                ['fruit', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['banana', 1],
+                ['pineapple', 2],
+            ],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'fruit',
+            selectedYAxis: [
+                {
+                    name: 'count',
+                    settings: {
+                        formatting: {
+                            prefix: '',
+                            suffix: '',
+                        },
+                    },
+                },
+            ],
+        })
+    })
+
     it('does not resolve to a time-series chart without a date column', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 
