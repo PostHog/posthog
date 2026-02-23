@@ -226,7 +226,6 @@ impl RawAppleFrame {
         Err(AppleError::NoMatchingDebugImage)
     }
 
-
     fn calculate_relative_addr(
         &self,
         instruction_addr: u64,
@@ -235,10 +234,10 @@ impl RawAppleFrame {
         let image_addr = parse_hex_address(&debug_image.image_addr)?;
 
         if instruction_addr < image_addr {
-            return Err(AppleError::InvalidAddress(
-                format!("instruction_addr 0x{:x} < image_addr 0x{:x}", 
-                        instruction_addr, image_addr)
-            ));
+            return Err(AppleError::InvalidAddress(format!(
+                "instruction_addr 0x{:x} < image_addr 0x{:x}",
+                instruction_addr, image_addr
+            )));
         }
 
         // Calculate the offset from the runtime load address
@@ -246,7 +245,6 @@ impl RawAppleFrame {
         // so we just need the offset from where it was loaded
         Ok(instruction_addr - image_addr)
     }
-
 
     fn build_resolved_frame(
         &self,
