@@ -4,11 +4,36 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
+class SignalSourceConfig(UUIDModel):
+    class SourceProduct(models.TextChoices):
+        SESSION_REPLAY = "session_replay", "Session replay"
+
+    class SourceType(models.TextChoices):
+        SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
+    source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
+    source_type = models.CharField(max_length=100, choices=SourceType.choices)
+    enabled = models.BooleanField(default=True)
+    config = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "source_product", "source_type"], name="unique_team_source_product_type"
+            )
+        ]
+
+
 class SignalReport(UUIDModel):
     class Status(models.TextChoices):
         POTENTIAL = "potential"
         CANDIDATE = "candidate"
         IN_PROGRESS = "in_progress"
+        PENDING_INPUT = "pending_input"
         READY = "ready"
         FAILED = "failed"
 
@@ -49,8 +74,18 @@ class SignalReport(UUIDModel):
 
 
 class SignalReportArtefact(UUIDModel):
+    class ArtefactType(models.TextChoices):
+        VIDEO_SEGMENT = "video_segment"
+        SAFETY_JUDGMENT = "safety_judgment"
+        ACTIONABILITY_JUDGMENT = "actionability_judgment"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100)
-    content = models.BinaryField()
+    type = models.CharField(max_length=100, choices=ArtefactType.choices)
+    content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["report"], name="signals_sig_report__idx"),
+        ]

@@ -1636,6 +1636,19 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_ctes_preserve_declaration_order(self):
+            node = cast(
+                ast.SelectQuery,
+                self._select(
+                    "with zz_first as (select 1 from events), "
+                    "mm_middle as (select * from zz_first), "
+                    "aa_last as (select * from mm_middle) "
+                    "select * from aa_last"
+                ),
+            )
+            assert isinstance(node.ctes, dict)
+            self.assertEqual(list(node.ctes.keys()), ["zz_first", "mm_middle", "aa_last"])
+
         def test_ctes_subquery_recursion(self):
             query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
             self.assertEqual(
@@ -2967,5 +2980,28 @@ def parser_test_factory(backend: HogQLParserBackend):
                     right=ast.Constant(value=1),
                 ),
             )
+
+        def test_with_recursive(self):
+            parsed = self._select("WITH RECURSIVE events AS (SELECT * FROM posthog_event) SELECT * FROM events;")
+
+            expected = SelectQuery(
+                ctes={
+                    "events": ast.CTE(
+                        name="events",
+                        expr=SelectQuery(
+                            select=[Field(chain=["*"], from_asterisk=False)],
+                            select_from=JoinExpr(
+                                table=Field(chain=["posthog_event"], from_asterisk=False),
+                            ),
+                        ),
+                        cte_type="subquery",
+                        recursive=True,
+                    )
+                },
+                select=[Field(chain=["*"], from_asterisk=False)],
+                select_from=JoinExpr(table=Field(chain=["events"])),
+            )
+
+            self.assertEqual(parsed, expected)
 
     return TestParser

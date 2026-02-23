@@ -4,11 +4,10 @@ import { Form } from 'kea-forms'
 import { IconChevronLeft } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
-import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
+import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -206,31 +205,7 @@ export function EditSubscription({
                         {subscription.target_type === 'slack' ? (
                             <>
                                 {!firstSlackIntegration ? (
-                                    <>
-                                        <LemonBanner type="info">
-                                            <div className="flex justify-between gap-2">
-                                                <span>
-                                                    Slack is not yet configured for this project. Add PostHog to your
-                                                    Slack workspace to continue.
-                                                </span>
-                                                <Link
-                                                    to={api.integrations.authorizeUrl({
-                                                        kind: 'slack',
-                                                        next: window.location.pathname + '?target_type=slack',
-                                                    })}
-                                                    disableClientSideRouting
-                                                >
-                                                    <img
-                                                        alt="Add to Slack"
-                                                        height="40"
-                                                        width="139"
-                                                        src="https://platform.slack-edge.com/img/add_to_slack.png"
-                                                        srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
-                                                    />
-                                                </Link>
-                                            </div>
-                                        </LemonBanner>
-                                    </>
+                                    <SlackNotConfiguredBanner />
                                 ) : (
                                     <>
                                         <LemonField

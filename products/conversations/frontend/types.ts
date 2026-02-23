@@ -7,7 +7,9 @@ export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
-export type SidePanelViewState = 'list' | 'ticket' | 'new'
+export type MessageDeliveryStatus = 'sent' | 'read'
+export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
+export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 export interface UserBasic {

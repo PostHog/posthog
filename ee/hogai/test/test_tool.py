@@ -338,6 +338,7 @@ class TestToolAccessControlDeclarations(BaseTest):
         "switch_mode",
         "session_summarization",
         "manage_memories",  # Manages per-team/user memories, no protected resources
+        "recommend_products",  # Returns product recommendations, no protected resources
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
         "list_data",  # Lists entities with pagination, no protected resources modified

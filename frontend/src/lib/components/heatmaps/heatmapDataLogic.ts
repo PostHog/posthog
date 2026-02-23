@@ -55,7 +55,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapColorPalette: (palette: string | null) => ({ palette }),
         setHref: (href: string) => ({ href }),
         setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
-        setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
         setIsReady: (isReady: boolean) => ({ isReady }),
         // Click-to-view-events actions
@@ -111,12 +110,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 setHref: (_, { href }) => {
                     return href
                 },
-            },
-        ],
-        heatmapScrollY: [
-            0,
-            {
-                setHeatmapScrollY: (_, { scrollY }) => scrollY,
             },
         ],
         windowWidthOverride: [
@@ -359,32 +352,15 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
 
         heatmapJsData: [
-            (s) => [
-                s.heatmapElements,
-                s.heatmapScrollY,
-                s.windowWidth,
-                s.windowWidthOverride,
-                s.heatmapFixedPositionMode,
-            ],
-            (
-                heatmapElements,
-                heatmapScrollY,
-                windowWidth,
-                windowWidthOverride,
-                heatmapFixedPositionMode
-            ): HeatmapJsData => {
+            (s) => [s.heatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapFixedPositionMode],
+            (heatmapElements, windowWidth, windowWidthOverride, heatmapFixedPositionMode): HeatmapJsData => {
                 const width = windowWidthOverride ?? windowWidth
-                // We want to account for all the fixed position elements, the scroll of the context and the browser width
                 const data = heatmapElements.reduce((acc, element) => {
                     if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
                         return acc
                     }
 
-                    const y = Math.round(
-                        element.targetFixed && heatmapFixedPositionMode === 'fixed'
-                            ? element.y
-                            : element.y - heatmapScrollY
-                    )
+                    const y = Math.round(element.y)
                     const x = Math.round(element.xPercentage * width)
 
                     acc.push({ x, y, value: element.count })

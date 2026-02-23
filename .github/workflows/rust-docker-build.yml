@@ -60,6 +60,9 @@ jobs:
                     - image: personhog-replica
                       dockerfile: ./rust/Dockerfile
                       project: vq4lxdfdv2
+                    - image: personhog-router
+                      dockerfile: ./rust/Dockerfile
+                      project: wqvvpmzgbk
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -82,6 +85,7 @@ jobs:
             capture-logs_digest: ${{ steps.digest.outputs.capture-logs_digest }}
             kafka-deduplicator_digest: ${{ steps.digest.outputs.kafka-deduplicator_digest }}
             personhog-replica_digest: ${{ steps.digest.outputs.personhog-replica_digest }}
+            personhog-router_digest: ${{ steps.digest.outputs.personhog-router_digest }}
         defaults:
             run:
                 working-directory: rust
@@ -144,7 +148,7 @@ jobs:
 
             - name: Build and push image
               id: docker_build
-              uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   project: ${{ matrix.project }}
                   context: ./rust/
@@ -242,6 +246,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.personhog-replica_digest }}'
+                    - release: personhog-router
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.personhog-router_digest }}'
         steps:
             - name: get deployer token
               id: deployer

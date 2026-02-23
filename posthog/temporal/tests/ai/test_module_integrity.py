@@ -16,6 +16,9 @@ class TestAITemporalModuleIntegrity:
             "SlackConversationRunnerWorkflow",
             "VideoSegmentClusteringWorkflow",
             "VideoSegmentClusteringCoordinatorWorkflow",
+            "TeamSignalGroupingWorkflow",
+            "EmitSignalWorkflow",
+            "SignalReportSummaryWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS + ai.SIGNALS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -58,6 +61,7 @@ class TestAITemporalModuleIntegrity:
             "consolidate_video_segments_activity",
             "embed_and_store_segments_activity",
             "store_video_session_summary_activity",
+            "cleanup_gemini_file_activity",
             "capture_timing_activity",
             "get_sessions_to_prime_activity",
             "fetch_segments_activity",
@@ -66,6 +70,23 @@ class TestAITemporalModuleIntegrity:
             "label_clusters_activity",
             "persist_reports_activity",
             "get_proactive_tasks_enabled_team_ids_activity",
+            "actionability_judge_activity",
+            "assign_and_emit_signal_activity",
+            "fetch_signal_type_examples_activity",
+            "fetch_signals_for_report_activity",
+            "generate_search_queries_activity",
+            "get_embedding_activity",
+            "match_signal_to_report_activity",
+            "mark_report_failed_activity",
+            "mark_report_in_progress_activity",
+            "mark_report_pending_input_activity",
+            "mark_report_ready_activity",
+            "reset_report_to_potential_activity",
+            "run_signal_semantic_search_activity",
+            "safety_judge_activity",
+            "wait_for_signal_in_clickhouse_activity",
+            "summarize_signals_activity",
+            "wait_for_signal_in_clickhouse_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

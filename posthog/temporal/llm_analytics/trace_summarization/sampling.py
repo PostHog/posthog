@@ -53,7 +53,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
         window_end: str,
         max_items: int,
         analysis_level: str,
-        trace_filters: list[dict[str, Any]] | None = None,
+        event_filters: list[dict[str, Any]] | None = None,
     ) -> list[SampledItem]:
         try:
             team = Team.objects.get(id=team_id)
@@ -66,8 +66,8 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
 
         # Build optional trace filter expression from property filters
         trace_filter_expr: ast.Expr | None = None
-        if trace_filters:
-            filter_exprs = [property_to_expr(f, team) for f in trace_filters]
+        if event_filters:
+            filter_exprs = [property_to_expr(f, team) for f in event_filters]
             trace_filter_expr = ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
         if analysis_level == "generation":
@@ -208,7 +208,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
             inputs.window_end,
             inputs.max_items,
             inputs.analysis_level,
-            trace_filters=inputs.trace_filters if inputs.trace_filters else None,
+            event_filters=inputs.event_filters if inputs.event_filters else None,
         )
 
     logger.debug(

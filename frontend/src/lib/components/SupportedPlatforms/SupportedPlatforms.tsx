@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { Fragment, memo } from 'react'
 
 import { IconCheck, IconInfo, IconX } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
@@ -10,6 +10,14 @@ import { PlatformSupport, PlatformSupportConfig } from './types'
 
 type SupportedPlatformProps = {
     config: PlatformSupportConfig
+}
+
+const PLATFORM_LABELS: Record<string, string> = {
+    web: 'Web',
+    android: 'Android',
+    ios: 'iOS',
+    reactNative: 'React Native',
+    flutter: 'Flutter',
 }
 
 function SupportedPlatform({ label, platform }: { label: string; platform: PlatformSupport | undefined }): JSX.Element {
@@ -49,26 +57,22 @@ function SupportedPlatform({ label, platform }: { label: string; platform: Platf
 export const SupportedPlatforms = memo(function SupportedPlatforms({
     config,
 }: SupportedPlatformProps): JSX.Element | null {
-    const allSupported = config && Object.keys(config).length === 5 && Object.values(config).every((value) => !!value)
-    return allSupported ? null : (
-        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
+    const platforms = Object.keys(config) as Array<keyof PlatformSupportConfig>
+    if (platforms.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="text-xs inline-flex flex-row bg-primary items-center border overflow-hidden w-fit">
             <Tooltip delayMs={200} title="We support lots of platforms! But not every feature works everywhere (yet)">
                 <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
             </Tooltip>
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform platform={config.web} label="Web" />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform platform={config.android} label="Android" />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform platform={config.ios} label="iOS" />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform platform={config.reactNative} label="React Native" />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform platform={config.flutter} label="Flutter" />
+            {platforms.map((platform) => (
+                <Fragment key={platform}>
+                    <LemonDivider vertical className="h-full" />
+                    <SupportedPlatform platform={config[platform]} label={PLATFORM_LABELS[platform] || platform} />
+                </Fragment>
+            ))}
         </div>
     )
 })

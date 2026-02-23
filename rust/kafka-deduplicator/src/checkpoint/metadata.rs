@@ -20,7 +20,8 @@ pub fn hash_prefix_for_partition(topic: &str, partition: i32) -> String {
     )
 }
 
-// filename of metadata tracking file in each remote checkpoint attempt directory
+/// Filename of the checkpoint metadata JSON file. Used in remote checkpoint attempt
+/// directories (S3) and in local store directories (see `write_to_dir` / `load_from_dir`).
 pub const METADATA_FILENAME: &str = "metadata.json";
 // hour-scoped prefix of TIMESTAMP_FORMAT used to pull
 // recent window of meta files from remote storage
@@ -28,7 +29,8 @@ pub const DATE_PLUS_HOURS_ONLY_FORMAT: &str = "%Y-%m-%d-%H";
 // checkpoint_id value: human-readable path element populated from attempt_timestamp
 pub const TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H-%M-%SZ";
 
-/// Metadata about a checkpoint
+/// Metadata about a checkpoint. Can be written to and loaded from a local store directory
+/// via `write_to_dir` / `load_from_dir` (e.g. after import or for round-trip tests).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointMetadata {
     /// Checkpoint ID (RFC3339-ish timestamp, e.g., "2025-10-14T16-00-05Z")
@@ -45,8 +47,12 @@ pub struct CheckpointMetadata {
     pub consumer_offset: i64,
     /// Producer offset at time of checkpoint
     pub producer_offset: i64,
+    /// When this metadata was last written (creation or local write). Serde default when
+    /// deserializing metadata.json that lacks this field (backward compat).
+    #[serde(default = "Utc::now")]
+    pub updated_at: DateTime<Utc>,
     /// Registry of file metadata for all remotely-stored files required
-    /// to reconsitute a local RocksDB store across all relevant
+    /// to reconstitute a local RocksDB store across all relevant
     /// checkpoint attempts
     pub files: Vec<CheckpointFile>,
 }
@@ -69,6 +75,7 @@ impl CheckpointMetadata {
             sequence,
             consumer_offset,
             producer_offset,
+            updated_at: attempt_timestamp,
             files: Vec::new(),
         }
     }
@@ -84,29 +91,28 @@ impl CheckpointMetadata {
         Ok(metadata)
     }
 
-    /// Load metadata from a JSON file
-    pub async fn load_from_file(path: &Path) -> Result<Self> {
-        let json = tokio::fs::read_to_string(path).await?;
-        let metadata: Self = serde_json::from_str(&json)?;
+    /// Load metadata.json from the given directory.
+    pub async fn load_from_dir(dir: &Path) -> Result<Self> {
+        let path = dir.join(METADATA_FILENAME);
+        let json = tokio::fs::read_to_string(&path)
+            .await
+            .with_context(|| format!("Failed to read metadata from: {path:?}"))?;
+        let metadata: Self = serde_json::from_str(&json)
+            .with_context(|| format!("Failed to parse metadata from: {path:?}"))?;
         Ok(metadata)
     }
 
-    /// Save metadata to a JSON file
-    pub async fn save_to_file(&self, local_base_path: &Path) -> Result<()> {
-        let json = self.to_json().context("In save_to_file")?;
-        let metadata_file_path = local_base_path.join(self.get_metadata_filepath());
-
-        if let Some(parent) = metadata_file_path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .with_context(|| format!("Failed to create directory: {parent:?}"))?;
-        }
-
-        tokio::fs::write(&metadata_file_path, json)
+    /// Write metadata.json directly into the given directory.
+    /// Stamps `updated_at` to `Utc::now()` before writing so the persisted
+    /// file always reflects the actual write time.
+    pub async fn write_to_dir(&mut self, dir: &Path) -> Result<()> {
+        self.updated_at = Utc::now();
+        let json = self.to_json().context("In write_to_dir")?;
+        let path = dir.join(METADATA_FILENAME);
+        tokio::fs::write(&path, json)
             .await
-            .with_context(|| format!("Failed to write metadata to file: {metadata_file_path:?}"))?;
-
-        info!("Saved checkpoint metadata file to {:?}", metadata_file_path);
+            .with_context(|| format!("Failed to write metadata to: {path:?}"))?;
+        info!("Saved checkpoint metadata to {:?}", path);
         Ok(())
     }
 
@@ -322,31 +328,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_save_and_load_metadata() {
-        let local_base_path = TempDir::new().unwrap();
+    async fn test_write_to_dir_creates_metadata_json_file() {
+        let dir = TempDir::new().unwrap();
+        let mut metadata = CheckpointMetadata::new("t".to_string(), 0, Utc::now(), 1, 0, 0);
+        metadata.write_to_dir(dir.path()).await.unwrap();
+        let path = dir.path().join(METADATA_FILENAME);
+        assert!(
+            path.exists(),
+            "write_to_dir should create {} in dir",
+            METADATA_FILENAME
+        );
+    }
 
+    #[tokio::test]
+    async fn test_load_from_dir_fails_when_metadata_missing() {
+        let dir = TempDir::new().unwrap();
+        let result = CheckpointMetadata::load_from_dir(dir.path()).await;
+        assert!(result.is_err(), "load_from_dir on empty dir should fail");
+    }
+
+    #[tokio::test]
+    async fn test_write_to_dir_and_load_from_dir_round_trip() {
+        let dir = TempDir::new().unwrap();
         let bucket_namespace = "checkpoints";
         let topic = "test-topic";
-        let partition = "1";
+        let partition = 1;
         let attempt_timestamp = Utc::now();
         let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);
-        let metadata_file_path = local_base_path
-            .path()
-            .join(topic)
-            .join(partition)
-            .join(&checkpoint_id)
-            .join(METADATA_FILENAME);
 
         let mut metadata = CheckpointMetadata::new(
             topic.to_string(),
-            partition.parse::<i32>().unwrap(),
+            partition,
             attempt_timestamp,
             9876543210,
             200,
             150,
         );
-        // simulate what planner will do to format remote path for upload
-        // files retained from a planner diff will retained and remote path already fully qualified
         metadata.track_file(
             format!(
                 "{}/{}/000001.sst",
@@ -356,33 +373,54 @@ mod tests {
             "checksum1".to_string(),
         );
 
-        // Save metadata
-        metadata.save_to_file(local_base_path.path()).await.unwrap();
+        metadata.write_to_dir(dir.path()).await.unwrap();
 
-        // Load metadata
-        let loaded_metadata = CheckpointMetadata::load_from_file(&metadata_file_path)
-            .await
-            .unwrap();
+        let loaded = CheckpointMetadata::load_from_dir(dir.path()).await.unwrap();
 
-        assert_eq!(loaded_metadata.id, metadata.id);
-        assert_eq!(loaded_metadata.topic, metadata.topic);
-        assert_eq!(loaded_metadata.partition, metadata.partition);
-        assert_eq!(
-            loaded_metadata.attempt_timestamp,
-            metadata.attempt_timestamp
-        );
-        assert_eq!(loaded_metadata.sequence, metadata.sequence);
-        assert_eq!(loaded_metadata.consumer_offset, metadata.consumer_offset);
-        assert_eq!(loaded_metadata.producer_offset, metadata.producer_offset);
-
+        assert_eq!(loaded.id, metadata.id);
+        assert_eq!(loaded.topic, metadata.topic);
+        assert_eq!(loaded.partition, metadata.partition);
+        assert_eq!(loaded.attempt_timestamp, metadata.attempt_timestamp);
+        assert_eq!(loaded.sequence, metadata.sequence);
+        assert_eq!(loaded.consumer_offset, metadata.consumer_offset);
+        assert_eq!(loaded.producer_offset, metadata.producer_offset);
+        assert_eq!(loaded.files.len(), 1);
         let expected_remote_file_path =
             format!("{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/000001.sst");
-        assert_eq!(loaded_metadata.files.len(), 1);
-        assert_eq!(
-            loaded_metadata.files[0].remote_filepath,
-            expected_remote_file_path
+        assert_eq!(loaded.files[0].remote_filepath, expected_remote_file_path);
+        assert_eq!(loaded.files[0].checksum, "checksum1");
+
+        assert!(
+            (loaded.updated_at - Utc::now()).num_seconds().abs() < 2,
+            "updated_at should be approximately now after write_to_dir, got {:?}",
+            loaded.updated_at
         );
-        assert_eq!(loaded_metadata.files[0].checksum, "checksum1");
+    }
+
+    #[test]
+    fn test_updated_at_set_on_creation() {
+        let attempt_timestamp = Utc::now();
+        let metadata = CheckpointMetadata::new("t".to_string(), 0, attempt_timestamp, 1, 0, 0);
+        assert_eq!(metadata.updated_at, attempt_timestamp);
+    }
+
+    #[test]
+    fn test_updated_at_serde_default() {
+        let json = r#"{
+            "id": "2025-06-15T12-00-00Z",
+            "topic": "events",
+            "partition": 0,
+            "attempt_timestamp": "2025-06-15T12:00:00Z",
+            "sequence": 1,
+            "consumer_offset": 0,
+            "producer_offset": 0,
+            "files": []
+        }"#;
+        let metadata: CheckpointMetadata =
+            serde_json::from_str(json).expect("deserialize without updated_at should succeed");
+        assert_eq!(metadata.topic, "events");
+        assert_eq!(metadata.partition, 0);
+        assert!(metadata.updated_at.timestamp() > 0);
     }
 
     #[test]

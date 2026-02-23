@@ -7,7 +7,6 @@ pub mod symbol;
 
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
     metric_consts::RESOLUTION_STAGE,
     stages::pipeline::ExceptionEventPipelineItem,
     stages::resolution::{
@@ -36,7 +35,6 @@ impl From<&Arc<AppContext>> for ResolutionStage {
 impl Stage for ResolutionStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         RESOLUTION_STAGE

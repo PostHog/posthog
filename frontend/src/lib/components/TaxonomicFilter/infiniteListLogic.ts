@@ -85,7 +85,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),
-            ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups', 'topMatchItems'],
             teamLogic,
             ['currentTeamId'],
         ],
@@ -131,11 +131,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         excludedProperties,
                         listGroupType,
                         propertyAllowList,
+                        minSearchQueryLength,
                     } = values
 
                     if (!remoteEndpoint) {
-                        // should not have been here in the first place!
                         return createEmptyListStorage(swappedInQuery || searchQuery)
+                    }
+
+                    const effectiveQuery = swappedInQuery || searchQuery
+                    if (minSearchQueryLength > 0 && effectiveQuery.length < minSearchQueryLength) {
+                        return createEmptyListStorage(effectiveQuery)
                     }
 
                     const searchParams = {
@@ -259,8 +264,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     if (props.listGroupType === TaxonomicFilterGroupType.EventProperties && isURL(searchQuery)) {
                         return '$current_url'
                     }
-                    // TODO not everyone will call this email 🤷
-                    // but this is an obvious option to add
                     if (props.listGroupType === TaxonomicFilterGroupType.PersonProperties && isEmail(searchQuery)) {
                         return 'email'
                     }
@@ -301,6 +304,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
+        minSearchQueryLength: [(s) => [s.group], (group) => group?.minSearchQueryLength ?? 0],
         excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
         propertyAllowList: [(s) => [s.group], (group) => group?.propertyAllowList],
         scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
@@ -403,12 +407,24 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return createEmptyListStorage()
             },
         ],
+        topMatchesForQuery: [
+            (s) => [s.localItems, s.remoteItems, s.swappedInQuery, s.searchQuery, s.hasRemoteDataSource],
+            (localItems, remoteItems, swappedInQuery, searchQuery, hasRemoteDataSource): TaxonomicDefinitionTypes[] => {
+                if (!searchQuery) {
+                    return []
+                }
+                const remoteIsFresh = remoteItems.searchQuery === (swappedInQuery || searchQuery)
+                const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
+                return results.slice(0, 3)
+            },
+        ],
         items: [
-            (s) => [s.remoteItems, s.localItems],
-            (remoteItems, localItems) => {
+            (s) => [s.remoteItems, s.localItems, s.listGroupType, s.topMatchItems],
+            (remoteItems, localItems, listGroupType, topMatchItems) => {
+                const topMatches = listGroupType === TaxonomicFilterGroupType.SuggestedFilters ? topMatchItems : []
                 return {
-                    results: [...localItems.results, ...remoteItems.results],
-                    count: localItems.count + remoteItems.count,
+                    results: [...localItems.results, ...remoteItems.results, ...topMatches],
+                    count: localItems.count + remoteItems.count + topMatches.length,
                     searchQuery: remoteItems.searchQuery || localItems.searchQuery,
                     originalQuery: remoteItems.originalQuery || localItems.originalQuery,
                     expandedCount: remoteItems.expandedCount,
@@ -460,8 +476,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         setSearchQuery: async () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else if (props.autoSelectItem) {
-                actions.setIndex(0)
+            } else {
+                if (props.autoSelectItem) {
+                    actions.setIndex(0)
+                }
+                if (props.listGroupType !== TaxonomicFilterGroupType.SuggestedFilters) {
+                    actions.infiniteListResultsReceived(props.listGroupType, values.localItems)
+                }
             }
         },
         setEventOrdering: async () => {
@@ -488,15 +509,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 actions.expand()
             } else {
                 const selectedItem = values.selectedItem
-                // Prevent selection of disabled items using the group's getIsDisabled function
-                const isDisabledItem = selectedItem && values.group?.getIsDisabled?.(selectedItem)
+                const itemGroup = getItemGroup(selectedItem, values.taxonomicGroups, values.group)
+                const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem) {
+                    const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
+                    const isTopMatchItem =
+                        values.listGroupType === TaxonomicFilterGroupType.SuggestedFilters &&
+                        itemGroup.type !== values.listGroupType
                     actions.selectItem(
-                        values.group,
-                        values.selectedItemValue,
+                        itemGroup,
+                        itemValue ?? null,
                         selectedItem,
-                        values.swappedInQuery ? values.searchQuery : undefined
+                        isTopMatchItem ? undefined : values.swappedInQuery ? values.searchQuery : undefined
                     )
                 }
             }

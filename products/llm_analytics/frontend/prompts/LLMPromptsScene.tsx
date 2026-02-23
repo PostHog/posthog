@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -30,6 +31,8 @@ export const scene: SceneExport = {
 export function LLMPromptsScene(): JSX.Element {
     const { setFilters, deletePrompt } = useActions(llmPromptsLogic)
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel } = useValues(llmPromptsLogic)
+    const { searchParams } = useValues(router)
+    const promptUrl = (name: string): string => combineUrl(urls.llmAnalyticsPrompt(name), searchParams).url
 
     const columns: LemonTableColumns<LLMPrompt> = [
         {
@@ -39,11 +42,7 @@ export function LLMPromptsScene(): JSX.Element {
             width: '25%',
             render: function renderName(_, prompt) {
                 return (
-                    <Link
-                        to={urls.llmAnalyticsPrompt(prompt.name)}
-                        className="font-semibold"
-                        data-attr="prompt-name-link"
-                    >
+                    <Link to={promptUrl(prompt.name)} className="font-semibold" data-attr="prompt-name-link">
                         {prompt.name}
                     </Link>
                 )
@@ -82,11 +81,7 @@ export function LLMPromptsScene(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    to={urls.llmAnalyticsPrompt(prompt.name)}
-                                    data-attr="prompt-dropdown-view"
-                                    fullWidth
-                                >
+                                <LemonButton to={promptUrl(prompt.name)} data-attr="prompt-dropdown-view" fullWidth>
                                     View
                                 </LemonButton>
 
@@ -124,7 +119,7 @@ export function LLMPromptsScene(): JSX.Element {
                     >
                         <LemonButton
                             type="primary"
-                            to={urls.llmAnalyticsPrompt('new')}
+                            to={promptUrl('new')}
                             icon={<IconPlusSmall />}
                             data-attr="new-prompt-button"
                         >

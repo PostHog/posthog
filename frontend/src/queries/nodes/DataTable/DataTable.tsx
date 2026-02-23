@@ -166,6 +166,7 @@ export function DataTable({
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
+        limitContext: context?.limitContext,
     }
     const {
         response,
@@ -771,7 +772,7 @@ export function DataTable({
 
     const secondRowRight = [
         sourceFeatures.has(QueryFeature.linkDataButton) && hasCustomerAnalyticsEnabled ? (
-            <ViewLinkButton tableName="groups" />
+            <ViewLinkButton key="view-link-button" tableName="groups" />
         ) : null,
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (

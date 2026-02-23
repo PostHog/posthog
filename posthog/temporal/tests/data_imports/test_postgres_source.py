@@ -9,6 +9,8 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
+from posthog.test.base import override_settings
+from unittest import mock
 
 from django.conf import settings
 
@@ -17,7 +19,13 @@ import pytest_asyncio
 from psycopg import AsyncConnection, AsyncCursor, sql
 from psycopg.rows import TupleRow
 
+from posthog.temporal.data_imports.sources.common.base import SimpleSource
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from posthog.temporal.data_imports.sources.postgres.postgres import (
+    SSL_REQUIRED_AFTER_DATE,
+    SSLRequiredError,
+    _get_sslmode,
+)
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
@@ -358,3 +366,136 @@ def test_postgresql_source_config_loads_with_nested_dict_disabled_tunnel():
     assert config.database == "database"
     assert config.ssh_tunnel is not None
     assert config.ssh_tunnel.enabled is False
+
+
+class TestSSLRequirement:
+    def test_get_sslmode_returns_require_when_ssl_required(self):
+        with override_settings(DEBUG=False, TEST=False):
+            assert _get_sslmode(require_ssl=True) == "require"
+
+    def test_get_sslmode_returns_prefer_when_ssl_not_required(self):
+        assert _get_sslmode(require_ssl=False) == "prefer"
+
+    def test_ssl_required_after_date_is_set(self):
+        assert SSL_REQUIRED_AFTER_DATE == dt.datetime(2025, 2, 17, tzinfo=dt.UTC)
+
+    def test_ssl_required_error_message(self):
+        error = SSLRequiredError("Test error message")
+        assert str(error) == "Test error message"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_source_requires_ssl_for_new_sources(self, team, postgres_config):
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            team=team,
+            status="running",
+            source_type="Postgres",
+            job_inputs=postgres_config,
+        )
+        # Force created_at to be after the cutoff date
+        ExternalDataSource.objects.filter(pk=source.pk).update(
+            created_at=SSL_REQUIRED_AFTER_DATE + dt.timedelta(days=1)
+        )
+        source.refresh_from_db()
+
+        schema = ExternalDataSchema.objects.create(
+            name="test_table",
+            team_id=team.pk,
+            source_id=source.pk,
+            sync_type="full_refresh",
+            sync_type_config={},
+        )
+
+        postgres_source = PostgresSource()
+        config = postgres_source.parse_config(postgres_config)
+
+        mock_inputs = mock.MagicMock()
+        mock_inputs.schema_id = str(schema.id)
+        mock_inputs.schema_name = "test_table"
+        mock_inputs.should_use_incremental_field = False
+        mock_inputs.incremental_field = None
+        mock_inputs.incremental_field_type = None
+        mock_inputs.db_incremental_field_last_value = None
+        mock_inputs.team_id = team.id
+        mock_inputs.logger = mock.MagicMock()
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
+        ) as mock_postgres_source:
+            assert isinstance(postgres_source, SimpleSource)
+            postgres_source.source_for_pipeline(config, mock_inputs)
+            mock_postgres_source.assert_called_once()
+            call_kwargs = mock_postgres_source.call_args.kwargs
+            assert call_kwargs["require_ssl"] is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_source_does_not_require_ssl_for_old_sources(self, team, postgres_config):
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            team=team,
+            status="running",
+            source_type="Postgres",
+            job_inputs=postgres_config,
+        )
+        # Force created_at to be before the cutoff date
+        ExternalDataSource.objects.filter(pk=source.pk).update(
+            created_at=SSL_REQUIRED_AFTER_DATE - dt.timedelta(days=1)
+        )
+        source.refresh_from_db()
+
+        schema = ExternalDataSchema.objects.create(
+            name="test_table",
+            team_id=team.pk,
+            source_id=source.pk,
+            sync_type="full_refresh",
+            sync_type_config={},
+        )
+
+        postgres_source = PostgresSource()
+        config = postgres_source.parse_config(postgres_config)
+
+        mock_inputs = mock.MagicMock()
+        mock_inputs.schema_id = str(schema.id)
+        mock_inputs.schema_name = "test_table"
+        mock_inputs.should_use_incremental_field = False
+        mock_inputs.incremental_field = None
+        mock_inputs.incremental_field_type = None
+        mock_inputs.db_incremental_field_last_value = None
+        mock_inputs.team_id = team.id
+        mock_inputs.logger = mock.MagicMock()
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
+        ) as mock_postgres_source:
+            assert isinstance(postgres_source, SimpleSource)
+            postgres_source.source_for_pipeline(config, mock_inputs)
+            mock_postgres_source.assert_called_once()
+            call_kwargs = mock_postgres_source.call_args.kwargs
+            assert call_kwargs["require_ssl"] is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_validate_credentials_returns_error_on_ssl_failure(self, team, postgres_config):
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        postgres_source = PostgresSource()
+        config = postgres_source.parse_config(postgres_config)
+
+        with (
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas"
+            ) as mock_get_schemas,
+            override_settings(DEBUG=False, TEST=False),
+        ):
+            mock_get_schemas.side_effect = SSLRequiredError(
+                "SSL/TLS connection is required but your database does not support it."
+            )
+            valid, error = postgres_source.validate_credentials(config, team.id)
+            assert valid is False
+            assert error is not None
+            assert "SSL/TLS connection is required" in error

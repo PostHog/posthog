@@ -69,7 +69,7 @@ export function Elements(): JSX.Element {
                 }}
             >
                 <ScrollDepth />
-                {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
+                {activeToolbarMode === 'heatmap' && <HeatmapCanvas positioning="absolute" context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
                 {productToursSelecting && productToursHoverRect && <ElementHighlight rect={productToursHoverRect} />}
                 {productToursSelectedStepRect && <ElementHighlight rect={productToursSelectedStepRect} isSelected />}

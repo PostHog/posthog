@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 
 from .log_attributes import TABLE_NAME as LOG_ATTRIBUTES_TABLE_NAME
 
@@ -11,7 +11,9 @@ TTL = (
 )
 STORAGE_POLICY = lambda: "tiered" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else "default"
 
-LOGS32_TABLE_SQL = f"""
+
+def LOGS32_TABLE_SQL():
+    return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
 (
     `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
@@ -92,7 +94,21 @@ SETTINGS
 """
 
 
-LOG_ATTRIBUTES_MV = f"""
+def LOGS_DISTRIBUTED_TABLE_SQL():
+    return """
+CREATE TABLE IF NOT EXISTS {database}.logs AS {database}.{table_name} ENGINE = {engine}
+""".format(
+        engine=Distributed(
+            data_table=f"{TABLE_NAME}",
+            cluster=settings.CLICKHOUSE_LOGS_CLUSTER,
+        ),
+        database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+        table_name=TABLE_NAME,
+    )
+
+
+def LOG_ATTRIBUTES_MV():
+    return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
 (
     `team_id` Int32,
@@ -140,7 +156,9 @@ FROM
 )
 """
 
-LOG_RESOURCE_ATTRIBUTES_MV = f"""
+
+def LOG_RESOURCE_ATTRIBUTES_MV():
+    return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_resource_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
 (
     `team_id` Int32,

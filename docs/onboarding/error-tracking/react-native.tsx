@@ -59,6 +59,68 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
         ),
     }
 
+    const errorBoundaryStep: StepDefinition = {
+        title: 'Set up error boundaries',
+        badge: 'optional',
+        content: (
+            <>
+                <Markdown>
+                    {dedent`
+                        You can use the \`PostHogErrorBoundary\` component to capture rendering errors thrown by components:
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'jsx',
+                            file: 'React Native',
+                            code: dedent`
+                                import { PostHogProvider, PostHogErrorBoundary } from 'posthog-react-native'
+                                import { View, Text } from 'react-native'
+
+                                const App = () => {
+                                  return (
+                                    <PostHogProvider apiKey="<ph_project_api_key>">
+                                      <PostHogErrorBoundary
+                                        fallback={YourFallbackComponent}
+                                        additionalProperties={{ screen: "home" }}
+                                      >
+                                        <YourApp />
+                                      </PostHogErrorBoundary>
+                                    </PostHogProvider>
+                                  )
+                                }
+
+                                const YourFallbackComponent = ({ error, componentStack }) => {
+                                  return (
+                                    <View>
+                                      <Text>Something went wrong!</Text>
+                                      <Text>{error instanceof Error ? error.message : String(error)}</Text>
+                                    </View>
+                                  )
+                                }
+                            `,
+                        },
+                    ]}
+                />
+                <CalloutBox type="caution" title="Duplicate errors with console capture">
+                    <Markdown>
+                        {dedent`
+                            If you have both \`PostHogErrorBoundary\` and \`console\` capture enabled in your \`errorTracking\` config, render errors will be captured twice. This is because React logs all errors to the console by default. To avoid this, set \`console: []\` on \`errorTracking.autocapture\` (for example, \`errorTracking: { autocapture: { console: [] } }\`) when using \`PostHogErrorBoundary\`.
+                        `}
+                    </Markdown>
+                </CalloutBox>
+                <CalloutBox type="fyi" title="Dev mode behavior">
+                    <Markdown>
+                        {dedent`
+                            In development mode, React propagates all errors to the global error handler even when they are caught by an error boundary. This means you may see errors reported twice in dev builds. This is expected React behavior and does not occur in production builds.
+                        `}
+                    </Markdown>
+                </CalloutBox>
+            </>
+        ),
+    }
+
     const manualCaptureStep: StepDefinition = {
         title: 'Manually capture exceptions',
         badge: 'optional',
@@ -129,6 +191,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
     return [
         ...installSteps,
         exceptionAutocaptureStep,
+        errorBoundaryStep,
         manualCaptureStep,
         verifyStep,
         futureFeaturesStep,

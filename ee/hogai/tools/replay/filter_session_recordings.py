@@ -51,7 +51,9 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         - Properties of specific events that occurred during the recording (e.g., URL visited, button clicked). **MUST use read_taxonomy to discover properties for specific event names.**
 
         **RECORDING PROPERTIES**:
-        - Recording-level metrics (console_error_count, click_count, activity_score). These are built-in and don't require discovery.
+        - Recording-level metrics: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. Use `type: "recording"`.
+        - These are built-in and don't require discovery via read_taxonomy.
+        - **CRITICAL**: These are NOT events. There are no events named `$keypress`, `$click`, or `$console_error`. Never use event-type filters for recording metrics.
 
         **CRITICAL**: ALWAYS use read_taxonomy to discover properties before creating filters. Never assume property names or values exist without verification. If you can't find an exact property match, try the next best match. Do not call the same tool twice for the same entity/event.
 
@@ -129,6 +131,7 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         6. **Value types**: Arrays for "exact"/"is_not", single values for comparisons
         7. **Output format**: Valid JSON object only, no markdown or explanatory text
         8. **Silence**: Do not output when performing taxonomy exploration, just use the tools
+        9. **Recording properties are NOT events**: `keypress_count`, `click_count`, `console_error_count`, `mouse_activity_count`, `activity_score` always use `type: "recording"`. Events like `$keypress` or `$click` do not exist.
         """).strip()
     )
 

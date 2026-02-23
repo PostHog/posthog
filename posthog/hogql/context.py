@@ -7,6 +7,8 @@ from posthog.schema import HogQLNotice, HogQLQueryModifiers
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.workload import Workload
+
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
     from posthog.hogql.transforms.property_types import PropertySwapper
@@ -62,6 +64,8 @@ class HogQLContext:
     debug: bool = False
 
     property_swapper: Optional["PropertySwapper"] = None
+    # Workload detected during AST resolution (set by prepare_ast_for_printing)
+    workload: Optional[Workload] = None
 
     def __post_init__(self):
         if self.team:

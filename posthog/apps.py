@@ -29,7 +29,7 @@ class PostHogConfig(AppConfig):
         posthoganalytics.super_properties = {
             "region": get_instance_region(),
             "service": settings.OTEL_SERVICE_NAME,
-            "environment": os.getenv("SENTRY_ENVIRONMENT"),
+            "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
         if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):

@@ -65,6 +65,7 @@ class TestUtils(SimpleTestCase):
     @parameterized.expand(
         [
             ("same_config", {}, {}, False),
+            ("different_table_name", {}, {"table_name": "other_table"}, True),
             ("different_id_field", {}, {"id_field": "other_id"}, True),
             ("different_distinct_id_field", {}, {"distinct_id_field": "other_distinct_id"}, True),
             ("different_timestamp_field", {}, {"timestamp_field": "other_timestamp"}, True),

@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import isEqual from 'lodash.isequal'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -32,7 +33,7 @@ import { DEFAULT_APPEARANCE } from './constants'
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
 import { isAnnouncement, productToursLogic } from './productToursLogic'
-import { hasIncompleteTargeting } from './stepUtils'
+import { getUpdatedStepOrderHistory, hasIncompleteTargeting } from './stepUtils'
 
 export const DEFAULT_TARGETING_FILTERS: FeatureFlagType['filters'] = {
     ...NEW_FLAG.filters,
@@ -80,6 +81,13 @@ function buildHogQLDateFilter(
  */
 function escapeSqlString(value: string): string {
     return value.replace(/['\\]/g, '\\$&')
+}
+
+export type LaunchValidationIssueType = 'missing_element' | 'missing_selector'
+
+export interface LaunchValidationIssue {
+    type: LaunchValidationIssueType
+    stepNumbers: number[] // 1-based for display
 }
 
 export interface ProductTourLogicProps {
@@ -130,6 +138,38 @@ const NEW_PRODUCT_TOUR: ProductTourForm = {
     linked_flag_id: null,
 }
 
+function tourToFormValues(tour: ProductTour): ProductTourForm {
+    const draft = tour.draft_content
+    return {
+        name: draft?.name ?? tour.name,
+        description: draft?.description ?? tour.description,
+        content: draft?.content ?? tour.content,
+        auto_launch: draft?.auto_launch ?? tour.auto_launch,
+        targeting_flag_filters: draft?.targeting_flag_filters ?? tour.targeting_flag_filters,
+        linked_flag: tour.linked_flag,
+        linked_flag_id: draft?.linked_flag_id ?? tour.linked_flag?.id ?? null,
+    }
+}
+
+function buildDraftPayload(formValues: ProductTourForm): Record<string, any> {
+    const steps = formValues.content.steps ? prepareStepsForRender(formValues.content.steps) : []
+    return {
+        name: formValues.name,
+        description: formValues.description,
+        content: {
+            ...formValues.content,
+            steps,
+            step_order_history: getUpdatedStepOrderHistory(
+                formValues.content.steps,
+                formValues.content.step_order_history
+            ),
+        },
+        auto_launch: formValues.auto_launch,
+        targeting_flag_filters: formValues.targeting_flag_filters,
+        linked_flag_id: formValues.linked_flag_id,
+    }
+}
+
 export const productTourLogic = kea<productTourLogicType>([
     path(['scenes', 'product-tours', 'productTourLogic']),
     props({} as ProductTourLogicProps),
@@ -146,9 +186,13 @@ export const productTourLogic = kea<productTourLogicType>([
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
-        openToolbarModal: true,
+        publishDraft: true,
+        discardDraft: true,
+        draftAutoSave: true,
+        setDraftActionInProgress: (action: 'publish' | 'discard' | null) => ({ action }),
+        openToolbarModal: (toolbarMode?: 'preview' | 'edit') => ({ toolbarMode: toolbarMode ?? 'edit' }),
         closeToolbarModal: true,
-        submitAndOpenToolbar: true,
+        handleToolbarTabVisibility: true,
     }),
     loaders(({ props, values }) => ({
         productTour: {
@@ -275,7 +319,7 @@ export const productTourLogic = kea<productTourLogicType>([
             },
         },
     })),
-    forms(({ actions, props }) => ({
+    forms(({ props }) => ({
         productTourForm: {
             defaults: NEW_PRODUCT_TOUR as ProductTourForm,
             alwaysShowErrors: true,
@@ -336,13 +380,6 @@ export const productTourLogic = kea<productTourLogicType>([
                             validateButton(step.buttons?.secondary, `${errorPrefix}Secondary button`)
                     }
 
-                    if (hasIncompleteTargeting(step)) {
-                        error =
-                            step.elementTargeting === 'manual'
-                                ? `Step ${index + 1} missing element selector`
-                                : `Select an element for step ${index + 1}`
-                    }
-
                     if (error) {
                         errors._form = error
                         break
@@ -352,25 +389,8 @@ export const productTourLogic = kea<productTourLogicType>([
                 return errors
             },
             submit: async (formValues: ProductTourForm) => {
-                const processedContent: ProductTourContent = {
-                    ...formValues.content,
-                    steps: formValues.content.steps ? prepareStepsForRender(formValues.content.steps) : [],
-                }
-
-                const payload = {
-                    name: formValues.name,
-                    description: formValues.description,
-                    content: processedContent,
-                    auto_launch: formValues.auto_launch,
-                    targeting_flag_filters: formValues.targeting_flag_filters,
-                    linked_flag_id: formValues.linked_flag_id,
-                }
-
                 if (props.id && props.id !== 'new') {
-                    await api.productTours.update(props.id, payload)
-                    lemonToast.success('Product tour updated')
-                    actions.loadProductTour()
-                    actions.loadProductTours()
+                    await api.productTours.saveDraft(props.id, buildDraftPayload(formValues))
                 }
             },
         },
@@ -407,15 +427,6 @@ export const productTourLogic = kea<productTourLogicType>([
                 setSelectedStepIndex: (_, { index }) => index,
             },
         ],
-        pendingToolbarOpen: [
-            false,
-            {
-                submitAndOpenToolbar: () => true,
-                openToolbarModal: () => false,
-                closeToolbarModal: () => false,
-                submitProductTourFormFailure: () => false,
-            },
-        ],
         isToolbarModalOpen: [
             false,
             {
@@ -423,8 +434,30 @@ export const productTourLogic = kea<productTourLogicType>([
                 closeToolbarModal: () => false,
             },
         ],
+        toolbarMode: [
+            'edit' as 'preview' | 'edit',
+            {
+                openToolbarModal: (_, { toolbarMode }) => toolbarMode,
+            },
+        ],
+        draftSaveStatus: [
+            null as 'unsaved' | 'saving' | 'saved' | null,
+            {
+                draftAutoSave: () => 'unsaved' as const,
+                submitProductTourForm: () => 'saving' as const,
+                submitProductTourFormSuccess: () => 'saved' as const,
+                submitProductTourFormFailure: () => null,
+                editingProductTour: () => null,
+            },
+        ],
+        draftActionInProgress: [
+            null as 'publish' | 'discard' | null,
+            {
+                setDraftActionInProgress: (_, { action }) => action,
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         updateSelectedStep: ({ updates }) => {
             const steps = values.productTourForm.content?.steps ?? []
             const index = values.selectedStepIndex
@@ -437,22 +470,46 @@ export const productTourLogic = kea<productTourLogicType>([
                 })
             }
         },
-        submitAndOpenToolbar: () => {
-            actions.submitProductTourForm()
-        },
-        submitProductTourFormSuccess: () => {
-            if (values.pendingToolbarOpen) {
-                actions.openToolbarModal()
-            } else {
-                actions.editingProductTour(false)
-            }
-        },
         submitProductTourFormFailure: () => {
             const errorMessage =
                 values.productTourFormAllErrors._form ||
                 values.productTourFormAllErrors.name ||
                 'Failed to save product tour'
             lemonToast.error(errorMessage)
+        },
+        publishDraft: async () => {
+            if (!values.productTour) {
+                return
+            }
+            actions.setDraftActionInProgress('publish')
+            try {
+                await api.productTours.publishDraft(values.productTour.id, buildDraftPayload(values.productTourForm))
+                lemonToast.success('Product tour saved')
+                actions.editingProductTour(false)
+                actions.loadProductTour()
+                actions.loadProductTours()
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to save product tour')
+            } finally {
+                actions.setDraftActionInProgress(null)
+            }
+        },
+        discardDraft: async () => {
+            if (!values.productTour) {
+                return
+            }
+            actions.setDraftActionInProgress('discard')
+            try {
+                if (values.hasDraft) {
+                    await api.productTours.discardDraft(values.productTour.id)
+                    actions.loadProductTour()
+                }
+                actions.editingProductTour(false)
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to discard draft')
+            } finally {
+                actions.setDraftActionInProgress(null)
+            }
         },
         launchProductTour: async () => {
             if (values.productTour) {
@@ -487,6 +544,15 @@ export const productTourLogic = kea<productTourLogicType>([
         loadProductTourSuccess: ({ productTour }) => {
             if (productTour) {
                 actions.reportProductTourViewed(productTour)
+
+                const formValues = tourToFormValues(productTour)
+                const incomingPayload = buildDraftPayload(formValues)
+                const isOwnEcho = values.isEditingProductTour && isEqual(incomingPayload, cache.lastDraftPayload)
+                if (!isOwnEcho) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    ;(actions.setProductTourFormValues as any)(formValues)
+                    cache.lastDraftPayload = incomingPayload
+                }
             }
             if (!values.dateRange) {
                 actions.setDateRange({
@@ -496,37 +562,56 @@ export const productTourLogic = kea<productTourLogicType>([
             } else {
                 actions.loadTourStats()
             }
-            // Populate form with loaded data
-            if (productTour) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ;(actions.setProductTourFormValues as any)({
-                    name: productTour.name,
-                    description: productTour.description,
-                    content: productTour.content,
-                    auto_launch: productTour.auto_launch,
-                    targeting_flag_filters: productTour.targeting_flag_filters,
-                    linked_flag: productTour.linked_flag,
-                    linked_flag_id: productTour.linked_flag?.id ?? null,
-                })
-            }
         },
         editingProductTour: ({ editing }) => {
-            // Only reset form when transitioning from not-editing to editing
-            if (editing && !values.isEditingProductTour && values.productTour) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ;(actions.setProductTourFormValues as any)({
-                    name: values.productTour.name,
-                    description: values.productTour.description,
-                    content: values.productTour.content,
-                    auto_launch: values.productTour.auto_launch,
-                    targeting_flag_filters: values.productTour.targeting_flag_filters,
-                    linked_flag: values.productTour.linked_flag,
-                    linked_flag_id: values.productTour.linked_flag?.id ?? null,
-                })
+            if (editing && props.id !== 'new') {
+                cache.disposables.add(() => {
+                    const canFetch = (): boolean =>
+                        values.draftSaveStatus !== 'unsaved' && values.draftSaveStatus !== 'saving'
+
+                    if (canFetch()) {
+                        actions.loadProductTour()
+                    }
+                    const intervalId = setInterval(() => {
+                        if (canFetch()) {
+                            actions.loadProductTour()
+                        }
+                    }, 3000)
+                    return () => clearInterval(intervalId)
+                }, 'draftPoll')
+            } else if (!editing) {
+                cache.disposables.dispose('draftPoll')
+            }
+        },
+        draftAutoSave: async (_, breakpoint) => {
+            await breakpoint(1000)
+            if (values.isEditingProductTour && values.productTourForm.name) {
+                actions.submitProductTourForm()
             }
         },
         setDateRange: () => {
             actions.loadTourStats()
+        },
+        openToolbarModal: () => {
+            cache.disposables.add(
+                () => {
+                    const handler = (): void => {
+                        if (document.visibilityState === 'hidden') {
+                            actions.handleToolbarTabVisibility()
+                        }
+                    }
+                    document.addEventListener('visibilitychange', handler)
+                    return () => document.removeEventListener('visibilitychange', handler)
+                },
+                'toolbarModalVisibility',
+                { pauseOnPageHidden: false }
+            )
+        },
+        closeToolbarModal: () => {
+            cache.disposables.dispose('toolbarModalVisibility')
+        },
+        handleToolbarTabVisibility: () => {
+            actions.closeToolbarModal()
         },
     })),
     selectors({
@@ -571,6 +656,32 @@ export const productTourLogic = kea<productTourLogicType>([
                 return productTour && isAnnouncement(productTour) ? 'announcement' : 'tour'
             },
         ],
+        hasDraft: [
+            (s) => [s.productTour],
+            (productTour: ProductTour | null): boolean => {
+                return productTour?.has_draft ?? false
+            },
+        ],
+        launchValidationIssues: [
+            (s) => [s.productTour],
+            (productTour: ProductTour | null): LaunchValidationIssue[] => {
+                const steps = productTour?.content?.steps ?? []
+                const grouped: Record<LaunchValidationIssueType, number[]> = {
+                    missing_element: [],
+                    missing_selector: [],
+                }
+                for (const [index, step] of steps.entries()) {
+                    if (hasIncompleteTargeting(step)) {
+                        const type: LaunchValidationIssueType =
+                            step.elementTargeting === 'manual' ? 'missing_selector' : 'missing_element'
+                        grouped[type].push(index + 1)
+                    }
+                }
+                return Object.entries(grouped)
+                    .filter(([, steps]) => steps.length > 0)
+                    .map(([type, stepNumbers]) => ({ type: type as LaunchValidationIssueType, stepNumbers }))
+            },
+        ],
     }),
     urlToAction(({ actions, props }) => ({
         [urls.productTour(props.id)]: (_, searchParams) => {
@@ -599,6 +710,19 @@ export const productTourLogic = kea<productTourLogicType>([
                 router.values.hashParams,
                 { replace: true },
             ]
+        },
+    })),
+    subscriptions(({ actions, values, cache }) => ({
+        productTourForm: (formValues: ProductTourForm) => {
+            if (!values.isEditingProductTour || !values.productTour) {
+                return
+            }
+            const payload = buildDraftPayload(formValues)
+            if (isEqual(cache.lastDraftPayload, payload)) {
+                return
+            }
+            cache.lastDraftPayload = payload
+            actions.draftAutoSave()
         },
     })),
     afterMount(({ actions, props }) => {

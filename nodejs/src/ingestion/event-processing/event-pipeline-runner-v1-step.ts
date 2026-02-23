@@ -1,10 +1,10 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, Team } from '../../types'
+import { EventHeaders, Person, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import {
     EventPipelineResult,
@@ -12,19 +12,18 @@ import {
     EventPipelineRunnerOptions,
 } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerInput {
     message: Message
-    event: PluginEvent
+    normalizedEvent: PluginEvent
+    timestamp: DateTime
     team: Team
     headers: EventHeaders
-    groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean
-    forceDisablePersonProcessing: boolean
+    person: Person
 }
 
 export type EventPipelineRunnerStepResult = EventPipelineResult & {
@@ -37,20 +36,19 @@ export function createEventPipelineRunnerV1Step(
     kafkaProducer: KafkaProducerWrapper,
     teamManager: TeamManager,
     groupTypeManager: GroupTypeManager,
-    hogTransformer: HogTransformerService,
-    personsStore: PersonsStore
+    groupStore: BatchWritingGroupStore
 ): ProcessingStep<EventPipelineRunnerInput, EventPipelineRunnerStepResult> {
     return async function eventPipelineRunnerV1Step(
         input: EventPipelineRunnerInput
     ): Promise<PipelineResult<EventPipelineRunnerStepResult>> {
         const {
-            event,
+            normalizedEvent,
+            timestamp,
             team,
             headers: inputHeaders,
             message: inputMessage,
-            groupStoreForBatch,
             processPerson,
-            forceDisablePersonProcessing,
+            person,
         } = input
 
         const runner = new EventPipelineRunner(
@@ -58,13 +56,11 @@ export function createEventPipelineRunnerV1Step(
             kafkaProducer,
             teamManager,
             groupTypeManager,
-            event,
-            hogTransformer,
-            personsStore,
-            groupStoreForBatch,
+            normalizedEvent,
+            groupStore,
             inputHeaders
         )
-        const result = await runner.runEventPipeline(event, team, processPerson, forceDisablePersonProcessing)
+        const result = await runner.runEventPipeline(normalizedEvent, timestamp, team, processPerson, person)
 
         if (isOkResult(result)) {
             const stepResult: EventPipelineRunnerStepResult = {

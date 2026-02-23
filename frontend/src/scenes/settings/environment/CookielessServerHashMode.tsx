@@ -54,10 +54,6 @@ export function CookielessServerHashModeSetting(): JSX.Element {
 
     return (
         <>
-            <p>
-                Enable cookieless tracking, using a privacy-preserving hash to count unique users without cookies. You
-                must enable this here before enabling cookieless in posthog-js, otherwise your events will be dropped.
-            </p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.WebAnalytics}
                 minAccessLevel={AccessControlLevel.Editor}

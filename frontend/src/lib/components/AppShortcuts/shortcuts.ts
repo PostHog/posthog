@@ -40,4 +40,5 @@ export const keyBinds: Record<string, string[]> = {
     allChats: ['g', 'then', '1'],
     allApps: ['g', 'then', '2'],
     theme: ['g', 'then', 't'],
+    jumpToTimestamp: ['j', 'then', 't'],
 }

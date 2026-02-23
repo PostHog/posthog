@@ -20,6 +20,7 @@ from posthog.batch_exports.service import BackfillBatchExportInputs, BackfillDet
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     CreateBatchExportBackfillInputs,
@@ -27,6 +28,8 @@ from products.batch_exports.backend.temporal.batch_exports import (
     create_batch_export_backfill_model,
     update_batch_export_backfill_model_status,
 )
+
+LOGGER = get_write_only_logger(__name__)
 
 
 class TemporalScheduleNotFoundError(Exception):
@@ -80,6 +83,14 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     """
     start_at = dt.datetime.fromisoformat(inputs.start_at) if inputs.start_at else None
     end_at = dt.datetime.fromisoformat(inputs.end_at) if inputs.end_at else None
+    logger = LOGGER.bind(
+        start_at=inputs.start_at,
+        end_at=inputs.end_at,
+        backfill_id=inputs.backfill_id,
+        start_delay=inputs.start_delay,
+        schedule_id=inputs.schedule_id,
+    )
+    logger.info("Starting backfill")
 
     async with Heartbeater() as heartbeater:
         client = await connect(
@@ -105,6 +116,11 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             # If we receive details from a previous run, it means we were restarted for some reason.
             # Let's not double-backfill and instead wait for any outstanding runs.
             last_activity_details = HeartbeatDetails(*details)
+            logger.info(
+                "Heartbeat details received",
+                backfill_run_id=last_activity_details.workflow_id,
+                last_batch_data_interval_end=last_activity_details.last_batch_data_interval_end,
+            )
 
             workflow_handle = client.get_workflow_handle(last_activity_details.workflow_id)
 
@@ -115,11 +131,25 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             )
 
             try:
+                logger.info(
+                    "Waiting for pending backfill run",
+                    backfill_run_id=heartbeater.details.workflow_id,
+                    last_batch_data_interval_end=heartbeater.details.last_batch_data_interval_end,
+                )
+
                 await workflow_handle.result()
             except temporalio.client.WorkflowFailureError:
+                logger.exception(
+                    "Pending backfill run failed",
+                    backfill_run_id=heartbeater.details.workflow_id,
+                    last_batch_data_interval_end=heartbeater.details.last_batch_data_interval_end,
+                )
                 # TODO: Handle failures here instead of in the batch export.
                 await asyncio.sleep(inputs.start_delay)
 
+            logger.info(
+                "Resuming backfill", last_batch_data_interval_end=heartbeater.details.last_batch_data_interval_end
+            )
             start_at = dt.datetime.fromisoformat(last_activity_details.last_batch_data_interval_end)
 
         frequency = dt.timedelta(seconds=inputs.frequency_seconds)
@@ -163,10 +193,16 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             await asyncio.sleep(inputs.start_delay)
 
             try:
+                workflow_id = f"{description.id}-{backfill_end_at:%Y-%m-%dT%H:%M:%S}Z"
+                logger.info(
+                    "Starting backfill run",
+                    backfill_run_id=workflow_id,
+                    last_batch_data_interval_end=backfill_end_at.isoformat(),
+                )
                 workflow_handle = await client.start_workflow(
                     schedule_action.workflow,
                     *args,
-                    id=f"{description.id}-{backfill_end_at:%Y-%m-%dT%H:%M:%S}Z",
+                    id=workflow_id,
                     task_queue=schedule_action.task_queue,
                     run_timeout=schedule_action.run_timeout,
                     task_timeout=schedule_action.task_timeout,
@@ -187,10 +223,14 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             try:
                 await workflow_handle.result()
             except temporalio.client.WorkflowFailureError:
+                logger.exception(
+                    "Backfill run failed",
+                    backfill_run_id=heartbeater.details.workflow_id,
+                    last_batch_data_interval_end=backfill_end_at.isoformat(),
+                )
                 # `WorkflowFailureError` includes cancellations, terminations, timeouts, and errors.
                 # Common errors should be handled by the workflow itself (i.e. by retrying an activity).
                 # We briefly sleep to allow heartbeating to potentially receive a cancellation request.
-                # TODO: Log anyways if we land here.
                 await asyncio.sleep(inputs.start_delay)
 
 
