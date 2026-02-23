@@ -80,9 +80,10 @@ impl RawFrame {
             }
 
             RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
-            RawFrame::Apple(frame) => {
-                (to_vec(frame.resolve(team_id, catalog, debug_images).await), "apple")
-            }
+            RawFrame::Apple(frame) => (
+                to_vec(frame.resolve(team_id, catalog, debug_images).await),
+                "apple",
+            ),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),

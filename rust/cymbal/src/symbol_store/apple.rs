@@ -57,7 +57,9 @@ impl ParsedAppleSymbols {
         Ok(Self { symcache_data })
     }
 
-    fn extract_dwarf_from_zip(archive: &mut ZipArchive<Cursor<Vec<u8>>>) -> Result<Vec<u8>, ResolveError> {
+    fn extract_dwarf_from_zip(
+        archive: &mut ZipArchive<Cursor<Vec<u8>>>,
+    ) -> Result<Vec<u8>, ResolveError> {
         for i in 0..archive.len() {
             let mut file = archive
                 .by_index(i)

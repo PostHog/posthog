@@ -54,7 +54,11 @@ pub struct ExceptionProperties {
     #[serde(rename = "$issue_description", skip_serializing_if = "Option::is_none")]
     pub proposed_issue_description: Option<String>,
 
-    #[serde(rename = "$debug_images", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "$debug_images",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub debug_images: Vec<AppleDebugImage>,
 
     #[serde(flatten)]

@@ -38,8 +38,8 @@ const APPLE_SYSTEM_MODULES: &[&str] = &[
     "IOKit",
     "GraphicsServices",
     // Private/internal Apple frameworks
-    "UpdateCycle",      
-    "UIKitCore",        
+    "UpdateCycle",
+    "UIKitCore",
     "UIKitServices",
     "UIFoundation",
     "FrontBoardServices",
@@ -58,9 +58,11 @@ const APPLE_SYSTEM_MODULES: &[&str] = &[
 ];
 
 fn is_system_module(module: &Option<String>) -> bool {
-    module
-        .as_ref()
-        .map_or(false, |m| APPLE_SYSTEM_MODULES.iter().any(|prefix| m.starts_with(prefix)))
+    module.as_ref().map_or(false, |m| {
+        APPLE_SYSTEM_MODULES
+            .iter()
+            .any(|prefix| m.starts_with(prefix))
+    })
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -113,7 +115,9 @@ impl RawAppleFrame {
             Ok(frame) => {
                 tracing::debug!(
                     "[apple-debug] resolve() SUCCESS: resolved_name={:?}, source={:?}, line={:?}",
-                    frame.resolved_name, frame.source, frame.line
+                    frame.resolved_name,
+                    frame.source,
+                    frame.line
                 );
                 Ok(frame)
             }
@@ -147,26 +151,35 @@ impl RawAppleFrame {
         let instruction_addr = self
             .instruction_addr
             .as_ref()
-            .ok_or(AppleError::InvalidAddress("missing instruction_addr".into()))?;
+            .ok_or(AppleError::InvalidAddress(
+                "missing instruction_addr".into(),
+            ))?;
 
         let instruction_addr = parse_hex_address(instruction_addr)?;
-        tracing::debug!("[apple-debug] resolve_impl: parsed instruction_addr=0x{:x}", instruction_addr);
+        tracing::debug!(
+            "[apple-debug] resolve_impl: parsed instruction_addr=0x{:x}",
+            instruction_addr
+        );
 
         let debug_image = self.find_debug_image(instruction_addr, debug_images)?;
         tracing::debug!(
             "[apple-debug] resolve_impl: matched debug_image debug_id={}, image_addr={}",
-            debug_image.debug_id, debug_image.image_addr
+            debug_image.debug_id,
+            debug_image.image_addr
         );
 
         let relative_addr = self.calculate_relative_addr(instruction_addr, debug_image)?;
-        tracing::debug!("[apple-debug] resolve_impl: relative_addr=0x{:x}", relative_addr);
+        tracing::debug!(
+            "[apple-debug] resolve_impl: relative_addr=0x{:x}",
+            relative_addr
+        );
 
-        tracing::debug!("[apple-debug] resolve_impl: looking up symbols for chunk_id={}", debug_image.debug_id);
+        tracing::debug!(
+            "[apple-debug] resolve_impl: looking up symbols for chunk_id={}",
+            debug_image.debug_id
+        );
         let symbols: Arc<ParsedAppleSymbols> = catalog
-            .lookup(
-                team_id,
-                OrChunkId::chunk_id(debug_image.debug_id.clone()),
-            )
+            .lookup(team_id, OrChunkId::chunk_id(debug_image.debug_id.clone()))
             .await?;
         tracing::debug!("[apple-debug] resolve_impl: symbols loaded successfully");
 
@@ -175,7 +188,9 @@ impl RawAppleFrame {
             .ok_or(AppleError::SymbolNotFound(relative_addr))?;
         tracing::debug!(
             "[apple-debug] resolve_impl: found symbol={}, file={:?}, line={}",
-            symbol_info.symbol, symbol_info.filename, symbol_info.line
+            symbol_info.symbol,
+            symbol_info.filename,
+            symbol_info.line
         );
 
         Ok(self.build_resolved_frame(&symbol_info, debug_image))
@@ -301,13 +316,14 @@ impl RawAppleFrame {
         // - Extract symbols from Xcode's iOS DeviceSupport or IPSW archives
         // - Host them in our symbol store
         // - See: https://github.com/getsentry/apple-system-symbols-upload
-        let source = self.filename.clone().or_else(|| {
-            match (&self.module, &self.image_addr) {
+        let source = self
+            .filename
+            .clone()
+            .or_else(|| match (&self.module, &self.image_addr) {
                 (Some(module), Some(addr)) => Some(format!("{} +{}", module, addr)),
                 (Some(module), None) => Some(module.clone()),
                 _ => None,
-            }
-        });
+            });
 
         let mut frame = Frame {
             frame_id: FrameId::placeholder(),
@@ -441,7 +457,9 @@ mod test {
             arch: None,
         };
 
-        let result = frame.calculate_relative_addr(0x100004000, &debug_image).unwrap();
+        let result = frame
+            .calculate_relative_addr(0x100004000, &debug_image)
+            .unwrap();
         assert_eq!(result, 0x4000);
     }
 
@@ -470,7 +488,9 @@ mod test {
             arch: None,
         };
 
-        let result = frame.calculate_relative_addr(0x100004000, &debug_image).unwrap();
+        let result = frame
+            .calculate_relative_addr(0x100004000, &debug_image)
+            .unwrap();
         assert_eq!(result, 0x4000);
     }
 
@@ -574,9 +594,9 @@ mod test {
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_apple_symbolication(db: sqlx::PgPool) {
-        use std::sync::Arc;
         use chrono::Utc;
         use mockall::predicate;
+        use std::sync::Arc;
         use uuid::Uuid;
 
         use crate::{
@@ -688,17 +708,13 @@ mod test {
         assert!(resolved.resolved);
         assert_eq!(resolved.resolved_name, Some("inner_function".to_string()));
         assert!(resolved.source.is_some());
-        assert!(resolved
-            .source
-            .as_ref()
-            .unwrap()
-            .contains("test_binary.c"));
+        assert!(resolved.source.as_ref().unwrap().contains("test_binary.c"));
         assert!(resolved.line.is_some());
     }
 
     fn get_dsym_bytes() -> Vec<u8> {
         use posthog_symbol_data::write_symbol_data;
-        
+
         const DSYM_ZIP: &[u8] = include_bytes!("../../tests/static/apple/test_binary.dSYM.zip");
         write_symbol_data(posthog_symbol_data::AppleDsym {
             data: DSYM_ZIP.to_vec(),
