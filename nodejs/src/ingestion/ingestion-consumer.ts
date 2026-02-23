@@ -67,6 +67,8 @@ export type IngestionConsumerHub = HogTransformerHub &
         | 'groupTypeManager'
         // EventSchemaEnforcementManager
         | 'postgres'
+        // Prometheus / TopHog labels
+        | 'INGESTION_PIPELINE'
     >
 
 const latestOffsetTimestampGauge = new Gauge({
@@ -210,8 +212,8 @@ export class IngestionConsumer {
         this.topHog = new TopHog({
             kafkaProducer: this.kafkaProducer!,
             topic: KAFKA_CLICKHOUSE_TOPHOG,
-            pipeline: 'analytics',
-            lane: this.hub.INGESTION_LANE ?? 'main',
+            pipeline: this.hub.INGESTION_PIPELINE ?? 'unknown',
+            lane: this.hub.INGESTION_LANE ?? 'unknown',
         })
         this.topHog.start()
 
