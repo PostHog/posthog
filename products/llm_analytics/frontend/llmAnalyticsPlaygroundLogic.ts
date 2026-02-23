@@ -57,14 +57,6 @@ interface EvaluationConfigResponse {
     } | null
 }
 
-interface ProviderKeyResponse {
-    results: Array<{
-        id: string
-        provider: 'openai' | 'anthropic' | 'gemini' | 'openrouter' | string
-        state: 'unknown' | 'ok' | 'invalid' | 'error'
-    }>
-}
-
 enum InputMessageRole {
     User = 'user',
     Assistant = 'assistant',
@@ -135,22 +127,6 @@ function matchClosestModel(targetModel: string, availableModels: ModelOption[]):
     return DEFAULT_MODEL
 }
 
-async function loadActiveProviderKeyId(): Promise<string | null> {
-    const teamId = teamLogic.values.currentTeamId
-    if (!teamId) {
-        return null
-    }
-
-    try {
-        const response = (await api.get(
-            `/api/environments/${teamId}/llm_analytics/evaluation_config/`
-        )) as EvaluationConfigResponse
-        return response?.active_provider_key?.id ?? null
-    } catch {
-        return null
-    }
-}
-
 export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsPlaygroundLogic']),
 
@@ -185,6 +161,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         clearResponseError: true,
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
         setSubscriptionRequired: (required: boolean) => ({ required }),
+        setFetchedProviderKeys: (keys: LLMProviderKey[]) => ({ keys }),
+        setActiveProviderKeyId: (id: string | null) => ({ id }),
     }),
 
     reducers({
@@ -341,22 +319,48 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 setSubscriptionRequired: (_, { required }) => required,
             },
         ],
+        providerKeys: [
+            [] as LLMProviderKey[],
+            {
+                setFetchedProviderKeys: (_, { keys }) => keys,
+            },
+        ],
+        activeProviderKeyId: [
+            null as string | null,
+            {
+                setActiveProviderKeyId: (_, { id }) => id,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         modelOptions: {
             __default: [] as ModelOption[],
             loadModelOptions: async () => {
                 const teamId = teamLogic.values.currentTeamId
-                const activeProviderKeyId = await loadActiveProviderKeyId()
+
+                // Fetch and cache the active provider key ID from evaluation config
+                let activeProviderKeyId: string | null = null
+                if (teamId) {
+                    try {
+                        const configResponse = (await api.get(
+                            `/api/environments/${teamId}/llm_analytics/evaluation_config/`
+                        )) as EvaluationConfigResponse
+                        activeProviderKeyId = configResponse?.active_provider_key?.id ?? null
+                    } catch {
+                        // Ignore - activeProviderKeyId stays null
+                    }
+                }
+                llmAnalyticsPlaygroundLogic.actions.setActiveProviderKeyId(activeProviderKeyId)
 
                 if (teamId) {
                     try {
-                        const providerKeysResponse = (await api.get(
+                        const providerKeysResponse = await api.get(
                             `/api/environments/${teamId}/llm_analytics/provider_keys/`
-                        )) as ProviderKeyResponse
-                        const validProviderKeys = (providerKeysResponse.results || []).filter(
-                            (key) => key.state === 'ok'
                         )
+                        const allKeys = (providerKeysResponse.results ?? []) as LLMProviderKey[]
+                        llmAnalyticsPlaygroundLogic.actions.setFetchedProviderKeys(allKeys)
+
+                        const validProviderKeys = allKeys.filter((key) => key.state === 'ok')
                         const sortedProviderKeys = validProviderKeys.sort((a, b) =>
                             a.id === activeProviderKeyId ? -1 : b.id === activeProviderKeyId ? 1 : 0
                         )
@@ -409,17 +413,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 }
 
                 return options
-            },
-        },
-        providerKeys: {
-            __default: [] as LLMProviderKey[],
-            loadProviderKeys: async () => {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return []
-                }
-                const response = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
-                return response.results ?? []
             },
         },
     })),
@@ -480,9 +473,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 }
 
                 const providerKeyId =
-                    selectedModel.providerKeyId ??
-                    values.providerKeyForCurrentModel?.id ??
-                    (await loadActiveProviderKeyId())
+                    selectedModel.providerKeyId ?? values.providerKeyForCurrentModel?.id ?? values.activeProviderKeyId
 
                 const requestData: any = {
                     system: requestSystemPrompt,
@@ -687,7 +678,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
     })),
     afterMount(({ actions }) => {
         actions.loadModelOptions()
-        actions.loadProviderKeys()
     }),
     selectors({
         groupedModelOptions: [
@@ -725,6 +715,12 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 const selectedModel = modelOptions.find((m) => m.id === model)
                 if (!selectedModel) {
                     return null
+                }
+                if (selectedModel.providerKeyId) {
+                    const exactMatch = providerKeys.find((k) => k.id === selectedModel.providerKeyId)
+                    if (exactMatch) {
+                        return exactMatch
+                    }
                 }
                 const provider = selectedModel.provider.toLowerCase()
                 return providerKeys.find((k) => k.provider === provider && k.state !== 'invalid') ?? null
