@@ -11,6 +11,7 @@ This prevents users from accessing others' chats by knowing their email.
 """
 
 import logging
+from urllib.parse import urlparse
 
 from django.db.models import F, Q
 
@@ -47,6 +48,8 @@ from products.conversations.backend.events import capture_ticket_created
 from products.conversations.backend.models import Ticket
 
 logger = logging.getLogger(__name__)
+
+POSTHOG_TEAM_ID = 2
 
 
 class WidgetMessageView(APIView):
@@ -90,6 +93,17 @@ class WidgetMessageView(APIView):
         traits = serializer.validated_data.get("traits", {})
         session_id = serializer.validated_data.get("session_id")
         session_context = serializer.validated_data.get("session_context", {})
+
+        # For PostHog's internal support project, infer region from the current_url hostname
+        if team.pk == POSTHOG_TEAM_ID and (current_url := session_context.get("current_url")):
+            try:
+                hostname = urlparse(current_url).hostname or ""
+                if hostname.endswith(".posthog.com"):
+                    subdomain = hostname.split(".")[0]
+                    if region := {"us": "US", "eu": "EU"}.get(subdomain):
+                        traits["region"] = region
+            except Exception:
+                pass
 
         # Handle optional ticket_id (UUID field)
         raw_ticket_id = request.data.get("ticket_id")

@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
@@ -10,6 +11,7 @@ from django.core.cache import cache
 from django.test import Client as DjangoClient
 from django.urls import reverse
 
+from parameterized import parameterized, parameterized_class
 from rest_framework import status
 from social_core.exceptions import AuthCanceled
 
@@ -20,6 +22,60 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
+
+
+class ImpersonationLoginMixin:
+    """Mixin providing login_as_other_user for both direct loginas and from-ticket endpoints.
+
+    Subclasses using parameterized_class set `endpoint_type` to "direct" or "from_ticket".
+    """
+
+    endpoint_type: str  # set by parameterized_class
+
+    def _create_ticket_for_user(self, user):
+        from products.conversations.backend.models import Ticket
+
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            distinct_id="test-distinct-id",
+            widget_session_id=str(uuid.uuid4()),
+            anonymous_traits={"email": user.email},
+        )
+
+    def _impersonation_setUp(self):
+        if self.endpoint_type == "from_ticket":
+            self._ticket = self._create_ticket_for_user(self.other_user)
+
+    def login_as_other_user(self):
+        if self.endpoint_type == "direct":
+            return self.client.post(
+                reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+                data={"read_only": "false", "reason": "Test impersonation"},
+                follow=True,
+            )
+        else:
+            response = self.client.post(
+                reverse("impersonation-from-ticket"),
+                data=json.dumps({"ticket_id": str(self._ticket.id)}),
+                content_type="application/json",
+            )
+            return response
+
+    def login_as_other_user_read_only(self):
+        if self.endpoint_type == "direct":
+            return self.client.post(
+                reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+                data={"read_only": "true", "reason": "Test read-only impersonation"},
+                follow=True,
+            )
+        else:
+            # from-ticket is always read-only
+            response = self.client.post(
+                reverse("impersonation-from-ticket"),
+                data=json.dumps({"ticket_id": str(self._ticket.id)}),
+                content_type="application/json",
+            )
+            return response
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -526,12 +582,13 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertNotIn("ph_current_project_name", response.cookies)
 
 
+@parameterized_class(("endpoint_type",), [("direct",), ("from_ticket",)])
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
 @override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
 @override_settings(ADMIN_PORTAL_ENABLED=True)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
-class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
+class TestAutoLogoutImpersonateMiddleware(ImpersonationLoginMixin, APIBaseTest):
     other_user: User
 
     def setUp(self):
@@ -549,29 +606,21 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         # Django Client's default (APIClient defaults to JSON).
         self.client = DjangoClient()
         self.client.force_login(self.user)
+        self._impersonation_setUp()
 
     def get_csrf_token_payload(self):
         return {}
 
-    def login_as_other_user(self):
-        return self.client.post(
-            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "false", "reason": "Test impersonation"},
-            follow=True,
-        )
-
     def test_staff_user_can_login(self):
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
-        response = self.login_as_other_user()
-        assert response.status_code == 200
+        self.login_as_other_user()
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
     def test_not_staff_user_cannot_login(self):
         self.user.is_staff = False
         self.user.save()
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
-        response = self.login_as_other_user()
-        assert response.status_code == 200
+        self.login_as_other_user()
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
     def test_after_idle_timeout_api_requests_401(self):
@@ -689,12 +738,13 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             assert res.json()["email"] == "user1@posthog.com"
 
 
+@parameterized_class(("endpoint_type",), [("direct",), ("from_ticket",)])
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
 @override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
 @override_settings(ADMIN_PORTAL_ENABLED=True)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
-class TestImpersonationReadOnlyMiddleware(APIBaseTest):
+class TestImpersonationReadOnlyMiddleware(ImpersonationLoginMixin, APIBaseTest):
     other_user: User
 
     def setUp(self):
@@ -705,25 +755,9 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        # Use Django's standard Client instead of APIClient for these tests.
-        # The loginas admin view expects form-encoded POST data, which is
-        # Django Client's default (APIClient defaults to JSON).
         self.client = DjangoClient()
         self.client.force_login(self.user)
-
-    def login_as_other_user(self):
-        return self.client.post(
-            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "false", "reason": "Test impersonation"},
-            follow=True,
-        )
-
-    def login_as_other_user_read_only(self):
-        return self.client.post(
-            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "true", "reason": "Test read-only impersonation"},
-            follow=True,
-        )
+        self._impersonation_setUp()
 
     def test_read_only_impersonation_blocks_write(self):
         """Verify read-only impersonation blocks DELETE requests with correct error."""
@@ -777,30 +811,8 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Should not be blocked by impersonation middleware (might get other errors)
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
 
-    def test_regular_impersonation_allows_write(self):
-        """Verify regular (non-read-only) impersonation can still write."""
-        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
-
-        self.login_as_other_user()
-
-        # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
-
-        # Update should work with regular impersonation
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/",
-            data={"name": "Updated Dashboard"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == 200
-
-        # Verify dashboard was updated
-        dashboard.refresh_from_db()
-        assert dashboard.name == "Updated Dashboard"
-
     def test_impersonation_blocked_when_user_disallows(self):
-        """Verify regular impersonation fails when target user has allow_impersonation=False."""
+        """Verify impersonation fails when target user has allow_impersonation=False."""
         self.other_user.allow_impersonation = False
         self.other_user.save()
 
@@ -871,7 +883,9 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 @override_settings(ADMIN_PORTAL_ENABLED=True)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
-class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
+class TestDirectImpersonationReadWrite(APIBaseTest):
+    """Tests specific to direct read-write impersonation (not applicable to from-ticket, which is always read-only)."""
+
     other_user: User
 
     def setUp(self):
@@ -882,18 +896,114 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        # Use Django's standard Client instead of APIClient for these tests.
-        # The loginas admin view expects form-encoded POST data, which is
-        # Django Client's default (APIClient defaults to JSON).
         self.client = DjangoClient()
         self.client.force_login(self.user)
 
-    def login_as_other_user(self):
+    def _login_as_other_user_read_write(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
             data={"read_only": "false", "reason": "Test impersonation"},
             follow=True,
         )
+
+    def test_read_write_impersonation_allows_write(self):
+        """Verify read-write impersonation can write to non-blocked paths."""
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+
+        self._login_as_other_user_read_write()
+
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/",
+            data={"name": "Updated Dashboard"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        dashboard.refresh_from_db()
+        assert dashboard.name == "Updated Dashboard"
+
+    def test_read_write_impersonation_blocks_patch_to_users_api(self):
+        """Verify read-write impersonation blocks PATCH to /api/users/ (path-blocked)."""
+        self._login_as_other_user_read_write()
+
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            data={"first_name": "Changed"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_path_blocked"
+
+    def test_read_write_impersonation_blocks_set_current_organization_with_other_fields(self):
+        """Verify read-write impersonation blocks PATCH with set_current_organization plus other fields."""
+        self._login_as_other_user_read_write()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            data={
+                "set_current_organization": str(self.organization.id),
+                "first_name": "Hacked",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_path_blocked"
+
+    def test_read_write_impersonation_blocks_post_to_personal_api_keys(self):
+        """Verify read-write impersonation blocks POST to /api/personal_api_keys/ (path-blocked)."""
+        self._login_as_other_user_read_write()
+
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            data={"label": "Test Key"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_path_blocked"
+
+    def test_upgrade_returns_404_when_already_read_write(self):
+        """Verify upgrade endpoint returns 404 when already in read-write mode."""
+        self._login_as_other_user_read_write()
+
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+
+@parameterized_class(("endpoint_type",), [("direct",), ("from_ticket",)])
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
+@override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+class TestImpersonationBlockedPathsMiddleware(ImpersonationLoginMixin, APIBaseTest):
+    """Tests for blocked paths middleware - applies to both direct and from-ticket."""
+
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+        self._impersonation_setUp()
 
     def test_impersonation_allows_get_to_users_api(self):
         """Verify impersonation allows GET requests to /api/users/."""
@@ -902,25 +1012,6 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response.json()["email"] == "other-user@posthog.com"
-
-    def test_impersonation_blocks_patch_to_users_api(self):
-        """Verify any impersonation blocks PATCH requests to /api/users/."""
-        self.login_as_other_user()
-
-        # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
-
-        # Try to update user
-        response = self.client.patch(
-            "/api/users/@me/",
-            data={"first_name": "Changed"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == 403
-        response_data = response.json()
-        assert response_data["type"] == "authentication_error"
-        assert response_data["code"] == "impersonation_path_blocked"
 
     def test_non_impersonated_session_can_patch_users_api(self):
         """Verify non-impersonated sessions can PATCH /api/users/."""
@@ -946,49 +1037,14 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
 
         assert response.status_code == 200
 
-    def test_impersonation_blocks_set_current_organization_with_other_fields(self):
-        """Verify impersonation blocks PATCH with set_current_organization plus other fields."""
-        self.login_as_other_user()
-
-        response = self.client.patch(
-            "/api/users/@me/",
-            data={
-                "set_current_organization": str(self.organization.id),
-                "first_name": "Hacked",
-            },
-            content_type="application/json",
-        )
-
-        assert response.status_code == 403
-        assert response.json()["code"] == "impersonation_path_blocked"
-
     def test_impersonation_allows_get_to_personal_api_keys(self):
         """Verify impersonation allows GET requests to /api/personal_api_keys/."""
         self.login_as_other_user()
 
-        # Verify we're logged in as the other user
         assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
 
         response = self.client.get("/api/personal_api_keys/")
         assert response.status_code == 200
-
-    def test_impersonation_blocks_post_to_personal_api_keys(self):
-        """Verify any impersonation blocks POST requests to /api/personal_api_keys/."""
-        self.login_as_other_user()
-
-        # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
-
-        response = self.client.post(
-            "/api/personal_api_keys/",
-            data={"label": "Test Key"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == 403
-        response_data = response.json()
-        assert response_data["type"] == "authentication_error"
-        assert response_data["code"] == "impersonation_path_blocked"
 
 
 @override_settings(ADMIN_PORTAL_ENABLED=True)
@@ -1053,7 +1109,11 @@ class TestImpersonationLoginReasonRequired(APIBaseTest):
         assert self.client.get("/api/users/@me/").json()["email"] == self.user.email
 
 
-class TestUpgradeImpersonation(APIBaseTest):
+@parameterized_class(("endpoint_type",), [("direct",), ("from_ticket",)])
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+class TestUpgradeImpersonation(ImpersonationLoginMixin, APIBaseTest):
     other_user: User
 
     def setUp(self):
@@ -1064,25 +1124,12 @@ class TestUpgradeImpersonation(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        self.client = DjangoClient()  # type: ignore[assignment]
+        self.client = DjangoClient()
         self.client.force_login(self.user)
-
-    def login_as_read_only(self):
-        return self.client.post(
-            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "true", "reason": "Initial read-only impersonation"},
-            follow=True,
-        )
-
-    def login_as_read_write(self):
-        return self.client.post(
-            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "false", "reason": "Initial read-write impersonation"},
-            follow=True,
-        )
+        self._impersonation_setUp()
 
     def test_upgrade_succeeds_from_read_only_with_reason(self):
-        self.login_as_read_only()
+        self.login_as_other_user_read_only()
 
         # Verify we're in read-only mode
         user_response = self.client.get("/api/users/@me/")
@@ -1109,18 +1156,8 @@ class TestUpgradeImpersonation(APIBaseTest):
         )
         assert response.status_code == 404
 
-    def test_upgrade_returns_404_when_already_read_write(self):
-        self.login_as_read_write()
-
-        response = self.client.post(
-            reverse("impersonation-upgrade"),
-            data=json.dumps({"reason": "Some reason"}),
-            content_type="application/json",
-        )
-        assert response.status_code == 404
-
     def test_upgrade_returns_400_without_reason(self):
-        self.login_as_read_only()
+        self.login_as_other_user_read_only()
 
         response = self.client.post(
             reverse("impersonation-upgrade"),
@@ -1131,7 +1168,7 @@ class TestUpgradeImpersonation(APIBaseTest):
         assert "reason" in response.json()["error"].lower()
 
     def test_upgrade_returns_400_with_empty_reason(self):
-        self.login_as_read_only()
+        self.login_as_other_user_read_only()
 
         response = self.client.post(
             reverse("impersonation-upgrade"),
@@ -1142,7 +1179,7 @@ class TestUpgradeImpersonation(APIBaseTest):
 
     @patch("ee.admin.loginas_views.get_original_user_from_session", return_value=None)
     def test_upgrade_returns_400_when_staff_user_not_found(self, mock_get_staff):
-        self.login_as_read_only()
+        self.login_as_other_user_read_only()
 
         response = self.client.post(
             reverse("impersonation-upgrade"),
@@ -1153,7 +1190,7 @@ class TestUpgradeImpersonation(APIBaseTest):
         assert response.json()["error"] == "Unable to upgrade impersonation"
 
     def test_upgrade_returns_400_when_staff_demoted_mid_session(self):
-        self.login_as_read_only()
+        self.login_as_other_user_read_only()
 
         # Revoke staff privileges mid-session
         self.user.is_staff = False
@@ -1166,6 +1203,364 @@ class TestUpgradeImpersonation(APIBaseTest):
         )
         assert response.status_code == 400
         assert response.json()["error"] == "Unable to upgrade impersonation"
+
+
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+class TestImpersonationFromTicket(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
+        self.url = reverse("impersonation-from-ticket")
+
+        self._team_id_patcher = patch("ee.admin.loginas_views.POSTHOG_INTERNAL_TEAM_ID", self.team.id)
+        self._team_id_patcher.start()
+
+    def tearDown(self):
+        self._team_id_patcher.stop()
+        super().tearDown()
+
+    _SENTINEL = object()
+
+    def _create_ticket(self, anonymous_traits=_SENTINEL, **kwargs):
+        from products.conversations.backend.models import Ticket
+
+        if anonymous_traits is self._SENTINEL:
+            anonymous_traits = {"email": self.other_user.email}
+
+        defaults = {
+            "team": self.team,
+            "distinct_id": "test-distinct-id",
+            "widget_session_id": str(uuid.uuid4()),
+            "anonymous_traits": anonymous_traits,
+        }
+        defaults.update(kwargs)
+        return Ticket.objects.create_with_number(**defaults)
+
+    def test_response_includes_ticket_id(self):
+        ticket = self._create_ticket()
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        response_data = response.json()
+        assert response_data["success"] is True
+        assert response_data["ticket_id"] == str(ticket.id)
+
+    def test_ticket_id_stored_in_session(self):
+        ticket = self._create_ticket()
+
+        self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert self.client.session.get("impersonation_ticket_id") == str(ticket.id)
+
+    def test_case_insensitive_email_matching(self):
+        ticket = self._create_ticket(anonymous_traits={"email": "Other-User@PostHog.COM"})
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+    @parameterized.expand(
+        [
+            ("missing_ticket_id", {}, 400, "ticket_id is required"),
+            ("empty_ticket_id", {"ticket_id": ""}, 400, "ticket_id is required"),
+            ("whitespace_ticket_id", {"ticket_id": "   "}, 400, "ticket_id is required"),
+            ("not_a_uuid", {"ticket_id": "not-a-uuid"}, 400, "valid UUID"),
+        ]
+    )
+    def test_invalid_ticket_id_in_body(self, _name, body, expected_status, expected_error):
+        response = self.client.post(
+            self.url,
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+        assert response.status_code == expected_status
+        assert expected_error in response.json()["error"]
+
+    def test_invalid_json_body(self):
+        response = self.client.post(
+            self.url,
+            data="not valid json{",
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "Invalid request body" in response.json()["error"]
+
+    def test_ticket_not_found(self):
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(uuid.uuid4())}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+
+    @parameterized.expand(
+        [
+            ("no_email_key", {"name": "No Email User"}),
+            ("empty_traits", {}),
+            ("null_email", {"email": None}),
+            ("empty_email", {"email": ""}),
+        ]
+    )
+    def test_ticket_without_valid_email(self, _name, traits):
+        ticket = self._create_ticket(anonymous_traits=traits)
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "no associated email" in response.json()["error"].lower()
+
+    def test_no_user_for_email(self):
+        ticket = self._create_ticket(anonymous_traits={"email": "nonexistent@example.com"})
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+        assert "No user found" in response.json()["error"]
+
+    def test_non_staff_user_gets_404(self):
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(uuid.uuid4())}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+
+    def test_cannot_impersonate_staff_user(self):
+        """Staff users cannot be impersonated (CAN_LOGIN_AS blocks this)."""
+        self.other_user.is_staff = True
+        self.other_user.save()
+
+        ticket = self._create_ticket()
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+
+    def test_cannot_impersonate_user_with_impersonation_disabled(self):
+        """Users who have disabled impersonation cannot be impersonated."""
+        self.other_user.allow_impersonation = False
+        self.other_user.save()
+
+        ticket = self._create_ticket()
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+
+    def test_impersonation_is_always_read_only(self):
+        """From-ticket impersonation should always be read-only."""
+        ticket = self._create_ticket()
+
+        self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        # Check session has read-only flag
+        assert self.client.session.get("impersonation_read_only") is True
+
+        # Verify via user API
+        user_response = self.client.get("/api/users/@me/")
+        assert user_response.json()["is_impersonated_read_only"] is True
+
+    def test_logout_redirects_to_ticket_page(self):
+        ticket = self._create_ticket()
+
+        self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        response = self.client.get("/logout")
+
+        assert response.status_code == 302
+        assert response.headers["Location"] == f"/support/tickets/{ticket.id}"
+        assert self.client.get("/api/users/@me/").json()["email"] == self.user.email
+
+    def test_ticket_on_wrong_team_returns_404(self):
+        from posthog.models import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        ticket = self._create_ticket(team=other_team)
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_ticket_from_other_region_returns_redirect(self):
+        ticket = self._create_ticket(anonymous_traits={"email": self.other_user.email, "region": "EU"})
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["redirect_region"] == "EU"
+        assert data["redirect_url"] == f"https://eu.posthog.com/admin/posthog/user/?q={self.other_user.email}"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_ticket_from_same_region_proceeds_normally(self):
+        ticket = self._create_ticket(anonymous_traits={"email": self.other_user.email, "region": "US"})
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_ticket_with_no_region_proceeds_normally(self):
+        ticket = self._create_ticket(anonymous_traits={"email": self.other_user.email})
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+class TestGetImpersonationTicket(APIBaseTest):
+    """Tests for the GET /admin/impersonation/ticket/ endpoint."""
+
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
+        self.impersonate_url = reverse("impersonation-from-ticket")
+        self.ticket_url = reverse("impersonation-ticket")
+
+        self._team_id_patcher = patch("ee.admin.loginas_views.POSTHOG_INTERNAL_TEAM_ID", self.team.id)
+        self._team_id_patcher.start()
+
+    def tearDown(self):
+        self._team_id_patcher.stop()
+        super().tearDown()
+
+    def _create_ticket(self):
+        from products.conversations.backend.models import Ticket
+
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            distinct_id="test-distinct-id",
+            widget_session_id=str(uuid.uuid4()),
+            anonymous_traits={"email": self.other_user.email},
+        )
+
+    def test_returns_ticket_when_impersonating(self):
+        """Should return ticket info when impersonating via ticket."""
+        ticket = self._create_ticket()
+
+        # Start impersonation
+        self.client.post(
+            self.impersonate_url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        # Get ticket info
+        response = self.client.get(self.ticket_url)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(ticket.id)
+        assert data["ticket_number"] == ticket.ticket_number
+        assert data["team_id"] == self.team.id
+
+    def test_returns_404_when_not_impersonating(self):
+        """Should return 404 when not in an impersonation session."""
+        response = self.client.get(self.ticket_url)
+
+        assert response.status_code == 404
+
+    def test_returns_404_when_impersonating_without_ticket(self):
+        """Should return 404 when impersonating via direct login (no ticket)."""
+        # Use direct impersonation (not via ticket)
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": "Test impersonation"},
+            follow=True,
+        )
+
+        response = self.client.get(self.ticket_url)
+
+        assert response.status_code == 404
 
 
 @override_settings(SESSION_COOKIE_AGE=100)

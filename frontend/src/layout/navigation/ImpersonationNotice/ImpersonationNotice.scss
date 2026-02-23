@@ -53,6 +53,14 @@
         }
     }
 
+    &--ticket-expanded {
+        width: 28rem;
+    }
+
+    &--ticket-expanded#{&}--expands-left {
+        transform: translateX(-2rem);
+    }
+
     &__sidebar {
         display: flex;
         flex-shrink: 0;

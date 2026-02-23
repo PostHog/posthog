@@ -11,6 +11,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -53,7 +54,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         chatPanelWidth,
         hasUnsavedChanges,
     } = useValues(logic)
-    const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
+    const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages, initiateImpersonation } =
+        useActions(logic)
+    const { user } = useValues(userLogic)
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -138,16 +141,29 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <>
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-semibold">Customer</h3>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
-                                        }}
-                                    >
-                                        View person
-                                    </LemonButton>
+                                    <div className="flex items-center gap-1">
+                                        {user?.is_staff && ticket.anonymous_traits?.email && (
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                status="danger"
+                                                tooltip="The option to login as a customer is only visible to PostHog staff."
+                                                onClick={() => initiateImpersonation()}
+                                            >
+                                                Login as
+                                            </LemonButton>
+                                        )}
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                newInternalTab(urls.personByDistinctId(ticket.distinct_id))
+                                            }}
+                                        >
+                                            View person
+                                        </LemonButton>
+                                    </div>
                                 </div>
                                 <PersonDisplay
                                     person={
