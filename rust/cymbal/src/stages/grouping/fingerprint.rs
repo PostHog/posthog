@@ -4,7 +4,7 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{grouping_rules::evaluate_grouping_rules, Fingerprint, FingerprintRecordPart},
     metric_consts::FINGERPRINT_GENERATOR_OPERATOR,
-    stages::{grouping::GroupingStage, pipeline::ExceptionEventHandledError},
+    stages::{grouping::GroupingStage, pipeline::HandledError},
     types::{
         exception_properties::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
@@ -17,7 +17,7 @@ pub struct FingerprintGenerator;
 impl ValueOperator for FingerprintGenerator {
     type Context = GroupingStage;
     type Item = ExceptionProperties;
-    type HandledError = ExceptionEventHandledError;
+    type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
     fn name(&self) -> &'static str {
