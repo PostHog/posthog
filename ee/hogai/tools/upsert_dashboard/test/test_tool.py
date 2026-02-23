@@ -133,16 +133,75 @@ class TestUpsertDashboardTool(BaseTest):
 
         await tool._arun_impl(action)
 
-        mock_report_user_action.assert_called_once()
-        call_args = mock_report_user_action.call_args
+        # One call for the insight (from _create_resolved_insights) and one for the dashboard
+        dashboard_calls = [c for c in mock_report_user_action.call_args_list if c[0][1] == "dashboard created"]
+        self.assertEqual(len(dashboard_calls), 1)
+        call_args = dashboard_calls[0]
         self.assertEqual(call_args[0][0], self.user)
-        self.assertEqual(call_args[0][1], "dashboard created")
         properties = call_args[0][2]
         self.assertTrue(properties["from_posthog_ai"])
         self.assertIsNotNone(properties["dashboard_id"])
         self.assertIn("$session_id", properties)
         self.assertEqual(properties["item_count"], 1)
         self.assertEqual(call_args[1]["team"], self.team)
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_create_dashboard_reports_insight_created_for_new_insights(self, mock_report_user_action):
+        insight1 = await self._create_insight("Insight One")
+        insight2 = await self._create_insight("Insight Two")
+
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight1.short_id, insight2.short_id],
+            name="Multi Insight Dashboard",
+            description="Dashboard with multiple insights",
+        )
+
+        await tool._arun_impl(action)
+
+        insight_calls = [c for c in mock_report_user_action.call_args_list if c[0][1] == "insight created"]
+        dashboard_calls = [c for c in mock_report_user_action.call_args_list if c[0][1] == "dashboard created"]
+        self.assertEqual(len(dashboard_calls), 1)
+        self.assertEqual(len(insight_calls), 0)  # Existing insights are not newly created
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_create_dashboard_reports_insight_created_for_unsaved_insights(self, mock_report_user_action):
+        viz_id = str(uuid4())
+        state = AssistantState(
+            messages=[
+                VisualizationMessage(
+                    id=viz_id,
+                    query="Show me pageviews",
+                    answer=DEFAULT_TRENDS_QUERY,
+                    plan="Plan",
+                ),
+            ],
+            root_tool_call_id=str(uuid4()),
+        )
+
+        context_manager = AssistantContextManager(team=self.team, user=self.user)
+        tool = UpsertDashboardTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[viz_id],
+            name="State Dashboard",
+            description="Dashboard with state insight",
+        )
+
+        await tool._arun_impl(action)
+
+        insight_calls = [c for c in mock_report_user_action.call_args_list if c[0][1] == "insight created"]
+        self.assertEqual(len(insight_calls), 1)
+        properties = insight_calls[0][0][2]
+        self.assertTrue(properties["from_posthog_ai"])
+        self.assertIn("insight_id", properties)
+        self.assertIn("$session_id", properties)
 
     async def test_create_dashboard_output_includes_correct_url(self):
         insight = await self._create_insight("URL Test Insight")

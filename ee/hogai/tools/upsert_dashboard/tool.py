@@ -234,6 +234,16 @@ class UpsertDashboardTool(MaxTool):
             if getattr(insight, "pk", None):
                 continue
             insight.save()
+            report_user_action(
+                self._user,
+                "insight created",
+                {
+                    "insight_id": insight.short_id,
+                    "$session_id": (self._config.get("configurable") or {}).get("session_id"),
+                    "from_posthog_ai": True,
+                },
+                team=self._team,
+            )
         return results
 
     @database_sync_to_async
