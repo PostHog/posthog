@@ -189,6 +189,73 @@ export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicPr
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
+/** Merges adjacent inactivity items (a data concern — separate inactivity items with individual durations are redundant). */
+function mergeAdjacentInactivity(items: InspectorListItem[]): InspectorListItem[] {
+    return items.reduce((acc, item) => {
+        const previousItem = acc[acc.length - 1]
+        if (item.type === 'inactivity' && previousItem?.type === 'inactivity') {
+            acc[acc.length - 1] = { ...previousItem, durationMs: previousItem.durationMs + item.durationMs }
+            return acc
+        }
+        acc.push(item)
+        return acc
+    }, [] as InspectorListItem[])
+}
+
+export type DisplayGroup = { indices: number[] }
+
+/** Groups repeated events (across interleaved types) and adjacent identical console logs. */
+export function computeDisplayGroups(items: InspectorListItem[], groupSimilar: boolean): DisplayGroup[] {
+    if (items.length === 0) {
+        return []
+    }
+
+    const groups: DisplayGroup[] = []
+    let activeEventGroup: number | null = null
+
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        let added = false
+
+        if (groupSimilar) {
+            if (item.type === 'events' && activeEventGroup !== null) {
+                const leader = items[groups[activeEventGroup].indices[0]] as InspectorListItemEvent
+                if (
+                    leader.data.event === item.data.event &&
+                    leader.search === item.search &&
+                    !leader.highlightColor &&
+                    !item.highlightColor
+                ) {
+                    groups[activeEventGroup].indices.push(i)
+                    added = true
+                } else {
+                    activeEventGroup = null
+                }
+            } else if (item.type === 'console' && groups.length > 0) {
+                const lastGroup = groups[groups.length - 1]
+                const lastItem = items[lastGroup.indices[0]] as InspectorListItemConsole
+                if (
+                    lastItem.type === 'console' &&
+                    lastItem.data.content === item.data.content &&
+                    lastItem.highlightColor === item.highlightColor
+                ) {
+                    lastGroup.indices.push(i)
+                    added = true
+                }
+            }
+        }
+
+        if (!added) {
+            groups.push({ indices: [i] })
+            if (groupSimilar && item.type === 'events') {
+                activeEventGroup = groups.length - 1
+            }
+        }
+    }
+
+    return groups
+}
+
 function _isCustomSnapshot(x: unknown): x is customEvent {
     return (x as customEvent).type === 5
 }
@@ -292,7 +359,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             miniFiltersLogic,
-            ['showOnlyMatching', 'miniFiltersByKey', 'searchQuery', 'miniFiltersForTypeByKey', 'miniFilters'],
+            [
+                'showOnlyMatching',
+                'groupRepeatedItems',
+                'miniFiltersByKey',
+                'searchQuery',
+                'miniFiltersForTypeByKey',
+                'miniFilters',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'sessionPlayerData',
@@ -593,44 +667,34 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             if (!consoleLogSeenCache.has(cacheKey)) {
                                 consoleLogSeenCache.add(cacheKey)
 
-                                const lastLogLine = consoleLogs[consoleLogs.length - 1]
-                                if (lastLogLine?.content === content) {
-                                    if (lastLogLine.count === undefined) {
-                                        lastLogLine.count = 1
-                                    } else {
-                                        lastLogLine.count += 1
-                                    }
-                                } else {
-                                    const consoleLog = {
-                                        timestamp: snapshot.timestamp,
-                                        windowId: windowId,
-                                        windowNumber: windowNumberForID(windowId),
-                                        content,
-                                        lines,
-                                        level,
-                                        trace,
-                                        count: 1,
-                                    }
-                                    consoleLogs.push(consoleLog)
-
-                                    // Also create the inspector list item
-                                    const { timestamp: itemTimestamp, timeInRecording } = timeRelativeToStart(
-                                        consoleLog,
-                                        start || dayjs()
-                                    )
-                                    consoleItems.push({
-                                        type: 'console',
-                                        timestamp: itemTimestamp,
-                                        timeInRecording,
-                                        search: content,
-                                        data: consoleLog,
-                                        highlightColor:
-                                            level === 'error' ? 'danger' : level === 'warn' ? 'warning' : undefined,
-                                        windowId: windowId,
-                                        windowNumber: windowNumberForID(windowId),
-                                        key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
-                                    })
+                                const consoleLog = {
+                                    timestamp: snapshot.timestamp,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    content,
+                                    lines,
+                                    level,
+                                    trace,
                                 }
+                                consoleLogs.push(consoleLog)
+
+                                // Also create the inspector list item
+                                const { timestamp: itemTimestamp, timeInRecording } = timeRelativeToStart(
+                                    consoleLog,
+                                    start || dayjs()
+                                )
+                                consoleItems.push({
+                                    type: 'console',
+                                    timestamp: itemTimestamp,
+                                    timeInRecording,
+                                    search: content,
+                                    data: consoleLog,
+                                    highlightColor:
+                                        level === 'error' ? 'danger' : level === 'warn' ? 'warning' : undefined,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
+                                })
                             }
                         }
                     })
@@ -1026,19 +1090,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     hasEventsToDisplay,
                 })
 
-                // need to collapse adjacent inactivity items
-                // they look wrong next to each other
-                return filteredItems.reduce((acc, item, index) => {
-                    if (item.type === 'inactivity') {
-                        const previousItem = filteredItems[index - 1]
-                        if (previousItem?.type === 'inactivity') {
-                            previousItem.durationMs += item.durationMs
-                            return acc
-                        }
-                    }
-                    acc.push(item)
-                    return acc
-                }, [] as InspectorListItem[])
+                return mergeAdjacentInactivity(filteredItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1205,21 +1257,24 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         playbackIndicatorIndex: [
-            (s) => [s.currentPlayerTime, s.items],
-            (playerTime, items): number => {
-                // Returns the index of the event that the playback is closest to
+            (s) => [s.currentPlayerTime, s.items, s.displayGroups],
+            (playerTime, items, displayGroups): number => {
+                // Returns the display index that the playback is closest to
                 if (!playerTime) {
                     return 0
                 }
 
                 const timeSeconds = Math.floor(playerTime / 1000)
-                return items.findIndex((x) => Math.floor(x.timeInRecording / 1000) >= timeSeconds)
+                return displayGroups.findIndex(
+                    (g) => Math.floor(items[g.indices[0]].timeInRecording / 1000) >= timeSeconds
+                )
             },
         ],
 
         playbackIndicatorIndexStop: [
-            (s) => [s.playbackIndicatorIndex, s.items],
-            (playbackIndicatorIndex, items): number => (items.length + playbackIndicatorIndex) % items.length,
+            (s) => [s.playbackIndicatorIndex, s.displayGroups],
+            (playbackIndicatorIndex, displayGroups): number =>
+                (displayGroups.length + playbackIndicatorIndex) % displayGroups.length,
         ],
 
         fuse: [
@@ -1242,6 +1297,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     return filteredItems
                 }
                 return fuse.search(searchQuery).map((x) => x.item)
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        displayGroups: [
+            (s) => [s.items, s.groupRepeatedItems],
+            (items, groupRepeatedItems): DisplayGroup[] => {
+                return computeDisplayGroups(items, groupRepeatedItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1273,11 +1336,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
-                const item = values.items[index]
+                const group = values.displayGroups[index]
+                const item = values.items[group.indices[0]]
                 actions.reportRecordingInspectorItemExpanded(item.type, index)
 
                 if (item.type === 'events') {
-                    actions.loadFullEventData(item.data)
+                    const eventsToLoad = group.indices.map((i) => (values.items[i] as InspectorListItemEvent).data)
+                    actions.loadFullEventData(eventsToLoad)
                 }
             }
         },
