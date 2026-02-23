@@ -1,7 +1,19 @@
 import { newPipelineBuilder } from '../builders/helpers'
 import { createContext } from '../helpers'
 import { dlq, isOkResult, ok } from '../results'
-import { TopHogRegistry, average, averageResult, count, createTopHogWrapper, max, maxResult, timer } from './tophog'
+import {
+    TopHogRegistry,
+    average,
+    averageResult,
+    count,
+    countResult,
+    createTopHogWrapper,
+    max,
+    maxResult,
+    sum,
+    sumResult,
+    timer,
+} from './tophog'
 
 describe('topHog wrapper', () => {
     function createMockTopHog(): TopHogRegistry & {
@@ -156,6 +168,116 @@ describe('topHog wrapper', () => {
             expect(result.result.value).toEqual({ processed: 5 })
         }
         expect(result.context.lastStep).toBe('trackedStep')
+    })
+
+    it('should record sum metric with custom value', async () => {
+        const mockTracker = createMockTopHog()
+        const topHog = createTopHogWrapper(mockTracker)
+
+        function myStep(_input: { teamId: number; size: number }) {
+            return Promise.resolve(ok({ done: true }))
+        }
+
+        const pipeline = newPipelineBuilder<{ teamId: number; size: number }>()
+            .pipe(
+                topHog(myStep, [
+                    sum(
+                        'total_bytes',
+                        (input) => ({ team_id: String(input.teamId) }),
+                        (input) => input.size
+                    ),
+                ])
+            )
+            .build()
+
+        await pipeline.process(createContext(ok({ teamId: 42, size: 1024 })))
+
+        expect(mockTracker.registerSum).toHaveBeenCalledWith('total_bytes', undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1024)
+    })
+
+    it('should record sumResult metric only on OK results', async () => {
+        const mockTracker = createMockTopHog()
+        const topHog = createTopHogWrapper(mockTracker)
+
+        function myStep(_input: { teamId: number }) {
+            return Promise.resolve(ok({ bytes: 2048 }))
+        }
+
+        const pipeline = newPipelineBuilder<{ teamId: number }>()
+            .pipe(
+                topHog(myStep, [
+                    sumResult(
+                        'output_bytes',
+                        (output) => ({ bytes: String(output.bytes) }),
+                        (output) => output.bytes
+                    ),
+                ])
+            )
+            .build()
+
+        await pipeline.process(createContext(ok({ teamId: 42 })))
+
+        expect(mockTracker.registerSum).toHaveBeenCalledWith('output_bytes', undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ bytes: '2048' }, 2048)
+    })
+
+    it('should not record sumResult on non-OK results', async () => {
+        const mockTracker = createMockTopHog()
+        const topHog = createTopHogWrapper(mockTracker)
+        const step = jest.fn().mockResolvedValue(dlq('bad data'))
+
+        const pipeline = newPipelineBuilder<{ teamId: number }>()
+            .pipe(
+                topHog(step, [
+                    sumResult(
+                        'output_bytes',
+                        (_output: { bytes: number }) => ({ team_id: '1' }),
+                        (output) => output.bytes
+                    ),
+                ])
+            )
+            .build()
+
+        await pipeline.process(createContext(ok({ teamId: 1 })))
+
+        expect(mockTracker.record).not.toHaveBeenCalled()
+    })
+
+    it('should record countResult metric only on OK results', async () => {
+        const mockTracker = createMockTopHog()
+        const topHog = createTopHogWrapper(mockTracker)
+
+        function myStep(_input: { teamId: number }) {
+            return Promise.resolve(ok({ done: true }))
+        }
+
+        const pipeline = newPipelineBuilder<{ teamId: number }>()
+            .pipe(topHog(myStep, [countResult('processed', (output, input) => ({ team_id: String(input.teamId) }))]))
+            .build()
+
+        await pipeline.process(createContext(ok({ teamId: 42 })))
+
+        expect(mockTracker.registerSum).toHaveBeenCalledWith('processed', undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1)
+    })
+
+    it('should not record countResult on non-OK results', async () => {
+        const mockTracker = createMockTopHog()
+        const topHog = createTopHogWrapper(mockTracker)
+        const step = jest.fn().mockResolvedValue(dlq('bad data'))
+
+        const pipeline = newPipelineBuilder<{ teamId: number }>()
+            .pipe(
+                topHog(step, [
+                    countResult('processed', (_output: unknown, input) => ({ team_id: String(input.teamId) })),
+                ])
+            )
+            .build()
+
+        await pipeline.process(createContext(ok({ teamId: 1 })))
+
+        expect(mockTracker.record).not.toHaveBeenCalled()
     })
 
     it('should record average metric before step returns', async () => {

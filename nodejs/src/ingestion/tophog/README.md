@@ -8,7 +8,8 @@ This is not a tool for analyzing customer behavior. It is designed for realtime 
 
 Each metric type has an input variant (records before the step runs, derives key/value from the step input) and a result variant (records after the step completes, only on OK results, derives key/value from the step output).
 
-- **`count(name, keyFn, valueFn?, opts?)`** / **`countResult(name, keyFn, valueFn?, opts?)`** — accumulates a sum. Defaults to counting 1 per invocation. Use for tracking volume (e.g. messages received, bytes ingested, events produced).
+- **`count(name, keyFn, opts?)`** / **`countResult(name, keyFn, opts?)`** — increments by 1 per invocation. Use for tracking volume (e.g. messages received, events produced).
+- **`sum(name, keyFn, valueFn, opts?)`** / **`sumResult(name, keyFn, valueFn, opts?)`** — accumulates a custom value per invocation. Use for tracking totals where each invocation contributes a variable amount (e.g. bytes ingested, payload sizes).
 - **`max(name, keyFn, valueFn, opts?)`** / **`maxResult(name, keyFn, valueFn, opts?)`** — tracks the maximum observed value per key. Use for finding peak values (e.g. largest payload size, slowest individual request).
 - **`average(name, keyFn, valueFn, opts?)`** / **`averageResult(name, keyFn, valueFn, opts?)`** — tracks the average value per key. Ranks and evicts by average, not sum. Use for finding keys with consistently high values rather than high volume (e.g. average payload size per team).
 - **`timer(name, keyFn, opts?)`** — records elapsed wall-clock time in milliseconds. The key is derived from the step input at start time. Records regardless of whether the step succeeds or fails.
@@ -68,11 +69,11 @@ return builder
                 distinct_id: input.distinct_id,
             })),
             // Track total payload size per team
-            count('parsed_message_bytes', (input) => ({
+            sum('parsed_message_bytes', (input) => ({
                 team_id: String(input.team_id),
             }), (input) => input.message.value?.length ?? 0),
             // Track total payload size per team + distinct_id
-            count('parsed_message_bytes_by_distinct_id', (input) => ({
+            sum('parsed_message_bytes_by_distinct_id', (input) => ({
                 team_id: String(input.team_id),
                 distinct_id: input.distinct_id,
             }), (input) => input.message.value?.length ?? 0),
@@ -146,10 +147,12 @@ TopHog (registry + Kafka reporter)
 └── allTrackers() → iterates all three maps for flush
 
 Pipeline extension (pipelines/extensions/tophog.ts)
-├── count("emitted_events", keyFn)        → records count before step runs
-├── countResult("output_size", keyFn)     → records count after step, on OK results only
-├── max("max_payload", keyFn, valueFn)      → tracks max value before step runs
-├── maxResult("max_output", keyFn, valueFn) → tracks max value after step, on OK results only
+├── count("emitted_events", keyFn)           → increments by 1 before step runs
+├── countResult("output_count", keyFn)       → increments by 1 after step, on OK results only
+├── sum("total_bytes", keyFn, valueFn)       → accumulates value before step runs
+├── sumResult("output_bytes", keyFn, valueFn)→ accumulates value after step, on OK results only
+├── max("max_payload", keyFn, valueFn)       → tracks max value before step runs
+├── maxResult("max_output", keyFn, valueFn)  → tracks max value after step, on OK results only
 ├── average("avg_size", keyFn, valueFn)     → tracks average before step runs
 ├── averageResult("avg_out", keyFn, valueFn)→ tracks average after step, on OK results only
 ├── timer("processing_time", keyFn)         → records elapsed ms per step

@@ -20,19 +20,35 @@ export type TopHogMetricFactory<TInput, TOutput> = (registry: TopHogRegistry) =>
 export function count<TInput, TOutput>(
     name: string,
     key: (input: TInput) => Record<string, string>,
-    value?: (input: TInput) => number,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
-    return (registry) => new InputMetric(registry.registerSum(name, opts), key, value ?? (() => 1))
+    return (registry) => new InputMetric(registry.registerSum(name, opts), key, () => 1)
 }
 
 export function countResult<TInput, TOutput>(
     name: string,
     key: (output: TOutput, input: TInput) => Record<string, string>,
-    value?: (output: TOutput, input: TInput) => number,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
-    return (registry) => new OutputMetric(registry.registerSum(name, opts), key, value ?? (() => 1))
+    return (registry) => new OutputMetric(registry.registerSum(name, opts), key, () => 1)
+}
+
+export function sum<TInput, TOutput>(
+    name: string,
+    key: (input: TInput) => Record<string, string>,
+    value: (input: TInput) => number,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new InputMetric(registry.registerSum(name, opts), key, value)
+}
+
+export function sumResult<TInput, TOutput>(
+    name: string,
+    key: (output: TOutput, input: TInput) => Record<string, string>,
+    value: (output: TOutput, input: TInput) => number,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new OutputMetric(registry.registerSum(name, opts), key, value)
 }
 
 export function max<TInput, TOutput>(
