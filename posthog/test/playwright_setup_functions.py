@@ -280,6 +280,8 @@ def _create_dashboards(
         )
         if dash_spec.insight_indexes and created_insights:
             for idx in dash_spec.insight_indexes:
+                if int(idx) >= len(created_insights):
+                    continue  # Skip invalid indexes
                 DashboardTile.objects.create(
                     dashboard=dashboard,
                     insight=created_insights[int(idx)],
