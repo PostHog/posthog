@@ -328,7 +328,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 }),
             })
 
-            expect(mockGetBlastRadiusPersons).toHaveBeenCalledWith(team, batchRequest.filters, undefined)
+            expect(mockGetBlastRadiusPersons).toHaveBeenCalledWith(team, batchRequest.filters, undefined, null)
         })
 
         it('should paginate through getBlastRadiusPersons until has_more is false', async () => {
