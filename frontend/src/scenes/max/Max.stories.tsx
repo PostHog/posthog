@@ -1754,21 +1754,21 @@ export const DangerousOperationPendingApproval: StoryFn = () => {
 
     const previewText = `This will update the dashboard "Sales Analytics Q1":
 
-Changes:
+## Changes:
 • Remove 3 existing tiles
 • Add 2 new insight tiles
 • Update dashboard filters
 
-Tiles to be removed:
+## Tiles to be removed:
   - Weekly Revenue (insight-456)
   - Monthly Users (insight-789)
   - Conversion Rate (insight-012)
 
-Tiles to be added:
+## Tiles to be added:
   - Daily Active Users trend
   - Funnel: Signup to Purchase
 
-⚠️ This will modify the existing dashboard layout.`
+**⚠️ This will modify the existing dashboard layout.**`
 
     // PendingApproval event - this populates pendingApprovalsData in the logic
     const pendingApproval: PendingApproval = {
@@ -1803,6 +1803,21 @@ Tiles to be added:
                         ])
                     )
                 ),
+        },
+        get: {
+            [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                200,
+                {
+                    id: CONVERSATION_ID,
+                    status: 'idle',
+                    title: 'Test Conversation',
+                    created_at: '2025-04-29T17:44:21.654307Z',
+                    updated_at: '2025-04-29T17:44:29.184791Z',
+                    user: MOCK_DEFAULT_BASIC_USER,
+                    messages: [],
+                    pending_approvals: [pendingApproval],
+                },
+            ],
         },
     })
 
@@ -1976,6 +1991,21 @@ The following services will need to be notified:
                         ])
                     )
                 ),
+        },
+        get: {
+            [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                200,
+                {
+                    id: CONVERSATION_ID,
+                    status: 'idle',
+                    title: 'Test Conversation',
+                    created_at: '2025-04-29T17:44:21.654307Z',
+                    updated_at: '2025-04-29T17:44:29.184791Z',
+                    user: MOCK_DEFAULT_BASIC_USER,
+                    messages: [],
+                    pending_approvals: [pendingApproval],
+                },
+            ],
         },
     })
 
