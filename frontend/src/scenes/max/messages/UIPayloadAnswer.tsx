@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconCheck } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -43,6 +44,7 @@ import { MaxErrorTrackingWidgetLogicProps, maxErrorTrackingWidgetLogic } from '.
 export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
     'search_session_recordings',
     'search_error_tracking_issues',
+    'summarize_sessions',
     'create_form',
 ]
 
@@ -96,6 +98,7 @@ export function RecordingsWidget({
     toolCallId: string
     filters: RecordingUniversalFilters
 }): JSX.Element {
+    const { onAcceptSessionFilters } = useValues(maxLogic)
     const logicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `ai-recordings-widget-${toolCallId}`,
         filters,
@@ -108,8 +111,25 @@ export function RecordingsWidget({
             <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
                 <RecordingsFiltersSummary filters={filters} />
                 <RecordingsListContent />
+                {onAcceptSessionFilters && <AcceptFiltersBar filters={filters} onAccept={onAcceptSessionFilters} />}
             </MessageTemplate>
         </BindLogic>
+    )
+}
+
+function AcceptFiltersBar({
+    filters,
+    onAccept,
+}: {
+    filters: RecordingUniversalFilters
+    onAccept: (filters: RecordingUniversalFilters) => void
+}): JSX.Element {
+    return (
+        <div className="border-t px-3 py-2 flex items-center justify-end">
+            <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={() => onAccept(filters)}>
+                Use these filters for session analysis
+            </LemonButton>
+        </div>
     )
 }
 
@@ -295,5 +315,32 @@ function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrack
                 )}
             </div>
         </MessageTemplate>
+    )
+}
+
+export function SummarizeSessionsWidget({
+    payload,
+    title,
+}: {
+    payload: { title?: string; session_group_summary_id?: string } | null | undefined
+    title?: string
+}): JSX.Element | null {
+    if (!payload?.session_group_summary_id) {
+        return null
+    }
+
+    return (
+        <div className="flex items-center justify-between border rounded-lg bg-surface-primary px-2 py-1.5 w-full">
+            <span className="text-xs font-semibold text-secondary">{title || 'Sessions summary'}</span>
+            <LemonButton
+                to={`/session-summaries/${payload.session_group_summary_id}`}
+                icon={<IconOpenInNew />}
+                size="xsmall"
+                targetBlank
+                tooltip="Open full analysis"
+            >
+                Open full analysis
+            </LemonButton>
+        </div>
     )
 }

@@ -36,7 +36,11 @@ export function ImageCarousel({ imageUrls, loading, onDelete }: ImageCarouselPro
 
     return (
         <div className="relative group border rounded bg-bg-light w-full max-w-[600px] aspect-[3/2] flex items-center justify-center overflow-hidden">
-            {loading ? <Spinner /> : <img src={currentImageUrl} className="max-w-[96%] max-h-[96%] object-contain" />}
+            {loading ? (
+                <Spinner />
+            ) : (
+                <img src={currentImageUrl} alt="Carousel image" className="max-w-[96%] max-h-[96%] object-contain" />
+            )}
 
             {onDelete && !loading && (
                 <LemonButton

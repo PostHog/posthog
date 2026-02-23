@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, ISOTimestamp, TimestampFormat } from '../types'
 import { logger } from './logger'

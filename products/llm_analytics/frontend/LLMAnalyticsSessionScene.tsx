@@ -10,6 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,12 +34,18 @@ export const scene: SceneExport = {
     logic: llmAnalyticsSessionLogic,
 }
 
-export function LLMAnalyticsSessionScene(): JSX.Element {
-    const { sessionId, query } = useValues(llmAnalyticsSessionLogic)
+export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Element {
+    const sessionLogic = llmAnalyticsSessionLogic({ tabId })
+    const { sessionId, query } = useValues(sessionLogic)
+    const sessionDataLogic = llmAnalyticsSessionDataLogic({ sessionId, query, tabId })
+
+    useAttachedLogic(sessionDataLogic, sessionLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query }}>
-            <SessionSceneWrapper />
+        <BindLogic logic={llmAnalyticsSessionLogic} props={{ tabId }}>
+            <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query, tabId }}>
+                <SessionSceneWrapper />
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -59,9 +66,11 @@ function SessionSceneWrapper(): JSX.Element {
         loadingFullTraces,
         traceSummaries,
         summariesLoading,
+        hasMoreData,
+        nextDataLoading,
     } = useValues(llmAnalyticsSessionDataLogic)
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
-    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces } =
+    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces, loadNextData } =
         useActions(llmAnalyticsSessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -98,7 +107,8 @@ function SessionSceneWrapper(): JSX.Element {
                                 <span className="font-mono">{sessionId}</span>
                             </LemonTag>
                             <LemonTag size="medium" className="bg-surface-primary">
-                                {sessionStats.traceCount} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
+                                {sessionStats.traceCount}
+                                {hasMoreData ? '+' : ''} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
                             </LemonTag>
                             {sessionStats.totalCost > 0 && (
                                 <LemonTag size="medium" className="bg-surface-primary">
@@ -271,6 +281,18 @@ function SessionSceneWrapper(): JSX.Element {
                                     </div>
                                 )
                             })}
+                            {hasMoreData && (
+                                <div className="flex justify-center pt-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        loading={nextDataLoading}
+                                        onClick={loadNextData}
+                                        data-attr="llm-session-load-more-traces"
+                                    >
+                                        Load more traces
+                                    </LemonButton>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

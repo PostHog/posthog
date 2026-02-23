@@ -387,7 +387,7 @@ export const StoriesModal = (): JSX.Element | null => {
                             }
                         }}
                         onStoryStart={handleStoryStart}
-                        onPauseToggle={() => setIsPaused(!isPaused)}
+                        onPauseToggle={() => setIsPaused((prev) => !prev)}
                         onClose={() => handleClose(true)}
                     />
 

@@ -594,7 +594,7 @@ export const WebStatsTrendTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
-    const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setDateInterval } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
         dateFilter: { interval },
@@ -684,7 +684,7 @@ export const WebStatsTrendTile = ({
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
                         <span className="mr-2">Group by</span>
-                        <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
+                        <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
                     </div>
                 </div>
             )}
@@ -698,7 +698,7 @@ export const AveragePageViewVisualizationTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<DataVisualizationNode>): JSX.Element => {
-    const { setInterval } = useActions(webAnalyticsLogic)
+    const { setDateInterval } = useActions(webAnalyticsLogic)
     const {
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
@@ -708,7 +708,7 @@ export const AveragePageViewVisualizationTile = ({
             <div className="flex flex-row items-center justify-end m-2 mr-4">
                 <div className="flex flex-row items-center">
                     <span className="mr-2">Group by</span>
-                    <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
+                    <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
                 </div>
             </div>
             <Query
@@ -727,7 +727,7 @@ export const MarketingAnalyticsTrendTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
-    const { setInterval, setChartDisplayType, setTileColumnSelection } = useActions(marketingAnalyticsLogic)
+    const { setDateInterval, setChartDisplayType, setTileColumnSelection } = useActions(marketingAnalyticsLogic)
     const { dateFilter, chartDisplayType, tileColumnSelection } = useValues(marketingAnalyticsLogic)
 
     const MARKETING_COLUMN_OPTIONS: { value: validColumnsForTiles; label: string }[] = [
@@ -754,7 +754,10 @@ export const MarketingAnalyticsTrendTile = ({
                     <div className="flex flex-row items-center">
                         <div className="flex flex-row items-center mr-4">
                             <span className="mr-2">Group by</span>
-                            <IntervalFilterStandalone interval={dateFilter.interval} onIntervalChange={setInterval} />
+                            <IntervalFilterStandalone
+                                interval={dateFilter.interval}
+                                onIntervalChange={setDateInterval}
+                            />
                         </div>
                         <LemonSegmentedButton
                             value={chartDisplayType}

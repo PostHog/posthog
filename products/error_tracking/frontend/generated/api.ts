@@ -1039,6 +1039,34 @@ export const errorTrackingReleasesHashRetrieve = async (
     })
 }
 
+export const getErrorTrackingSpikeDetectionConfigRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/spike_detection_config/`
+}
+
+export const errorTrackingSpikeDetectionConfigRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSpikeDetectionConfigRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/spike_detection_config/update_config/`
+}
+
+export const errorTrackingSpikeDetectionConfigUpdateConfigPartialUpdate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+    })
+}
+
 export const getErrorTrackingStackFramesListUrl = (projectId: string, params?: ErrorTrackingStackFramesListParams) => {
     const normalizedParams = new URLSearchParams()
 

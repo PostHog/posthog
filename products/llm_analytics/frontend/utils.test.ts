@@ -9,6 +9,7 @@ import {
     normalizeMessage,
     normalizeMessages,
     parseOpenAIToolCalls,
+    parsePartialJSON,
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
@@ -521,6 +522,33 @@ describe('LLM Analytics utils', () => {
             expect(result).toHaveLength(1)
             expect(result[0].role).toBe('assistant')
             expect(result[0].content).toEqual([{ type: 'text', text: 'Response from LiteLLM' }])
+        })
+    })
+
+    describe('parsePartialJSON', () => {
+        it.each([
+            ['full object', '{"key": "value", "n": 42}', { key: 'value', n: 42 }],
+            ['full array', '[1, 2, 3]', [1, 2, 3]],
+            ['truncated object', '{"key": "value", "long_field": "some te', { key: 'value', long_field: 'some te' }],
+            ['truncated nested object', '{"a": {"b": "c", "d": "efg', { a: { b: 'c', d: 'efg' } }],
+            ['truncated array', '[1, 2, "hel', [1, 2, 'hel']],
+            ['truncated string value', '"hello wor', 'hello wor'],
+        ])('%s', (_label, input, expected) => {
+            expect(parsePartialJSON(input)).toEqual(expected)
+        })
+
+        it('throws on completely invalid input', () => {
+            expect(() => parsePartialJSON('not json at all')).toThrow()
+        })
+
+        it.each([
+            ['bracket-prefixed text', '[Thinking: The user wants to build a todo app.]I will build it'],
+            ['bracket-prefixed with tool call', '[Tool Call: lov-write, Input: {"file_path":"src/index.tsx"}]'],
+        ])('returns empty array for %s (not actual JSON)', (_label, input) => {
+            // These strings start with "[" so they look like JSON arrays,
+            // but the partial parser can't extract any valid elements
+            const result = parsePartialJSON(input)
+            expect(result).toEqual([])
         })
     })
 

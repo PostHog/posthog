@@ -232,6 +232,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
                 GROUP BY document_id
             )
             WHERE JSONExtractString(metadata, 'report_id') = {report_id}
+              AND NOT JSONExtractBool(metadata, 'deleted')
             ORDER BY timestamp ASC
         """
 
