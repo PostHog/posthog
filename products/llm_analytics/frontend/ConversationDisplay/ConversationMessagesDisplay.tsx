@@ -92,6 +92,20 @@ export function ConversationMessagesDisplay({
     const generationSentiment =
         traceId && generationEventId ? getGenerationSentiment(traceId, generationEventId) : undefined
 
+    // Sentiment is only available for user messages that have a known original
+    // index in $ai_input (sourceIndex). System/assistant messages and messages
+    // without a source mapping get no sentiment.
+    const getMessageSentiment = (
+        role: string,
+        sourceIndex: number | undefined
+    ): { label: string; score: number } | undefined => {
+        if (role !== 'user' || !generationSentiment || sourceIndex === undefined || sourceIndex < 0) {
+            return undefined
+        }
+        const msg = generationSentiment.messages?.[sourceIndex]
+        return msg ? { label: msg.label, score: msg.score } : undefined
+    }
+
     const toggleMessage = (type: MessageType, index: number): void => {
         setMessageShowStates((state) => {
             const nextTypeState = [...state[type]]
@@ -189,16 +203,9 @@ export function ConversationMessagesDisplay({
             </div>
         ) : undefined
 
-    // Look up per-message sentiment by original $ai_input index (stable key),
-    // avoiding fragile counters that can drift when normalizeMessage transforms messages.
     const inputDisplay =
         inputNormalized.length > 0 ? (
             inputNormalized.map((message, i) => {
-                const sourceIndex = inputSourceIndices?.[i]
-                const messageSentiment =
-                    message.role === 'user' && generationSentiment && sourceIndex !== undefined && sourceIndex >= 0
-                        ? generationSentiment.messages?.[sourceIndex]
-                        : undefined
                 return (
                     <React.Fragment key={i}>
                         <LLMMessageDisplay
@@ -211,11 +218,7 @@ export function ConversationMessagesDisplay({
                             isRenderingXml={isRenderingXml}
                             onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
                             onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
-                            messageSentiment={
-                                messageSentiment
-                                    ? { label: messageSentiment.label, score: messageSentiment.score }
-                                    : undefined
-                            }
+                            messageSentiment={getMessageSentiment(message.role, inputSourceIndices?.[i])}
                         />
                         {i < inputNormalized.length - 1 && (
                             <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */

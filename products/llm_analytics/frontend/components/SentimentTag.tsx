@@ -4,6 +4,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import type { MessageSentiment } from '../llmSentimentLazyLoaderLogic'
 import type { SentimentLabel } from '../sentimentUtils'
+import { buildSentimentBarTooltip, buildTagTooltip, capitalize, computeExtremes, formatScore } from '../sentimentUtils'
 
 export interface SentimentScores {
     positive: number
@@ -30,20 +31,6 @@ export const SENTIMENT_BAR_COLOR: Record<SentimentLabel, string> = {
     neutral: 'bg-border',
 }
 
-function formatScore(score: number | undefined): string {
-    if (score === undefined || score === null) {
-        return '?'
-    }
-    return `${Math.round(score * 100)}%`
-}
-
-function buildTooltip(label: string, scores?: SentimentScores): string {
-    if (!scores) {
-        return `Sentiment: ${label}`
-    }
-    return `Positive: ${formatScore(scores.positive)}\nNeutral: ${formatScore(scores.neutral)}\nNegative: ${formatScore(scores.negative)}`
-}
-
 export function SentimentTag({ label, score, scores, loading }: SentimentTagProps): JSX.Element {
     if (loading) {
         return <LemonSkeleton className="h-5 w-20" />
@@ -52,7 +39,7 @@ export function SentimentTag({ label, score, scores, loading }: SentimentTagProp
     const tagType = SENTIMENT_TAG_TYPE[label as SentimentLabel] ?? 'none'
 
     return (
-        <Tooltip title={<span className="whitespace-pre-line">{buildTooltip(label, scores)}</span>}>
+        <Tooltip title={<span className="whitespace-pre-line">{buildTagTooltip(label, scores)}</span>}>
             <LemonTag type={tagType} size="small" className="cursor-default capitalize">
                 Sentiment: {label} ({formatScore(score)})
             </LemonTag>
@@ -76,25 +63,6 @@ export interface SentimentBarProps {
     messages?: Record<string | number, MessageScore>
 }
 
-function computeExtremes(messages?: Record<string | number, MessageScore>): {
-    maxPositive: number
-    maxNegative: number
-} {
-    let maxPositive = 0
-    let maxNegative = 0
-    if (messages) {
-        for (const msg of Object.values(messages)) {
-            if (msg.label === 'positive' && msg.scores && msg.scores.positive > maxPositive) {
-                maxPositive = msg.scores.positive
-            }
-            if (msg.label === 'negative' && msg.scores && msg.scores.negative > maxNegative) {
-                maxNegative = msg.scores.negative
-            }
-        }
-    }
-    return { maxPositive, maxNegative }
-}
-
 export function SentimentBar({ label, score, loading, size = 'sm', messages }: SentimentBarProps): JSX.Element | null {
     if (loading) {
         return <LemonSkeleton className={`h-1.5 ${size === 'full' ? 'w-3/4' : 'w-10'}`} />
@@ -106,17 +74,7 @@ export function SentimentBar({ label, score, loading, size = 'sm', messages }: S
     const { maxPositive, maxNegative } = computeExtremes(messages)
     const showMaxPositive = maxPositive > 0.05
     const showMaxNegative = maxNegative > 0.05
-
-    const capitalize = (s: string): string => s[0].toUpperCase() + s.slice(1)
-    const tooltipParts = [`${capitalize(sentimentLabel)}: ${widthPercent}%`]
-    if (showMaxPositive) {
-        tooltipParts.push(`max positive: ${Math.round(maxPositive * 100)}%`)
-    }
-    if (showMaxNegative) {
-        tooltipParts.push(`max negative: ${Math.round(maxNegative * 100)}%`)
-    }
-    const tooltipText =
-        tooltipParts.length > 1 ? `${tooltipParts[0]} (${tooltipParts.slice(1).join(', ')})` : tooltipParts[0]
+    const tooltipText = buildSentimentBarTooltip(sentimentLabel, widthPercent, maxPositive, maxNegative)
 
     return (
         <Tooltip title={tooltipText}>
@@ -165,22 +123,6 @@ export function SentimentBar({ label, score, loading, size = 'sm', messages }: S
     )
 }
 
-/** Flatten all messages from all generations into a single record for SentimentBar. */
-export function flattenGenerationMessages(
-    generations?: Record<string, { messages?: Record<string | number, MessageScore> }>
-): Record<string, MessageScore> | undefined {
-    if (!generations) {
-        return undefined
-    }
-    const flat: Record<string, MessageScore> = {}
-    for (const [genId, gen] of Object.entries(generations)) {
-        for (const [msgId, msg] of Object.entries(gen.messages ?? {})) {
-            flat[`${genId}:${msgId}`] = msg
-        }
-    }
-    return Object.keys(flat).length > 0 ? flat : undefined
-}
-
 export function MessageSentimentBar({ sentiment }: { sentiment: MessageSentiment }): JSX.Element | null {
     const sentimentLabel = sentiment.label as SentimentLabel
     if (!SENTIMENT_BAR_COLOR[sentimentLabel]) {
@@ -190,9 +132,7 @@ export function MessageSentimentBar({ sentiment }: { sentiment: MessageSentiment
     const barColor = SENTIMENT_BAR_COLOR[sentimentLabel]
 
     return (
-        <Tooltip
-            title={`${sentiment.label[0].toUpperCase()}${sentiment.label.slice(1)}: ${formatScore(sentiment.score)}`}
-        >
+        <Tooltip title={`${capitalize(sentimentLabel)}: ${formatScore(sentiment.score)}`}>
             <span className="flex items-center gap-1">
                 <span className="w-10 h-1.5 bg-border-light rounded-full overflow-hidden inline-block">
                     <span

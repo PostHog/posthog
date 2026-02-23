@@ -36,7 +36,6 @@ export const TagLoading = SentimentTagTemplate.bind({})
 TagLoading.args = {
     label: 'positive',
     score: 0,
-    loading: true,
 }
 
 // -- SentimentBar --
@@ -88,14 +87,12 @@ export const BarLoading = SentimentBarTemplate.bind({})
 BarLoading.args = {
     label: 'positive',
     score: 0,
-    loading: true,
 }
 
 export const BarLoadingFullWidth = SentimentBarTemplate.bind({})
 BarLoadingFullWidth.args = {
     label: 'positive',
     score: 0,
-    loading: true,
     size: 'full',
 }
 
