@@ -75,6 +75,14 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 kafkaProducer,
                 clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 groupId,
-            })
+            }),
+            {
+                topHog: {
+                    keyExtractor: (input) => String(input.eventToEmit.team_id),
+                    metric: 'events',
+                    trackCount: true,
+                    trackTime: false,
+                },
+            }
         )
 }
