@@ -24,7 +24,6 @@ import {
     LemonSelect,
     LemonSelectOption,
     LemonSelectOptions,
-    Link,
 } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -35,6 +34,7 @@ import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     isQuickFilterItem,
     quickFilterToPropertyFilters,
@@ -185,9 +185,12 @@ export interface ActionFilterRowProps {
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */
     addFilterDocLink?: string
+    /** Doc link to show in the tooltip of the Combine events button */
+    inlineEventsDocLink?: string
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export function ActionFilterRow({
@@ -226,6 +229,8 @@ export function ActionFilterRow({
     excludedProperties,
     allowNonCapturedEvents,
     hogQLGlobals,
+    inlineEventsDocLink,
+    definitionPopoverRenderer,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
     const effectiveActionsTaxonomicGroupTypes = showQuickFilters
@@ -486,6 +491,7 @@ export function ActionFilterRow({
             }
             excludedProperties={excludedProperties}
             allowNonCapturedEvents={allowNonCapturedEvents}
+            definitionPopoverRenderer={definitionPopoverRenderer}
         />
     )
 
@@ -504,19 +510,8 @@ export function ActionFilterRow({
                         : undefined
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
-                tooltip={
-                    addFilterDocLink ? (
-                        <>
-                            Show filters
-                            <br />
-                            <Link to={addFilterDocLink} target="_blank">
-                                Read the docs
-                            </Link>
-                        </>
-                    ) : (
-                        'Show filters'
-                    )
-                }
+                tooltip="Show filters"
+                tooltipDocLink={addFilterDocLink}
             />
         </IconWithCount>
     )
@@ -573,18 +568,8 @@ export function ActionFilterRow({
                     team_id: currentTeamId,
                 })
             }}
-            tooltip={
-                <>
-                    Combine events
-                    <br />
-                    <Link
-                        to="https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline"
-                        target="_blank"
-                    >
-                        Read the docs
-                    </Link>
-                </>
-            }
+            tooltip="Combine events"
+            tooltipDocLink={inlineEventsDocLink}
         />
     )
 

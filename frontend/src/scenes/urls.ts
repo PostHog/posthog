@@ -63,6 +63,7 @@ export const urls = {
         draftId,
         outputTab,
         endpointName,
+        source,
     }: {
         query?: string
         view_id?: string
@@ -70,6 +71,7 @@ export const urls = {
         draftId?: string
         outputTab?: OutputTab
         endpointName?: string
+        source?: string
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -89,6 +91,10 @@ export const urls = {
 
         if (endpointName) {
             params.set('endpoint_name', endpointName)
+        }
+
+        if (source) {
+            params.set('source', source)
         }
 
         const queryString = params.toString()
@@ -233,7 +239,7 @@ export const urls = {
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
-    inbox: (): string => '/inbox',
+    inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
     exports: (): string => '/exports',

@@ -14,7 +14,6 @@ import {
     useRef,
     useState,
 } from 'react'
-import { TextMorph } from 'torph/react'
 
 import { IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
@@ -70,23 +69,36 @@ const ASK_AI_ITEM_ID = '__ask_posthog_ai__'
 // Hooks
 // ============================================================================
 
-const useRotatingPlaceholder = (isActive: boolean): string => {
+const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: boolean } => {
     const [index, setIndex] = useState(0)
+    const [isVisible, setIsVisible] = useState(true)
 
     useEffect(() => {
         if (!isActive) {
             setIndex(0)
+            setIsVisible(true)
             return
         }
 
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+
         const interval = setInterval(() => {
-            setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
+            setIsVisible(false)
+            timeoutId = setTimeout(() => {
+                setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
+                setIsVisible(true)
+            }, 200)
         }, PLACEHOLDER_CYCLE_INTERVAL)
 
-        return () => clearInterval(interval)
+        return () => {
+            clearInterval(interval)
+            if (timeoutId !== undefined) {
+                clearTimeout(timeoutId)
+            }
+        }
     }, [isActive])
 
-    return PLACEHOLDER_OPTIONS[index]
+    return { text: PLACEHOLDER_OPTIONS[index], isVisible }
 }
 
 // ============================================================================
@@ -494,7 +506,7 @@ export interface SearchInputProps {
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
     const { searchValue, setSearchValue, isActive, inputRef, highlightedItemRef } = useSearchContext()
 
-    const placeholderText = useRotatingPlaceholder(isActive && !searchValue)
+    const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
 
     const handleInputChange = useCallback(
         (value: string) => {
@@ -537,7 +549,12 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 {searchValue ? null : (
                     <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
                         <span className="text-tertiary">Ask PostHog AI or search </span>
-                        <TextMorph as="span">{placeholderText}</TextMorph>
+                        <span
+                            className="transition-opacity duration-200"
+                            style={{ opacity: placeholderVisible ? 1 : 0 }}
+                        >
+                            {placeholderText}
+                        </span>
                     </span>
                 )}
                 <Autocomplete.Input

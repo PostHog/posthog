@@ -12,6 +12,7 @@ from rest_framework import status
 from posthog.schema import EndpointLastExecutionTimesRequest
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -120,8 +121,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("event_name", response.json()["detail"])
 
     def test_create_endpoint_with_defined_variable_placeholders(self):
-        from posthog.models.insight_variable import InsightVariable
-
         variable = InsightVariable.objects.create(
             team=self.team, name="Event Name", code_name="event_name", type="String"
         )
@@ -146,8 +145,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
 
     def test_cannot_create_endpoint_with_partially_defined_variables(self):
-        from posthog.models.insight_variable import InsightVariable
-
         variable = InsightVariable.objects.create(
             team=self.team, name="Event Name", code_name="event_name", type="String"
         )
@@ -192,6 +189,68 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
         self.assertIn("event_name", response.json()["detail"])
+
+    def test_update_endpoint_syncs_query_variables_from_placeholders(self):
+        event_name_variable = InsightVariable.objects.create(
+            team=self.team, name="Event Name", code_name="event_name", type="String", default_value="$pageview"
+        )
+        browser_variable = InsightVariable.objects.create(
+            team=self.team, name="Browser", code_name="browser", type="String", default_value="Chrome"
+        )
+        city_variable = InsightVariable.objects.create(
+            team=self.team, name="City", code_name="city", type="String", default_value="Paris"
+        )
+
+        create_data = {
+            "name": "test_query",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.$browser = {variables.browser}",
+                "variables": {
+                    str(event_name_variable.id): {
+                        "variableId": str(event_name_variable.id),
+                        "code_name": "event_name",
+                        "value": "$identify",
+                    },
+                    str(browser_variable.id): {
+                        "variableId": str(browser_variable.id),
+                        "code_name": "browser",
+                        "value": "Safari",
+                    },
+                },
+            },
+        }
+        create_response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
+        self.assertEqual(status.HTTP_201_CREATED, create_response.status_code, create_response.json())
+
+        update_data = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.$geoip_city_name = {variables.city}",
+                "variables": {
+                    str(event_name_variable.id): {
+                        "variableId": str(event_name_variable.id),
+                        "code_name": "event_name",
+                        "value": "$pageleave",
+                    },
+                    str(browser_variable.id): {
+                        "variableId": str(browser_variable.id),
+                        "code_name": "browser",
+                        "value": "Firefox",
+                    },
+                },
+            }
+        }
+        update_response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/test_query/", update_data, format="json"
+        )
+
+        self.assertEqual(status.HTTP_200_OK, update_response.status_code, update_response.json())
+
+        variables = update_response.json()["query"]["variables"]
+        self.assertEqual({v["code_name"] for v in variables.values()}, {"event_name", "city"})
+        self.assertEqual(variables[str(event_name_variable.id)]["value"], "$pageleave")
+        self.assertEqual(variables[str(city_variable.id)]["value"], "Paris")
 
     def test_cannot_create_endpoint_with_non_uuid_variable_id(self):
         create_data = {

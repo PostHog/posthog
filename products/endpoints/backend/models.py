@@ -6,6 +6,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -14,7 +15,7 @@ from posthog.hogql.visitor import CloningVisitor
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,7 @@ class EndpointVersion(models.Model):
             return []
 
 
-class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
     """Model for storing endpoints that can be accessed via API endpoints.
 
     Endpoints allow creating reusable query endpoints like:
@@ -282,15 +283,14 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     )
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team", "name"],
-                name="unique_team_endpoint_name",
-            )
-        ]
         indexes = [
             models.Index(fields=["team", "is_active"]),
             models.Index(fields=["team", "name"]),
+            models.Index(
+                name="team_id_endpoint_name_active",
+                fields=["team", "name"],
+                condition=Q(deleted=False) | Q(deleted__isnull=True),
+            ),
         ]
 
     def __str__(self) -> str:
