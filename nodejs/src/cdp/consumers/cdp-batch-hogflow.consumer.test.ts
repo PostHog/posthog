@@ -270,6 +270,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             // Mock the batch person query service to return some persons
             const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
                 users_affected: ['person-1', 'person-2'],
+                cursor: null,
+                has_more: false,
             })
             processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
 
