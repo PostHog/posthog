@@ -6,15 +6,15 @@ import { TopHogRegistry, average, averageResult, count, createTopHogWrapper, max
 describe('topHog wrapper', () => {
     function createMockTopHog(): TopHogRegistry & {
         record: jest.Mock
-        register: jest.Mock
+        registerSum: jest.Mock
         registerMax: jest.Mock
         registerAverage: jest.Mock
     } {
         const record = jest.fn()
-        const register = jest.fn().mockReturnValue({ record })
+        const registerSum = jest.fn().mockReturnValue({ record })
         const registerMax = jest.fn().mockReturnValue({ record })
         const registerAverage = jest.fn().mockReturnValue({ record })
-        return { record, register, registerMax, registerAverage }
+        return { record, registerSum, registerMax, registerAverage }
     }
 
     it('should record count metric on OK result', async () => {
@@ -31,7 +31,7 @@ describe('topHog wrapper', () => {
 
         await pipeline.process(createContext(ok({ teamId: 42 })))
 
-        expect(mockTracker.register).toHaveBeenCalledWith('events', undefined)
+        expect(mockTracker.registerSum).toHaveBeenCalledWith('events', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1)
     })
 
@@ -49,7 +49,7 @@ describe('topHog wrapper', () => {
 
         await pipeline.process(createContext(ok({ teamId: 42 })))
 
-        expect(mockTracker.register).toHaveBeenCalledWith('events', undefined)
+        expect(mockTracker.registerSum).toHaveBeenCalledWith('events', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, expect.any(Number))
     })
 
@@ -72,8 +72,8 @@ describe('topHog wrapper', () => {
 
         await pipeline.process(createContext(ok({ teamId: 42, userId: 'u_1' })))
 
-        expect(mockTracker.register).toHaveBeenCalledWith('by_team', undefined)
-        expect(mockTracker.register).toHaveBeenCalledWith('by_user', undefined)
+        expect(mockTracker.registerSum).toHaveBeenCalledWith('by_team', undefined)
+        expect(mockTracker.registerSum).toHaveBeenCalledWith('by_user', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1)
         expect(mockTracker.record).toHaveBeenCalledWith({ user_id: 'u_1' }, expect.any(Number))
     })
@@ -89,7 +89,7 @@ describe('topHog wrapper', () => {
 
         await pipeline.process(createContext(ok({ teamId: 7 })))
 
-        expect(mockTracker.register).toHaveBeenCalledWith('heatmap_events', undefined)
+        expect(mockTracker.registerSum).toHaveBeenCalledWith('heatmap_events', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '7' }, 1)
     })
 
@@ -117,7 +117,7 @@ describe('topHog wrapper', () => {
         await pipeline.process(createContext(ok({ teamId: 1 })))
 
         expect(step).toHaveBeenCalled()
-        expect(mockTracker.register).not.toHaveBeenCalled()
+        expect(mockTracker.registerSum).not.toHaveBeenCalled()
     })
 
     it('should preserve step name on wrapped function', async () => {

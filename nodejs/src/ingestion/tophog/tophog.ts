@@ -42,7 +42,7 @@ export class TopHog {
         }
     }
 
-    register(name: string, opts?: MetricConfig): SummingMetricTracker {
+    registerSum(name: string, opts?: MetricConfig): SummingMetricTracker {
         let tracker = this.summingTrackers.get(name)
         if (!tracker) {
             tracker = new SummingMetricTracker(

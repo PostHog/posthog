@@ -6,7 +6,7 @@ import { wrapStep } from './helpers'
 type Recorder = { record(key: Record<string, string>, value: number): void }
 
 export interface TopHogRegistry {
-    register(name: string, opts?: MetricConfig): Recorder
+    registerSum(name: string, opts?: MetricConfig): Recorder
     registerMax(name: string, opts?: MetricConfig): Recorder
     registerAverage(name: string, opts?: MetricConfig): Recorder
 }
@@ -23,7 +23,7 @@ export function count<TInput, TOutput>(
     value?: (input: TInput) => number,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
-    return (registry) => new InputMetric(registry.register(name, opts), key, value ?? (() => 1))
+    return (registry) => new InputMetric(registry.registerSum(name, opts), key, value ?? (() => 1))
 }
 
 export function countResult<TInput, TOutput>(
@@ -32,7 +32,7 @@ export function countResult<TInput, TOutput>(
     value?: (output: TOutput, input: TInput) => number,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
-    return (registry) => new OutputMetric(registry.register(name, opts), key, value ?? (() => 1))
+    return (registry) => new OutputMetric(registry.registerSum(name, opts), key, value ?? (() => 1))
 }
 
 export function max<TInput, TOutput>(
@@ -76,7 +76,7 @@ export function timer<TInput, TOutput>(
     key: (input: TInput) => Record<string, string>,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
-    return (registry) => new TimingMetric(registry.register(name, opts), key)
+    return (registry) => new TimingMetric(registry.registerSum(name, opts), key)
 }
 
 export type TopHogWrapper = <TInput, TOutput>(
