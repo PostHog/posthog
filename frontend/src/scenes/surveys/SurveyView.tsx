@@ -47,7 +47,6 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
-    EventPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     Survey,
@@ -58,7 +57,7 @@ import {
 } from '~/types'
 
 import { SurveyHeadline } from './SurveyHeadline'
-import { getSurveyEndDateForQuery, getSurveyResponse, getSurveyStartDateForQuery, isThumbQuestion } from './utils'
+import { getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
 
@@ -403,12 +402,12 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         processedSurveyStats,
         archivedResponseUuids,
         isSurveyHeadlineEnabled,
-        answerFilters,
-        defaultAnswerFilters,
+        hasActiveFilters,
+        hasActiveAnswerFilters,
+        hasActiveDateRange,
         propertyFilters,
-        dateRange,
     } = useValues(surveyLogic)
-    const { setAnswerFilters, setPropertyFilters, setDateRange } = useActions(surveyLogic)
+    const { clearFilters } = useActions(surveyLogic)
 
     /**
      * custom column renderer that does:
@@ -465,26 +464,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     }, [survey.questions])
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
-    const hasActiveAnswerFilters = answerFilters.some((filter: EventPropertyFilter) => {
-        if (!filter?.value) {
-            return false
-        }
-        return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
-    })
-    const surveyStartDate = getSurveyStartDateForQuery(survey as Survey)
-    const surveyEndDate = getSurveyEndDateForQuery(survey as Survey)
-    const hasActiveDateRange =
-        !!dateRange && (dateRange.date_from !== surveyStartDate || dateRange.date_to !== surveyEndDate)
-    const hasActiveFilters = hasActiveAnswerFilters || propertyFilters.length > 0 || hasActiveDateRange
-
-    const clearCurrentFilters = (): void => {
-        setAnswerFilters(defaultAnswerFilters)
-        setPropertyFilters([])
-        setDateRange({
-            date_from: surveyStartDate,
-            date_to: surveyEndDate,
-        })
-    }
     return (
         <div className="deprecated-space-y-4">
             {isSurveyHeadlineEnabled && <SurveyHeadline />}
@@ -536,7 +515,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 <SurveyNoResponsesBanner
                     type="survey"
                     isFiltered={hasActiveFilters}
-                    onClearFilters={hasActiveFilters ? clearCurrentFilters : undefined}
+                    onClearFilters={hasActiveFilters ? clearFilters : undefined}
                     activeFilterTypes={{
                         dateRange: hasActiveDateRange,
                         answerFilters: hasActiveAnswerFilters,

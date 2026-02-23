@@ -15,40 +15,81 @@ interface Props {
     }
 }
 
+type BannerVariant = 'filtered' | 'live' | 'empty'
+
+interface BannerConfig {
+    title: string
+    description: string
+    bubbleText: string
+    Hog: typeof DetectiveHog
+    hogDuration: number
+    hogAnimation: Record<string, number[]>
+}
+
+function getBannerConfig(
+    variant: BannerVariant,
+    type: Props['type'],
+    activeFilterTypes?: Props['activeFilterTypes']
+): BannerConfig {
+    switch (variant) {
+        case 'filtered':
+            return {
+                title: 'No responses match current filters',
+                description: 'Try adjusting your filters to see matching responses.',
+                bubbleText: getFilterBubbleText(activeFilterTypes),
+                Hog: DetectiveHog,
+                hogDuration: 1.2,
+                hogAnimation: { x: [0, -24, 0, 24, 0], y: [0, -3, 0, -3, 0], rotate: [0, -2, 0, 2, 0] },
+            }
+        case 'live':
+            return {
+                title: 'Your survey is live. Results will show up soon.',
+                description: 'As soon as people answer this survey, you will see results here. Check back soon.',
+                bubbleText: 'Waiting for first replies',
+                Hog: WavingHog,
+                hogDuration: 1.1,
+                hogAnimation: { y: [0, -5, 0, -3, 0], rotate: [0, -4, 0, 2, 0] },
+            }
+        case 'empty':
+            return {
+                title: `No responses for this ${type}`,
+                description: `Once people start responding to your ${type}, their answers will appear here.`,
+                bubbleText: 'No answers collected yet',
+                Hog: SurprisedHog,
+                hogDuration: 1.1,
+                hogAnimation: { y: [0, -5, 0, -3, 0], rotate: [0, -4, 0, 2, 0] },
+            }
+    }
+}
+
+const QUICK_TIPS = [
+    {
+        title: 'Start with one key question',
+        description: 'Long surveys drop completion rates quickly. Keep the first ask simple and focused.',
+    },
+    {
+        title: 'Ask at the right moment',
+        description: 'Trigger after value moments like signup completion, feature usage, or a purchase.',
+    },
+    {
+        title: 'Set context in one sentence',
+        description: 'Explain why feedback matters so people feel their answer will lead to action.',
+    },
+]
+
 export function SurveyNoResponsesBanner({
     type,
     isFiltered = false,
     onClearFilters,
     activeFilterTypes,
 }: Props): JSX.Element {
-    const isSurveyWithoutResponses = type === 'survey' && !isFiltered
-    const title = isFiltered
-        ? 'No responses match current filters'
-        : isSurveyWithoutResponses
-          ? 'Your survey is live. Results will show up soon.'
-          : `No responses for this ${type}`
-    const description = isFiltered
-        ? 'Try adjusting your filters to see matching responses.'
-        : isSurveyWithoutResponses
-          ? 'As soon as people answer this survey, you will see results here. Check back soon.'
-          : `Once people start responding to your ${type}, their answers will appear here.`
-    const bubbleText = isFiltered
-        ? getFilterBubbleText(activeFilterTypes)
-        : isSurveyWithoutResponses
-          ? 'Waiting for first replies'
-          : `No answers collected yet`
-    const Hog = isFiltered ? DetectiveHog : isSurveyWithoutResponses ? WavingHog : SurprisedHog
-    const hogDuration = isFiltered ? 1.2 : 1.1
-    const hogAnimation = isFiltered
-        ? {
-              x: [0, -24, 0, 24, 0],
-              y: [0, -3, 0, -3, 0],
-              rotate: [0, -2, 0, 2, 0],
-          }
-        : {
-              y: [0, -5, 0, -3, 0],
-              rotate: [0, -4, 0, 2, 0],
-          }
+    const variant: BannerVariant = isFiltered ? 'filtered' : type === 'survey' ? 'live' : 'empty'
+    const { title, description, bubbleText, Hog, hogDuration, hogAnimation } = getBannerConfig(
+        variant,
+        type,
+        activeFilterTypes
+    )
+
     const baseTransition = { duration: hogDuration, ease: 'easeInOut' }
     const delayedTransition = { ...baseTransition, delay: 0.1 }
     const yTransition = isFiltered ? baseTransition : delayedTransition
@@ -57,20 +98,6 @@ export function SurveyNoResponsesBanner({
         y: yTransition,
         rotate: yTransition,
     }
-    const quickTips = [
-        {
-            title: 'Start with one key question',
-            description: 'Long surveys drop completion rates quickly. Keep the first ask simple and focused.',
-        },
-        {
-            title: 'Ask at the right moment',
-            description: 'Trigger after value moments like signup completion, feature usage, or a purchase.',
-        },
-        {
-            title: 'Set context in one sentence',
-            description: 'Explain why feedback matters so people feel their answer will lead to action.',
-        },
-    ]
 
     return (
         <div className="w-full rounded flex flex-col items-center justify-center gap-5 py-8">
@@ -112,13 +139,13 @@ export function SurveyNoResponsesBanner({
                 <h3 className="text-lg font-semibold m-0">{title}</h3>
                 <p className="text-sm text-muted m-0">{description}</p>
             </div>
-            {isSurveyWithoutResponses && (
+            {variant === 'live' && (
                 <div className="w-full max-w-2xl px-4">
                     <div className="text-sm font-medium text-primary mb-2 text-center">
                         Quick ways to get first responses
                     </div>
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                        {quickTips.map((tip, index) => (
+                        {QUICK_TIPS.map((tip, index) => (
                             <div key={tip.title} className="rounded-lg border border-border p-3 text-left">
                                 <div className="mb-2 flex items-center gap-2">
                                     <span className="inline-flex size-5 items-center justify-center rounded-full border border-border text-xs text-secondary">

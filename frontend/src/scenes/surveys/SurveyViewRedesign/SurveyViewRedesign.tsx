@@ -26,7 +26,6 @@ import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { getSurveyStatus, isSurveyDraft, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
-import { getSurveyEndDateForQuery, getSurveyStartDateForQuery } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -44,7 +43,6 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
-    EventPropertyFilter,
     ProgressStatus,
     SidePanelTab,
     Survey,
@@ -452,34 +450,14 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
         isAnyResultsLoading,
         processedSurveyStats,
         isSurveyHeadlineEnabled,
-        answerFilters,
-        defaultAnswerFilters,
+        hasActiveFilters,
+        hasActiveAnswerFilters,
+        hasActiveDateRange,
         propertyFilters,
-        dateRange,
     } = useValues(surveyLogic)
-    const { setAnswerFilters, setPropertyFilters, setDateRange } = useActions(surveyLogic)
+    const { clearFilters } = useActions(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
-    const hasActiveAnswerFilters = answerFilters.some((filter: EventPropertyFilter) => {
-        if (!filter?.value) {
-            return false
-        }
-        return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
-    })
-    const surveyStartDate = getSurveyStartDateForQuery(survey as Survey)
-    const surveyEndDate = getSurveyEndDateForQuery(survey as Survey)
-    const hasActiveDateRange =
-        !!dateRange && (dateRange.date_from !== surveyStartDate || dateRange.date_to !== surveyEndDate)
-    const hasActiveFilters = hasActiveAnswerFilters || propertyFilters.length > 0 || hasActiveDateRange
-
-    const clearCurrentFilters = (): void => {
-        setAnswerFilters(defaultAnswerFilters)
-        setPropertyFilters([])
-        setDateRange({
-            date_from: surveyStartDate,
-            date_to: surveyEndDate,
-        })
-    }
 
     if (!isAnyResultsLoading && !atLeastOneResponse) {
         return (
@@ -490,7 +468,7 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
                     <SurveyNoResponsesBanner
                         type="survey"
                         isFiltered={hasActiveFilters}
-                        onClearFilters={hasActiveFilters ? clearCurrentFilters : undefined}
+                        onClearFilters={hasActiveFilters ? clearFilters : undefined}
                         activeFilterTypes={{
                             dateRange: hasActiveDateRange,
                             answerFilters: hasActiveAnswerFilters,
