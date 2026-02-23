@@ -100,7 +100,14 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         assert len(response.results) == 10
 
-        assert set(response.results[0][0].keys()) == {"id", "created_at", "distinct_ids", "properties", "is_identified"}
+        assert set(response.results[0][0].keys()) == {
+            "id",
+            "created_at",
+            "last_seen_at",
+            "distinct_ids",
+            "properties",
+            "is_identified",
+        }
         assert response.results[0][0].get("properties").get("random_uuid") == self.random_uuid
         assert len(response.results[0][0].get("distinct_ids")) > 0
 
