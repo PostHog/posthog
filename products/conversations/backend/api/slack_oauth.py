@@ -189,6 +189,12 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
     if not OrganizationMembership.objects.filter(user_id=user.id, organization_id=team.organization_id).exists():
         return _error_response(next_path, "forbidden_team_access", 403)
 
+    conflicting_team = (
+        Team.objects.filter(conversations_settings__slack_team_id=slack_team_id).exclude(id=team.id).first()
+    )
+    if conflicting_team:
+        return _error_response(next_path, "slack_workspace_already_connected", 409)
+
     team.save_supporthog_slack_token_and_save(
         user=user,
         is_impersonated_session=is_impersonated_session(request),

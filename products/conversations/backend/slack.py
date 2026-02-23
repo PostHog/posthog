@@ -574,7 +574,7 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         team=team,
         slack_channel_id=channel,
         slack_thread_ts=thread_ts,
-    ).first()
+    ).exists()
 
     create_or_update_slack_ticket(
         team=team,
@@ -584,7 +584,7 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         text=text,
         blocks=blocks,
         files=files,
-        is_thread_reply=bool(existing),
+        is_thread_reply=existing,
         slack_team_id=slack_team_id,
     )
 

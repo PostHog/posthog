@@ -136,8 +136,8 @@ function SlackSection(): JSX.Element | null {
 
     return (
         <SceneSection
-            title="Slack channel"
-            description="Connect Slack to create and manage support tickets directly from Slack messages."
+            title="SupportHog Slack bot"
+            description="Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from Slack messages."
             className="mt-4"
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
@@ -170,8 +170,8 @@ function SlackChannelSection(): JSX.Element {
             <div>
                 <label className="font-medium">Connection</label>
                 <p className="text-xs text-muted-alt">
-                    Connect your SupportHog Slack app to enable support ticket creation from channels, mentions, and
-                    emoji reactions.
+                    Install the SupportHog bot in your Slack workspace to enable support ticket creation from channels,
+                    mentions, and emoji reactions. This is separate from the main PostHog Slack integration.
                 </p>
                 {!slackConnected && (
                     <LemonButton
@@ -180,7 +180,7 @@ function SlackChannelSection(): JSX.Element {
                         size="small"
                         onClick={() => connectSlack(window.location.pathname)}
                     >
-                        Connect Slack
+                        Add SupportHog to Slack
                     </LemonButton>
                 )}
             </div>
@@ -265,19 +265,19 @@ function SlackChannelSection(): JSX.Element {
                             size="small"
                             onClick={() => {
                                 LemonDialog.open({
-                                    title: 'Disconnect Slack?',
+                                    title: 'Remove SupportHog bot?',
                                     description:
                                         'This will stop creating tickets from Slack messages. Existing tickets will not be affected.',
                                     primaryButton: {
                                         status: 'danger',
-                                        children: 'Disconnect',
+                                        children: 'Remove',
                                         onClick: disconnectSlack,
                                     },
                                     secondaryButton: { children: 'Cancel' },
                                 })
                             }}
                         >
-                            Disconnect Slack
+                            Remove SupportHog bot
                         </LemonButton>
                     </div>
                 </>
