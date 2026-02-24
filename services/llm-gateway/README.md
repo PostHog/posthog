@@ -36,6 +36,25 @@ The gateway supports two authentication methods:
 
 **Required Scope**: `llm_gateway:read`
 
+### Generating a personal API key for local development
+
+Use the `setup_local_api_key` management command to create a deterministic personal API key with the required scope:
+
+```bash
+python manage.py setup_local_api_key --scopes llm_gateway:read
+```
+
+This creates a key with a fixed value (`phx_dev_local_test_api_key_1234567890abcdef`) that survives database resets. The command only works when `DEBUG=True` and `CLOUD_DEPLOYMENT` is unset.
+
+Options:
+
+| Flag       | Default              | Description                            |
+| ---------- | -------------------- | -------------------------------------- |
+| `--email`  | `test@posthog.com`   | User to create the key for             |
+| `--scopes` | None                 | Space-separated list of scopes to grant |
+
+To update scopes on an existing key, re-run the command with the new `--scopes` value.
+
 ## User attribution
 
 When using an OAuth Access Token, the user who's token it is is the user used for analytics and rate limiting.
