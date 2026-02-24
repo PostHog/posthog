@@ -1,7 +1,7 @@
 import time
 import uuid
 
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import httpx
@@ -14,19 +14,22 @@ from products.mcp_store.backend.oauth import TokenRefreshError
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tools.call_mcp_server.installations import _build_server_headers, _get_installations
 from ee.hogai.tools.call_mcp_server.mcp_client import MCPClientError
-from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool, _build_server_headers, _get_installations
+from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 
-class TestCallMCPServerTool(ClickhouseTestMixin, NonAtomicBaseTest):
-    CLASS_DATA_LEVEL_SETUP = False
-
+class TestCallMCPServerTool(BaseTest):
     def setUp(self):
         super().setUp()
         self.state = AssistantState(messages=[])
         self.context_manager = AssistantContextManager(self.team, self.user, {})
         self.node_path = (NodePath(name="test_node", tool_call_id="test_call", message_id="test"),)
+        # Bypass SSRF DNS resolution for fake test domains
+        patcher = patch("ee.hogai.tools.call_mcp_server.tool.is_url_allowed", return_value=(True, None))
+        self.mock_is_url_allowed = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _install_server(self, name="Test Server", url="https://mcp.example.com/mcp", auth_type="none"):
         server = MCPServer.objects.create(name=name, url=url)
@@ -111,6 +114,63 @@ class TestCreateToolClass(TestCallMCPServerTool):
             team=self.team, user=self.user, state=self.state, context_manager=self.context_manager
         )
         self.assertEqual(tool._installations, [])
+
+
+class TestAuthHeaders(TestCallMCPServerTool):
+    async def test_oauth_token_sent_as_bearer_header(self):
+        inst = _make_oauth_installation(
+            server_url="https://mcp.linear.app/mcp",
+            access_token="my-oauth-token",
+        )
+        tool = self._create_tool(installations=[inst])
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            MockClient.return_value = self._make_mock_client()
+            await tool._arun_impl(server_url="https://mcp.linear.app/mcp", tool_name="__list_tools__")
+
+            MockClient.assert_called_once()
+            _, kwargs = MockClient.call_args
+            self.assertEqual(kwargs["headers"], {"Authorization": "Bearer my-oauth-token"})
+
+    async def test_api_key_sent_as_bearer_header(self):
+        inst = {
+            "id": str(uuid.uuid4()),
+            "display_name": "Server",
+            "url": "https://mcp.example.com",
+            "auth_type": "api_key",
+            "server__oauth_metadata": {},
+            "server__oauth_client_id": "",
+            "configuration": {},
+            "sensitive_configuration": {"api_key": "my-api-key"},
+        }
+        tool = self._create_tool(installations=[inst])
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            MockClient.return_value = self._make_mock_client()
+            await tool._arun_impl(server_url="https://mcp.example.com", tool_name="__list_tools__")
+
+            _, kwargs = MockClient.call_args
+            self.assertEqual(kwargs["headers"], {"Authorization": "Bearer my-api-key"})
+
+    async def test_no_auth_sends_no_headers(self):
+        inst = {
+            "id": str(uuid.uuid4()),
+            "display_name": "Server",
+            "url": "https://mcp.example.com",
+            "auth_type": "none",
+            "server__oauth_metadata": {},
+            "server__oauth_client_id": "",
+            "configuration": {},
+            "sensitive_configuration": {},
+        }
+        tool = self._create_tool(installations=[inst])
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            MockClient.return_value = self._make_mock_client()
+            await tool._arun_impl(server_url="https://mcp.example.com", tool_name="__list_tools__")
+
+            _, kwargs = MockClient.call_args
+            self.assertIsNone(kwargs["headers"])
 
 
 class TestSSRFPrevention(TestCallMCPServerTool):
@@ -198,16 +258,27 @@ class TestCallTool(TestCallMCPServerTool):
 
     async def test_timeout_becomes_retryable(self):
         tool = self._create_tool(installations=[{"display_name": "Slow", "url": "https://mcp.slow.com"}])
-        import httpx as _httpx
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
-            mock_instance.initialize = AsyncMock(side_effect=_httpx.TimeoutException("timed out"))
+            mock_instance.initialize = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
             MockClient.return_value = mock_instance
 
             with self.assertRaises(MaxToolRetryableError) as ctx:
                 await tool._arun_impl(server_url="https://mcp.slow.com", tool_name="some_tool", arguments={})
             self.assertIn("timed out", str(ctx.exception))
+
+    async def test_connect_error_becomes_retryable(self):
+        tool = self._create_tool(installations=[{"display_name": "Down", "url": "https://mcp.down.com"}])
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            mock_instance = self._make_mock_client()
+            mock_instance.initialize = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+            MockClient.return_value = mock_instance
+
+            with self.assertRaises(MaxToolRetryableError) as ctx:
+                await tool._arun_impl(server_url="https://mcp.down.com", tool_name="some_tool", arguments={})
+            self.assertIn("Could not connect", str(ctx.exception))
 
 
 class TestSessionCaching(TestCallMCPServerTool):
@@ -269,7 +340,7 @@ class TestSessionCaching(TestCallMCPServerTool):
     async def test_session_persists_in_django_cache(self):
         from django.core.cache import caches
 
-        from ee.hogai.tools.call_mcp_server.tool import _session_cache_key
+        from ee.hogai.tools.call_mcp_server.installations import _session_cache_key
 
         tool = self._create_tool(installations=self.INSTALLATIONS, conversation_id="conv-2")
 
@@ -284,7 +355,7 @@ class TestSessionCaching(TestCallMCPServerTool):
     async def test_new_tool_instance_reads_session_from_django_cache(self):
         from django.core.cache import caches
 
-        from ee.hogai.tools.call_mcp_server.tool import _session_cache_key
+        from ee.hogai.tools.call_mcp_server.installations import _session_cache_key
 
         key = _session_cache_key("conv-3", self.user.id, self.SERVER_URL)
         caches["default"].set(key, "sess-from-cache", timeout=3600)
@@ -302,7 +373,7 @@ class TestSessionCaching(TestCallMCPServerTool):
     async def test_stale_session_clears_django_cache(self):
         from django.core.cache import caches
 
-        from ee.hogai.tools.call_mcp_server.tool import _session_cache_key
+        from ee.hogai.tools.call_mcp_server.installations import _session_cache_key
 
         key = _session_cache_key("conv-4", self.user.id, self.SERVER_URL)
         caches["default"].set(key, "stale-sess", timeout=3600)
@@ -406,6 +477,7 @@ class TestIsTokenExpiring(TestCallMCPServerTool):
 
 class TestSSRFProtection(TestCallMCPServerTool):
     async def test_ssrf_blocked_url_raises_fatal_error(self):
+        self.mock_is_url_allowed.return_value = (False, "Local/metadata host")
         inst = {
             "id": str(uuid.uuid4()),
             "display_name": "Evil",
@@ -519,6 +591,27 @@ class TestReactive401Refresh(TestCallMCPServerTool):
                 await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
             self.assertIn("re-authenticate", str(ctx.exception))
 
+    async def test_401_refresh_failure_marks_installation_for_reauth(self):
+        installation = await sync_to_async(self._install_server)(
+            name="OAuth Server", url=self.SERVER_URL, auth_type="oauth"
+        )
+        inst = _make_oauth_installation(server_url=self.SERVER_URL, installation_id=str(installation.id))
+        tool = self._create_tool(installations=[inst])
+        tool._refresh_token_for_server = AsyncMock(side_effect=TokenRefreshError("bad refresh"))
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            failing_client = self._make_mock_client()
+            failing_client.initialize = AsyncMock(
+                side_effect=httpx.HTTPStatusError("401", request=MagicMock(), response=self._make_401_response())
+            )
+            MockClient.return_value = failing_client
+
+            with self.assertRaises(MaxToolFatalError):
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
+
+        await sync_to_async(installation.refresh_from_db)()
+        self.assertTrue(installation.sensitive_configuration.get("needs_reauth"))
+
     async def test_401_no_refresh_token_raises_fatal(self):
         inst = _make_oauth_installation(server_url=self.SERVER_URL, refresh_token=None)
         tool = self._create_tool(installations=[inst])
@@ -557,6 +650,68 @@ class TestReactive401Refresh(TestCallMCPServerTool):
         tool._refresh_token_for_server.assert_not_called()
 
 
+class TestRefreshTokenProviderKind(TestCallMCPServerTool):
+    SERVER_URL = "https://mcp.linear.app/mcp"
+
+    async def test_known_provider_uses_oauth_integration_config(self):
+        installation = await sync_to_async(self._install_server)(name="Linear", url=self.SERVER_URL, auth_type="oauth")
+        inst = _make_oauth_installation(
+            server_url=self.SERVER_URL,
+            installation_id=str(installation.id),
+            token_retrieved_at=time.time() - 2000,
+            expires_in=3600,
+        )
+        inst["server__oauth_provider_kind"] = "linear"
+        tool = self._create_tool(installations=[inst])
+
+        with (
+            patch("products.mcp_store.backend.oauth.refresh_oauth_token") as mock_refresh,
+            patch("posthog.models.integration.OauthIntegration") as mock_oauth_cls,
+            patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient,
+        ):
+            oauth_config = MagicMock()
+            oauth_config.token_url = "https://linear.app/oauth/token"
+            oauth_config.client_id = "linear-client"
+            oauth_config.client_secret = "linear-secret"
+            mock_oauth_cls.oauth_config_for_kind.return_value = oauth_config
+            mock_refresh.return_value = {"access_token": "new-token", "expires_in": 3600}
+            MockClient.return_value = self._make_mock_client()
+
+            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
+
+        self.assertIn("no tools available", result.lower())
+        await sync_to_async(installation.refresh_from_db)()
+        self.assertEqual(installation.sensitive_configuration["access_token"], "new-token")
+
+    async def test_unknown_provider_falls_back_to_metadata(self):
+        installation = await sync_to_async(self._install_server)(name="Custom", url=self.SERVER_URL, auth_type="oauth")
+        inst = _make_oauth_installation(
+            server_url=self.SERVER_URL,
+            installation_id=str(installation.id),
+            token_retrieved_at=time.time() - 2000,
+            expires_in=3600,
+            oauth_metadata={"token_endpoint": "https://custom.com/oauth/token"},
+            oauth_client_id="custom-client",
+        )
+        inst["server__oauth_provider_kind"] = "unknown-provider"
+        tool = self._create_tool(installations=[inst])
+
+        with (
+            patch("products.mcp_store.backend.oauth.refresh_oauth_token") as mock_refresh,
+            patch("posthog.models.integration.OauthIntegration") as mock_oauth_cls,
+            patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient,
+        ):
+            mock_oauth_cls.oauth_config_for_kind.side_effect = NotImplementedError
+            mock_refresh.return_value = {"access_token": "new-token", "expires_in": 3600}
+            MockClient.return_value = self._make_mock_client()
+
+            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
+
+        self.assertIn("no tools available", result.lower())
+        await sync_to_async(installation.refresh_from_db)()
+        self.assertEqual(installation.sensitive_configuration["access_token"], "new-token")
+
+
 class TestRefreshTokenPersistence(TestCallMCPServerTool):
     SERVER_URL = "https://mcp.dcr-example.com/mcp"
     OAUTH_METADATA = {"token_endpoint": "https://mcp.dcr-example.com/oauth/token"}
@@ -580,7 +735,7 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
         )
 
     async def test_new_access_token_persisted(self):
-        from ee.hogai.tools.call_mcp_server.tool import _refresh_token_sync
+        from ee.hogai.tools.call_mcp_server.installations import _refresh_token_sync
 
         installation_obj = await sync_to_async(self._install_oauth_server)(
             sensitive_config={
@@ -617,7 +772,7 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
         self.assertEqual(updated.sensitive_configuration["access_token"], "new-access-token")
 
     async def test_rotated_refresh_token_saved(self):
-        from ee.hogai.tools.call_mcp_server.tool import _refresh_token_sync
+        from ee.hogai.tools.call_mcp_server.installations import _refresh_token_sync
 
         installation_obj = await sync_to_async(self._install_oauth_server)(
             sensitive_config={
@@ -654,7 +809,7 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
         self.assertEqual(updated.sensitive_configuration["refresh_token"], "new-refresh")
 
     async def test_original_refresh_token_preserved_when_not_rotated(self):
-        from ee.hogai.tools.call_mcp_server.tool import _refresh_token_sync
+        from ee.hogai.tools.call_mcp_server.installations import _refresh_token_sync
 
         installation_obj = await sync_to_async(self._install_oauth_server)(
             sensitive_config={
