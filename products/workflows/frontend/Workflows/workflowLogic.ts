@@ -350,6 +350,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         )
                         draftData.actions = stripped.actions
                         draftData.edges = stripped.edges
+                        ;(draftData as any).deleted_action_ids = []
                         await api.hogFlows.saveDraft(props.id, draftData)
                     }
                     return api.hogFlows.publishDraft(props.id)
