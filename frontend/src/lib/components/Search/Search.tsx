@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { router } from 'kea-router'
 import {
+    Fragment,
     type MutableRefObject,
     type ReactNode,
     type RefObject,
@@ -34,6 +35,7 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { searchAiPreviewLogic } from './searchAiPreviewLogic'
 import { RECENTS_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
 import { shouldSkipAiHighlight } from './shouldSkipAiHighlight'
 import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
@@ -262,6 +264,7 @@ function SearchRoot({
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
+    const { conversationId: aiPreviewConversationId } = useValues(searchAiPreviewLogic({ logicKey }))
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
     const inputRef = useRef<HTMLInputElement>(null!)
@@ -302,14 +305,16 @@ function SearchRoot({
                 name: `Ask PostHog AI: "${searchValue.trim()}"`,
                 displayName: `Ask PostHog AI: "${searchValue.trim()}"`,
                 category: 'ai',
-                href: urls.ai(undefined, searchValue.trim()),
+                href: aiPreviewConversationId
+                    ? urls.ai(aiPreviewConversationId)
+                    : urls.ai(undefined, searchValue.trim()),
                 icon: <IconSparkles className="text-ai" />,
             }
             items = [askAiItem, ...items]
         }
 
         return items
-    }, [allItems, searchValue, showAskAiLink])
+    }, [allItems, searchValue, showAskAiLink, aiPreviewConversationId])
 
     useEffect(() => {
         if (!isActive) {
@@ -664,135 +669,175 @@ function SearchResults({
             <Autocomplete.List className={cn('pt-3 pb-1 empty:hidden', listClassName)} tabIndex={-1}>
                 {groupedItems.map((group) => {
                     return (
-                        <Autocomplete.Group key={group.category} items={group.items} className="mb-4">
-                            <Autocomplete.GroupLabel
-                                render={
-                                    <Label
-                                        className={cn('px-3 sticky top-0 z-1 mb-1', groupLabelClassName)}
-                                        intent="menu"
-                                    >
-                                        {getCategoryDisplayName(group.category)}
-                                    </Label>
-                                }
-                            />
-                            {group.isLoading && !isSearching ? (
-                                <>
-                                    {Array.from({
-                                        length: group.category === 'recents' ? RECENTS_LIMIT : 10,
-                                    }).map((_, i) => (
-                                        // We give the height to the parent div and padding so the skeleton vibibily has some space and isn't a block
-                                        <div key={i} className="px-2 h-[30px] py-px">
-                                            <WrappingLoadingSkeleton fullWidth className="h-full">
-                                                <ButtonPrimitive fullWidth className="invisible">
-                                                    &nbsp;
-                                                </ButtonPrimitive>
-                                            </WrappingLoadingSkeleton>
-                                        </div>
-                                    ))}
-                                </>
-                            ) : (
-                                <Autocomplete.Collection>
-                                    {(item: SearchItem) => {
-                                        const typeLabel = getItemTypeDisplayName(item.itemType)
-                                        const icon = getIconForItem(item)
+                        <Fragment key={group.category}>
+                            <Autocomplete.Group items={group.items} className="mb-4">
+                                <Autocomplete.GroupLabel
+                                    render={
+                                        <Label
+                                            className={cn('px-3 sticky top-0 z-1 mb-1', groupLabelClassName)}
+                                            intent="menu"
+                                        >
+                                            {getCategoryDisplayName(group.category)}
+                                        </Label>
+                                    }
+                                />
+                                {group.isLoading && !isSearching ? (
+                                    <>
+                                        {Array.from({
+                                            length: group.category === 'recents' ? RECENTS_LIMIT : 10,
+                                        }).map((_, i) => (
+                                            // We give the height to the parent div and padding so the skeleton vibibily has some space and isn't a block
+                                            <div key={i} className="px-2 h-[30px] py-px">
+                                                <WrappingLoadingSkeleton fullWidth className="h-full">
+                                                    <ButtonPrimitive fullWidth className="invisible">
+                                                        &nbsp;
+                                                    </ButtonPrimitive>
+                                                </WrappingLoadingSkeleton>
+                                            </div>
+                                        ))}
+                                    </>
+                                ) : (
+                                    <Autocomplete.Collection>
+                                        {(item: SearchItem) => {
+                                            const typeLabel = getItemTypeDisplayName(item.itemType)
+                                            const icon = getIconForItem(item)
 
-                                        return (
-                                            <ContextMenu key={item.id}>
-                                                <ContextMenuTrigger asChild>
-                                                    <Autocomplete.Item
-                                                        value={item}
-                                                        onClick={(e) => {
-                                                            e.preventDefault()
-                                                            handleItemClick(item)
-                                                        }}
-                                                        render={(props) => {
-                                                            const isHighlighted =
-                                                                (props as Record<string, unknown>)[
-                                                                    'data-highlighted'
-                                                                ] === ''
-                                                            if (isHighlighted) {
-                                                                highlightedItemRef.current = item
-                                                            }
-                                                            return (
-                                                                <div className="px-2">
-                                                                    <Link
-                                                                        to={item.href}
-                                                                        buttonProps={{
-                                                                            fullWidth: true,
-                                                                        }}
-                                                                        {...props}
-                                                                        tabIndex={-1}
-                                                                    >
-                                                                        {icon}
-                                                                        <span className="truncate">
-                                                                            {item.displayName || item.name}
-                                                                        </span>
-                                                                        {(group.category === 'recents' ||
-                                                                            group.category === 'groups') &&
-                                                                            (item.groupNoun || typeLabel) && (
+                                            return (
+                                                <ContextMenu key={item.id}>
+                                                    <ContextMenuTrigger asChild>
+                                                        <Autocomplete.Item
+                                                            value={item}
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
+                                                                handleItemClick(item)
+                                                            }}
+                                                            render={(props) => {
+                                                                const isHighlighted =
+                                                                    (props as Record<string, unknown>)[
+                                                                        'data-highlighted'
+                                                                    ] === ''
+                                                                if (isHighlighted) {
+                                                                    highlightedItemRef.current = item
+                                                                }
+                                                                return (
+                                                                    <div className="px-2">
+                                                                        <Link
+                                                                            to={item.href}
+                                                                            buttonProps={{
+                                                                                fullWidth: true,
+                                                                            }}
+                                                                            {...props}
+                                                                            tabIndex={-1}
+                                                                        >
+                                                                            {icon}
+                                                                            <span className="truncate">
+                                                                                {item.displayName || item.name}
+                                                                            </span>
+                                                                            {(group.category === 'recents' ||
+                                                                                group.category === 'groups') &&
+                                                                                (item.groupNoun || typeLabel) && (
+                                                                                    <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                                        {capitalizeFirstLetter(
+                                                                                            item.groupNoun ||
+                                                                                                typeLabel ||
+                                                                                                ''
+                                                                                        )}
+                                                                                    </span>
+                                                                                )}
+                                                                            {item.productCategory && (
                                                                                 <span className="text-xs text-tertiary shrink-0 mt-[2px]">
-                                                                                    {capitalizeFirstLetter(
-                                                                                        item.groupNoun ||
-                                                                                            typeLabel ||
-                                                                                            ''
+                                                                                    {item.productCategory}
+                                                                                </span>
+                                                                            )}
+                                                                            {item.tags?.map((tag) => (
+                                                                                <LemonTag
+                                                                                    key={tag}
+                                                                                    type={
+                                                                                        tag === 'alpha'
+                                                                                            ? 'completion'
+                                                                                            : tag === 'beta'
+                                                                                              ? 'warning'
+                                                                                              : 'success'
+                                                                                    }
+                                                                                    size="small"
+                                                                                    className="shrink-0"
+                                                                                >
+                                                                                    {tag.toUpperCase()}
+                                                                                </LemonTag>
+                                                                            ))}
+                                                                            {item.lastViewedAt && (
+                                                                                <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
+                                                                                    {formatRelativeTimeShort(
+                                                                                        item.lastViewedAt
                                                                                     )}
                                                                                 </span>
                                                                             )}
-                                                                        {item.productCategory && (
-                                                                            <span className="text-xs text-tertiary shrink-0 mt-[2px]">
-                                                                                {item.productCategory}
-                                                                            </span>
-                                                                        )}
-                                                                        {item.tags?.map((tag) => (
-                                                                            <LemonTag
-                                                                                key={tag}
-                                                                                type={
-                                                                                    tag === 'alpha'
-                                                                                        ? 'completion'
-                                                                                        : tag === 'beta'
-                                                                                          ? 'warning'
-                                                                                          : 'success'
-                                                                                }
-                                                                                size="small"
-                                                                                className="shrink-0"
-                                                                            >
-                                                                                {tag.toUpperCase()}
-                                                                            </LemonTag>
-                                                                        ))}
-                                                                        {item.lastViewedAt && (
-                                                                            <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
-                                                                                {formatRelativeTimeShort(
-                                                                                    item.lastViewedAt
-                                                                                )}
-                                                                            </span>
-                                                                        )}
-                                                                    </Link>
-                                                                </div>
-                                                            )
-                                                        }}
-                                                    />
-                                                </ContextMenuTrigger>
-                                                <ContextMenuContent loop className="max-w-[250px] z-top">
-                                                    <ContextMenuGroup>
-                                                        <MenuItems
-                                                            item={commandItemToTreeDataItem(item)}
-                                                            type="context"
-                                                            root="project://"
-                                                            onlyTree={false}
-                                                            showSelectMenuOption={false}
+                                                                        </Link>
+                                                                    </div>
+                                                                )
+                                                            }}
                                                         />
-                                                    </ContextMenuGroup>
-                                                </ContextMenuContent>
-                                            </ContextMenu>
-                                        )
-                                    }}
-                                </Autocomplete.Collection>
-                            )}
-                        </Autocomplete.Group>
+                                                    </ContextMenuTrigger>
+                                                    <ContextMenuContent loop className="max-w-[250px] z-top">
+                                                        <ContextMenuGroup>
+                                                            <MenuItems
+                                                                item={commandItemToTreeDataItem(item)}
+                                                                type="context"
+                                                                root="project://"
+                                                                onlyTree={false}
+                                                                showSelectMenuOption={false}
+                                                            />
+                                                        </ContextMenuGroup>
+                                                    </ContextMenuContent>
+                                                </ContextMenu>
+                                            )
+                                        }}
+                                    </Autocomplete.Collection>
+                                )}
+                            </Autocomplete.Group>
+                            {group.category === 'ai' && <SearchAiPreview />}
+                        </Fragment>
                     )
                 })}
             </Autocomplete.List>
         </ScrollableShadows>
+    )
+}
+
+// ============================================================================
+// Search.AiPreview (internal, not exported)
+// ============================================================================
+
+function SearchAiPreview(): JSX.Element | null {
+    const { logicKey, searchValue } = useSearchContext()
+    const { showPreview, truncatedPreviewText, streamingState, aiConversationUrl } = useValues(
+        searchAiPreviewLogic({ logicKey })
+    )
+
+    if (!showPreview || !searchValue.trim()) {
+        return null
+    }
+
+    return (
+        <div className="px-3 py-2 mx-2 mb-2 rounded border border-ai/20 bg-ai/5">
+            <div className="flex items-start gap-2">
+                <IconSparkles className="text-ai size-4 mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                    <div className="text-sm text-primary line-clamp-4 whitespace-pre-wrap">
+                        {truncatedPreviewText}
+                        {streamingState === 'streaming' && (
+                            <span className="inline-block w-1.5 h-3.5 bg-ai/60 ml-0.5 animate-pulse" />
+                        )}
+                    </div>
+                    <Link
+                        to={aiConversationUrl}
+                        className="text-xs text-ai mt-1 inline-flex items-center gap-1 hover:underline"
+                    >
+                        Continue in PostHog AI
+                    </Link>
+                </div>
+            </div>
+        </div>
     )
 }
 
