@@ -454,10 +454,10 @@ impl RawEvent {
             counter!("capture_distinct_id_has_whitespace_total").increment(1);
         }
 
-        match distinct_id.len() {
-            0 => None,
-            1..=200 => Some(distinct_id),
-            _ => Some(distinct_id.chars().take(200).collect()),
+        if distinct_id.len() <= 200 {
+            Some(distinct_id)
+        } else {
+            Some(distinct_id.chars().take(200).collect())
         }
     }
 
