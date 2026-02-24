@@ -23,7 +23,7 @@ class TestTrafficTypeSnapshot(BaseTest):
                 distinct_id=distinct_id,
                 event="$pageview",
                 team=self.team,
-                properties={"$raw_user_agent": ua},
+                properties={"$user_agent": ua},
             )
         flush_persons_and_events()
 
@@ -32,7 +32,7 @@ class TestTrafficTypeSnapshot(BaseTest):
         response = execute_hogql_query(
             f"""
             SELECT
-                {function_name}(properties.$raw_user_agent) as {alias},
+                {function_name}(properties.$user_agent) as {alias},
                 count() as count
             FROM events
             WHERE event = '$pageview'
@@ -62,9 +62,9 @@ class TestTrafficTypeSnapshot(BaseTest):
         self._create_test_events()
         response = execute_hogql_query(
             """
-            SELECT event, properties.$raw_user_agent as user_agent
+            SELECT event, properties.$user_agent as user_agent
             FROM events
-            WHERE event = '$pageview' AND NOT __preview_isBot(properties.$raw_user_agent)
+            WHERE event = '$pageview' AND NOT __preview_isBot(properties.$user_agent)
             ORDER BY user_agent
             """,
             self.team,

@@ -12,43 +12,78 @@ from posthog.hogql.functions.traffic_type import (
 
 
 class TestTrafficTypeFunctions:
-    def test_get_traffic_type_returns_multiif(self):
+    def test_get_traffic_type_returns_if_with_array_lookup(self):
         node = ast.Call(name="__preview_getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
 
         assert isinstance(result, ast.Call)
-        assert result.name == "multiIf"
-        # Should have: (len(BOT_DEFINITIONS) conditions * 2) + (empty UA condition * 2) + 1 default
-        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
-        assert len(result.args) == expected_args
+        assert result.name == "if"
+        assert len(result.args) == 3
+        # First arg: comparison (multiMatchAnyIndex(...) = 0)
+        assert isinstance(result.args[0], ast.CompareOperation)
+        # Second arg: default value
+        assert isinstance(result.args[1], ast.Constant)
+        assert result.args[1].value == "Regular"
+        # Third arg: array access
+        assert isinstance(result.args[2], ast.ArrayAccess)
 
-    def test_get_traffic_type_returns_expected_values(self):
+    def test_get_traffic_type_uses_multiMatchAnyIndex(self):
         node = ast.Call(name="__preview_getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        return_values = [arg.value for arg in result.args if isinstance(arg, ast.Constant)]
+        # Check the comparison contains multiMatchAnyIndex
+        comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        assert isinstance(comparison.left, ast.Call)
+        assert comparison.left.name == "multiMatchAnyIndex"
 
-        assert "AI Agent" in return_values
-        assert "Bot" in return_values
-        assert "Automation" in return_values
-        assert "Regular" in return_values
+    def test_get_traffic_type_has_correct_patterns_and_labels(self):
+        node = ast.Call(name="__preview_getTrafficType", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
-    def test_get_traffic_category_returns_multiif(self):
+        result = get_traffic_type(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
+
+        # Get the multiMatchAnyIndex call from the comparison
+        comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        index_call = comparison.left
+        assert isinstance(index_call, ast.Call)
+
+        # Check patterns array
+        patterns_array = index_call.args[1]
+        assert isinstance(patterns_array, ast.Array)
+        # Should have len(BOT_DEFINITIONS) + 1 (empty UA) patterns
+        assert len(patterns_array.exprs) == len(BOT_DEFINITIONS) + 1
+
+        # Get labels from the array access
+        array_access = result.args[2]
+        assert isinstance(array_access, ast.ArrayAccess)
+        labels_array = array_access.array
+        assert isinstance(labels_array, ast.Array)
+
+        # Extract label values
+        label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
+        assert "AI Agent" in label_values
+        assert "Bot" in label_values
+        assert "Automation" in label_values  # For empty UA
+
+    def test_get_traffic_category_returns_if_with_array_lookup(self):
         node = ast.Call(name="__preview_getTrafficCategory", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_category(node=node, args=[user_agent_arg])
 
         assert isinstance(result, ast.Call)
-        assert result.name == "multiIf"
-        # Should have: (len(BOT_DEFINITIONS) conditions * 2) + (empty UA condition * 2) + 1 default
-        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
-        assert len(result.args) == expected_args
+        assert result.name == "if"
+        assert len(result.args) == 3
+        # Default should be "regular"
+        assert result.args[1].value == "regular"
 
     def test_get_traffic_category_returns_expected_values(self):
         node = ast.Call(name="__preview_getTrafficCategory", args=[])
@@ -57,12 +92,18 @@ class TestTrafficTypeFunctions:
         result = get_traffic_category(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        return_values = [arg.value for arg in result.args if isinstance(arg, ast.Constant)]
+        # Get labels from the array access
+        array_access = result.args[2]
+        assert isinstance(array_access, ast.ArrayAccess)
+        labels_array = array_access.array
+        assert isinstance(labels_array, ast.Array)
 
-        assert "llm_crawler" in return_values
-        assert "search_crawler" in return_values
-        assert "http_client" in return_values
-        assert "regular" in return_values
+        label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
+
+        assert "llm_crawler" in label_values
+        assert "search_crawler" in label_values
+        assert "http_client" in label_values
+        assert "no_user_agent" in label_values  # For empty UA
 
 
 class TestIsBotFunction:
@@ -89,17 +130,17 @@ class TestIsBotFunction:
 
 
 class TestGetBotTypeFunction:
-    def test_get_bot_type_returns_multiif(self):
+    def test_get_bot_type_returns_if_with_array_lookup(self):
         node = ast.Call(name="__preview_getBotType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_type(node=node, args=[user_agent_arg])
 
         assert isinstance(result, ast.Call)
-        assert result.name == "multiIf"
-        # Should have: (len(BOT_DEFINITIONS) conditions * 2) + (empty UA condition * 2) + 1 default
-        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
-        assert len(result.args) == expected_args
+        assert result.name == "if"
+        assert len(result.args) == 3
+        # Default should be empty string
+        assert result.args[1].value == ""
 
     def test_get_bot_type_returns_expected_values(self):
         node = ast.Call(name="__preview_getBotType", args=[])
@@ -108,32 +149,36 @@ class TestGetBotTypeFunction:
         result = get_bot_type(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        return_values = [arg.value for arg in result.args if isinstance(arg, ast.Constant)]
+        # Get labels from the array access
+        array_access = result.args[2]
+        assert isinstance(array_access, ast.ArrayAccess)
+        labels_array = array_access.array
+        assert isinstance(labels_array, ast.Array)
 
-        assert "llm_crawler" in return_values
-        assert "search_crawler" in return_values
-        assert "seo_crawler" in return_values
-        assert "social_crawler" in return_values
-        assert "monitoring" in return_values
-        assert "http_client" in return_values
-        assert "headless_browser" in return_values
-        assert "no_user_agent" in return_values
-        # Regular traffic returns empty string
-        assert "" in return_values
+        label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
+
+        assert "llm_crawler" in label_values
+        assert "search_crawler" in label_values
+        assert "seo_crawler" in label_values
+        assert "social_crawler" in label_values
+        assert "monitoring" in label_values
+        assert "http_client" in label_values
+        assert "headless_browser" in label_values
+        assert "no_user_agent" in label_values
 
 
 class TestGetBotNameFunction:
-    def test_get_bot_name_returns_multiif(self):
+    def test_get_bot_name_returns_if_with_array_lookup(self):
         node = ast.Call(name="__preview_getBotName", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_name(node=node, args=[user_agent_arg])
 
         assert isinstance(result, ast.Call)
-        assert result.name == "multiIf"
-        # Should have: (len(BOT_DEFINITIONS) conditions * 2) + (empty UA condition * 2) + 1 default
-        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
-        assert len(result.args) == expected_args
+        assert result.name == "if"
+        assert len(result.args) == 3
+        # Default should be empty string
+        assert result.args[1].value == ""
 
     def test_get_bot_name_returns_expected_values(self):
         node = ast.Call(name="__preview_getBotName", args=[])
@@ -142,15 +187,21 @@ class TestGetBotNameFunction:
         result = get_bot_name(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        return_values = [arg.value for arg in result.args if isinstance(arg, ast.Constant)]
+        # Get labels from the array access
+        array_access = result.args[2]
+        assert isinstance(array_access, ast.ArrayAccess)
+        labels_array = array_access.array
+        assert isinstance(labels_array, ast.Array)
+
+        label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
 
         # Check some expected bot names
-        assert "Googlebot" in return_values
-        assert "ChatGPT" in return_values
-        assert "Claude" in return_values
-        assert "curl" in return_values
-        # Regular traffic returns empty string
-        assert "" in return_values
+        assert "Googlebot" in label_values
+        assert "ChatGPT" in label_values
+        assert "Claude" in label_values
+        assert "curl" in label_values
+        # Empty string for regular traffic and empty UA
+        assert "" in label_values
 
     def test_get_bot_name_preserves_user_agent_expression(self):
         node = ast.Call(name="test", args=[])
@@ -159,37 +210,42 @@ class TestGetBotNameFunction:
         result = get_bot_name(node=node, args=[user_agent_arg])
 
         assert isinstance(result, ast.Call)
-        assert result.name == "multiIf"
-        # First condition should use our custom user agent field
-        first_match = result.args[0]
-        assert isinstance(first_match, ast.Call)
-        assert first_match.name == "match"
-        assert first_match.args[0] == user_agent_arg
+        assert result.name == "if"
+        # multiMatchAnyIndex should use our custom user agent field
+        comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        index_call = comparison.left
+        assert isinstance(index_call, ast.Call)
+        assert index_call.args[0] == user_agent_arg
 
 
 class TestTrafficTypeFunctionPatterns:
     @pytest.mark.parametrize(
-        "function_builder,expected_name",
+        "function_builder,expected_default",
         [
-            (get_traffic_type, "multiIf"),
-            (get_traffic_category, "multiIf"),
-            (get_bot_type, "multiIf"),
-            (get_bot_name, "multiIf"),
+            (get_traffic_type, "Regular"),
+            (get_traffic_category, "regular"),
+            (get_bot_type, ""),
+            (get_bot_name, ""),
         ],
     )
-    def test_functions_preserve_user_agent_expression(self, function_builder, expected_name):
+    def test_functions_preserve_user_agent_expression(self, function_builder, expected_default):
         node = ast.Call(name="test", args=[])
         user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
 
         result = function_builder(node=node, args=[user_agent_arg])
 
         assert isinstance(result, ast.Call)
-        assert result.name == expected_name
-        # First condition should use our custom user agent field
-        first_match = result.args[0]
-        assert isinstance(first_match, ast.Call)
-        assert first_match.name == "match"
-        assert first_match.args[0] == user_agent_arg
+        assert result.name == "if"
+        # Default value
+        assert result.args[1].value == expected_default
+        # multiMatchAnyIndex should use our custom user agent field
+        comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        index_call = comparison.left
+        assert isinstance(index_call, ast.Call)
+        assert index_call.name == "multiMatchAnyIndex"
+        assert index_call.args[0] == user_agent_arg
 
     def test_is_bot_preserves_user_agent_expression(self):
         node = ast.Call(name="__preview_isBot", args=[])
