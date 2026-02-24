@@ -25,7 +25,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import {
     DashboardFilter,
-    DataTableNode,
+    DataVisualizationNode,
     HogQLVariable,
     InsightVizNode,
     NodeKind,
@@ -36,7 +36,6 @@ import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
-import { EnhancedToolCall } from './Thread'
 import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
@@ -48,6 +47,7 @@ import {
     MaxInsightContext,
     MaxUIContext,
 } from './maxTypes'
+import { EnhancedToolCall } from './Thread'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -312,7 +312,7 @@ export const visualizationTypeToQuery = (
 ): QuerySchema | null => {
     const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
     if (isHogQLQuery(source)) {
-        return { kind: NodeKind.DataTableNode, source: source } satisfies DataTableNode
+        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
     }
     if (isInsightQueryNode(source)) {
         return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode

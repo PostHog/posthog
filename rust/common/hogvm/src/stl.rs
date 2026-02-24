@@ -347,6 +347,37 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 construct_free_standing(res, 0)
             })),
         ),
+        (
+            "multiSearchAnyCaseInsensitive",
+            native_func(|vm, args| {
+                if args.len() != 2 {
+                    return Err(VmError::NativeCallFailed(
+                        "multiSearchAnyCaseInsensitive takes exactly 2 arguments".to_string(),
+                    ));
+                }
+
+                // Coerce the haystack to a string (to align with TS/Python and ClickHouse behavior)
+                let haystack_str = to_string(&vm.heap, &args[0], 0)?.to_lowercase();
+
+                // The second argument must be an array of needles; otherwise, treat as no match (0)
+                let needles = args[1].deref(&vm.heap)?;
+                let needles_array = match needles {
+                    HogLiteral::Array(arr) => arr,
+                    _ => return Ok(HogLiteral::Number(0i64.into()).into()),
+                };
+
+                for needle_value in needles_array {
+                    // Coerce each needle to a string, regardless of its underlying literal type
+                    let needle_str = to_string(&vm.heap, needle_value, 0)?.to_lowercase();
+                    if haystack_str.contains(&needle_str) {
+                        // Return 1 (numeric) to match ClickHouse-style predicate semantics
+                        return Ok(HogLiteral::Number(1i64.into()).into());
+                    }
+                }
+                // No needles matched: return 0 (numeric)
+                Ok(HogLiteral::Number(0i64.into()).into())
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))

@@ -59,19 +59,30 @@ def get_membership_changed_metric(status: str):
 class RealtimeCohortCalculationWorkflowInputs:
     """Inputs for the realtime cohort calculation workflow."""
 
-    limit: Optional[int] = None
-    offset: int = 0
-    team_id: Optional[int] = None
+    # Array-based approach: coordinator provides specific cohort IDs to process
+    cohort_ids: Optional[list[int]] = None
+
+    # Keep cohort_id for backward compatibility with single cohort processing
     cohort_id: Optional[int] = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        return {
-            "limit": self.limit,
-            "offset": self.offset,
-            "team_id": self.team_id,
-            "cohort_id": self.cohort_id,
-        }
+        if self.cohort_id is not None:
+            return {
+                "cohort_id": self.cohort_id,
+                "num_cohorts": 1,
+            }
+        elif self.cohort_ids is not None:
+            return {
+                "cohort_ids": self.cohort_ids[:10]
+                if len(self.cohort_ids) > 10
+                else self.cohort_ids,  # Log first 10 for brevity
+                "num_cohorts": len(self.cohort_ids),
+            }
+        else:
+            return {
+                "num_cohorts": 0,
+            }
 
 
 async def flush_kafka_batch(
@@ -136,32 +147,43 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
     bind_contextvars()
     logger = LOGGER.bind()
 
-    logger.info(f"Starting realtime cohort calculation workflow for range offset={inputs.offset}, limit={inputs.limit}")
+    if inputs.cohort_id is not None:
+        num_cohorts_desc = "1 cohort"
+    elif inputs.cohort_ids is not None:
+        num_cohorts_desc = f"{len(inputs.cohort_ids)} cohorts"
+    else:
+        num_cohorts_desc = "0 cohorts"
 
-    async with Heartbeater(details=(f"Starting to process cohorts (offset={inputs.offset})",)) as heartbeater:
+    logger.info(f"Starting realtime cohort calculation workflow for {num_cohorts_desc}")
+
+    async with Heartbeater(details=(f"Starting to process {num_cohorts_desc}",)) as heartbeater:
         start_time = time.time()
 
         @database_sync_to_async
         def get_cohorts():
-            # Only get cohorts that are not deleted and have cohort_type='realtime'
-            queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME).select_related("team")
-
-            # Apply team_id filter if provided
-            if inputs.team_id is not None:
-                queryset = queryset.filter(team_id=inputs.team_id)
-
-            # Apply cohort_id filter if provided - skip pagination when filtering by specific cohort
+            # Handle backward compatibility: single cohort_id
             if inputs.cohort_id is not None:
-                queryset = queryset.filter(id=inputs.cohort_id)
-            else:
-                # Only apply pagination when not filtering by specific cohort
-                queryset = (
-                    queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
-                    if inputs.limit
-                    else queryset[inputs.offset :]
-                )
+                queryset = Cohort.objects.filter(
+                    deleted=False, cohort_type=CohortType.REALTIME, id=inputs.cohort_id
+                ).select_related("team")
+                return list(queryset)
 
-            return list(queryset)
+            # Handle new approach: specific cohort IDs provided by coordinator
+            if inputs.cohort_ids is not None:
+                # Filter by the specific cohort IDs, maintaining order for consistent processing
+                queryset = (
+                    Cohort.objects.filter(
+                        deleted=False,
+                        cohort_type=CohortType.REALTIME,
+                        id__in=inputs.cohort_ids,
+                    )
+                    .select_related("team")
+                    .order_by("id")  # Critical: ordered by ID for consistent processing
+                )
+                return list(queryset)
+
+            # No cohorts specified
+            return []
 
         cohorts: list[Cohort] = await get_cohorts()
 
@@ -334,8 +356,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             cohorts_processed=cohorts_count,
             duration_seconds=duration_seconds,
             duration_minutes=duration_minutes,
-            offset=inputs.offset,
-            limit=inputs.limit,
+            range_info=num_cohorts_desc,
         )
 
 
@@ -352,9 +373,16 @@ class RealtimeCohortCalculationWorkflow(PostHogWorkflow):
     async def run(self, inputs: RealtimeCohortCalculationWorkflowInputs) -> None:
         """Run the workflow to process realtime cohort calculations."""
         workflow_logger = temporalio.workflow.logger
-        workflow_logger.info(
-            f"Starting realtime cohort calculation child workflow for range starting at offset={inputs.offset}"
-        )
+        if inputs.cohort_id is not None:
+            workflow_logger.info(
+                f"Starting realtime cohort calculation child workflow for cohort_id={inputs.cohort_id}"
+            )
+        elif inputs.cohort_ids is not None:
+            workflow_logger.info(
+                f"Starting realtime cohort calculation child workflow for {len(inputs.cohort_ids)} cohorts: {inputs.cohort_ids[:10]}{'...' if len(inputs.cohort_ids) > 10 else ''}"
+            )
+        else:
+            workflow_logger.info("Starting realtime cohort calculation child workflow for empty batch")
 
         # Process the batch of actions
         await temporalio.workflow.execute_activity(

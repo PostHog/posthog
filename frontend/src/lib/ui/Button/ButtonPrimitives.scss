@@ -265,7 +265,7 @@
     padding-right: var(--button-padding-x-xxs);
     padding-left: var(--button-padding-x-xxs);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-xxs);
         height: var(--button-icon-size-xxs);
     }
@@ -275,7 +275,7 @@
     padding-right: var(--button-padding-x-xs);
     padding-left: var(--button-padding-x-xs);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-xs);
         height: var(--button-icon-size-xs);
     }
@@ -284,7 +284,7 @@
 .button-primitive--size-sm {
     padding: var(--button-padding-y-sm) var(--button-padding-x-sm);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-sm);
         height: var(--button-icon-size-sm);
     }
@@ -293,7 +293,7 @@
 .button-primitive--size-base {
     padding: var(--button-padding-y-base) var(--button-padding-x-base);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-base);
         height: var(--button-icon-size-base);
     }
@@ -302,7 +302,7 @@
 .button-primitive--size-lg {
     padding: var(--button-padding-y-lg) var(--button-padding-x-lg);
 
-    svg {
+    svg:not([class*='size-']) {
         width: var(--button-icon-size-lg);
         height: var(--button-icon-size-lg);
     }

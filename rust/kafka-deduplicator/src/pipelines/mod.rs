@@ -58,7 +58,24 @@
 //!     └── duplicate_event.rs # Duplicate event publishing format
 //! ```
 
+mod pipeline_builder;
+
+pub mod clickhouse_events;
 pub mod ingestion_events;
+pub mod processor;
+pub mod results;
+pub mod timestamp_deduplicator;
 pub mod traits;
 
+pub use pipeline_builder::{PipelineBuilder, PipelineConsumer};
+
+pub use processor::{
+    batch_read_timestamp_records, batch_write_timestamp_records, emit_deduplication_result_metrics,
+    get_result_labels, get_store_or_drop, DeduplicationResult, DeduplicationResultLabels,
+    DuplicateInfo, DuplicateReason, StoreResult,
+};
+pub use results::{DedupFieldName, EnrichedEvent, EventSimilarity, PropertyDifference};
+pub use timestamp_deduplicator::{
+    DeduplicatableEvent, PublisherConfig, TimestampDeduplicator, TimestampDeduplicatorConfig,
+};
 pub use traits::{DeduplicationKeyExtractor, DeduplicationMetadata, EventParser};

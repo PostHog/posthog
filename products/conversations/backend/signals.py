@@ -6,8 +6,13 @@ from django.dispatch import receiver
 
 import structlog
 
+from posthog.event_usage import report_team_action, report_user_action
+from posthog.exceptions_capture import capture_exception
+from posthog.models import User
 from posthog.models.comment import Comment
 
+from .cache import invalidate_tickets_cache
+from .events import capture_message_received, capture_message_sent
 from .models import Ticket
 
 logger = structlog.get_logger(__name__)
@@ -31,7 +36,6 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     to widget via last_message_text and to keep message_count accurate for customers.
 
     Uses transaction.on_commit() to defer work and avoid blocking the request.
-    Cache invalidation not needed - short TTLs handle staleness.
     """
     if instance.scope != "conversations_ticket":
         return
@@ -45,6 +49,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     # Capture values for closure (avoid referencing instance in deferred callback)
     team_id = instance.team_id
     item_id = instance.item_id
+    comment_id = str(instance.id)
     created_at = instance.created_at
     content = instance.content
     item_context = instance.item_context
@@ -69,6 +74,32 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             update_fields["unread_customer_count"] = F("unread_customer_count") + 1
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
+
+        # Emit analytics events and invalidate cache
+        try:
+            ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
+            # Invalidate widget tickets cache so list shows updated last_message
+            if ticket.widget_session_id:
+                invalidate_tickets_cache(team_id, ticket.widget_session_id)
+
+            # Customer-facing analytics (to customer's project)
+            if is_team_message:
+                capture_message_sent(ticket, comment_id, content or "", created_by_id)
+            else:
+                capture_message_received(ticket, comment_id, content or "")
+
+            # Internal analytics (PostHog tracking its own usage)
+            props = {"channel_source": ticket.channel_source}
+            if is_team_message and created_by_id:
+                user = User.objects.filter(id=created_by_id).first()
+                if user:
+                    report_user_action(user, "support message sent", props, ticket.team)
+            else:
+                report_team_action(ticket.team, "support message received", props)
+        except Ticket.DoesNotExist:
+            pass
+        except Exception as e:
+            capture_exception(e, {"ticket_id": item_id})
 
     transaction.on_commit(do_update)
 

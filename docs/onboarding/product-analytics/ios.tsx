@@ -1,7 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { PersonProfiles } from './_snippets/person-profiles'
 
 export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
@@ -59,7 +58,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
 
                                     class AppDelegate: NSObject, UIApplicationDelegate {
                                         func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-                                            let POSTHOG_API_KEY = "<ph_project_api_key>"
+                                            let POSTHOG_API_KEY = "<ph_project_token>"
                                             let POSTHOG_HOST = "<ph_client_api_host>"
 
                                             let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
@@ -95,7 +94,6 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             },
                         ]}
                     />
-                    <PersonProfiles language="swift" />
                 </>
             ),
         },

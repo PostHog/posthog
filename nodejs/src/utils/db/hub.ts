@@ -3,6 +3,7 @@ import { types as pgTypes } from 'pg'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { InternalCaptureService } from '~/common/services/internal-capture'
+import { InternalFetchService } from '~/common/services/internal-fetch'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
@@ -125,13 +126,14 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
 
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
-    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
+    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
     const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
     const internalCaptureService = new InternalCaptureService(serverConfig)
+    const internalFetchService = new InternalFetchService(serverConfig)
 
     const hub: Hub = {
         ...serverConfig,
@@ -152,6 +154,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         integrationManager,
         quotaLimiting,
         internalCaptureService,
+        internalFetchService,
     }
 
     return hub

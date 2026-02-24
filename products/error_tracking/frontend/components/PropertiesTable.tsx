@@ -58,12 +58,30 @@ export function PropertiesTable({ entries, alternatingColors = true }: Propertie
     )
 }
 
+const SENTINELS = {
+    Redacted: '$$_posthog_redacted_based_on_masking_rules_$$',
+    ValueTooLong: '$$_posthog_value_too_long_$$',
+}
+
+const SENTINEL_REPLACEMENTS: Record<string, string> = {
+    [SENTINELS.Redacted]: '***',
+    [SENTINELS.ValueTooLong]: '<value too long>',
+}
+
+function normalizeSentinels(str: string): string {
+    let result = str
+    for (const [sentinel, replacement] of Object.entries(SENTINEL_REPLACEMENTS)) {
+        result = result.replaceAll(sentinel, replacement)
+    }
+    return result
+}
+
 function copyValue(value: unknown): string {
     // oxlint-disable-next-line
     if (value && typeof value === 'object') {
-        return JSON.stringify(value)
+        return normalizeSentinels(JSON.stringify(value))
     }
-    return String(value)
+    return normalizeSentinels(String(value))
 }
 
 function renderValue(value: unknown): React.ReactNode {
@@ -78,7 +96,7 @@ function renderValue(value: unknown): React.ReactNode {
             '}'
         )
     } else if (typeof value === 'string') {
-        if (value === '$$_posthog_redacted_based_on_masking_rules_$$') {
+        if (value === SENTINELS.Redacted) {
             return (
                 <MaskedValue
                     value="***"
@@ -86,12 +104,27 @@ function renderValue(value: unknown): React.ReactNode {
                 />
             )
         }
-        if (value.includes('$$_posthog_redacted_based_on_masking_rules_$$')) {
-            const masked = value.replaceAll('$$_posthog_redacted_based_on_masking_rules_$$', '***')
+        if (value.includes(SENTINELS.Redacted)) {
             return (
                 <MaskedValue
-                    value={masked}
+                    value={normalizeSentinels(value)}
                     tooltip="Some values inside got redacted by SDK code variables masking configuration"
+                />
+            )
+        }
+        if (value === SENTINELS.ValueTooLong) {
+            return (
+                <MaskedValue
+                    value="<value too long>"
+                    tooltip="This value was truncated because it exceeded the maximum allowed length"
+                />
+            )
+        }
+        if (value.includes(SENTINELS.ValueTooLong)) {
+            return (
+                <MaskedValue
+                    value={normalizeSentinels(value)}
+                    tooltip="Some values inside were truncated because they exceeded the maximum allowed length"
                 />
             )
         }

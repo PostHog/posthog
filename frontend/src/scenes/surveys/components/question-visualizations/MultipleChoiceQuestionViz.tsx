@@ -4,8 +4,8 @@ import { useMemo } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
-import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
+import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
 
 import {
     ChoiceQuestionResponseData,
@@ -52,14 +52,17 @@ function OpenEndedResponsesSection({
     questionIndex: number
 }): JSX.Element {
     return (
-        <div>
-            <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
+        <div className="space-y-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">Open-ended responses</h4>
             <OpenQuestionSummaryV2
                 questionId={questionId}
                 questionIndex={questionIndex}
                 totalResponses={openEndedResponses.length}
             />
-            <VirtualizedResponseList responses={toOpenQuestionFormat(openEndedResponses)} />
+            <VirtualizedResponseList
+                responses={toOpenQuestionFormat(openEndedResponses)}
+                className="rounded-md border bg-surface-secondary/60 p-2"
+            />
         </div>
     )
 }

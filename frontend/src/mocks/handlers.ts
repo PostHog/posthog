@@ -24,7 +24,6 @@ import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
 import * as incidentIoStatusPageAllOK from './fixtures/_incident_io_status_page_all_ok.json'
-import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
 import { MockSignature, Mocks, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
@@ -148,7 +147,6 @@ export const defaultMocks: Mocks = {
         ],
         '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
         '/api/users/@me/hedgehog_config/': {
-            skin: 'spiderhog',
             color: null,
             enabled: false,
             accessories: ['tophat', 'sunglasses'],
@@ -190,7 +188,6 @@ export const defaultMocks: Mocks = {
 
         '/api/billing/spend/': { results: [] },
         '/api/billing/usage/': { results: [] },
-        'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
         [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: incidentIoStatusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,

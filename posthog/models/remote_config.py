@@ -131,7 +131,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
-        from products.error_tracking.backend.models import get_all_autocapture_controls
+        from products.error_tracking.backend.models import get_autocapture_triggers
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -169,7 +169,7 @@ class RemoteConfig(UUIDTModel):
             "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
             "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
             **(
-                {"autoCaptureControls": get_all_autocapture_controls(team.id)}
+                {"errorTrackingAutocaptureTriggers": get_autocapture_triggers(team.id)}
                 if team.autocapture_exceptions_opt_in
                 else {}
             ),

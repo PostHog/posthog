@@ -416,7 +416,12 @@ export function chooseOperatorMap(propertyType: PropertyType | undefined): Recor
 }
 
 export function isOperatorMulti(operator: PropertyOperator): boolean {
-    return [PropertyOperator.Exact, PropertyOperator.IsNot].includes(operator)
+    return [
+        PropertyOperator.Exact,
+        PropertyOperator.IsNot,
+        PropertyOperator.IContainsMulti,
+        PropertyOperator.NotIContainsMulti,
+    ].includes(operator)
 }
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
@@ -682,12 +687,13 @@ export function clearDOMTextSelection(): void {
     }
 }
 
-export function slugify(text: string): string {
+// trimBothEnds=false is useful when the input is slugified as the user is typing to allow them hitting space and continue typing
+export function slugify(text: string, { trimBothEnds = true }: { trimBothEnds?: boolean } = {}): string {
     return text
         .toString() // Cast to string
         .toLowerCase() // Convert the string to lowercase letters
         .normalize('NFD') // The normalize() method returns the Unicode Normalization Form of a given string.
-        .trim() // Remove whitespace from both sides of a string
+        [trimBothEnds ? 'trim' : 'trimStart']()
         .replace(/\s+/g, '-') // Replace spaces with -
         .replace(/[^\w-]+/g, '') // Remove all non-word chars
         .replace(/--+/g, '-')
@@ -1308,7 +1314,11 @@ export function dateFilterToText(
             return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
         }
         if (dateFrom?.includes('T') || dateTo?.includes('T')) {
-            return formatDateTimeRange(dayjs(dateFrom, 'YYYY-MM-DD HH:mm'), dayjs(dateTo, 'YYYY-MM-DD HH:mm'))
+            // Parse each date individually - ISO 8601 datetimes (with T) use native parsing
+            // to correctly handle seconds/milliseconds, plain dates use 'YYYY-MM-DD'
+            const parsedFrom = dateFrom?.includes('T') ? dayjs(dateFrom) : dayjs(dateFrom, 'YYYY-MM-DD')
+            const parsedTo = dateTo?.includes('T') ? dayjs(dateTo) : dayjs(dateTo, 'YYYY-MM-DD')
+            return formatDateTimeRange(parsedFrom, parsedTo)
         }
         return `${dateFrom} - ${dateTo}`
     }
@@ -2470,13 +2480,19 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
     }
 }
 
-export const formatPercentage = (x: number, options?: { precise?: boolean }): string => {
+export const formatPercentage = (x: number, options?: { precise?: boolean; compact?: boolean }): string => {
+    let result: string
     if (options?.precise) {
-        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
+        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
     } else if (x >= 1000) {
-        return humanFriendlyLargeNumber(x) + '%'
+        result = humanFriendlyLargeNumber(x) + '%'
+    } else {
+        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
     }
-    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
+    if (options?.compact) {
+        result = result.replace(/\s+%/, '%')
+    }
+    return result
 }
 
 /**

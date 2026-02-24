@@ -49,6 +49,9 @@ use tracing::debug;
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
 const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
 
+/// Metric name for tracking Redis failure reasons (timeout, get_error, pickle_error, json_error)
+const HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME: &str = "posthog_hypercache_redis_miss_reason";
+
 /// Tombstone metric for tracking "impossible" failures that should never happen in production.
 /// This is duplicated from feature_flags::metrics::consts::TOMBSTONE_COUNTER because hypercache
 /// is a standalone crate that shouldn't depend on feature-flags.
@@ -334,11 +337,22 @@ impl HyperCacheReader {
                     error = %e,
                     "HyperCache Redis miss, trying S3"
                 );
+                // Note: granular reason metrics (get_error, pickle_error, json_error)
+                // are emitted inside try_get_from_redis
             }
             Err(_) => {
                 debug!(
                     cache_key = %redis_cache_key,
                     "HyperCache Redis timeout, trying S3"
+                );
+                inc(
+                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                    &[
+                        ("reason".to_string(), "timeout".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.value.clone()),
+                    ],
+                    1,
                 );
             }
         }
@@ -514,6 +528,15 @@ impl HyperCacheReader {
                                     "Failed to parse JSON from Redis data for key '{}': {}",
                                     cache_key, e
                                 );
+                                inc(
+                                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                                    &[
+                                        ("reason".to_string(), "json_error".to_string()),
+                                        ("namespace".to_string(), self.config.namespace.clone()),
+                                        ("value".to_string(), self.config.value.clone()),
+                                    ],
+                                    1,
+                                );
                             }
                         }
                     }
@@ -522,6 +545,15 @@ impl HyperCacheReader {
                             "Failed to deserialize pickle from Redis data for key '{}': {}",
                             cache_key, e
                         );
+                        inc(
+                            HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                            &[
+                                ("reason".to_string(), "pickle_error".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.value.clone()),
+                            ],
+                            1,
+                        );
                     }
                 }
             }
@@ -529,6 +561,15 @@ impl HyperCacheReader {
                 debug!(
                     "Failed to get raw bytes from Redis for key '{}': {}",
                     cache_key, e
+                );
+                inc(
+                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                    &[
+                        ("reason".to_string(), "get_error".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.value.clone()),
+                    ],
+                    1,
                 );
             }
         }

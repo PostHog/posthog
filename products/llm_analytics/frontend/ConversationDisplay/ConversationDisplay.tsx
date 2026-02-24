@@ -74,6 +74,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     httpStatus={eventProperties.$ai_http_status}
                     raisedError={eventProperties.$ai_is_error}
                     bordered
+                    traceId={eventProperties.$ai_trace_id}
                 />
             )}
         </>

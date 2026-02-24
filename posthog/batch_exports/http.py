@@ -238,6 +238,15 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         model = BatchExportDestination
         fields = ["type", "config", "integration", "integration_id"]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        team_id = self.context.get("team_id")
+        if team_id:
+            fields["integration_id"].queryset = Integration.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
+        else:
+            fields["integration_id"].queryset = Integration.objects.none()  # type: ignore[attr-defined]
+        return fields
+
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
         export_destination = BatchExportDestination.objects.create(**validated_data)
@@ -859,8 +868,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if parsed.select_from is None:
             raise serializers.ValidationError("Query must SELECT FROM events")
 
+        if parsed.ctes:
+            raise serializers.ValidationError("CTEs are not supported")
+
         if isinstance(parsed.select_from.table, (ast.SelectQuery, ast.SelectSetQuery)):
-            raise serializers.ValidationError("Subqueries or CTEs are not supported")
+            raise serializers.ValidationError("Subqueries are not supported")
 
         # Not sure how to make mypy understand this works, hence the ignore comment.
         # And if it doesn't, it's still okay as it could mean an unsupported query.

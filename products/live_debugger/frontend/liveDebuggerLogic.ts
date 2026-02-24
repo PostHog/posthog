@@ -48,7 +48,6 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
         showHitsForLine: (lineNumber: number | null) => ({ lineNumber }),
         startPollingBreakpoints: true,
         stopPollingBreakpoints: true,
-        savePollingInterval: (intervalHdl: number) => ({ intervalHdl }),
         setSelectedFilePath: (filePath: string) => ({ filePath }),
         setCurrentRepository: (repository: string) => ({ repository }),
     }),
@@ -138,15 +137,9 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 showHitsForLine: (_, { lineNumber }) => lineNumber,
             },
         ],
-        breakpointPollingInterval: [
-            null as number | null,
-            {
-                savePollingInterval: (_, { intervalHdl }) => intervalHdl,
-            },
-        ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadBreakpointInstancesSuccess: ({ breakpointInstances }) => {
             const newIds = breakpointInstances
                 .map((instance) => instance.id)
@@ -212,21 +205,20 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             actions.loadBreakpoints()
             actions.loadBreakpointInstances()
         },
-        startPollingBreakpoints: async () => {
+        startPollingBreakpoints: () => {
             actions.loadBreakpoints()
             actions.loadBreakpointInstances()
 
-            const interval = setInterval(() => {
-                actions.loadBreakpoints()
-                actions.loadBreakpointInstances()
-            }, 15000)
-
-            actions.savePollingInterval(interval as unknown as number)
+            cache.disposables.add(() => {
+                const interval = setInterval(() => {
+                    actions.loadBreakpoints()
+                    actions.loadBreakpointInstances()
+                }, 15000)
+                return () => clearInterval(interval)
+            }, 'breakpointPolling')
         },
         stopPollingBreakpoints: () => {
-            if (values.breakpointPollingInterval) {
-                clearInterval(values.breakpointPollingInterval)
-            }
+            cache.disposables.dispose('breakpointPolling')
         },
         setCurrentRepository: () => {
             // Reload breakpoints when repository changes (only if file is selected)

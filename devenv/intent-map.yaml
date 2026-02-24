@@ -112,7 +112,7 @@ capabilities:
     nodejs_logs:
         description: 'Node.js Logs - log ingestion'
         requires: [event_ingestion]
-        docker_profiles: []
+        docker_profiles: [observability]
 
     nodejs_feature_flags:
         description: 'Node.js Feature Flags - evaluation scheduler'
@@ -147,7 +147,7 @@ intents:
 
     error_tracking:
         description: 'Track and analyze application errors'
-        capabilities: [event_ingestion, error_symbolication, property_definitions, nodejs_cdp]
+        capabilities: [event_ingestion, error_symbolication, embedding_service, property_definitions, nodejs_cdp]
 
     session_replay:
         description: 'Record and replay user sessions'
@@ -175,7 +175,7 @@ intents:
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
-        capabilities: [event_ingestion, replay_storage, property_definitions]
+        capabilities: [event_ingestion, replay_storage, property_definitions, livestream]
 
     surveys:
         description: 'User surveys and feedback collection'
@@ -217,6 +217,10 @@ intents:
     mcp:
         description: 'MCP server for AI assistant integration'
         capabilities: [mcp_server]
+
+    dagster:
+        description: 'Dagster for clickhouse maintenance, system workflows'
+        capabilities: [dagster_pipelines]
 
 # Always-required processes regardless of intent
 # This is the core stack needed for any development

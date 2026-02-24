@@ -243,7 +243,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
             FeatureFlag.objects.create(
                 team=self.org_1_team_1,
-                rollout_percentage=30,
                 name="Disabled",
                 key="disabled-flag",
                 created_by=self.user,
@@ -252,7 +251,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
             FeatureFlag.objects.create(
                 team=self.org_1_team_1,
-                rollout_percentage=30,
                 name="Enabled",
                 key="enabled-flag",
                 created_by=self.user,
@@ -3782,26 +3780,6 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             timestamp="2021-10-10T23:01:00.00Z",
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
-
-    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
-    def test_capture_event_calls_group_identify_with_group_properties(self, mock_is_cloud: MagicMock) -> None:
-        organization = Organization.objects.create()
-        mock_client = MagicMock()
-        group_props = {"org_name": "Test Org", "plan": "enterprise"}
-
-        capture_event(
-            pha_client=mock_client,
-            name="test event",
-            organization_id=str(organization.id),
-            properties={"prop1": "val1"},
-            group_properties=group_props,
-        )
-
-        mock_client.group_identify.assert_called_once_with(
-            "organization",
-            str(organization.id),
-            properties=group_props,
-        )
 
     @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
     def test_capture_event_skips_group_identify_without_group_properties(self, mock_is_cloud: MagicMock) -> None:

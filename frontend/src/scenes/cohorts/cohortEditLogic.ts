@@ -284,6 +284,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             }),
             submit: (cohort) => {
+                // Prevent multiple concurrent saves
+                if (values.cohortLoading) {
+                    return
+                }
+
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {

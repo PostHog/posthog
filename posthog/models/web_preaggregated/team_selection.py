@@ -13,6 +13,9 @@ DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT = 30
 # We want to limit the number of teams we proactively add while in beta
 MAX_TOP_TEAMS_BY_PAGEVIEWS_LIMIT = 100
 
+# Weekly high-volume team selection threshold (average weekly pageviews)
+DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD = 500_000
+
 
 def get_top_teams_by_median_pageviews_sql(limit: int = DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT) -> str:
     if not isinstance(limit, int) or limit < 1 or limit > MAX_TOP_TEAMS_BY_PAGEVIEWS_LIMIT:
@@ -39,6 +42,41 @@ FROM (
 GROUP BY team_id
 ORDER BY median_daily_pageviews DESC
 LIMIT {limit}
+"""
+
+
+def get_teams_by_weekly_pageviews_sql(threshold: int = DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD) -> str:
+    """Returns teams with consistent high pageview volume over the last 4 complete weeks.
+
+    Each week is calculated separately. Teams must have data in all 4 weeks
+    (ensuring constant traffic, not spikes) and average weekly pageviews >= threshold.
+
+    Returns rows of: (team_id, avg_weekly_pageviews, min_weekly_pageviews, max_weekly_pageviews)
+    """
+    if not isinstance(threshold, int) or threshold < 1:
+        raise ValueError(f"Invalid threshold: {threshold}. Must be a positive integer.")
+
+    return f"""
+SELECT
+    team_id,
+    avg(weekly_pageviews) AS avg_weekly_pageviews,
+    min(weekly_pageviews) AS min_weekly_pageviews,
+    max(weekly_pageviews) AS max_weekly_pageviews
+FROM (
+    SELECT
+        team_id,
+        toStartOfWeek(timestamp, 1) AS week_start,
+        count() AS weekly_pageviews
+    FROM events
+    WHERE timestamp >= toStartOfWeek(now(), 1) - INTERVAL 4 WEEK
+      AND timestamp < toStartOfWeek(now(), 1)
+      AND event = '$pageview'
+    GROUP BY team_id, week_start
+)
+GROUP BY team_id
+HAVING count() = 4
+   AND avg_weekly_pageviews >= {threshold}
+ORDER BY avg_weekly_pageviews DESC
 """
 
 

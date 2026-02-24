@@ -103,6 +103,8 @@ nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
 nodejs/src/cdp/ @PostHog/team-workflows
 nodejs/src/ingestion/ai/ @PostHog/team-llm-analytics
+nodejs/src/session-replay/ @PostHog/team-replay
+nodejs/src/session-replay/shared/ @PostHog/team-replay @PostHog/team-ingestion
 
 # Web Analytics - owned by @PostHog/team-web-analytics
 products/web_analytics/** @PostHog/team-web-analytics
@@ -150,13 +152,15 @@ frontend/src/scenes/cohorts/ @PostHog/team-feature-flags
 frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
 
 # Data warehouse - owned by @PostHog/team-data-stack
-posthog/temporal/data_imports/** @PostHog/team-warehouse-pipelines
-posthog/temporal/data_modeling/** @PostHog/team-data-tools
+posthog/temporal/data_imports/** @PostHog/team-warehouse-sources
 posthog/warehouse/** @PostHog/team-data-stack
 products/data_warehouse/** @PostHog/team-data-stack
 frontend/src/scenes/data-warehouse/\*\* @PostHog/team-data-stack
-posthog/management/commands/generate_source_configs.py @PostHog/team-warehouse-pipelines
+posthog/management/commands/generate_source_configs.py @PostHog/team-warehouse-sources
 posthog/settings/data_warehouse.py @PostHog/team-data-stack
+frontend/src/scenes/models/** @PostHog/team-data-modeling
+products/data_modeling/** @PostHog/team-data-modeling
+posthog/temporal/data_modeling/** @PostHog/team-data-modeling
 
 # HogQL - owned by @PostHog/team-data-tools
 # and also hard owned by the @PostHog/hogql on `CODEOWNERS` file
@@ -208,5 +212,8 @@ CODEOWNERS @PostHog/team-devex
 CLAUDE.md @PostHog/team-devex
 AGENTS.md @PostHog/team-devex
 .claude/ @PostHog/team-devex
+.claude/agents/ingestion/ @PostHog/team-ingestion
+.agents/skills/ingestion-*/ @PostHog/team-ingestion
+.claude/skills/ingestion-*/ @PostHog/team-ingestion
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex

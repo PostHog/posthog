@@ -218,6 +218,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "enable_partial_responses",
             "enable_iframe_embedding",
             "user_access_level",
+            "form_content",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -282,6 +283,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "enable_partial_responses",
             "enable_iframe_embedding",
             "_create_in_folder",
+            "form_content",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -393,6 +395,41 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 elif parsed_url.scheme == "https":
                     if not parsed_url.netloc:
                         raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
+
+            # Validate validation rules for open text questions
+            validation_rules = raw_question.get("validation")
+            if validation_rules is not None:
+                if not isinstance(validation_rules, list):
+                    raise serializers.ValidationError("Question validation must be a list of validation rules")
+
+                valid_types = ["min_length", "max_length", "email"]
+                for rule in validation_rules:
+                    if not isinstance(rule, dict):
+                        raise serializers.ValidationError("Each validation rule must be an object")
+
+                    rule_type = rule.get("type")
+                    if rule_type not in valid_types:
+                        raise serializers.ValidationError(
+                            f"Validation rule type must be one of: {', '.join(valid_types)}"
+                        )
+
+                    # Validate value for length rules
+                    if rule_type in ["min_length", "max_length"]:
+                        rule_value = rule.get("value")
+                        if rule_value is not None:
+                            if not isinstance(rule_value, int) or rule_value <= 0:
+                                raise serializers.ValidationError(
+                                    f"Validation rule value for {rule_type} must be a positive integer"
+                                )
+
+                # Cross-validate min_length <= max_length
+                min_rule = next((r for r in validation_rules if r.get("type") == "min_length"), None)
+                max_rule = next((r for r in validation_rules if r.get("type") == "max_length"), None)
+                if min_rule and max_rule:
+                    min_val = min_rule.get("value")
+                    max_val = max_rule.get("value")
+                    if min_val is not None and max_val is not None and min_val > max_val:
+                        raise serializers.ValidationError("Minimum length cannot be greater than maximum length")
 
             cleaned_questions.append(cleaned_question)
 
@@ -1989,7 +2026,7 @@ def surveys(request: Request):
             request,
             generate_exception_response(
                 "surveys",
-                "API key not provided. You can find your project API key in your PostHog project settings.",
+                "Project token not provided. You can find your project token in your PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2026,7 +2063,7 @@ def surveys(request: Request):
                 request,
                 generate_exception_response(
                     "surveys",
-                    "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                    "Project token invalid. You can find your project token in your PostHog project settings.",
                     type="authentication_error",
                     code="invalid_api_key",
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2077,6 +2114,7 @@ def public_survey_page(request, survey_id: str):
 
     # Database query with minimal fields and timeout protection
     try:
+        # nosemgrep: idor-lookup-without-team (public survey page, intentionally unauthenticated)
         survey = Survey.objects.select_related("team").get(id=survey_id)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)

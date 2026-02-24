@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { match } from 'ts-pattern'
 import { useDebouncedCallback } from 'use-debounce'
 
@@ -10,9 +10,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { Experiment, FeatureFlagType, MultivariateFlagVariant } from '~/types'
 
 import { SelectExistingFeatureFlagModal } from './SelectExistingFeatureFlagModal'
+import { selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
 import { VariantsPanelCreateFeatureFlag } from './VariantsPanelCreateFeatureFlag'
 import { VariantsPanelLinkFeatureFlag } from './VariantsPanelLinkFeatureFlag'
-import { selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
 
 interface VariantsPanelProps {
@@ -39,12 +39,16 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
         clearFeatureFlagKeyValidation,
     } = useActions(variantsPanelLogic({ experiment, disabled }))
 
-    const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
+    const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal, setFilters } = useActions(
         selectExistingFeatureFlagModalLogic
     )
     const { reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
     const { featureFlags, featureFlagsLoading } = useValues(selectExistingFeatureFlagModalLogic)
     const { loadFeatureFlagsForAutocomplete } = useActions(selectExistingFeatureFlagModalLogic)
+
+    // Track whether the user has interacted with the FF autocomplete to avoid
+    // auto-switching to link mode after explicit user interaction
+    const hasUserInteractedWithAutocomplete = useRef(false)
 
     const debouncedValidateFeatureFlagKey = useDebouncedCallback((key: string) => {
         if (key) {
@@ -56,6 +60,45 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
     useEffect(() => {
         loadFeatureFlagsForAutocomplete()
     }, [loadFeatureFlagsForAutocomplete])
+
+    // Sync autocomplete state when experiment has a feature flag key that isn't reflected
+    // in the autocomplete (e.g., when switching from the wizard form to the classic form)
+    useEffect(() => {
+        if (experiment.feature_flag_key && !featureFlagKeyForAutocomplete) {
+            setFeatureFlagKeyForAutocomplete(experiment.feature_flag_key)
+            debouncedValidateFeatureFlagKey(experiment.feature_flag_key)
+        }
+    }, [
+        experiment.feature_flag_key,
+        featureFlagKeyForAutocomplete,
+        setFeatureFlagKeyForAutocomplete,
+        debouncedValidateFeatureFlagKey,
+    ])
+
+    // Auto-detect linked feature flag when the experiment has a key matching an existing flag.
+    // This handles the wizard → classic form transition where the wizard selected an existing flag.
+    useEffect(() => {
+        if (
+            !hasUserInteractedWithAutocomplete.current &&
+            !disabled &&
+            !linkedFeatureFlag &&
+            featureFlagKeyForAutocomplete &&
+            featureFlags.results?.length
+        ) {
+            const matchingFlag = featureFlags.results.find((flag) => flag.key === featureFlagKeyForAutocomplete)
+            if (matchingFlag) {
+                setMode('link')
+                setLinkedFeatureFlag(matchingFlag)
+            }
+        }
+    }, [
+        featureFlags.results,
+        featureFlagKeyForAutocomplete,
+        disabled,
+        linkedFeatureFlag,
+        setMode,
+        setLinkedFeatureFlag,
+    ])
 
     const featureFlagOptions = useMemo(() => {
         return (featureFlags.results || []).map((flag) => ({
@@ -81,6 +124,8 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
     }, [featureFlagKeyForAutocomplete, featureFlags.results])
 
     const handleFeatureFlagSelection = (selectedKeys: (FeatureFlagType | string)[]): void => {
+        hasUserInteractedWithAutocomplete.current = true
+
         if (selectedKeys.length === 0) {
             // Clear validation first to prevent it from being re-triggered by setMode listener
             clearFeatureFlagKeyValidation()
@@ -146,6 +191,7 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
                         options={featureFlagOptions}
                         value={currentAutocompleteValue}
                         onChange={handleFeatureFlagSelection}
+                        onInputChange={(value) => setFilters({ search: value || undefined, page: 1 })}
                         inputTransform={(value) => value.replace(/\s+/g, '-')}
                         allowCustomValues
                         formatCreateLabel={(input) => (

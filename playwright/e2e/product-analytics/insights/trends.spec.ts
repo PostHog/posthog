@@ -103,6 +103,7 @@ test.describe('Trends insights', () => {
             await countPerUserItem.getByRole('button').click()
             await page.getByRole('menuitem', { name: 'median' }).click()
             await insight.trends.waitForChart()
+            await page.keyboard.press('Escape')
         })
 
         await test.step('change to Property value with sum', async () => {
@@ -112,11 +113,14 @@ test.describe('Trends insights', () => {
             await propertyValueItem.getByRole('button').click()
             await page.getByRole('menuitem', { name: 'sum' }).click()
             await insight.trends.waitForChart()
+            await page.keyboard.press('Escape')
         })
 
         await test.step('change to Weekly then Monthly active users', async () => {
             await insight.trends.mathSelector(0).click()
-            await page.getByRole('menuitem', { name: /Weekly active users/ }).click()
+            const weeklyOption = page.getByRole('menuitem', { name: /Weekly active users/ })
+            await weeklyOption.waitFor({ state: 'visible' })
+            await weeklyOption.click()
             await insight.trends.waitForChart()
 
             await insight.trends.mathSelector(0).click()
@@ -181,8 +185,8 @@ test.describe('Trends insights', () => {
         await test.step('use custom fixed date range', async () => {
             await insight.trends.dateRangeButton.click()
             await page.getByText('Custom fixed date range').click()
+            // In LemonCalendarRange, click start date then end date directly (no Start:/End: buttons)
             await page.locator('.LemonCalendar').getByRole('button', { name: '1', exact: true }).first().click()
-            await page.getByRole('button', { name: /End:/ }).click()
             await page.locator('.LemonCalendar').getByRole('button', { name: '15', exact: true }).first().click()
             await page.getByRole('button', { name: 'Apply' }).click()
             await insight.trends.waitForChart()

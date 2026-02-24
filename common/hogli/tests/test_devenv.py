@@ -484,3 +484,71 @@ class TestConfigPersistence:
             loaded = load_devenv_config(output_path)
 
             assert loaded is None
+
+
+class TestInfoProcess:
+    """Test info process generation."""
+
+    def _generate_with_intents(self, intents: list[str]) -> dict[str, dict]:
+        """Helper to generate mprocs config and return the procs dict."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(intents)
+        generator = MprocsGenerator(registry)
+        config = generator.generate(resolved)
+        return config.procs
+
+    def test_info_process_always_present(self) -> None:
+        """Generated config always contains info process regardless of intents."""
+        procs = self._generate_with_intents(["feature_flags"])
+        assert "info" in procs
+
+    def test_info_process_is_first(self) -> None:
+        """Info process is the first entry in the procs dict."""
+        procs = self._generate_with_intents(["error_tracking"])
+        assert next(iter(procs.keys())) == "info"
+
+    @parameterized.expand(
+        [
+            (["error_tracking"], {"error_tracking"}),
+            (["error_tracking", "session_replay"], {"error_tracking", "session_replay"}),
+            (["feature_flags"], {"feature_flags"}),
+        ]
+    )
+    def test_info_process_includes_product_names(self, intents: list[str], expected_products: set[str]) -> None:
+        """Info process shell includes product names."""
+        procs = self._generate_with_intents(intents)
+        shell = procs["info"]["shell"]
+        for product in expected_products:
+            assert product in shell
+
+    def test_info_process_includes_process_count(self) -> None:
+        """Info process shell includes the active process count."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["error_tracking"])
+        expected_count = len(resolved.units)
+
+        generator = MprocsGenerator(registry)
+        config = generator.generate(resolved)
+
+        shell = config.procs["info"]["shell"]
+        assert f"{expected_count} active" in shell
+
+    def test_info_process_reads_news_at_runtime(self) -> None:
+        """Info process shell reads news.txt at runtime, not at generation time."""
+        procs = self._generate_with_intents(["feature_flags"])
+        shell = procs["info"]["shell"]
+
+        assert "devenv/news.txt" in shell
+        assert "News:" in shell
+
+    def test_info_process_includes_commands(self) -> None:
+        """Info process shell includes useful commands."""
+        procs = self._generate_with_intents(["feature_flags"])
+        shell = procs["info"]["shell"]
+
+        assert "hogli dev:setup" in shell
+        assert "hogli dev:explain" in shell

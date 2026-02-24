@@ -119,6 +119,47 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertIn("Test Dashboard", result)
         self.assertIn(str(dashboard.id), result)
 
+    async def test_create_dashboard_output_includes_correct_url(self):
+        insight = await self._create_insight("URL Test Insight")
+
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight.short_id],
+            name="URL Dashboard",
+            description="Testing URL output",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        dashboard = await Dashboard.objects.aget(name="URL Dashboard")
+        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        self.assertIn(f"Dashboard URL: {expected_url}", result)
+        self.assertNotIn("/dashboards/", result)
+
+    async def test_update_dashboard_output_includes_correct_url(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Existing Dashboard",
+            created_by=self.user,
+        )
+
+        insight = await self._create_insight("Update URL Insight")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts={})
+
+        tool = self._create_tool()
+
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            name="Updated Dashboard",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        self.assertIn(f"Dashboard URL: {expected_url}", result)
+        self.assertNotIn("/dashboards/", result)
+
     async def test_update_dashboard_with_multiple_insights_replaces_all(self):
         """Test that insight_ids replaces all existing insights with the new ones."""
         dashboard = await Dashboard.objects.acreate(

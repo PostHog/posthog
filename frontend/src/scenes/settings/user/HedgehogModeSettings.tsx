@@ -1,35 +1,102 @@
 import { useActions, useValues } from 'kea'
+import { Suspense, lazy, useEffect, useState } from 'react'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
-import { HedgehogOptions } from 'lib/components/HedgehogBuddy/HedgehogOptions'
-import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
+import { getHedgehogModeAssetsUrl } from 'lib/components/HedgehogMode/HedgehogMode'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+
+const LazyHedgehogCustomization =
+    typeof window !== 'undefined'
+        ? lazy(() => import('@posthog/hedgehog-mode').then((module) => ({ default: module.HedgehogCustomization })))
+        : () => null
+
+const LazyHedgehogModeRendererContent =
+    typeof window !== 'undefined'
+        ? lazy(() =>
+              import('@posthog/hedgehog-mode').then((module) => ({ default: module.HedgehogModeRendererContent }))
+          )
+        : () => null
+
+let HedgeHogModeClass: any = null
+
+const getHedgeHogMode = async (): Promise<any> => {
+    if (!HedgeHogModeClass && typeof window !== 'undefined') {
+        const module = await import('@posthog/hedgehog-mode')
+        HedgeHogModeClass = module.HedgeHogMode
+    }
+    return HedgeHogModeClass
+}
 
 export function HedgehogModeSettings(): JSX.Element {
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogModeLogic)
+    const { updateRemoteConfig } = useActions(hedgehogModeLogic)
+
+    if (typeof window === 'undefined') {
+        return <LemonSkeleton />
+    }
+
     return (
         <>
             <div className="flex gap-2">
                 <LemonSwitch
-                    label="Enabled hedgehog mode"
+                    label="Enable hedgehog mode"
                     data-attr="hedgehog-mode-switch"
-                    onChange={(checked) => patchHedgehogConfig({ enabled: checked })}
+                    onChange={(checked) => updateRemoteConfig({ enabled: checked })}
                     checked={hedgehogConfig.enabled}
                     bordered
                 />
                 <LemonSwitch
                     label="Use as profile picture"
                     data-attr="hedgehog-profile-picture"
-                    onChange={(checked) => patchHedgehogConfig({ use_as_profile: checked })}
+                    onChange={(checked) => updateRemoteConfig({ use_as_profile: checked })}
                     checked={hedgehogConfig.use_as_profile}
                     bordered
                 />
             </div>
 
-            <div className="mt-4 p-2 border rounded bg-surface-primary">
-                <HedgehogOptions />
+            <div className="border rounded mt-2 bg-surface-primary p-3">
+                <Suspense fallback={<LemonSkeleton className="w-full h-64" />}>
+                    <LazyHedgehogModeRendererContent id="hedgehog-customization">
+                        <HedgehogCustomizationWrapper
+                            config={hedgehogConfig.actor_options}
+                            setConfig={(config) => updateRemoteConfig({ actor_options: config })}
+                        />
+                    </LazyHedgehogModeRendererContent>
+                </Suspense>
             </div>
         </>
+    )
+}
+
+function HedgehogCustomizationWrapper({
+    config,
+    setConfig,
+}: {
+    config: any
+    setConfig: (config: any) => void
+}): JSX.Element {
+    const [game, setGame] = useState<any>(null)
+
+    useEffect(() => {
+        void getHedgeHogMode().then((HedgeHogModeClass) => {
+            if (HedgeHogModeClass) {
+                setGame(
+                    new HedgeHogModeClass({
+                        assetsUrl: getHedgehogModeAssetsUrl(),
+                    })
+                )
+            }
+        })
+    }, [])
+
+    if (!game) {
+        return <LemonSkeleton className="w-full h-64" />
+    }
+
+    return (
+        <Suspense fallback={<LemonSkeleton className="w-full h-64" />}>
+            <LazyHedgehogCustomization config={config} setConfig={setConfig} game={game} />
+        </Suspense>
     )
 }
