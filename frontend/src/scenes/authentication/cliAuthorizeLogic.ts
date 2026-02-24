@@ -1,10 +1,13 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { scopesArrayToObject } from 'lib/scopes'
+import { userLogic } from 'scenes/userLogic'
+
+import { OrganizationBasicType } from '~/types'
 
 import type { cliAuthorizeLogicType } from './cliAuthorizeLogicType'
 
@@ -12,6 +15,7 @@ export type CLIUseCase = 'schema' | 'error_tracking' | 'endpoints'
 
 export interface CLIAuthorizeForm {
     userCode: string
+    organizationId: string | null
     projectId: number | null
     scopes: string[]
 }
@@ -40,6 +44,10 @@ const DEFAULT_SCOPES = getDefaultScopesForUseCases(DEFAULT_USE_CASES)
 
 export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
     path(['scenes', 'authentication', 'cliAuthorizeLogic']),
+    connect(() => ({
+        actions: [userLogic, ['loadUserSuccess']],
+        values: [userLogic, ['user']],
+    })),
     actions({
         setSuccess: (success: boolean) => ({ success }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
@@ -71,8 +79,8 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         projects: [
             [] as { id: number; name: string }[],
             {
-                loadProjects: async () => {
-                    const response = await api.get('api/projects/')
+                loadProjects: async (organizationId: string) => {
+                    const response = await api.get(`api/organizations/${organizationId}/projects/`)
                     return response.results || []
                 },
             },
@@ -82,15 +90,17 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         authorize: {
             defaults: {
                 userCode: '',
+                organizationId: null,
                 projectId: null,
                 scopes: DEFAULT_SCOPES,
             } as CLIAuthorizeForm,
-            errors: ({ userCode, projectId, scopes }) => ({
+            errors: ({ userCode, organizationId, projectId, scopes }) => ({
                 userCode: !userCode
                     ? 'Please enter the code from your terminal'
                     : userCode.length !== 9
                       ? 'Code must be 9 characters (XXXX-XXXX)'
                       : undefined,
+                organizationId: !organizationId ? 'Please select an organization' : undefined,
                 projectId: !projectId ? 'Please select a project' : undefined,
                 scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
             }),
@@ -120,6 +130,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         },
     })),
     selectors(() => ({
+        organizations: [(s) => [s.user], (user): OrganizationBasicType[] => user?.organizations ?? []],
         formScopeRadioValues: [
             (s) => [s.authorize],
             (authorize): Record<string, string> => {
@@ -186,12 +197,24 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
     })),
     listeners(({ actions, values }) => ({
         loadProjectsSuccess: () => {
-            // Set default project to first project if not already set
-            if (values.projects.length > 0 && !values.authorize.projectId) {
-                actions.setAuthorizeValue('projectId', values.projects[0].id)
+            const projectExistsInSelectedOrg = values.projects.some(
+                (project) => project.id === values.authorize.projectId
+            )
+            if (projectExistsInSelectedOrg) {
+                return
             }
+
+            actions.setAuthorizeValue('projectId', values.projects[0]?.id ?? null)
         },
         setAuthorizeValue: (payload) => {
+            if (payload.name === 'organizationId') {
+                if (!payload.value) {
+                    actions.setAuthorizeValue('projectId', null)
+                    return
+                }
+                actions.loadProjects(payload.value)
+            }
+
             // Initialize displayed scope values when scopes are first set
             if (payload.name === 'scopes' && Object.keys(values.displayedScopeValues).length === 0) {
                 // Directly compute scope values from the scopes array being set
@@ -209,6 +232,16 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         },
         submitAuthorizeFailure: () => {
             // Error handling is done in the form errors
+        },
+        loadUserSuccess: ({ user }) => {
+            if (values.authorize.organizationId) {
+                return
+            }
+
+            const organizationId = user?.organization?.id || user?.organizations?.[0]?.id
+            if (organizationId) {
+                actions.setAuthorizeValue('organizationId', organizationId)
+            }
         },
         setRequestedUseCases: ({ useCases }) => {
             // Update scopes when requested use cases change
@@ -252,7 +285,14 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadProjects()
+    afterMount(({ actions, values }) => {
+        if (values.authorize.organizationId) {
+            return
+        }
+
+        const currentOrganizationId = values.user?.organization?.id || values.user?.organizations?.[0]?.id
+        if (currentOrganizationId) {
+            actions.setAuthorizeValue('organizationId', currentOrganizationId)
+        }
     }),
 ])

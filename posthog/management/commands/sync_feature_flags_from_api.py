@@ -79,7 +79,6 @@ def sync_feature_flags_from_api(
             elif flag_key not in existing_flags and is_enabled:
                 FeatureFlag.objects.create(
                     team=project.teams.first(),
-                    rollout_percentage=100,
                     name=flag_key,
                     key=flag_key,
                     created_by=first_user,

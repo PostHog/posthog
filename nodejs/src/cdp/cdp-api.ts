@@ -89,7 +89,7 @@ export class CdpApi {
             this.hogExecutor
         )
         this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
-        this.recipientTokensService = new RecipientTokensService(hub)
+        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         this.hogFlowExecutor = new HogFlowExecutorService(
             this.hogFlowFunctionsService,
             this.recipientPreferencesService
