@@ -208,7 +208,6 @@ impl RawAppleFrame {
 
         for image in debug_images {
             let image_base = parse_hex_address(&image.image_addr).ok();
-            let image_size = image.image_size.unwrap_or(u64::MAX);
 
             if let (Some(frame_addr), Some(base)) = (frame_image_addr, image_base) {
                 if frame_addr == base {
@@ -216,8 +215,8 @@ impl RawAppleFrame {
                 }
             }
 
-            if let Some(base) = image_base {
-                if instruction_addr >= base && instruction_addr < base.saturating_add(image_size) {
+            if let (Some(base), Some(size)) = (image_base, image.image_size) {
+                if instruction_addr >= base && instruction_addr < base.saturating_add(size) {
                     return Ok(image);
                 }
             }
