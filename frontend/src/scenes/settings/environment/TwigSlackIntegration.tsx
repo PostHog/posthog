@@ -3,17 +3,15 @@ import { useValues } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 
 export function TwigSlackIntegration(): JSX.Element {
     const { twigSlackIntegrations, twigSlackAvailable } = useValues(integrationsLogic)
 
     return (
         <div>
-            <p>
-                Connect Slack to Twig to kick off tasks like pull requests directly from Slack.
-            </p>
+            <p>Connect Slack to Twig to kick off tasks like pull requests directly from Slack.</p>
 
             <div className="deprecated-space-y-2">
                 {twigSlackIntegrations?.map((integration) => (

@@ -698,6 +698,11 @@ class AccessControlPermission(ScopeBasePermission):
 
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
+        # In DEBUG mode, the single-threaded dev server deadlocks when posthoganalytics
+        # calls back to /decide on the same server. Skip the check entirely.
+        if settings.DEBUG:
+            return True
+
         user = cast(User, request.user)
         organization = get_organization_from_view(view)
         flag = getattr(view, "posthog_feature_flag", None)

@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("posthog", "1014_merge_20260219_1540"),
+        ("posthog", "1010_hogflowtemplate_org_scope"),
     ]
 
     operations = [
