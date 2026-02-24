@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import React from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
@@ -6,11 +7,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 
+import { MessageSentimentBar } from '../components/SentimentTag'
 import { LLMInputOutput } from '../LLMInputOutput'
+import { llmSentimentLazyLoaderLogic } from '../llmSentimentLazyLoaderLogic'
 import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
@@ -53,6 +56,7 @@ function getInitialMessageShowStates(
 export function ConversationMessagesDisplay({
     inputNormalized,
     outputNormalized,
+    inputSourceIndices,
     errorData,
     httpStatus,
     raisedError,
@@ -60,9 +64,12 @@ export function ConversationMessagesDisplay({
     searchQuery,
     displayOption,
     traceId,
+    generationEventId,
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
+    /** Maps each inputNormalized[i] to its original index in $ai_input. */
+    inputSourceIndices?: number[]
     errorData: any
     httpStatus?: number
     raisedError?: boolean
@@ -70,6 +77,7 @@ export function ConversationMessagesDisplay({
     searchQuery?: string
     displayOption?: ConversationDisplayOption
     traceId?: string | null
+    generationEventId?: string
 }): JSX.Element {
     const [messageShowStates, setMessageShowStates] = React.useState(() =>
         getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
@@ -79,6 +87,24 @@ export function ConversationMessagesDisplay({
     const previousSearchQueryRef = React.useRef('')
     const inputMessageShowStates = messageShowStates.input
     const outputMessageShowStates = messageShowStates.output
+    const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
+
+    const generationSentiment =
+        traceId && generationEventId ? getGenerationSentiment(traceId, generationEventId) : undefined
+
+    // Sentiment is only available for user messages that have a known original
+    // index in $ai_input (sourceIndex). System/assistant messages and messages
+    // without a source mapping get no sentiment.
+    const getMessageSentiment = (
+        role: string,
+        sourceIndex: number | undefined
+    ): { label: string; score: number } | undefined => {
+        if (role !== 'user' || !generationSentiment || sourceIndex === undefined || sourceIndex < 0) {
+            return undefined
+        }
+        const msg = generationSentiment.messages?.[sourceIndex]
+        return msg ? { label: msg.label, score: msg.score } : undefined
+    }
 
     const toggleMessage = (type: MessageType, index: number): void => {
         setMessageShowStates((state) => {
@@ -179,24 +205,27 @@ export function ConversationMessagesDisplay({
 
     const inputDisplay =
         inputNormalized.length > 0 ? (
-            inputNormalized.map((message, i) => (
-                <React.Fragment key={i}>
-                    <LLMMessageDisplay
-                        message={message}
-                        show={inputMessageShowStates[i] || false}
-                        onToggle={() => toggleMessage('input', i)}
-                        searchQuery={searchQuery}
-                        traceId={traceId}
-                        isRenderingMarkdown={isRenderingMarkdown}
-                        isRenderingXml={isRenderingXml}
-                        onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
-                        onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
-                    />
-                    {i < inputNormalized.length - 1 && (
-                        <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                    )}
-                </React.Fragment>
-            ))
+            inputNormalized.map((message, i) => {
+                return (
+                    <React.Fragment key={i}>
+                        <LLMMessageDisplay
+                            message={message}
+                            show={inputMessageShowStates[i] || false}
+                            onToggle={() => toggleMessage('input', i)}
+                            searchQuery={searchQuery}
+                            traceId={traceId}
+                            isRenderingMarkdown={isRenderingMarkdown}
+                            isRenderingXml={isRenderingXml}
+                            onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
+                            onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
+                            messageSentiment={getMessageSentiment(message.role, inputSourceIndices?.[i])}
+                        />
+                        {i < inputNormalized.length - 1 && (
+                            <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                        )}
+                    </React.Fragment>
+                )
+            })
         ) : (
             <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No input</div>
         )
@@ -425,6 +454,7 @@ export const LLMMessageDisplay = React.memo(
         isRenderingXml = false,
         onToggleMarkdownRendering,
         onToggleXmlRendering,
+        messageSentiment,
     }: {
         message: CompatMessage
         isOutput?: boolean
@@ -439,6 +469,7 @@ export const LLMMessageDisplay = React.memo(
         isRenderingXml?: boolean
         onToggleMarkdownRendering?: () => void
         onToggleXmlRendering?: () => void
+        messageSentiment?: { label: string; score: number }
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         let resolvedIsRenderingMarkdown = isRenderingMarkdown
@@ -645,7 +676,10 @@ export const LLMMessageDisplay = React.memo(
                             }
                         }}
                     >
-                        <span className="grow">{role}</span>
+                        <span className="grow flex items-center gap-1.5">
+                            {role}
+                            {messageSentiment && <MessageSentimentBar sentiment={messageSentiment} />}
+                        </span>
                         {(content || Object.keys(additionalKwargsEntries).length > 0) && (
                             <>
                                 <LemonButton

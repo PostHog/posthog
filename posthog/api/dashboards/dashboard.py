@@ -33,7 +33,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
@@ -306,9 +306,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
-
         existing_dashboard: Dashboard | None = None
         if use_dashboard:
             try:
@@ -372,12 +369,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "dashboard created",
             {
                 **dashboard.get_analytics_metadata(),
+                **get_request_analytics_properties(request),
                 "from_template": bool(use_template),
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "dashboard_id": use_dashboard,
-                "$current_url": current_url,
-                "$session_id": session_id,
             },
         )
 
@@ -484,7 +480,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
-            report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
+            report_user_action(
+                user,
+                "dashboard updated",
+                {
+                    **instance.get_analytics_metadata(),
+                    **get_request_analytics_properties(self.context["request"]),
+                },
+            )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
@@ -897,8 +900,6 @@ class DashboardsViewSet(
         parser_classes=[DashboardTemplateCreationJSONSchemaParser],
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),
@@ -915,13 +916,12 @@ class DashboardsViewSet(
                 "dashboard created",
                 {
                     **dashboard.get_analytics_metadata(),
+                    **get_request_analytics_properties(request),
                     "from_template": True,
                     "template_key": dashboard_template.template_name,
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,
-                    "$current_url": current_url,
-                    "$session_id": session_id,
                 },
             )
         except Exception:

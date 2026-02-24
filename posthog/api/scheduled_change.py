@@ -41,8 +41,20 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         return obj.formatted_failure_reason
 
     def validate(self, data: dict) -> dict:
-        # For updates, merge with existing instance values
         instance = getattr(self, "instance", None)
+
+        # Prevent changing the target record on updates (defense in depth against cross-tenant manipulation)
+        if instance:
+            if "record_id" in data and str(data["record_id"]) != str(instance.record_id):
+                raise serializers.ValidationError(
+                    {"record_id": "Cannot change the target record of an existing scheduled change."}
+                )
+            if "model_name" in data and data["model_name"] != instance.model_name:
+                raise serializers.ValidationError(
+                    {"model_name": "Cannot change the model type of an existing scheduled change."}
+                )
+
+        # For updates, merge with existing instance values
         is_recurring = data.get("is_recurring", getattr(instance, "is_recurring", False) if instance else False)
         recurrence_interval = data.get(
             "recurrence_interval", getattr(instance, "recurrence_interval", None) if instance else None

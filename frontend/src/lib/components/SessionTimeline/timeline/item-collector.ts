@@ -1,7 +1,7 @@
-import { ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '.'
-
 import { Dayjs } from 'lib/dayjs'
 import { TimeTree } from 'lib/utils/time-tree'
+
+import { ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '.'
 
 export class ItemCollector {
     sessionId: string

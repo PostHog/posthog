@@ -12,9 +12,9 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
+import { Icon123 } from 'lib/lemon-ui/icons'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
-import { Icon123 } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
