@@ -74,10 +74,8 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             title: groupTypeName,
         },
     } as QueryContext['columns']
-    let hiddenColumns = [] as string[]
     if (hasCustomerAnalyticsEnabled) {
         columns = getCRMColumns(groupTypeName, groupTypeIndex)
-        hiddenColumns.push('key')
     }
 
     return (
@@ -111,7 +109,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             <Query
                 uniqueKey={`groups-query-${tabId}`}
                 attachTo={groupsSceneLogic({ tabId })}
-                query={{ ...query, hiddenColumns, showCount: true, showTableViews: true }}
+                query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',
