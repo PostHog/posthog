@@ -30,6 +30,7 @@ export interface ProviderModelGroup {
     providerKeyId: string
     label: string
     models: ModelOption[]
+    disabled?: boolean
 }
 
 export interface PlaygroundResponse {

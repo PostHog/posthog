@@ -70,6 +70,14 @@ export function ByokModelPicker({
             ),
         },
         ...filteredProviderModelGroups.map((group): LemonMenuItems[number] => {
+            if (group.disabled) {
+                return {
+                    icon: <LLMProviderIcon provider={group.provider} />,
+                    label: group.label,
+                    disabled: true,
+                }
+            }
+
             const isActiveGroup = group.providerKeyId === selectedProviderKeyId
 
             const buildModelItem = (m: ModelOption): LemonMenuItem => ({

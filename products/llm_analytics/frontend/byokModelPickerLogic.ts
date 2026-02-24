@@ -6,6 +6,7 @@ import api from 'lib/api'
 import type { byokModelPickerLogicType } from './byokModelPickerLogicType'
 import { ModelOption, ProviderModelGroup } from './llmAnalyticsPlaygroundLogic'
 import { LLMProvider, LLMProviderKey, LLM_PROVIDER_LABELS, llmProviderKeysLogic } from './settings/llmProviderKeysLogic'
+import { providerKeyStateSuffix } from './settings/providerKeyStateUtils'
 
 export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'byokModelPickerLogic']),
@@ -108,22 +109,41 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
 
                 const keysPerProvider: Record<string, number> = {}
                 for (const key of providerKeys) {
-                    if (key.state === 'ok') {
-                        keysPerProvider[key.provider] = (keysPerProvider[key.provider] ?? 0) + 1
-                    }
+                    keysPerProvider[key.provider] = (keysPerProvider[key.provider] ?? 0) + 1
                 }
 
                 const groups: ProviderModelGroup[] = []
-                for (const [keyId, models] of Object.entries(byKeyId)) {
-                    const key = providerKeys.find((k) => k.id === keyId)
-                    if (!key) {
+                for (const key of providerKeys) {
+                    const models = byKeyId[key.id] ?? []
+                    const isUnhealthy = key.state !== 'ok'
+
+                    // Skip unhealthy keys with no models — nothing useful to show
+                    if (isUnhealthy && models.length === 0) {
+                        const providerLabel = LLM_PROVIDER_LABELS[key.provider] ?? key.provider
+                        const suffix = providerKeyStateSuffix(key.state)
+                        const label =
+                            (keysPerProvider[key.provider] ?? 0) > 1
+                                ? `${providerLabel} (${key.name})${suffix}`
+                                : `${providerLabel}${suffix}`
+                        groups.push({
+                            provider: key.provider,
+                            providerKeyId: key.id,
+                            label,
+                            models: [],
+                            disabled: true,
+                        })
                         continue
                     }
+
+                    if (models.length === 0) {
+                        continue
+                    }
+
                     const providerLabel = LLM_PROVIDER_LABELS[key.provider] ?? key.provider
                     const label =
                         (keysPerProvider[key.provider] ?? 0) > 1 ? `${providerLabel} (${key.name})` : providerLabel
 
-                    groups.push({ provider: key.provider, providerKeyId: keyId, label, models })
+                    groups.push({ provider: key.provider, providerKeyId: key.id, label, models })
                 }
 
                 return groups.sort((a, b) => a.label.localeCompare(b.label))
@@ -153,7 +173,7 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                             (m) => m.name.toLowerCase().includes(lower) || m.id.toLowerCase().includes(lower)
                         ),
                     }))
-                    .filter((group) => group.models.length > 0)
+                    .filter((group) => group.models.length > 0 || group.disabled)
             },
         ],
         isProviderExpanded: [
