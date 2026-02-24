@@ -4637,7 +4637,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Day 1: User 1 (20) + User 2 (50) = 70
         # Day 2: User 1 (30) + User 2 (60) = 90
         self.assertEqual(
-            pluck(result_sum, "values", "count"),
+            pluck(result_sum, "values", "aggregation_value"),
             pad(
                 [
                     [50, 70, 90, 0, 0, 0, 0],
@@ -4709,7 +4709,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Day 1: (20 + 50) / 2 = 35
         # Day 2: (30 + 60) / 2 = 45
         self.assertEqual(
-            pluck(result_avg, "values", "count"),
+            pluck(result_avg, "values", "aggregation_value"),
             pad(
                 [
                     [25, 35, 45, 0, 0, 0, 0],
@@ -4771,7 +4771,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Day 1: User1(20+30=50) + User2(200) = 250  # Multiple events on Day 1 for User1
         # Day 2: User1(40+50+60=150) + User2(300) = 450  # Multiple events on Day 2 for User1
         self.assertEqual(
-            pluck(result_sum, "values", "count"),
+            pluck(result_sum, "values", "aggregation_value"),
             pad(
                 [
                     [110, 250, 450, 0, 0, 0, 0],
@@ -4803,7 +4803,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Day 1: (50 + 200) / 2 = 125  # User1's multiple events are summed first: 20+30=50
         # Day 2: (150 + 300) / 2 = 225  # User1's multiple events are summed first: 40+50+60=150
         self.assertEqual(
-            pluck(result_avg, "values", "count"),
+            pluck(result_avg, "values", "aggregation_value"),
             pad(
                 [
                     [55, 125, 225, 0, 0, 0, 0],
@@ -4816,6 +4816,123 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
         )
+
+    def test_retention_aggregation_cohort_size_sum(self):
+        """In SUM aggregation mode, the size column should reflect distinct actor count, not sum of values"""
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["user3"])
+
+        # Day 0: all 3 users perform the event
+        # Day 1: only user1 and user2 return
+        # Day 2: only user1 returns
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user2", _date(0), {"revenue": 40}),
+                ("user3", _date(0), {"revenue": 100}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user2", _date(1), {"revenue": 50}),
+                ("user1", _date(2), {"revenue": 30}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Day 0 cohort has 3 users, so size = 3
+        self.assertEqual(result[0]["values"][0]["aggregation_value"], 150)  # SUM of revenues: 10+40+100
+        self.assertEqual(result[0]["values"][0]["count"], 3)  # 3 distinct users
+        self.assertEqual(result[0]["values"][1]["count"], 2)  # only user1 and user2 returned on Day 1
+        self.assertEqual(result[0]["values"][2]["count"], 1)  # only user1 returned on Day 2
+
+    def test_retention_aggregation_cohort_size_avg(self):
+        """In AVG aggregation mode, the size column should reflect distinct actor count, not the avg value"""
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"])
+
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user2", _date(0), {"revenue": 40}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user2", _date(1), {"revenue": 50}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Day 0 cohort has 2 users — size should be 2, not 25 (the avg)
+        self.assertEqual(result[0]["values"][0]["aggregation_value"], 25.0)  # AVG: (10+40)/2
+        self.assertEqual(result[0]["values"][0]["count"], 2)  # 2 distinct users
+        self.assertEqual(result[0]["values"][1]["count"], 2)  # both returned on Day 1
+
+    def test_retention_aggregation_cohort_size_with_breakdown(self):
+        """Cohort size reflects distinct actors per breakdown in property aggregation mode"""
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"], properties={"$browser": "Chrome"})
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"], properties={"$browser": "Chrome"})
+        _create_person(team_id=self.team.pk, distinct_ids=["user3"], properties={"$browser": "Firefox"})
+
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user2", _date(0), {"revenue": 40}),
+                ("user3", _date(0), {"revenue": 100}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user3", _date(1), {"revenue": 200}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+                "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "person"},
+            }
+        )
+
+        chrome_result = next(r for r in result if r["breakdown_value"] == "Chrome")
+        firefox_result = next(r for r in result if r["breakdown_value"] == "Firefox")
+
+        # Chrome: 2 users on Day 0
+        self.assertEqual(chrome_result["values"][0]["count"], 2)
+        # Chrome: only user1 returned on Day 1
+        self.assertEqual(chrome_result["values"][1]["count"], 1)
+
+        # Firefox: 1 user on Day 0
+        self.assertEqual(firefox_result["values"][0]["count"], 1)
+        # Firefox: user3 returned on Day 1
+        self.assertEqual(firefox_result["values"][1]["count"], 1)
 
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):

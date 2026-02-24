@@ -1,6 +1,7 @@
 import re
 import uuid
 import functools
+import contextlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
@@ -9,6 +10,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from freezegun import freeze_time
 from unittest import mock
+from unittest.mock import AsyncMock
 
 from django.conf import settings
 from django.test import override_settings
@@ -52,6 +54,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPPro
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor import process_message
+from posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -72,7 +76,12 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
+    CalculateTableSizeActivityInputs,
+    calculate_table_size_activity,
+)
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
+from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -84,6 +93,41 @@ from products.data_warehouse.backend.models.join import DataWarehouseJoin
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+
+_current_pipeline_mode = "non_dlt"
+
+
+@pytest.fixture(params=["non_dlt", "v3"], autouse=True)
+def pipeline_mode(request):
+    global _current_pipeline_mode
+    _current_pipeline_mode = request.param
+    yield request.param
+    _current_pipeline_mode = "non_dlt"
+
+
+class _KafkaMessageCapture:
+    def __init__(self):
+        self.messages: list[dict] = []
+
+    def _capture_and_ack(self, topic, data, key=None, **kw):
+        self.messages.append(data)
+        return mock.MagicMock(get=mock.MagicMock(return_value=None))
+
+    def get_mock_producer(self):
+        producer = mock.MagicMock()
+        producer.produce.side_effect = self._capture_and_ack
+        producer.flush.return_value = 0
+        return producer
+
+    def replay_through_consumer(self):
+        for msg in self.messages:
+            process_message(msg)
+
+    def clear(self):
+        self.messages.clear()
+
+
+_kafka_capture = _KafkaMessageCapture()
 
 
 @pytest.fixture
@@ -250,6 +294,13 @@ async def _run(
     ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
+        run_for_replay = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+        await _replay_v3_consumer(
+            team_id=team.pk,
+            schema_id=schema.id,
+            job_id=str(run_for_replay.id) if run_for_replay else None,
+        )
+
     if not ignore_assertions:
         run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
 
@@ -291,6 +342,41 @@ async def _run(
     return workflow_id, inputs
 
 
+async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None):
+    if _current_pipeline_mode != "v3" or not _kafka_capture.messages:
+        return
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+            DATA_WAREHOUSE_REDIS_HOST="localhost",
+            DATA_WAREHOUSE_REDIS_PORT="6379",
+            DATAWAREHOUSE_BUCKET=BUCKET_NAME,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency.is_batch_already_processed",
+            return_value=False,
+        ),
+    ):
+        await sync_to_async(_kafka_capture.replay_through_consumer)()
+
+        if job_id:
+            await sync_to_async(calculate_table_size_activity)(
+                CalculateTableSizeActivityInputs(
+                    team_id=team_id,
+                    schema_id=str(schema_id),
+                    job_id=job_id,
+                )
+            )
+
+    _kafka_capture.clear()
+
+
 async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, mock_data_response):
     def mock_paginate(
         class_self,
@@ -325,6 +411,8 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
+    _kafka_capture.clear()
+
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
@@ -342,13 +430,37 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+        contextlib.ExitStack() as stack,
     ):
+        if _current_pipeline_mode == "v3":
+            stack.enter_context(
+                mock.patch(
+                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
+                    new_callable=AsyncMock,
+                    return_value=True,
+                )
+            )
+            stack.enter_context(
+                mock.patch(
+                    "posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.producer.get_warpstream_kafka_producer",
+                    return_value=_kafka_capture.get_mock_producer(),
+                )
+            )
+        else:
+            stack.enter_context(
+                mock.patch(
+                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
+                    new_callable=AsyncMock,
+                    return_value=False,
+                )
+            )
+
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                 workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
-                activities=ACTIVITIES,  # type: ignore
+                activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
@@ -891,6 +1003,7 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
 
     # Execute the same schema again - load
     await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
     columns = res.columns
@@ -1288,6 +1401,7 @@ async def test_inconsistent_types_in_data(team):
             },
         ],
     )
+    await _replay_v3_consumer(team_id=team.pk, schema_id=schema.id)
 
     res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM zendesk_organizations", team)
     columns = res.columns
@@ -1505,7 +1619,7 @@ async def test_billable_job(team, stripe_balance_transaction, mock_stripe_client
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_connection):
+async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_connection, pipeline_mode):
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
     )
@@ -1523,7 +1637,14 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            new_callable=AsyncMock,
+        ) as mock_v3_post_load,
     ):
+        # Set up merge mock chain (needed for v3 where batch 1 merges into the table created by batch 0)
+        mock_merge.return_value.when_matched_update_all.return_value.when_not_matched_insert_all.return_value.execute.return_value = {}
+
         mock_chunk_size.return_value = 1
         await _run(
             team=team,
@@ -1545,36 +1666,52 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
             ignore_assertions=True,
         )
 
-    mock_post_run_operations.assert_called_once()
+    if pipeline_mode == "non_dlt":
+        mock_post_run_operations.assert_called_once()
 
-    mock_merge.assert_not_called()
-    assert mock_write.call_count == 2
+        mock_merge.assert_not_called()
+        assert mock_write.call_count == 2
 
-    _, first_call_kwargs = mock_write.call_args_list[0]
-    _, second_call_kwargs = mock_write.call_args_list[1]
+        _, first_call_kwargs = mock_write.call_args_list[0]
+        _, second_call_kwargs = mock_write.call_args_list[1]
 
-    # The first call should be an overwrite
-    assert first_call_kwargs == {
-        "mode": "overwrite",
-        "schema_mode": "overwrite",
-        "table_or_uri": mock.ANY,
-        "data": mock.ANY,
-        "partition_by": mock.ANY,
-    }
+        assert first_call_kwargs == {
+            "mode": "overwrite",
+            "schema_mode": "overwrite",
+            "table_or_uri": mock.ANY,
+            "data": mock.ANY,
+            "partition_by": mock.ANY,
+        }
 
-    # The last call should be an append
-    assert second_call_kwargs == {
-        "mode": "append",
-        "schema_mode": "merge",
-        "table_or_uri": mock.ANY,
-        "data": mock.ANY,
-        "partition_by": mock.ANY,
-    }
+        assert second_call_kwargs == {
+            "mode": "append",
+            "schema_mode": "merge",
+            "table_or_uri": mock.ANY,
+            "data": mock.ANY,
+            "partition_by": mock.ANY,
+        }
+    else:
+        mock_v3_post_load.assert_called_once()
+        # In v3, each batch is processed by a new DeltaTableHelper. Batch 0 creates the table
+        # (overwrite). Batch 1 finds the existing table (_is_first_sync=False) and merges.
+        assert mock_write.call_count == 1
+        assert mock_merge.call_count == 1
+
+        _, first_call_kwargs = mock_write.call_args_list[0]
+        assert first_call_kwargs == {
+            "mode": "overwrite",
+            "schema_mode": "overwrite",
+            "table_or_uri": mock.ANY,
+            "data": mock.ANY,
+            "partition_by": mock.ANY,
+        }
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(team, postgres_config, postgres_connection):
+async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(
+    team, postgres_config, postgres_connection, pipeline_mode
+):
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
     )
@@ -1591,6 +1728,10 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(team, postgres
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            new_callable=AsyncMock,
+        ),
     ):
         await _run(
             team=team,
@@ -1612,14 +1753,15 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(team, postgres
             ignore_assertions=True,
         )
 
-    mock_post_run_operations.assert_called_once()
+    # With uncapped chunk size, all rows fit in 1 batch. Both modes: 1 write (overwrite), no merge.
+    if pipeline_mode == "non_dlt":
+        mock_post_run_operations.assert_called_once()
 
     mock_merge.assert_not_called()
     assert mock_write.call_count == 1
 
     _, first_call_kwargs = mock_write.call_args_list[0]
 
-    # first and only call should be an overwite
     assert first_call_kwargs == {
         "mode": "overwrite",
         "schema_mode": "overwrite",
@@ -1631,7 +1773,7 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(team, postgres
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config, postgres_connection):
+async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config, postgres_connection, pipeline_mode):
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
     )
@@ -1669,7 +1811,13 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            new_callable=AsyncMock,
+        ) as mock_v3_post_load,
     ):
+        mock_merge.return_value.when_matched_update_all.return_value.when_not_matched_insert_all.return_value.execute.return_value = {}
+
         mock_chunk_size.return_value = 1
         await _execute_run(
             str(uuid.uuid4()),
@@ -1681,32 +1829,46 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             ),
             [],
         )
+        await _replay_v3_consumer(team_id=inputs.team_id, schema_id=inputs.external_data_schema_id)
 
-    mock_post_run_operations.assert_called_once()
+    if pipeline_mode == "non_dlt":
+        mock_post_run_operations.assert_called_once()
 
-    mock_merge.assert_not_called()
-    assert mock_write.call_count == 2
+        mock_merge.assert_not_called()
+        assert mock_write.call_count == 2
 
-    _, first_call_kwargs = mock_write.call_args_list[0]
-    _, second_call_kwargs = mock_write.call_args_list[1]
+        _, first_call_kwargs = mock_write.call_args_list[0]
+        _, second_call_kwargs = mock_write.call_args_list[1]
 
-    # The first call should be an overwrite
-    assert first_call_kwargs == {
-        "mode": "overwrite",
-        "schema_mode": "overwrite",
-        "table_or_uri": mock.ANY,
-        "data": mock.ANY,
-        "partition_by": mock.ANY,
-    }
+        assert first_call_kwargs == {
+            "mode": "overwrite",
+            "schema_mode": "overwrite",
+            "table_or_uri": mock.ANY,
+            "data": mock.ANY,
+            "partition_by": mock.ANY,
+        }
 
-    # The subsequent call should be an append
-    assert second_call_kwargs == {
-        "mode": "append",
-        "schema_mode": "merge",
-        "table_or_uri": mock.ANY,
-        "data": mock.ANY,
-        "partition_by": mock.ANY,
-    }
+        assert second_call_kwargs == {
+            "mode": "append",
+            "schema_mode": "merge",
+            "table_or_uri": mock.ANY,
+            "data": mock.ANY,
+            "partition_by": mock.ANY,
+        }
+    else:
+        mock_v3_post_load.assert_called_once()
+        # Same as test_delta_no_merging_on_first_sync: batch 0 writes (overwrite), batch 1 merges
+        assert mock_write.call_count == 1
+        assert mock_merge.call_count == 1
+
+        _, first_call_kwargs = mock_write.call_args_list[0]
+        assert first_call_kwargs == {
+            "mode": "overwrite",
+            "schema_mode": "overwrite",
+            "table_or_uri": mock.ANY,
+            "data": mock.ANY,
+            "partition_by": mock.ANY,
+        }
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1909,6 +2071,7 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_parametrized_f
         ),
         [],
     )
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     @sync_to_async
     def get_jobs():
@@ -1963,9 +2126,18 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
+    def mock_apply_partitioning(export_signal, pa_table, existing_delta_table, schema):
+        return pa_table
+
     # Emulate an existing table with no partitions
-    with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
+            mock_apply_partitioning,
+        ),
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -2015,6 +2187,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
 
     # Resync
     await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     # Reconfirm there are no partitions
     s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
@@ -2052,9 +2225,18 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
+    def mock_apply_partitioning(export_signal, pa_table, existing_delta_table, schema):
+        return pa_table
+
     # Emulate an existing table with no partitions
-    with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor._apply_partitioning",
+            mock_apply_partitioning,
+        ),
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -2114,6 +2296,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
         ),
         [],
     )
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     # Confirm the table now has partitions
     s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
@@ -2129,7 +2312,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_partition_folders_delta_merge_called_with_partition_predicate(
-    team, postgres_config, postgres_connection
+    team, postgres_config, postgres_connection, pipeline_mode
 ):
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_partition_folders (id integer, created_at timestamp)".format(
@@ -2183,6 +2366,10 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
+            new_callable=AsyncMock,
+        ) as mock_v3_post_load,
     ):
         # Mocking the return of the delta merge as it gets JSON'ified
         mock_merge_instance = mock_merge.return_value
@@ -2195,8 +2382,12 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
             inputs,
             [],
         )
+        await _replay_v3_consumer(team_id=inputs.team_id, schema_id=inputs.external_data_schema_id)
 
-    mock_post_run_operations.assert_called_once()
+    if pipeline_mode == "non_dlt":
+        mock_post_run_operations.assert_called_once()
+    else:
+        mock_v3_post_load.assert_called_once()
 
     mock_write.assert_not_called()
     assert mock_merge.call_count == 1
@@ -2363,6 +2554,7 @@ async def test_append_only_table(team, mock_stripe_client):
     )
 
     await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     res = await sync_to_async(execute_hogql_query)("SELECT id FROM stripe_balancetransaction", team)
 
@@ -2615,13 +2807,18 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_pipeline_mb_chunk_size(team, zendesk_brands):
+async def test_pipeline_mb_chunk_size(team, zendesk_brands, pipeline_mode):
+    if pipeline_mode == "v3":
+        process_mock = mock.patch.object(PipelineV3, "_process_batch", new_callable=AsyncMock)
+    else:
+        process_mock = mock.patch.object(PipelineNonDLT, "_process_pa_table")
+
     with (
         mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES", 1),
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 5000
         ),  # Explicitly make this big
-        mock.patch.object(PipelineNonDLT, "_process_pa_table") as mock_process_pa_table,
+        process_mock as mock_process,
     ):
         await _run(
             team=team,
@@ -2638,8 +2835,7 @@ async def test_pipeline_mb_chunk_size(team, zendesk_brands):
         )
 
     # Returning two items should cause the pipeline to process each item individually
-
-    assert mock_process_pa_table.call_count == 2
+    assert mock_process.call_count == 2
 
 
 @pytest.mark.django_db(transaction=True)
@@ -2788,6 +2984,7 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
     datetime_2 = datetime_1 + timedelta(minutes=5)
     with freeze_time(datetime_2):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     # Check the query folders now - both sync folders should exist
     s3_objects_datetime_1 = await minio_client.list_objects_v2(
@@ -2805,6 +3002,7 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
     datetime_3 = datetime_2 + timedelta(minutes=3)
     with freeze_time(datetime_3):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     # Check the query folders now - all 3 sync folders should exist
     s3_objects_datetime_1 = await minio_client.list_objects_v2(
@@ -2827,6 +3025,7 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
     datetime_4 = datetime_3 + timedelta(minutes=5)
     with freeze_time(datetime_4):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     # Check the query folders now - this should delete the first sync folder but keep three others
     s3_objects_datetime_1 = await minio_client.list_objects_v2(
@@ -2854,6 +3053,7 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
     datetime_5 = datetime_4 + timedelta(minutes=1)
     with freeze_time(datetime_5), mock.patch("posthog.temporal.data_imports.util.S3_DELETE_TIME_BUFFER", 1):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     # Check the query folders now - this should delete all folders except the latest two
     s3_objects_datetime_1 = await minio_client.list_objects_v2(
@@ -3004,7 +3204,7 @@ async def test_cdp_producer_push_to_s3(team, stripe_customer, mock_stripe_client
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_client, minio_client):
+async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_client, minio_client, pipeline_mode):
     await sync_to_async(HogFunction.objects.create)(
         team=team,
         enabled=True,
@@ -3033,32 +3233,38 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
 
     mock_kafka_producer.produce.assert_called()
     call_kwargs = mock_kafka_producer.produce.call_args[1]
+
+    expected_properties = {
+        "delinquent": False,
+        "object": "customer",
+        "tax_exempt": "none",
+        "address": None,
+        "invoice_prefix": "0759376C",
+        "balance": 0,
+        "currency": None,
+        "livemode": False,
+        "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
+        "metadata": "{}",
+        "id": "cus_NffrFeUfNV2Hib",
+        "next_invoice_sequence": 1,
+        "email": "jennyrosen@example.com",
+        "phone": None,
+        "test_clock": None,
+        "discount": None,
+        "default_source": None,
+        "created": 1680893993,
+        "shipping": None,
+        "name": "Jenny Rosen",
+        "preferred_locales": "[]",
+        "description": None,
+        "_ph_debug": '{"load_id": 1768828644858352000}',
+    }
+
+    # non_dlt adds _ph_partition_key during extract; v3 applies partitioning in the consumer
+    if pipeline_mode == "non_dlt":
+        expected_properties["_ph_partition_key"] = "2023-w14"
+
     assert call_kwargs["data"] == {
         "team_id": team.id,
-        "properties": {
-            "delinquent": False,
-            "object": "customer",
-            "tax_exempt": "none",
-            "address": None,
-            "invoice_prefix": "0759376C",
-            "balance": 0,
-            "currency": None,
-            "livemode": False,
-            "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
-            "metadata": "{}",
-            "id": "cus_NffrFeUfNV2Hib",
-            "next_invoice_sequence": 1,
-            "email": "jennyrosen@example.com",
-            "phone": None,
-            "test_clock": None,
-            "discount": None,
-            "default_source": None,
-            "created": 1680893993,
-            "shipping": None,
-            "name": "Jenny Rosen",
-            "preferred_locales": "[]",
-            "description": None,
-            "_ph_debug": '{"load_id": 1768828644858352000}',
-            "_ph_partition_key": "2023-w14",
-        },
+        "properties": expected_properties,
     }

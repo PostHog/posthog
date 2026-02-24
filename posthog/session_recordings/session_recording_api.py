@@ -85,7 +85,7 @@ from posthog.session_recordings.utils import (
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage.recordings import file_storage
-from posthog.storage.recordings.block_storage import BlockStorage, cleartext_block_storage, encrypted_block_storage
+from posthog.storage.recordings.block_storage import BlockStorage, encrypted_block_storage
 from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 
@@ -749,13 +749,12 @@ class SessionRecordingViewSet(
         recording.deleted = True
         recording.save()
 
-        if self._should_use_recording_api():
-            if not self._delete_via_recording_api(recording.session_id):
-                logger.warning(
-                    "recording_api_delete_failed_after_db_delete",
-                    session_id=recording.session_id,
-                    team_id=self.team.id,
-                )
+        if not self._delete_via_recording_api(recording.session_id):
+            logger.warning(
+                "recording_api_delete_failed_after_db_delete",
+                session_id=recording.session_id,
+                team_id=self.team.id,
+            )
 
         return Response({"success": True}, status=204)
 
@@ -831,16 +830,15 @@ class SessionRecordingViewSet(
 
         deleted_count = len(created_records) + updated_count
 
-        if self._should_use_recording_api():
-            session_ids = [r.session_id for r in non_deleted_recordings]
-            failed_ids = self._bulk_delete_via_recording_api(session_ids)
-            if failed_ids:
-                logger.warning(
-                    "bulk_delete_recording_api_partial_failure",
-                    team_id=self.team.id,
-                    failed_session_ids=failed_ids,
-                    failed_count=len(failed_ids),
-                )
+        session_ids = [r.session_id for r in non_deleted_recordings]
+        failed_ids = self._bulk_delete_via_recording_api(session_ids)
+        if failed_ids:
+            logger.warning(
+                "bulk_delete_recording_api_partial_failure",
+                team_id=self.team.id,
+                failed_session_ids=failed_ids,
+                failed_count=len(failed_ids),
+            )
 
         logger.info(
             "bulk_recordings_deleted",
@@ -1356,27 +1354,6 @@ class SessionRecordingViewSet(
 
         return blocks
 
-    def _should_use_recording_api(self) -> bool:
-        if not is_cloud():
-            return True
-
-        return bool(
-            posthoganalytics.feature_enabled(
-                "session-replay-use-recording-api",
-                str(self.team.uuid),
-                groups={
-                    "organization": str(self.team.organization_id),
-                    "project": str(self.team.id),
-                },
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.id)},
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-
     def _bulk_delete_via_recording_api(self, session_ids: builtins.list[str]) -> builtins.list[str]:
         """Delete multiple recordings via recording-api bulk endpoint.
 
@@ -1482,12 +1459,11 @@ class SessionRecordingViewSet(
         timer: ServerTimingsGathered,
         decompress: bool,
     ) -> BlockList:
-        use_recording_api = self._should_use_recording_api()
         compress_label = "decompressed" if decompress else "compressed"
-        source_label = "recording_api" if use_recording_api else "s3"
+        source_label = "recording_api"
         span_name = f"fetch_{compress_label}_blocks_via_{source_label}"
 
-        storage_cm = encrypted_block_storage() if use_recording_api else cleartext_block_storage()
+        storage_cm = encrypted_block_storage()
 
         async with storage_cm as block_storage:
             encrypted_label = str(self.team.session_recording_encryption)

@@ -97,17 +97,19 @@ impl LocalSymbolResolver {
         assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
 
         let (set, release) = if let Some(set_ref) = frame.symbol_set_ref() {
-            // TODO - should be a join
-            (
-                SymbolSetRecord::load(&self.pool, raw_id.team_id, &set_ref).await?,
-                ReleaseRecord::for_symbol_set_ref(&self.pool, &set_ref, raw_id.team_id).await?,
-            )
+            let set_fut = SymbolSetRecord::load(&self.pool, raw_id.team_id, &set_ref);
+            let release_fut = async {
+                ReleaseRecord::for_symbol_set_ref(&self.pool, &set_ref, raw_id.team_id)
+                    .await
+                    .map_err(UnhandledError::from)
+            };
+            tokio::try_join!(set_fut, release_fut)?
         } else {
             (None, None)
         };
 
         let mut records = Vec::new();
-        let mut resolved = resolved.clone();
+        let mut resolved = resolved;
         for r_frame in resolved.iter_mut() {
             r_frame.release = release.clone(); // Enrich with release information
 

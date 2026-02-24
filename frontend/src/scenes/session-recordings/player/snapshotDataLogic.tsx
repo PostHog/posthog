@@ -1,3 +1,5 @@
+import '~/queries/utils'
+
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -10,7 +12,6 @@ import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 
-import '~/queries/utils'
 import {
     RecordingSnapshot,
     SessionRecordingId,
@@ -65,6 +66,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         setTargetTimestamp: (timestamp: number | null) => ({ timestamp }),
         updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
         setPlayerActive: (active: boolean) => ({ active }),
+        loadAllSources: true,
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
@@ -233,6 +235,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 cache.playbackPosition = timestamp
 
                 const currentMode = cache.scheduler.currentMode
+                // Don't interrupt load_all (e.g. during export)
+                if (currentMode.kind === 'load_all') {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
                 // Don't re-seek to the same target
                 if (currentMode.kind === 'seek' && currentMode.targetTimestamp === timestamp) {
                     return
@@ -268,6 +275,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         setPlayerActive: ({ active }) => {
             cache.playerActive = active
             if (active && cache.useSnapshotStore) {
+                actions.loadNextSnapshotSource()
+            }
+        },
+
+        loadAllSources: () => {
+            if (cache.useSnapshotStore && cache.scheduler) {
+                cache.scheduler.loadAll()
                 actions.loadNextSnapshotSource()
             }
         },

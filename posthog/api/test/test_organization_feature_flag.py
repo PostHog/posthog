@@ -300,8 +300,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             team=self.team_1,
             created_by=self.user,
             key="flag-to-copy-here",
-            filters={},
-            rollout_percentage=self.rollout_percentage_to_copy,
+            filters={"groups": [{"properties": [], "rollout_percentage": self.rollout_percentage_to_copy}]},
         )
 
         data = {

@@ -4,7 +4,6 @@ use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
     issue_resolution::Issue,
     metric_consts::SPIKE_ALERT_STAGE,
     stages::{alerting::spike_detection::do_spike_detection, pipeline::ExceptionEventPipelineItem},
@@ -30,7 +29,6 @@ impl SpikeAlertStage {
 impl Stage for SpikeAlertStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         SPIKE_ALERT_STAGE

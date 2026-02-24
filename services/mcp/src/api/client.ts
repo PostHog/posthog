@@ -115,7 +115,7 @@ export type SearchResult = z.infer<typeof SearchResultSchema>
 
 export const SearchResponseSchema = z.object({
     results: z.array(SearchResultSchema),
-    counts: z.record(z.number().nullable()),
+    counts: z.record(z.number().nullable()).optional(),
 })
 export type SearchResponse = z.infer<typeof SearchResponseSchema>
 
