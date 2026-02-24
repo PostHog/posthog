@@ -31,7 +31,7 @@ BATCH_MAX_TRACE_IDS = 25
 
 # HogQL query template for fetching $ai_generation events
 GENERATIONS_QUERY = """
-    SELECT uuid, properties, properties.$ai_trace_id AS trace_id
+    SELECT uuid, properties.$ai_input AS ai_input, properties.$ai_trace_id AS trace_id
     FROM events
     WHERE event = '$ai_generation'
       AND timestamp >= toDateTime({date_from}, 'UTC')
