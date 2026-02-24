@@ -1,7 +1,14 @@
 import pytest
 
 from posthog.hogql import ast
-from posthog.hogql.functions.traffic_type import get_bot_type, get_traffic_category, get_traffic_type, is_bot
+from posthog.hogql.functions.traffic_type import (
+    BOT_DEFINITIONS,
+    get_bot_name,
+    get_bot_type,
+    get_traffic_category,
+    get_traffic_type,
+    is_bot,
+)
 
 
 class TestTrafficTypeFunctions:
@@ -13,8 +20,9 @@ class TestTrafficTypeFunctions:
 
         assert isinstance(result, ast.Call)
         assert result.name == "multiIf"
-        # Should have 17 args: 8 conditions * 2 + 1 default
-        assert len(result.args) == 17
+        # Should have: (len(BOT_DEFINITIONS) conditions * 2) + (empty UA condition * 2) + 1 default
+        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
+        assert len(result.args) == expected_args
 
     def test_get_traffic_type_returns_expected_values(self):
         node = ast.Call(name="__preview_getTrafficType", args=[])
@@ -38,8 +46,9 @@ class TestTrafficTypeFunctions:
 
         assert isinstance(result, ast.Call)
         assert result.name == "multiIf"
-        # Should have 17 args: 8 conditions * 2 + 1 default
-        assert len(result.args) == 17
+        # Should have: (len(BOT_DEFINITIONS) conditions * 2) + (empty UA condition * 2) + 1 default
+        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
+        assert len(result.args) == expected_args
 
     def test_get_traffic_category_returns_expected_values(self):
         node = ast.Call(name="__preview_getTrafficCategory", args=[])
@@ -64,8 +73,8 @@ class TestIsBotFunction:
         result = is_bot(node=node, args=[user_agent_arg])
 
         assert isinstance(result, ast.Or)
-        # Should have 8 match conditions (all bot patterns + empty UA)
-        assert len(result.exprs) == 8
+        # Should have len(BOT_DEFINITIONS) + 1 (empty UA) match conditions
+        assert len(result.exprs) == len(BOT_DEFINITIONS) + 1
 
     def test_is_bot_uses_match_calls(self):
         node = ast.Call(name="__preview_isBot", args=[])
@@ -88,8 +97,9 @@ class TestGetBotTypeFunction:
 
         assert isinstance(result, ast.Call)
         assert result.name == "multiIf"
-        # Should have 17 args: 8 conditions * 2 + 1 default
-        assert len(result.args) == 17
+        # Should have: (len(BOT_DEFINITIONS) conditions * 2) + (empty UA condition * 2) + 1 default
+        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
+        assert len(result.args) == expected_args
 
     def test_get_bot_type_returns_expected_values(self):
         node = ast.Call(name="__preview_getBotType", args=[])
@@ -112,6 +122,51 @@ class TestGetBotTypeFunction:
         assert "" in return_values
 
 
+class TestGetBotNameFunction:
+    def test_get_bot_name_returns_multiif(self):
+        node = ast.Call(name="__preview_getBotName", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+
+        result = get_bot_name(node=node, args=[user_agent_arg])
+
+        assert isinstance(result, ast.Call)
+        assert result.name == "multiIf"
+        # Should have: (len(BOT_DEFINITIONS) conditions * 2) + (empty UA condition * 2) + 1 default
+        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
+        assert len(result.args) == expected_args
+
+    def test_get_bot_name_returns_expected_values(self):
+        node = ast.Call(name="__preview_getBotName", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+
+        result = get_bot_name(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
+
+        return_values = [arg.value for arg in result.args if isinstance(arg, ast.Constant)]
+
+        # Check some expected bot names
+        assert "Googlebot" in return_values
+        assert "ChatGPT" in return_values
+        assert "Claude" in return_values
+        assert "curl" in return_values
+        # Regular traffic returns empty string
+        assert "" in return_values
+
+    def test_get_bot_name_preserves_user_agent_expression(self):
+        node = ast.Call(name="test", args=[])
+        user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
+
+        result = get_bot_name(node=node, args=[user_agent_arg])
+
+        assert isinstance(result, ast.Call)
+        assert result.name == "multiIf"
+        # First condition should use our custom user agent field
+        first_match = result.args[0]
+        assert isinstance(first_match, ast.Call)
+        assert first_match.name == "match"
+        assert first_match.args[0] == user_agent_arg
+
+
 class TestTrafficTypeFunctionPatterns:
     @pytest.mark.parametrize(
         "function_builder,expected_name",
@@ -119,6 +174,7 @@ class TestTrafficTypeFunctionPatterns:
             (get_traffic_type, "multiIf"),
             (get_traffic_category, "multiIf"),
             (get_bot_type, "multiIf"),
+            (get_bot_name, "multiIf"),
         ],
     )
     def test_functions_preserve_user_agent_expression(self, function_builder, expected_name):
@@ -145,3 +201,29 @@ class TestTrafficTypeFunctionPatterns:
         for expr in result.exprs:
             assert isinstance(expr, ast.Call)
             assert expr.args[0] == user_agent_arg
+
+
+class TestBotDefinitionsDataStructure:
+    def test_all_bot_definitions_have_required_fields(self):
+        for pattern, bot_def in BOT_DEFINITIONS.items():
+            assert bot_def.name, f"Bot definition for {pattern} missing name"
+            assert bot_def.category, f"Bot definition for {pattern} missing category"
+            assert bot_def.traffic_type, f"Bot definition for {pattern} missing traffic_type"
+
+    def test_traffic_types_are_valid(self):
+        valid_types = {"AI Agent", "Bot", "Automation"}
+        for pattern, bot_def in BOT_DEFINITIONS.items():
+            assert bot_def.traffic_type in valid_types, f"Invalid traffic_type for {pattern}: {bot_def.traffic_type}"
+
+    def test_categories_are_valid(self):
+        valid_categories = {
+            "llm_crawler",
+            "search_crawler",
+            "seo_crawler",
+            "social_crawler",
+            "monitoring",
+            "http_client",
+            "headless_browser",
+        }
+        for pattern, bot_def in BOT_DEFINITIONS.items():
+            assert bot_def.category in valid_categories, f"Invalid category for {pattern}: {bot_def.category}"

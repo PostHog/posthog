@@ -55,6 +55,9 @@ class TestTrafficTypeSnapshot(BaseTest):
     def test_get_bot_type(self):
         self._run_function_query("__preview_getBotType", "bot_type")
 
+    def test_get_bot_name(self):
+        self._run_function_query("__preview_getBotName", "bot_name")
+
     def test_filter_bots_sql_query(self):
         self._create_test_events()
         response = execute_hogql_query(

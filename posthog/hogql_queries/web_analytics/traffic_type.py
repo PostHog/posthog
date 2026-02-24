@@ -14,15 +14,10 @@ The underlying HogQL functions provide maximum flexibility during development:
 
 from posthog.hogql import ast
 
-# Re-export patterns from the HogQL functions module (single source of truth)
+# Re-export BOT_DEFINITIONS from the HogQL functions module (single source of truth)
 from posthog.hogql.functions.traffic_type import (
-    AI_AGENT_PATTERNS,
-    HEADLESS_PATTERNS,
-    HTTP_CLIENT_PATTERNS,
-    MONITORING_PATTERNS,
-    SEARCH_BOT_PATTERNS,
-    SEO_BOT_PATTERNS,
-    SOCIAL_BOT_PATTERNS,
+    BOT_DEFINITIONS,
+    get_bot_name as _get_bot_name,
     get_bot_type as _get_bot_type,
     get_traffic_category as _get_traffic_category,
     get_traffic_type as _get_traffic_type,
@@ -30,17 +25,12 @@ from posthog.hogql.functions.traffic_type import (
 )
 
 __all__ = [
-    "AI_AGENT_PATTERNS",
-    "SEARCH_BOT_PATTERNS",
-    "SEO_BOT_PATTERNS",
-    "SOCIAL_BOT_PATTERNS",
-    "MONITORING_PATTERNS",
-    "HTTP_CLIENT_PATTERNS",
-    "HEADLESS_PATTERNS",
+    "BOT_DEFINITIONS",
     "get_traffic_type_expr",
     "get_traffic_category_expr",
     "is_bot_expr",
     "get_bot_type_expr",
+    "get_bot_name_expr",
 ]
 
 
@@ -110,3 +100,15 @@ def get_bot_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
     """
     node = ast.Call(name="__preview_getBotType", args=[user_agent_expr])
     return _get_bot_type(node=node, args=[user_agent_expr])
+
+
+def get_bot_name_expr(user_agent_expr: ast.Expr) -> ast.Expr:
+    """
+    Returns the bot name or empty string for regular traffic.
+
+    EXPERIMENTAL: This function may change without notice.
+
+    Examples: "Googlebot", "ChatGPT", "Claude", "curl", ""
+    """
+    node = ast.Call(name="__preview_getBotName", args=[user_agent_expr])
+    return _get_bot_name(node=node, args=[user_agent_expr])
