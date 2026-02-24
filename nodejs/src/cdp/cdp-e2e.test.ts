@@ -21,7 +21,7 @@ import {
     insertIntegration,
 } from './_tests/fixtures'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
-import { cdpSeekLatencyMs, cdpSeekResult } from './services/job-queue/job-queue-kafka'
+import { cdpSeekLatencyMs, cdpSeekResult } from './services/job-queue/warpstream-fetch-tester'
 import { compileHog } from './templates/compiler'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
@@ -118,8 +118,11 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 ...hub,
                 CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
                 CDP_CYCLOTRON_TEST_SEEK_LATENCY: true,
-                CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 1.0, // Always sample for testing
                 CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 1,
+                CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 5,
+                CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 1,
+                CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 5,
+                CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: 'http://localhost:8080',
             })
             await cyclotronWorkerKafka.start()
 
@@ -348,7 +351,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 const resultMetric = await cdpSeekResult.get()
                 const latencyMetric = await cdpSeekLatencyMs.get()
 
-                // With offset >= 1, sample_rate = 1.0, and max_offset = 1, we must have seek metrics
+                // With offset >= 1 and max_offset = 1, we must have seek metrics
                 expect(resultMetric.values.length).toBeGreaterThan(0)
                 const successCount = resultMetric.values.find((v) => v.labels.result === 'success')
                 expect(successCount?.value).toBeGreaterThanOrEqual(1)

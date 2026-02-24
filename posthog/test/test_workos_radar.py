@@ -284,7 +284,7 @@ class TestEvaluateAuthAttempt(TestCase):
         verdict = evaluate_auth_attempt(
             request=request,
             email="test@example.com",
-            action=RadarAction.SIGNIN,
+            action=RadarAction.SIGNUP,
             auth_method=RadarAuthMethod.PASSWORD,
             user_id="user_123",
         )
@@ -296,7 +296,7 @@ class TestEvaluateAuthAttempt(TestCase):
         log_call_args = mock_log_event.call_args
         assert log_call_args[1]["email"] == "test@example.com"
         assert log_call_args[1]["user_id"] == "user_123"
-        assert log_call_args[1]["action"] == RadarAction.SIGNIN
+        assert log_call_args[1]["action"] == RadarAction.SIGNUP
         assert log_call_args[1]["auth_method"] == RadarAuthMethod.PASSWORD
         assert log_call_args[1]["verdict"] == RadarVerdict.ALLOW
         assert "duration_ms" in log_call_args[1]
@@ -364,7 +364,7 @@ class TestEvaluateAuthAttempt(TestCase):
         verdict = evaluate_auth_attempt(
             request=request,
             email="test@example.com",
-            action=RadarAction.SIGNIN,
+            action=RadarAction.SIGNUP,
             auth_method=RadarAuthMethod.PASSWORD,
             bypass=True,
         )
@@ -373,6 +373,20 @@ class TestEvaluateAuthAttempt(TestCase):
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_blocked"] is False
         assert log_kwargs["was_bypassed"] is False
+
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_returns_none_for_signin(self):
+        factory = RequestFactory()
+        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+
+        verdict = evaluate_auth_attempt(
+            request=request,
+            email="test@example.com",
+            action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSWORD,
+        )
+
+        assert verdict is None
 
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
