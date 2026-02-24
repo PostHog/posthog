@@ -119,7 +119,7 @@ function MembersFilter(props: {
                     setValues={props.setSelectedMemberIds}
                     options={props.members.map((member) => ({
                         key: member.id,
-                        label: fullName(member.user),
+                        label: fullName(member.user) || member.user.email,
                     }))}
                 />
             }

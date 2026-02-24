@@ -27,7 +27,7 @@ export type AccessControlFilters = {
     roleIds: string[]
     memberIds: string[]
     resourceKeys: APIScopeObject[]
-    ruleLevels: string[]
+    ruleLevels: AccessControlLevel[]
 }
 
 export type FormAccessLevel = AccessControlLevel | null // null means "no override"

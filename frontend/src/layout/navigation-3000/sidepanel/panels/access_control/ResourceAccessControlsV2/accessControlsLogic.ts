@@ -62,10 +62,9 @@ function matchesFilters(entry: AccessControlSettingsEntry, filters: AccessContro
     }
 
     if (filters.ruleLevels.length > 0) {
-        const hasMatchingLevel = filters.ruleLevels.some(
-            (rl) =>
-                getEffectiveLevel(entry, 'project' as APIScopeObject) === rl ||
-                Object.keys(entry.resources).some((r) => getEffectiveLevel(entry, r as APIScopeObject) === rl)
+        const allKeys = ['project', ...Object.keys(entry.resources)] as APIScopeObject[]
+        const hasMatchingLevel = filters.ruleLevels.some((rl) =>
+            allKeys.some((k) => getEffectiveLevel(entry, k) === rl)
         )
         if (!hasMatchingLevel) {
             return false
