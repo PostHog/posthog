@@ -1,0 +1,302 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<style>
+    @media print {
+        #header, #nav-sidebar, .breadcrumbs, .no-print {
+            display: none !important;
+        }
+        #content {
+            margin: 0 !important;
+            padding: 20px !important;
+        }
+        body {
+            background: white !important;
+        }
+    }
+
+    .certificate {
+        max-width: 900px;
+        margin: 0 auto;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        position: relative;
+        color: #333;
+    }
+
+    .certificate-header {
+        text-align: center;
+        border-bottom: 2px solid #333;
+        padding-bottom: 24px;
+        margin-bottom: 30px;
+    }
+
+    .certificate-header h1 {
+        color: #111;
+        margin: 0 0 8px 0;
+        font-size: 28px;
+    }
+
+    .certificate-header .reference {
+        font-family: monospace;
+        font-size: 13px;
+        color: #666;
+    }
+
+    .dry-run-watermark {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-45deg);
+        font-size: 120px;
+        font-weight: 900;
+        color: rgba(156, 163, 175, 0.2);
+        text-transform: uppercase;
+        letter-spacing: 20px;
+        pointer-events: none;
+        z-index: 1000;
+        white-space: nowrap;
+        user-select: none;
+    }
+
+    .section {
+        margin-bottom: 30px;
+    }
+
+    .section h2 {
+        font-size: 16px;
+        color: #111;
+        border-bottom: 1px solid #ccc;
+        padding-bottom: 8px;
+        margin-bottom: 15px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .info-grid {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 8px 20px;
+    }
+
+    .info-grid dt {
+        font-weight: 600;
+        color: #555;
+    }
+
+    .info-grid dd {
+        margin: 0;
+        color: #333;
+        word-break: break-all;
+    }
+
+    .summary-cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+        margin-top: 15px;
+    }
+
+    .summary-card {
+        border: 1px solid #ccc;
+        padding: 15px;
+        text-align: center;
+    }
+
+    .summary-card .number {
+        font-size: 32px;
+        font-weight: bold;
+        color: #111;
+    }
+
+    .summary-card .label {
+        font-size: 12px;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .method-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .method-list li {
+        padding: 8px 0;
+    }
+
+    .method-list li strong {
+        color: #111;
+    }
+
+    .method-list li span {
+        display: block;
+        font-size: 13px;
+        color: #666;
+        margin-top: 2px;
+    }
+
+    .actions-bar {
+        margin-bottom: 20px;
+        display: flex;
+        gap: 10px;
+    }
+
+    .actions-bar a, .actions-bar button {
+        padding: 8px 16px;
+        text-decoration: none;
+        font-size: 14px;
+        cursor: pointer;
+        border: 1px solid #ccc;
+        background: #fff;
+        color: #333;
+    }
+
+    .actions-bar a:hover, .actions-bar button:hover {
+        background: #f5f5f5;
+    }
+
+    .contact-info p {
+        margin: 4px 0;
+        font-size: 14px;
+        color: #333;
+    }
+
+    .contact-info .name {
+        font-weight: 600;
+    }
+
+    .footer {
+        margin-top: 40px;
+        padding-top: 20px;
+        border-top: 1px solid #ccc;
+        text-align: center;
+        color: #999;
+        font-size: 12px;
+    }
+</style>
+
+<div class="certificate">
+    <div class="actions-bar no-print">
+        <a href="{% url 'admin:posthog_team_delete_recordings' team.pk %}">&larr; Back to delete recordings</a>
+        <button id="print-btn">Print / Save as PDF</button>
+        <a href="{% url 'admin:posthog_team_download_deletion_certificate' team.pk certificate.workflow_id %}">Download JSON</a>
+    </div>
+
+    <div class="certificate-header">
+        <h1>Certificate of Data Deletion</h1>
+        <p class="reference">Reference: {{ reference_id }}</p>
+    </div>
+
+    {% if certificate.dry_run %}
+    <div class="dry-run-watermark">Dry Run</div>
+    {% endif %}
+
+    <div class="section">
+        <h2>Data Subject Details</h2>
+        <dl class="info-grid">
+            <dt>Name</dt>
+            <dd>{{ team.organization.name }}</dd>
+
+            <dt>Customer ID</dt>
+            <dd>{{ team.organization_id }}</dd>
+        </dl>
+    </div>
+
+    <div class="section">
+        <h2>Scope of Deletion</h2>
+        <dl class="info-grid">
+            <dt>Deletion type</dt>
+            <dd>
+                {% if certificate.workflow_type == "person" %}
+                    All session recordings for specified person(s)
+                {% elif certificate.workflow_type == "team" %}
+                    All session recordings for project (ID {{ certificate.team_id }})
+                {% elif certificate.workflow_type == "query" %}
+                    Session recordings matching filter criteria
+                {% elif certificate.workflow_type == "session_ids" %}
+                    Specified session recordings{% if certificate.source_filename %} ({{ certificate.source_filename }}){% endif %}
+                {% else %}
+                    {{ certificate.workflow_type }}
+                {% endif %}
+            </dd>
+
+            {% if certificate.reason %}
+            <dt>Reason</dt>
+            <dd>{{ certificate.reason }}</dd>
+            {% endif %}
+
+            {% if certificate.distinct_ids %}
+            <dt>Person IDs</dt>
+            <dd>{{ certificate.distinct_ids|join:", " }}</dd>
+            {% endif %}
+
+            {% if certificate.query %}
+            <dt>Filter criteria</dt>
+            <dd style="font-family: monospace; font-size: 12px;">{{ certificate.query }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+
+    <div class="section">
+        <h2>Summary</h2>
+        <div class="summary-cards">
+            <div class="summary-card">
+                <div class="number">{{ certificate.total_recordings_found }}</div>
+                <div class="label">Recordings Found</div>
+            </div>
+            <div class="summary-card">
+                <div class="number">{{ certificate.total_deleted }}</div>
+                <div class="label">Deleted</div>
+            </div>
+            <div class="summary-card">
+                <div class="number">{{ certificate.total_failed }}</div>
+                <div class="label">Failed</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Method of Deletion</h2>
+        <ul class="method-list">
+            <li>
+                <strong>Cryptographic erasure</strong>
+                <span>Encryption keys for the affected session recordings have been permanently destroyed, rendering the encrypted recording data unrecoverable.</span>
+            </li>
+            <li>
+                <strong>Deletion from primary database</strong>
+                <span>Session recording metadata has been permanently deleted from the primary database.</span>
+            </li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>Timeline</h2>
+        <dl class="info-grid">
+            <dt>Deletion started</dt>
+            <dd>{{ certificate.started_at|date:"Y-m-d H:i:s T" }}</dd>
+
+            <dt>Deletion completed</dt>
+            <dd>{{ certificate.completed_at|date:"Y-m-d H:i:s T" }}</dd>
+        </dl>
+    </div>
+
+    <div class="section">
+        <h2>Data Protection Officer</h2>
+        <div class="contact-info">
+            <p class="name">Charles Cook, VP</p>
+            <p>PostHog, Inc.</p>
+            <p>privacy@posthog.com</p>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Certificate generated at {% now "Y-m-d H:i:s T" %}</p>
+        <p>&copy; {% now "Y" %} PostHog, Inc.</p>
+    </div>
+</div>
+<script nonce="{{ request.csp_nonce }}">
+document.getElementById("print-btn").addEventListener("click", function() { window.print(); });
+</script>
+{% endblock %}
