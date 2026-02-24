@@ -35,20 +35,20 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     resolved_from, resolved_to = resolve_date_bounds(input.date_from, input.date_to)
 
     t0 = time.monotonic()
-    rows_by_trace = await database_sync_to_async(
+    fetch = await database_sync_to_async(
         lambda: fetch_generations(input.team_id, input.trace_ids, resolved_from, resolved_to),
         thread_sensitive=False,
     )()
     query_ms = (time.monotonic() - t0) * 1000
 
-    total_generations = sum(len(rows) for rows in rows_by_trace.values())
+    total_generations = sum(len(rows) for rows in fetch.rows_by_trace.values())
     record_query_time_ms(query_ms)
     record_generations_fetched(total_generations)
 
     # Collect all texts to classify across all traces
     pending: list[PendingClassification] = []
     for trace_id in input.trace_ids:
-        pending.extend(collect_pending(rows_by_trace.get(trace_id, []), trace_id, MAX_CLASSIFICATIONS_PER_TRACE))
+        pending.extend(collect_pending(fetch.rows_by_trace.get(trace_id, []), trace_id, MAX_CLASSIFICATIONS_PER_TRACE))
 
     # Batch classify all texts across all traces in one call
     t1 = time.monotonic()
@@ -73,6 +73,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
         team_id=input.team_id,
         trace_count=len(input.trace_ids),
         generations_fetched=total_generations,
+        input_kb=round(fetch.total_input_bytes / 1024, 1),
         messages_classified=len(pending),
         query_ms=round(query_ms),
         inference_ms=round(inference_ms) if pending else 0,

@@ -5,6 +5,7 @@ results by trace_id for downstream processing.
 """
 
 import json
+from dataclasses import dataclass, field
 
 from posthog.temporal.llm_analytics.sentiment.constants import (
     GENERATIONS_QUERY,
@@ -13,18 +14,23 @@ from posthog.temporal.llm_analytics.sentiment.constants import (
 )
 
 
+@dataclass
+class FetchResult:
+    rows_by_trace: dict[str, list[tuple[str, object]]] = field(default_factory=dict)
+    total_input_bytes: int = 0
+
+
 def fetch_generations(
     team_id: int,
     trace_ids: list[str],
     date_from: str,
     date_to: str,
-) -> dict[str, list[tuple[str, object]]]:
+) -> FetchResult:
     """Fetch $ai_generation events and group by trace_id.
 
-    Returns {trace_id: [(event_uuid, ai_input), ...]} with at most
-    MAX_GENERATIONS_PER_TRACE rows per trace. The query uses a window
-    function for per-trace limiting and size filters to skip tool calls
-    and accumulated conversation histories.
+    Returns a FetchResult with rows grouped by trace_id (at most
+    MAX_GENERATIONS_PER_TRACE per trace) and total raw input bytes
+    transferred from ClickHouse.
     """
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
@@ -49,11 +55,15 @@ def fetch_generations(
         limit_context=LimitContext.QUERY_ASYNC,
     )
 
-    rows_by_trace: dict[str, list[tuple[str, object]]] = {}
+    fetch = FetchResult()
     for row in result.results or []:
         row_trace_id = str(row[2])
         raw_ai_input = row[1]
-        ai_input = json.loads(raw_ai_input) if isinstance(raw_ai_input, str) else raw_ai_input
-        rows_by_trace.setdefault(row_trace_id, []).append((str(row[0]), ai_input))
+        if isinstance(raw_ai_input, str):
+            fetch.total_input_bytes += len(raw_ai_input.encode("utf-8"))
+            ai_input = json.loads(raw_ai_input)
+        else:
+            ai_input = raw_ai_input
+        fetch.rows_by_trace.setdefault(row_trace_id, []).append((str(row[0]), ai_input))
 
-    return rows_by_trace
+    return fetch
