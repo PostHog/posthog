@@ -46,6 +46,30 @@ class TestSCIMGroupsAPI(APILicensedTest):
         data = response.json()
         assert "Resources" in data
 
+    def test_groups_list_pagination(self):
+        for index in range(4):
+            Role.objects.create(
+                name=f"PaginationGroup{index}",
+                organization=self.organization,
+            )
+
+        expected_group_ids = list(
+            Role.objects.filter(organization=self.organization).order_by("id").values_list("id", flat=True)
+        )
+        expected_page_ids = [str(group_id) for group_id in expected_group_ids[1:3]]
+
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Groups",
+            {"startIndex": 2, "count": 2},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == len(expected_group_ids)
+        assert data["startIndex"] == 2
+        assert data["itemsPerPage"] == len(expected_page_ids)
+        assert [resource["id"] for resource in data["Resources"]] == expected_page_ids
+
     def test_groups_list_filter_exact_match(self):
         Role.objects.create(name="Engineering", organization=self.organization)
         Role.objects.create(name="engineering", organization=self.organization)
@@ -63,6 +87,21 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert data["totalResults"] == 1
         assert data["itemsPerPage"] == 1
         assert data["Resources"][0]["displayName"] == "Engineering"
+
+    def test_groups_list_filter_count_zero_keeps_total_results(self):
+        Role.objects.create(name="FilterCountZeroGroup", organization=self.organization)
+
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Groups",
+            {"filter": 'displayName eq "FilterCountZeroGroup"', "count": 0},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 1
+        assert data["startIndex"] == 1
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
 
     def test_groups_list_filter_excludes_groups_from_other_orgs(self):
         # Create role with same name in different organization

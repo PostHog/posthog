@@ -46,6 +46,40 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert "Resources" in data
         assert data["totalResults"] >= 1  # At least the test user
 
+    def test_users_list_pagination(self):
+        for index in range(4):
+            user = User.objects.create_user(
+                email=f"pagination-user-{index}@example.com",
+                password=None,
+                first_name=f"Pagination{index}",
+                last_name="User",
+                is_email_verified=True,
+            )
+            OrganizationMembership.objects.create(
+                user=user,
+                organization=self.organization,
+                level=OrganizationMembership.Level.MEMBER,
+            )
+
+        expected_user_ids = list(
+            User.objects.filter(organization_membership__organization=self.organization)
+            .order_by("id")
+            .values_list("id", flat=True)
+        )
+        expected_page_ids = [str(user_id) for user_id in expected_user_ids[1:3]]
+
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Users",
+            {"startIndex": 2, "count": 2},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == len(expected_user_ids)
+        assert data["startIndex"] == 2
+        assert data["itemsPerPage"] == len(expected_page_ids)
+        assert [resource["id"] for resource in data["Resources"]] == expected_page_ids
+
     def test_users_list_filter_exact_match(self):
         user_a = User.objects.create_user(
             email="engineering@example.com",
@@ -90,6 +124,39 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert data["totalResults"] == 1
         assert data["itemsPerPage"] == 1
         assert data["Resources"][0]["userName"] == "engineering@example.com"
+
+    def test_users_list_filter_count_zero_keeps_total_results(self):
+        user = User.objects.create_user(
+            email="filter-count-zero@example.com",
+            password=None,
+            first_name="Filter",
+            last_name="Zero",
+            is_email_verified=True,
+        )
+        OrganizationMembership.objects.create(
+            user=user,
+            organization=self.organization,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="filter-count-zero@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Users",
+            {"filter": 'userName eq "filter-count-zero@example.com"', "count": 0},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 1
+        assert data["startIndex"] == 1
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
 
     def test_users_list_filter_excludes_users_from_other_orgs(self):
         # Create user that belongs only to a different organization

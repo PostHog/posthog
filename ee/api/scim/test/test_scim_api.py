@@ -114,6 +114,23 @@ class TestSCIMAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert "Resources" in response.json()
 
+    @parameterized.expand(
+        [
+            ("startIndex", "0", "startIndex must be greater than or equal to 1"),
+            ("startIndex", "invalid", "startIndex must be an integer"),
+            ("count", "-1", "count must be greater than or equal to 0"),
+            ("count", "invalid", "count must be an integer"),
+        ]
+    )
+    def test_scim_users_list_rejects_invalid_pagination_params(self, param: str, value: str, expected_detail: str):
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {param: value})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        data = response.json()
+        assert data["schemas"] == ["urn:ietf:params:scim:api:messages:2.0:Error"]
+        assert data["status"] == 400
+        assert data["detail"] == expected_detail
+
     def _create_user_in_other_org(self):
         other_org = Organization.objects.create(name="OtherCorp")
         other_user = User.objects.create(

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from django.db.models import Q, QuerySet
 
@@ -28,6 +28,9 @@ from ee.models.rbac.role import Role
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 logger = structlog.get_logger(__name__)
+
+SCIM_DEFAULT_START_INDEX = 1
+SCIM_MAX_RESULTS = 200
 
 SCIM_USER_ATTR_MAP = {
     ("emails", "value", None): "email",
@@ -59,6 +62,65 @@ class SCIMBaseView(APIView):
     authentication_classes = [SCIMBearerTokenAuthentication]
     renderer_classes = [SCIMJSONRenderer, JSONRenderer]
     parser_classes = [SCIMJSONParser, JSONParser]
+
+    @staticmethod
+    def _get_validation_error_detail(detail: Any) -> str:
+        if isinstance(detail, list):
+            return str(detail[0]) if detail else "Invalid request"
+        if isinstance(detail, dict):
+            if not detail:
+                return "Invalid request"
+            first_value = next(iter(detail.values()))
+            if isinstance(first_value, list):
+                return str(first_value[0]) if first_value else "Invalid request"
+            return str(first_value)
+        return str(detail)
+
+    def get_pagination_params(self, request: Request) -> tuple[int, int | None]:
+        start_index_param = request.query_params.get("startIndex")
+        count_param = request.query_params.get("count")
+
+        if start_index_param is None:
+            start_index = SCIM_DEFAULT_START_INDEX
+        else:
+            try:
+                start_index = int(start_index_param)
+            except ValueError as error:
+                raise drf_exceptions.ValidationError("startIndex must be an integer") from error
+            if start_index < SCIM_DEFAULT_START_INDEX:
+                raise drf_exceptions.ValidationError("startIndex must be greater than or equal to 1")
+
+        if count_param is None:
+            return start_index, None
+
+        try:
+            count = int(count_param)
+        except ValueError as error:
+            raise drf_exceptions.ValidationError("count must be an integer") from error
+
+        if count < 0:
+            raise drf_exceptions.ValidationError("count must be greater than or equal to 0")
+
+        return start_index, min(count, SCIM_MAX_RESULTS)
+
+    @staticmethod
+    def paginate_queryset(queryset: QuerySet, start_index: int, count: int | None) -> QuerySet:
+        offset = start_index - 1
+        if count is None:
+            return queryset[offset:]
+        return queryset[offset : offset + count]
+
+    @staticmethod
+    def build_list_response(resources: list[dict[str, Any]], total_results: int, start_index: int) -> Response:
+        return Response(
+            {
+                "schemas": [constants.SchemaURI.LIST_RESPONSE],
+                "totalResults": total_results,
+                "startIndex": start_index,
+                "itemsPerPage": len(resources),
+                "Resources": resources,
+            }
+        )
 
     def dispatch(self, request, *args, **kwargs):
         response = super().dispatch(request, *args, **kwargs)
@@ -105,6 +167,16 @@ class SCIMBaseView(APIView):
                     "detail": "Authentication failed",
                 },
                 status=status.HTTP_403_FORBIDDEN,
+            )
+        if isinstance(exc, drf_exceptions.ValidationError):
+            detail = self._get_validation_error_detail(exc.detail)
+            return Response(
+                {
+                    "schemas": [constants.SchemaURI.ERROR],
+                    "status": 400,
+                    "detail": detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
         return super().handle_exception(exc)
 
@@ -154,11 +226,11 @@ class SCIMUsersView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
+        start_index, count = self.get_pagination_params(request)
 
         if filter_param:
             try:
                 queryset = PostHogUserFilterQuery.search(filter_param, request)
-                users = [PostHogSCIMUser(u, organization_domain) for u in queryset]
             except Exception as e:
                 capture_exception(
                     e,
@@ -169,18 +241,20 @@ class SCIMUsersView(SCIMBaseView):
                         "organization_id": organization_domain.organization.id,
                     },
                 )
-                users = []
+                queryset = User.objects.none()
         else:
-            users = PostHogSCIMUser.get_for_organization(organization_domain)
+            queryset = User.objects.filter(
+                organization_membership__organization=organization_domain.organization,
+            )
 
-        return Response(
-            {
-                "schemas": [constants.SchemaURI.LIST_RESPONSE],
-                "totalResults": len(users),
-                "startIndex": 1,
-                "itemsPerPage": len(users),
-                "Resources": [user.to_dict() for user in users],
-            }
+        queryset = queryset.order_by("id").distinct()
+        total_results = queryset.count()
+        paginated_queryset = self.paginate_queryset(queryset, start_index, count)
+        users = [PostHogSCIMUser(user, organization_domain) for user in paginated_queryset]
+        return self.build_list_response(
+            resources=[user.to_dict() for user in users],
+            total_results=total_results,
+            start_index=start_index,
         )
 
     def post(self, request: Request, domain_id: str) -> Response:
@@ -289,11 +363,11 @@ class SCIMGroupsView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
+        start_index, count = self.get_pagination_params(request)
 
         if filter_param:
             try:
                 queryset = PostHogGroupFilterQuery.search(filter_param, request)
-                groups = [PostHogSCIMGroup(role, organization_domain) for role in queryset]
             except Exception as e:
                 capture_exception(
                     e,
@@ -304,18 +378,18 @@ class SCIMGroupsView(SCIMBaseView):
                         "organization_id": organization_domain.organization.id,
                     },
                 )
-                groups = []
+                queryset = Role.objects.none()
         else:
-            groups = PostHogSCIMGroup.get_for_organization(organization_domain)
+            queryset = Role.objects.filter(organization=organization_domain.organization)
 
-        return Response(
-            {
-                "schemas": [constants.SchemaURI.LIST_RESPONSE],
-                "totalResults": len(groups),
-                "startIndex": 1,
-                "itemsPerPage": len(groups),
-                "Resources": [group.to_dict() for group in groups],
-            }
+        queryset = queryset.order_by("id").distinct()
+        total_results = queryset.count()
+        paginated_queryset = self.paginate_queryset(queryset, start_index, count)
+        groups = [PostHogSCIMGroup(role, organization_domain) for role in paginated_queryset]
+        return self.build_list_response(
+            resources=[group.to_dict() for group in groups],
+            total_results=total_results,
+            start_index=start_index,
         )
 
     def post(self, request: Request, domain_id: str) -> Response:
@@ -416,7 +490,7 @@ class SCIMServiceProviderConfigView(SCIMBaseView):
                 "documentationUri": "https://posthog.com/docs/scim",
                 "patch": {"supported": True},
                 "bulk": {"supported": False, "maxOperations": 0, "maxPayloadSize": 0},
-                "filter": {"supported": True, "maxResults": 200},
+                "filter": {"supported": True, "maxResults": SCIM_MAX_RESULTS},
                 "changePassword": {"supported": False},
                 "sort": {"supported": False},
                 "etag": {"supported": False},
