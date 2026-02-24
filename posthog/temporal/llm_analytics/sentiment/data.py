@@ -9,8 +9,7 @@ import json
 from posthog.temporal.llm_analytics.sentiment.constants import (
     GENERATIONS_QUERY,
     MAX_GENERATIONS_PER_TRACE,
-    MAX_INPUT_BYTES,
-    MIN_INPUT_BYTES,
+    MAX_INPUT_CHARS,
 )
 
 
@@ -43,8 +42,7 @@ def fetch_generations(
             "date_from": ast.Constant(value=date_from),
             "date_to": ast.Constant(value=date_to),
             "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
-            "min_input_bytes": ast.Constant(value=MIN_INPUT_BYTES),
-            "max_input_bytes": ast.Constant(value=MAX_INPUT_BYTES),
+            "max_input_chars": ast.Constant(value=MAX_INPUT_CHARS),
             "max_gens_per_trace": ast.Constant(value=MAX_GENERATIONS_PER_TRACE),
         },
         team=team,
