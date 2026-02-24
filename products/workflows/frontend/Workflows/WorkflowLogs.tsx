@@ -1,4 +1,4 @@
-import { props, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconClock } from '@posthog/icons'
 import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -161,5 +161,5 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
 export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
-    return workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs {...props} /> : <WorkflowRunLogs {...props} />
+    return workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />
 }

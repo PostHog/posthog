@@ -1,114 +1,145 @@
-import { useActions, useValues } from "kea";
-import { useMemo } from "react";
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { LemonSegmentedButton } from "@posthog/lemon-ui";
+import { LemonSelect } from '@posthog/lemon-ui'
 
-import { getColorVar } from "lib/colors";
-import { AppMetricsFilters } from "lib/components/AppMetrics/AppMetricsFilters";
-import { appMetricsLogic } from "lib/components/AppMetrics/appMetricsLogic";
+import { getColorVar } from 'lib/colors'
+import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
+import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
+import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
-import { getHogFlowStep } from "./hogflows/steps/HogFlowSteps";
-import { WorkflowMetricsSummary } from "./WorkflowMetricsSummary";
-import { WorkflowLogicProps, workflowLogic } from "./workflowLogic";
+import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
+import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
 
-const OVERVIEW_OPTION_VALUE = "__workflow_overview__";
+const OVERVIEW_OPTION_VALUE = '__workflow_overview__'
 
-export const WORKFLOW_METRICS_INFO: Record<
-  string,
-  { name: string; description: string; color: string }
-> = {
-  succeeded: {
-    name: "Success",
-    description: "Total number of events processed successfully",
-    color: getColorVar("success"),
-  },
-  failed: {
-    name: "Failure",
-    description: "Total number of events that had errors during processing",
-    color: getColorVar("danger"),
-  },
-  filtered: {
-    name: "Filtered",
-    description: "Total number of events that were filtered out",
-    color: getColorVar("muted"),
-  },
-  disabled_permanently: {
-    name: "Disabled",
-    description:
-      "Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)",
-    color: getColorVar("danger"),
-  },
-  rate_limited: {
-    name: "Rate Limited",
-    description: "Total number of events that were rate limited",
-    color: getColorVar("danger"),
-  },
-  triggered: {
-    name: "Triggered",
-    description: "Total number of events that were triggered",
-    color: getColorVar("success"),
-  },
-};
+export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
+    succeeded: {
+        name: 'Success',
+        description: 'Total number of events processed successfully',
+        color: getColorVar('success'),
+    },
+    failed: {
+        name: 'Failure',
+        description: 'Total number of events that had errors during processing',
+        color: getColorVar('danger'),
+    },
+    filtered: {
+        name: 'Filtered',
+        description: 'Total number of events that were filtered out',
+        color: getColorVar('muted'),
+    },
+    disabled_permanently: {
+        name: 'Disabled',
+        description:
+            'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
+        color: getColorVar('danger'),
+    },
+    rate_limited: {
+        name: 'Rate Limited',
+        description: 'Total number of events that were rate limited',
+        color: getColorVar('danger'),
+    },
+    triggered: {
+        name: 'Triggered',
+        description: 'Total number of events that were triggered',
+        color: getColorVar('success'),
+    },
+}
 
 export function WorkflowMetrics(props: WorkflowLogicProps): JSX.Element {
-  const logicKey = `hog-flow-metrics-${props.id}`;
+    const logicKey = `hog-flow-metrics-${props.id}`
 
-  const logic = appMetricsLogic({
-    logicKey,
-    loadOnChanges: true,
-    loadOnMount: true,
-    forceParams: {
-      appSource: "hog_flow",
-      appSourceId: props.id,
-      breakdownBy: "metric_name",
-    },
-  });
+    const logic = appMetricsLogic({
+        logicKey,
+        loadOnChanges: true,
+        loadOnMount: true,
+        forceParams: {
+            appSource: 'hog_flow',
+            appSourceId: props.id,
+            breakdownBy: 'metric_name',
+        },
+    })
 
-  const { workflow, hogFunctionTemplatesById } = useValues(
-    workflowLogic(props),
-  );
+    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic(props))
 
-  const { params } = useValues(logic);
-  const { setParams } = useActions(logic);
+    const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params } = useValues(logic)
+    const { setParams } = useActions(logic)
 
-  const workflowStepOptions = useMemo(
-    () => [
-      {
-        label: "Overview",
-        value: OVERVIEW_OPTION_VALUE,
-      },
-      ...workflow.actions.map((action) => {
-        const Step = getHogFlowStep(action, hogFunctionTemplatesById);
-        return {
-          label: action.name,
-          icon: Step?.icon,
-          value: action.id,
-        };
-      }),
-    ],
-    [workflow.actions, hogFunctionTemplatesById],
-  );
+    const modifiedAppMetricsTrends = useMemo(
+        () =>
+            appMetricsTrends
+                ? {
+                      ...appMetricsTrends,
+                      series: appMetricsTrends.series.map((series) => ({
+                          ...series,
+                          color: WORKFLOW_METRICS_INFO[series.name as keyof typeof WORKFLOW_METRICS_INFO]?.color,
+                      })),
+                  }
+                : null,
+        [appMetricsTrends]
+    )
 
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-row gap-2 flex-wrap justify-between">
-        <div>
-          <LemonSegmentedButton
-            size="small"
-            options={workflowStepOptions}
-            value={params.instanceId ?? OVERVIEW_OPTION_VALUE}
-            onChange={(value) =>
-              setParams({
-                ...params,
-                instanceId: value === OVERVIEW_OPTION_VALUE ? undefined : value,
-              })
-            }
-          />
+    const workflowStepOptions = useMemo(
+        () => [
+            {
+                label: 'Overview',
+                value: OVERVIEW_OPTION_VALUE,
+            },
+            ...workflow.actions.map((action) => {
+                const Step = getHogFlowStep(action, hogFunctionTemplatesById)
+                return {
+                    label: action.name,
+                    icon: Step?.icon,
+                    value: action.id,
+                }
+            }),
+        ],
+        [workflow.actions, hogFunctionTemplatesById]
+    )
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row gap-2 flex-wrap justify-between">
+                <div>
+                    <LemonSelect
+                        size="small"
+                        options={workflowStepOptions}
+                        value={params.instanceId ?? OVERVIEW_OPTION_VALUE}
+                        onChange={(value) =>
+                            setParams({
+                                ...params,
+                                instanceId: value === OVERVIEW_OPTION_VALUE ? undefined : value,
+                            })
+                        }
+                    />
+                </div>
+                <AppMetricsFilters logicKey={logicKey} />
+            </div>
+
+            {!params.instanceId || params.instanceId === OVERVIEW_OPTION_VALUE ? (
+                <WorkflowMetricsSummary logic={logic} />
+            ) : (
+                <>
+                    <div className="flex flex-row gap-2 flex-wrap justify-center">
+                        {['succeeded', 'failed', 'filtered', 'disabled_permanently'].map((key) => (
+                            <AppMetricSummary
+                                key={key}
+                                name={WORKFLOW_METRICS_INFO[key].name}
+                                description={WORKFLOW_METRICS_INFO[key].description}
+                                loading={appMetricsTrendsLoading}
+                                timeSeries={getSingleTrendSeries(key)}
+                                previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
+                                color={WORKFLOW_METRICS_INFO[key].color}
+                                colorIfZero={getColorVar('muted')}
+                            />
+                        ))}
+                    </div>
+                    <AppMetricsTrends appMetricsTrends={modifiedAppMetricsTrends} loading={appMetricsTrendsLoading} />
+                </>
+            )}
         </div>
-        <AppMetricsFilters logicKey={logicKey} />
-      </div>
-
-      <WorkflowMetricsSummary logic={logic} workflow={workflow} />
-    </div>
-  );
+    )
 }
