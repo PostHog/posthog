@@ -478,30 +478,38 @@ class EventViewSet(
         )
         from posthog.hogql_queries.query_runner import ExecutionMode
 
-        property_filters = [
-            (param_key, param_value)
-            for param_key, param_value in query_params.items
-            if param_key.startswith("properties_") and isinstance(param_value, str)
-        ]
+        with tracer.start_as_current_span("events_api_event_property_values") as span:
+            span.set_attribute("team_id", query_params.team.pk)
+            span.set_attribute("property_key", query_params.key)
+            span.set_attribute("is_column", query_params.is_column)
+            span.set_attribute("has_value_filter", query_params.value is not None)
+            span.set_attribute("event_names_count", len(query_params.event_names) if query_params.event_names else 0)
 
-        if property_filters:
-            # Ad-hoc filtered queries are not cached — run directly
-            return self._event_property_values_filtered(query_params, property_filters)
+            property_filters = [
+                (param_key, param_value)
+                for param_key, param_value in query_params.items
+                if param_key.startswith("properties_") and isinstance(param_value, str)
+            ]
+            span.set_attribute("property_filter_count", len(property_filters))
 
-        runner = PropertyValuesQueryRunner(
-            team=query_params.team,
-            query=PropertyValuesQuery(
-                property_type=PropertyType.EVENT,
-                property_key=query_params.key,
-                is_column=query_params.is_column,
-                search_value=query_params.value,
-                event_names=query_params.event_names or None,
-            ),
-        )
-        result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
-        if not isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse)):
-            raise TypeError(f"Unexpected result type from PropertyValuesQueryRunner: {type(result)}")
-        return self._return_with_short_cache([item.model_dump(exclude_none=True) for item in result.results])
+            if property_filters:
+                # Ad-hoc filtered queries are not cached — run directly
+                return self._event_property_values_filtered(query_params, property_filters)
+
+            runner = PropertyValuesQueryRunner(
+                team=query_params.team,
+                query=PropertyValuesQuery(
+                    property_type=PropertyType.EVENT,
+                    property_key=query_params.key,
+                    is_column=query_params.is_column,
+                    search_value=query_params.value,
+                    event_names=query_params.event_names or None,
+                ),
+            )
+            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            if not isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse)):
+                raise TypeError(f"Unexpected result type from PropertyValuesQueryRunner: {type(result)}")
+            return self._return_with_short_cache([item.model_dump(exclude_none=True) for item in result.results])
 
     def _event_property_values_filtered(
         self,
