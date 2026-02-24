@@ -6,7 +6,7 @@
         "summary": "Get all actions",
         "title": "Get all actions",
         "required_scopes": ["action:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -36,7 +36,7 @@
         "summary": "Get action",
         "title": "Get action",
         "required_scopes": ["action:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -81,7 +81,7 @@
         "summary": "List error tracking issues",
         "title": "List error tracking issues",
         "required_scopes": ["error_tracking:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -96,7 +96,7 @@
         "summary": "Get error tracking issue",
         "title": "Get error tracking issue",
         "required_scopes": ["error_tracking:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

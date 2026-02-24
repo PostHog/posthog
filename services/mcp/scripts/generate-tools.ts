@@ -464,7 +464,7 @@ function generateDefinitionsJson(
                 summary: toolConfig.title || opDescription.split('.')[0] || name,
                 title: toolConfig.title || resolved.operation.summary || name,
                 required_scopes: toolConfig.scopes,
-                new_mcp: true,
+                new_mcp: toolConfig.mcp_version !== undefined ? toolConfig.mcp_version >= 2 : true,
                 annotations: {
                     destructiveHint: toolConfig.annotations.destructive,
                     idempotentHint: toolConfig.annotations.idempotent,
