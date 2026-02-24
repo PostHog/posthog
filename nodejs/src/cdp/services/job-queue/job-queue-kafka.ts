@@ -163,7 +163,11 @@ export class CyclotronJobQueueKafka {
         }
 
         if (this.fetchTester) {
-            await this.fetchTester.maybeMeasureFetchLatency(messages)
+            try {
+                await this.fetchTester.maybeMeasureFetchLatency(messages)
+            } catch (error) {
+                logger.warn('fetch_tester_error', { error: String(error) })
+            }
         }
 
         return await this.consumeBatch(invocations)
