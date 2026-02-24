@@ -14,7 +14,15 @@ import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'
 
 export function ExperimentWizard(): JSX.Element {
-    const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, showGuide, stepValidationErrors, hasFormErrors } = useValues(experimentWizardLogic)
+    const {
+        currentStep,
+        isLastStep,
+        isFirstStep,
+        isExperimentSubmitting,
+        showGuide,
+        stepValidationErrors,
+        hasFormErrors,
+    } = useValues(experimentWizardLogic)
     const { nextStep, prevStep, setStep, saveExperiment, toggleGuide } = useActions(experimentWizardLogic)
 
     const header = (
