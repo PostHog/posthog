@@ -269,6 +269,7 @@ def verify_team_flags(
             "status": "miss",
             "issue": "CACHE_MISS",
             "details": f"No cache entry found (team has {len(db_flags)} flags in DB)",
+            "db_data": db_data,
         }
 
     # Extract cached flags
@@ -351,6 +352,7 @@ def verify_team_flags(
         "issue": "DATA_MISMATCH",
         "details": f"{', '.join(summary_parts)} flags" if summary_parts else "unknown differences",
         "diff_flags": diff_flags,
+        "db_data": db_data,
     }
 
     if verbose:
