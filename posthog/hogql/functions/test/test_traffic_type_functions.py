@@ -66,26 +66,31 @@ class TestTrafficTypeFunctions:
 
 
 class TestIsBotFunction:
-    def test_is_bot_returns_or_expression(self):
+    def test_is_bot_returns_multiMatchAny(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
 
-        assert isinstance(result, ast.Or)
-        # Should have len(BOT_DEFINITIONS) + 1 (empty UA) match conditions
-        assert len(result.exprs) == len(BOT_DEFINITIONS) + 1
+        assert isinstance(result, ast.Call)
+        assert result.name == "multiMatchAny"
+        assert len(result.args) == 2
 
-    def test_is_bot_uses_match_calls(self):
+    def test_is_bot_has_correct_patterns(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
+        assert isinstance(result, ast.Call)
 
-        for expr in result.exprs:
-            assert isinstance(expr, ast.Call)
-            assert expr.name == "match"
+        # First arg is the user agent expression
+        assert result.args[0] == user_agent_arg
+
+        # Second arg is the patterns array
+        patterns_array = result.args[1]
+        assert isinstance(patterns_array, ast.Array)
+        # Should have len(BOT_DEFINITIONS) + 1 (empty UA) patterns
+        assert len(patterns_array.exprs) == len(BOT_DEFINITIONS) + 1
 
 
 class TestGetBotTypeFunction:
@@ -196,11 +201,9 @@ class TestTrafficTypeFunctionPatterns:
         user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
-
-        for expr in result.exprs:
-            assert isinstance(expr, ast.Call)
-            assert expr.args[0] == user_agent_arg
+        assert isinstance(result, ast.Call)
+        assert result.name == "multiMatchAny"
+        assert result.args[0] == user_agent_arg
 
 
 class TestBotDefinitionsDataStructure:

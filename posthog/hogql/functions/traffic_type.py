@@ -155,17 +155,10 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     Returns true if the user agent matches bot/automation patterns, false otherwise.
     """
-    user_agent_expr = args[0]
+    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
+    patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
-    # Build OR expression from all patterns
-    match_exprs: list[ast.Expr] = []
-    for pattern in BOT_DEFINITIONS.keys():
-        match_exprs.append(ast.Call(name="match", args=[user_agent_expr, ast.Constant(value=pattern)]))
-
-    # Empty user agent
-    match_exprs.append(ast.Call(name="match", args=[user_agent_expr, ast.Constant(value="^$")]))
-
-    return ast.Or(exprs=match_exprs)
+    return ast.Call(name="multiMatchAny", args=[args[0], patterns_array])
 
 
 def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
