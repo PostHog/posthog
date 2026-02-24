@@ -733,7 +733,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Connection failed", response.json().get("message", ""))
+        self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
