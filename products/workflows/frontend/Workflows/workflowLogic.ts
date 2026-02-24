@@ -148,7 +148,7 @@ function normalizeForComparison(obj: unknown): unknown {
     return obj
 }
 
-function configsEqual(a: unknown, b: unknown): boolean {
+export function configsEqual(a: unknown, b: unknown): boolean {
     return JSON.stringify(normalizeForComparison(a)) === JSON.stringify(normalizeForComparison(b))
 }
 
