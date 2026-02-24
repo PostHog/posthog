@@ -73,6 +73,7 @@ export interface RunApi {
     created_at: string
     /** @nullable */
     completed_at: string | null
+    is_stale?: boolean
     metadata?: RunApiMetadata
 }
 

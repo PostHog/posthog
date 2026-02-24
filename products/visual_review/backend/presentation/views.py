@@ -107,17 +107,23 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "complete", "approve"]
-    scope_object_read_actions = ["list", "retrieve", "snapshots"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
 
     @extend_schema(responses={200: RunSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
-        """List all runs for the team."""
-        runs = api.list_runs(self.team_id)
+        """List runs for the team, optionally filtered by tab."""
+        tab = request.query_params.get("tab")
+        runs = api.list_runs(self.team_id, tab=tab)
         page = self.paginate_queryset(runs)
         if page is not None:
             serializer = RunSerializer(instance=page, many=True)
             return self.get_paginated_response(serializer.data)
         return Response(RunSerializer(instance=runs, many=True).data)
+
+    @action(detail=False, methods=["get"])
+    def counts(self, request: Request, **kwargs) -> Response:
+        """Tab counts for the runs list."""
+        return Response(api.get_run_tab_counts(self.team_id))
 
     @validated_request(
         request_serializer=CreateRunInputSerializer,

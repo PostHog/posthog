@@ -66,9 +66,7 @@ def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
     )
 
 
-def _to_run(run, *, is_stale: bool = False) -> contracts.Run:
-    if not is_stale:
-        is_stale = getattr(run, "is_stale", False)
+def _to_run(run) -> contracts.Run:
     return contracts.Run(
         id=run.id,
         repo_id=run.repo_id,
@@ -89,7 +87,7 @@ def _to_run(run, *, is_stale: bool = False) -> contracts.Run:
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
-        is_stale=is_stale,
+        is_stale=logic.is_run_stale(run),
         metadata=run.metadata or {},
     )
 
@@ -136,10 +134,14 @@ def update_repo(input: contracts.UpdateRepoInput) -> contracts.Repo:
 # --- Run API ---
 
 
-def list_runs(team_id: int) -> list[contracts.Run]:
-    """List all runs for a team across all projects."""
-    runs = logic.list_runs_for_team(team_id)
+def list_runs(team_id: int, tab: str | None = None) -> list[contracts.Run]:
+    """List runs for a team, optionally filtered by tab."""
+    runs = logic.list_runs_for_team(team_id, tab=tab)
     return [_to_run(r) for r in runs]
+
+
+def get_run_tab_counts(team_id: int) -> dict[str, int]:
+    return logic.get_run_tab_counts(team_id)
 
 
 def create_run(input: contracts.CreateRunInput) -> contracts.CreateRunResult:
@@ -179,7 +181,7 @@ def create_run(input: contracts.CreateRunInput) -> contracts.CreateRunResult:
 
 def get_run(run_id: UUID) -> contracts.Run:
     run = logic.get_run(run_id)
-    return _to_run(run, is_stale=logic.is_run_stale(run))
+    return _to_run(run)
 
 
 def get_run_snapshots(run_id: UUID) -> list[contracts.Snapshot]:

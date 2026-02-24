@@ -7,8 +7,11 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from uuid import UUID
 
-from django.db import transaction
-from django.db.models import Exists, OuterRef
+from django.db import (
+    models as db_models,
+    transaction,
+)
+from django.db.models import Count, Q
 from django.utils import timezone
 
 import structlog
@@ -178,39 +181,38 @@ def write_artifact_bytes(
 # --- Run Operations ---
 
 
-def _newer_run_exists_subquery():
-    """Subquery: True if a newer run exists for the same (repo, pr_number, run_type)."""
-    return Exists(
-        Run.objects.filter(
-            repo_id=OuterRef("repo_id"),
-            pr_number=OuterRef("pr_number"),
-            run_type=OuterRef("run_type"),
-            created_at__gt=OuterRef("created_at"),
-        ).exclude(
-            pr_number__isnull=True,
-        )
-    )
-
-
 def is_run_stale(run: Run) -> bool:
-    """A run is stale if a newer run exists for the same (repo, pr_number, run_type)."""
-    if run.pr_number is None:
-        return False
-    return Run.objects.filter(
-        repo_id=run.repo_id,
-        pr_number=run.pr_number,
-        run_type=run.run_type,
-        created_at__gt=run.created_at,
-    ).exists()
+    return run.superseded_by_id is not None
 
 
-def list_runs_for_team(team_id: int) -> list[Run]:
-    """List all runs for projects belonging to a team, ordered by creation date (newest first)."""
-    return list(
-        Run.objects.filter(repo__team_id=team_id)
-        .select_related("repo")
-        .annotate(is_stale=_newer_run_exists_subquery())
-        .order_by("-created_at")
+# Tab filters — superseded_by IS NULL = current, IS NOT NULL = stale
+_HAS_CHANGES = Q(changed_count__gt=0) | Q(new_count__gt=0) | Q(removed_count__gt=0)
+_CURRENT = Q(superseded_by__isnull=True)
+
+TAB_FILTERS: dict[str, Q] = {
+    "needs_review": Q(status=RunStatus.COMPLETED) & _HAS_CHANGES & Q(approved=False) & _CURRENT,
+    "clean": (Q(status=RunStatus.COMPLETED) & ~_HAS_CHANGES & _CURRENT) | (Q(approved=True) & _CURRENT),
+    "processing": Q(status__in=[RunStatus.PENDING, RunStatus.PROCESSING]) & _CURRENT,
+    "stale": Q(superseded_by__isnull=False),
+}
+
+
+def list_runs_for_team(team_id: int, tab: str | None = None) -> db_models.QuerySet[Run]:
+    """List runs for a team, optionally filtered by tab."""
+    qs = Run.objects.filter(repo__team_id=team_id).select_related("repo").order_by("-created_at")
+    if tab and tab in TAB_FILTERS:
+        qs = qs.filter(TAB_FILTERS[tab])
+    return qs
+
+
+def get_run_tab_counts(team_id: int) -> dict[str, int]:
+    """All tab counts in a single query via conditional aggregation."""
+    qs = Run.objects.filter(repo__team_id=team_id)
+    return qs.aggregate(
+        needs_review=Count("id", filter=TAB_FILTERS["needs_review"]),
+        clean=Count("id", filter=TAB_FILTERS["clean"]),
+        processing=Count("id", filter=TAB_FILTERS["processing"]),
+        stale=Count("id", filter=TAB_FILTERS["stale"]),
     )
 
 
@@ -260,6 +262,14 @@ def create_run(
         total_snapshots=len(snapshots),
         metadata=metadata or {},
     )
+
+    # Supersede older runs for the same (repo, branch, run_type)
+    Run.objects.filter(
+        repo_id=repo_id,
+        branch=branch,
+        run_type=run_type,
+        superseded_by__isnull=True,
+    ).exclude(id=run.id).update(superseded_by=run)
 
     all_hashes: set[str] = set()
     # Store width/height from manifest for later artifact creation
@@ -689,7 +699,7 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     repo = run.repo
 
     if is_run_stale(run):
-        raise StaleRunError("A newer run exists for this PR. Approve the latest run instead.")
+        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
 
     # Build lookup of identifier -> new_hash
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}

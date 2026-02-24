@@ -499,75 +499,93 @@ class TestCommitStatusChecks:
 
 
 @pytest.mark.django_db
-class TestRunStaleness:
-    """Staleness is derived, not stored: a run is stale if a newer run exists for (repo, pr_number, run_type)."""
+class TestRunSupersession:
+    """When a new run is created for the same (repo, branch, run_type), older runs get superseded."""
 
     @pytest.fixture
     def repo(self, team):
         return Repo.objects.create(team=team, name="test-repo")
 
-    def _create_run(self, repo, *, pr_number: int | None = 1, run_type=RunType.STORYBOOK, commit_sha="abc"):
+    def _create_run(self, repo, *, branch="feat/x", run_type=RunType.STORYBOOK, commit_sha="abc"):
         run, _ = logic.create_run(
             repo_id=repo.id,
             run_type=run_type,
             commit_sha=commit_sha,
-            branch="feat/x",
-            pr_number=pr_number,
+            branch=branch,
+            pr_number=1,
             snapshots=[{"identifier": "snap", "content_hash": commit_sha}],
             baseline_hashes={},
         )
         return run
 
-    def test_single_run_is_not_stale(self, repo):
+    def test_single_run_not_superseded(self, repo):
         run = self._create_run(repo)
 
+        assert run.superseded_by is None
         assert logic.is_run_stale(run) is False
 
-    def test_older_run_is_stale_when_newer_exists(self, repo):
+    def test_newer_run_supersedes_older(self, repo):
         old = self._create_run(repo, commit_sha="old")
-        self._create_run(repo, commit_sha="new")
+        new = self._create_run(repo, commit_sha="new")
 
-        assert logic.is_run_stale(old) is True
+        old.refresh_from_db()
+        assert old.superseded_by_id == new.id
+        assert new.superseded_by is None
 
-    def test_newest_run_is_not_stale(self, repo):
-        self._create_run(repo, commit_sha="old")
-        newest = self._create_run(repo, commit_sha="new")
+    def test_supersession_chains(self, repo):
+        first = self._create_run(repo, commit_sha="1st")
+        second = self._create_run(repo, commit_sha="2nd")
+        third = self._create_run(repo, commit_sha="3rd")
 
-        assert logic.is_run_stale(newest) is False
+        first.refresh_from_db()
+        second.refresh_from_db()
+        # first was superseded by second, then second by third
+        # first still points to second (not updated again)
+        assert first.superseded_by_id == second.id
+        assert second.superseded_by_id == third.id
+        assert third.superseded_by is None
 
-    def test_different_pr_numbers_are_independent(self, repo):
-        run_pr1 = self._create_run(repo, pr_number=1, commit_sha="a")
-        self._create_run(repo, pr_number=2, commit_sha="b")
+    def test_different_branches_are_independent(self, repo):
+        run_a = self._create_run(repo, branch="feat/a", commit_sha="a")
+        self._create_run(repo, branch="feat/b", commit_sha="b")
 
-        assert logic.is_run_stale(run_pr1) is False
+        run_a.refresh_from_db()
+        assert run_a.superseded_by is None
 
     def test_different_run_types_are_independent(self, repo):
         run_sb = self._create_run(repo, run_type=RunType.STORYBOOK, commit_sha="a")
         self._create_run(repo, run_type=RunType.PLAYWRIGHT, commit_sha="b")
 
-        assert logic.is_run_stale(run_sb) is False
+        run_sb.refresh_from_db()
+        assert run_sb.superseded_by is None
 
-    def test_no_pr_number_is_never_stale(self, repo):
-        old = self._create_run(repo, pr_number=None, commit_sha="old")
-        self._create_run(repo, pr_number=None, commit_sha="new")
-
-        assert logic.is_run_stale(old) is False
-
-    def test_list_runs_annotates_staleness(self, repo, team):
+    def test_tab_filter_excludes_superseded(self, repo, team):
         self._create_run(repo, commit_sha="old")
         self._create_run(repo, commit_sha="new")
 
-        runs = logic.list_runs_for_team(team.id)
+        current_runs = list(logic.list_runs_for_team(team.id, tab="needs_review"))
+        stale_runs = list(logic.list_runs_for_team(team.id, tab="stale"))
 
-        newest, oldest = runs[0], runs[1]
-        assert newest.is_stale is False
-        assert oldest.is_stale is True
+        assert len(current_runs) == 1
+        assert current_runs[0].commit_sha == "new"
+        assert len(stale_runs) == 1
+        assert stale_runs[0].commit_sha == "old"
 
-    def test_approve_stale_run_raises(self, repo, user):
+    def test_tab_counts(self, repo, team):
+        self._create_run(repo, commit_sha="old")
+        self._create_run(repo, commit_sha="new")
+
+        counts = logic.get_run_tab_counts(team.id)
+
+        assert counts["stale"] == 1
+        assert counts["needs_review"] == 1
+
+    def test_approve_superseded_run_raises(self, repo, user):
         old = self._create_run(repo, commit_sha="old")
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="old", storage_path="p/old")
         self._create_run(repo, commit_sha="new")
 
+        old.refresh_from_db()
         with pytest.raises(logic.StaleRunError):
             logic.approve_run(
                 run_id=old.id,

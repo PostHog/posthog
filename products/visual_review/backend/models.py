@@ -94,6 +94,12 @@ class Run(models.Model):
 
     error_message = models.TextField(blank=True)
 
+    # Supersession: set when a newer run is created for the same (repo, branch, run_type).
+    # NULL = this is the latest run for its group. Non-NULL = superseded, points to the replacing run.
+    superseded_by = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="supersedes"
+    )
+
     # Flexible metadata (not indexed)
     # e.g., {"pr_title": "...", "base_branch": "main", "ci_job_url": "..."}
     metadata = models.JSONField(default=dict, blank=True)
