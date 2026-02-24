@@ -48,7 +48,6 @@ export class CyclotronJobQueueKafka {
         })
 
         if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
-
             if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
                 try {
                     this.fetchTester = new WarpstreamFetchTester(this.config)
