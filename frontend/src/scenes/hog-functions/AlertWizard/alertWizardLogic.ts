@@ -39,6 +39,8 @@ export interface AlertWizardLogicProps {
     destinations: WizardDestination[]
 }
 
+const PRIMARY_DESTINATION_LIMIT = 3
+
 function hasSubTemplateForDestination(
     triggerKey: HogFunctionSubTemplateIdType,
     destination: WizardDestination
@@ -198,16 +200,25 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             },
         ],
 
-        destinations: [
+        sortedDestinations: [
             (s) => [s.usedDestinationKeys, s.allDestinations],
             (usedDestinationKeys, allDestinations): WizardDestination[] => {
-                const sorted = [...allDestinations].sort((a, b) => {
+                return [...allDestinations].sort((a, b) => {
                     const aUsed = usedDestinationKeys.has(a.key) ? 1 : 0
                     const bUsed = usedDestinationKeys.has(b.key) ? 1 : 0
                     return bUsed - aUsed
                 })
-                return sorted.slice(0, 3)
             },
+        ],
+
+        primaryDestinations: [
+            (s) => [s.sortedDestinations],
+            (sortedDestinations): WizardDestination[] => sortedDestinations.slice(0, PRIMARY_DESTINATION_LIMIT),
+        ],
+
+        extraDestinations: [
+            (s) => [s.sortedDestinations],
+            (sortedDestinations): WizardDestination[] => sortedDestinations.slice(PRIMARY_DESTINATION_LIMIT),
         ],
 
         availableTriggers: [
