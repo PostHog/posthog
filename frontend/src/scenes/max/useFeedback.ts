@@ -37,7 +37,7 @@ export function useFeedback(conversationId: string | null): UseFeedbackResult {
 
         // Trigger feedback check when streaming completes
         if (wasStreaming && !streamingActive && humanMessageCount > 0) {
-            checkShouldShowPrompt(humanMessageCount, retryCount, cancelCount)
+            checkShouldShowPrompt('', '', '')
         }
 
         // If prompt is visible and user sends a new message (count increased), trigger implicit dismiss
