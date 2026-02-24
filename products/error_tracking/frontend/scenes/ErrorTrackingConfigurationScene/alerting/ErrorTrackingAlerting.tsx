@@ -72,8 +72,6 @@ const ERROR_TRACKING_DESTINATIONS: WizardDestination[] = [
     },
 ]
 
-const ERROR_TRACKING_DESTINATION_PRIORITY = ERROR_TRACKING_DESTINATIONS.map((d) => d.key)
-
 const HOG_FUNCTION_FILTER_LIST = ERROR_TRACKING_SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter(
     (f) => !!f
 ) as CyclotronJobFiltersType[]
@@ -83,8 +81,6 @@ const ALERT_WIZARD_PROPS: AlertWizardLogicProps = {
     subTemplateIds: ERROR_TRACKING_SUB_TEMPLATE_IDS,
     triggers: ERROR_TRACKING_TRIGGERS,
     destinations: ERROR_TRACKING_DESTINATIONS,
-    destinationPriority: ERROR_TRACKING_DESTINATION_PRIORITY,
-    urlPattern: '**/error_tracking/configuration',
 }
 
 export function ErrorTrackingAlerting(): JSX.Element {

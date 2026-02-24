@@ -36,10 +36,6 @@ export interface AlertWizardLogicProps {
     subTemplateIds: HogFunctionSubTemplateIdType[]
     triggers: WizardTrigger[]
     destinations: WizardDestination[]
-    // Controls how many top destinations to show, sorted by prior usage. Ordered by default priority.
-    destinationPriority: string[]
-    // URL glob pattern for syncing wizard state to query params (e.g. '**/error_tracking/configuration')
-    urlPattern: string
 }
 
 function hasSubTemplateForDestination(
@@ -90,7 +86,6 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         subTemplateIds: [logicProps.subTemplateIds, {}],
         triggers: [logicProps.triggers as WizardTrigger[], {}],
         allDestinations: [logicProps.destinations as WizardDestination[], {}],
-        destinationPriority: [logicProps.destinationPriority as string[], {}],
         alertCreationView: [
             'none' as AlertCreationView,
             {
@@ -201,15 +196,14 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         ],
 
         destinations: [
-            (s) => [s.usedDestinationKeys, s.allDestinations, s.destinationPriority],
-            (usedDestinationKeys, allDestinations, destinationPriority): WizardDestination[] => {
-                const sorted = [...destinationPriority].sort((a, b) => {
-                    const aUsed = usedDestinationKeys.has(a) ? 1 : 0
-                    const bUsed = usedDestinationKeys.has(b) ? 1 : 0
+            (s) => [s.usedDestinationKeys, s.allDestinations],
+            (usedDestinationKeys, allDestinations): WizardDestination[] => {
+                const sorted = [...allDestinations].sort((a, b) => {
+                    const aUsed = usedDestinationKeys.has(a.key) ? 1 : 0
+                    const bUsed = usedDestinationKeys.has(b.key) ? 1 : 0
                     return bUsed - aUsed
                 })
-                const top3 = sorted.slice(0, 3)
-                return top3.map((key) => allDestinations.find((d) => d.key === key)!).filter(Boolean)
+                return sorted.slice(0, 3)
             },
         ],
 
@@ -453,23 +447,21 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values, props: logicProps }) => {
-        return {
-            [logicProps.urlPattern]: (_, searchParams) => {
-                const wizardStep = searchParams.wizard_step as WizardStep | undefined
-                const wizardDest = searchParams.wizard_dest as string | undefined
-                const wizardTrigger = searchParams.wizard_trigger as HogFunctionSubTemplateIdType | undefined
+    urlToAction(({ actions, values }) => ({
+        '**': (_, searchParams) => {
+            const wizardStep = searchParams.wizard_step as WizardStep | undefined
+            const wizardDest = searchParams.wizard_dest as string | undefined
+            const wizardTrigger = searchParams.wizard_trigger as HogFunctionSubTemplateIdType | undefined
 
-                if (wizardStep && values.alertCreationView !== 'wizard') {
-                    actions.restoreWizardState({
-                        step: wizardStep,
-                        destinationKey: wizardDest ?? null,
-                        triggerKey: wizardTrigger ?? null,
-                    })
-                }
-            },
-        }
-    }),
+            if (wizardStep && values.alertCreationView !== 'wizard') {
+                actions.restoreWizardState({
+                    step: wizardStep,
+                    destinationKey: wizardDest ?? null,
+                    triggerKey: wizardTrigger ?? null,
+                })
+            }
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.loadExistingAlerts()
