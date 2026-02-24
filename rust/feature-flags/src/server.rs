@@ -244,9 +244,8 @@ pub async fn serve<F>(
         };
 
     // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
-    let flags_with_cohorts_redis_client = dedicated_redis_client
-        .clone()
-        .unwrap_or_else(|| redis_client.clone());
+    // Uses the shared cache (redis_client) - same cache Django writes to via HyperCache
+    let flags_with_cohorts_redis_client = redis_client.clone();
 
     let mut flags_with_cohorts_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
