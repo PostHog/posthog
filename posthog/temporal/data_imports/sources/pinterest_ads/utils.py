@@ -44,10 +44,7 @@ def _check_response(response: requests.Response) -> None:
             status_code=response.status_code,
         )
 
-    raise PinterestAdsAPIError(
-        f"Pinterest Ads API error: {response.status_code} {response.text[:500]}",
-        status_code=response.status_code,
-    )
+    response.raise_for_status()
 
 
 def build_session(access_token: str) -> requests.Session:
@@ -163,7 +160,7 @@ def fetch_entity_ids(
 ) -> list[str]:
     entity_endpoint = ANALYTICS_ENTITY_SOURCES[analytics_endpoint]
     entities = fetch_entities(session, ad_account_id, entity_endpoint)
-    return [str(entity["id"]) for entity in entities if "id" in entity]
+    return [str(entity["id"]) for entity in entities]
 
 
 def fetch_analytics(

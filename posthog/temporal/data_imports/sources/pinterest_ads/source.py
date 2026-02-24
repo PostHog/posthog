@@ -27,6 +27,12 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PINTERESTADS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error": "Pinterest Ads authentication failed. Please reconnect your Pinterest account.",
+            "403 Client Error": "Pinterest Ads access forbidden. Please check your account permissions.",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
