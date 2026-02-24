@@ -221,11 +221,8 @@ export function OperatorValueSelect({
                             } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
                                 // If the new operator is range and the value is not a number, we want to set the new value to null
                                 onChange(newOperator, null)
-                            } else if (
-                                isOperatorDate(newOperator) &&
-                                !isOperatorDate(currentOperator || PropertyOperator.Exact)
-                            ) {
-                                // Switching to a date operator from a non-date operator: clear the value
+                            } else if (isOperatorDate(newOperator) && !dayjs(value).isValid()) {
+                                // If the new operator is date and the value is not a valid date, clear it
                                 onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
                                 onChange(newOperator, newOperator)
