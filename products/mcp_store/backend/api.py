@@ -123,6 +123,16 @@ class OAuthRedirectResponseSerializer(serializers.Serializer):
 
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
+    scope_object_read_actions = ["list", "retrieve", "authorize"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "install_custom",
+        "oauth_callback",
+    ]
     queryset = MCPServerInstallation.objects.all()
     serializer_class = MCPServerInstallationSerializer
     lookup_field = "id"
