@@ -271,12 +271,43 @@ export const workflowLogic = kea<workflowLogicType>([
                     for (const field of draftFields) {
                         ;(draftData as any)[field] = workflow[field]
                     }
-                    // Strip soft-deleted actions and reconnect edges before saving.
-                    // Process in topological order: leaf nodes first, then branching parents.
-                    // This ensures that when we remove a branching node, its branch children
-                    // are already gone so only its continue edge remains for reconnection.
+                    // Persist soft-deleted action IDs in the draft so they survive page reload.
+                    // The actual stripping + edge reconnection happens at publish time.
+                    if (values.draftDeletedActionIds.size > 0) {
+                        ;(draftData as any).deleted_action_ids = [...values.draftDeletedActionIds]
+                    }
+                    return api.hogFlows.saveDraft(props.id, draftData)
+                },
+            },
+        ],
+        publishResult: [
+            null as HogFlow | null,
+            {
+                publishDraftToServer: async () => {
+                    if (!props.id || props.id === 'new') {
+                        return null
+                    }
+                    // Strip soft-deleted actions and reconnect edges before publishing.
+                    // Process leaf nodes first, then branching parents, so that by the
+                    // time we remove a branching node its branch children are already gone.
                     const deletedIds = values.draftDeletedActionIds
                     if (deletedIds.size > 0) {
+                        const workflow = sanitizeWorkflow({ ...values.workflow }, values.hogFunctionTemplatesById)
+                        const draftData: Partial<HogFlow> = {}
+                        const draftFields: (keyof HogFlow)[] = [
+                            'name',
+                            'description',
+                            'trigger_masking',
+                            'conversion',
+                            'exit_condition',
+                            'edges',
+                            'actions',
+                            'variables',
+                        ]
+                        for (const field of draftFields) {
+                            ;(draftData as any)[field] = workflow[field]
+                        }
+
                         let edges = draftData.edges ?? []
                         let remainingActions = draftData.actions ?? []
 
@@ -302,17 +333,8 @@ export const workflowLogic = kea<workflowLogicType>([
 
                         draftData.edges = edges
                         draftData.actions = remainingActions
-                    }
-                    return api.hogFlows.saveDraft(props.id, draftData)
-                },
-            },
-        ],
-        publishResult: [
-            null as HogFlow | null,
-            {
-                publishDraftToServer: async () => {
-                    if (!props.id || props.id === 'new') {
-                        return null
+                        // Save the stripped draft, then publish it
+                        await api.hogFlows.saveDraft(props.id, draftData)
                     }
                     return api.hogFlows.publishDraft(props.id)
                 },
@@ -419,7 +441,10 @@ export const workflowLogic = kea<workflowLogicType>([
                     next.delete(actionId)
                     return next
                 },
-                loadWorkflowSuccess: () => new Set<string>(),
+                loadWorkflowSuccess: (_: Set<string>, { originalWorkflow }: { originalWorkflow: HogFlow }) => {
+                    const ids = (originalWorkflow?.draft as any)?.deleted_action_ids
+                    return Array.isArray(ids) ? new Set<string>(ids) : new Set<string>()
+                },
                 saveWorkflowSuccess: () => new Set<string>(),
                 publishDraftToServerSuccess: () => new Set<string>(),
                 discardDraftOnServerSuccess: () => new Set<string>(),

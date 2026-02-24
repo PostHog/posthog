@@ -1547,6 +1547,20 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["draft"] == {"name": "Draft Name"}
 
+    def test_draft_save_persists_deleted_action_ids(self):
+        flow_id = self._create_active_workflow()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/draft",
+            {"deleted_action_ids": ["action_1", "action_2"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["draft"]["deleted_action_ids"] == ["action_1", "action_2"]
+
+        # Verify the IDs survive a GET round-trip
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert response.json()["draft"]["deleted_action_ids"] == ["action_1", "action_2"]
+
     def test_draft_and_draft_updated_at_in_response(self):
         flow_id = self._create_active_workflow()
 

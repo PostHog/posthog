@@ -352,6 +352,7 @@ class HogFlowDraftSerializer(serializers.Serializer):
     edges = serializers.JSONField(required=False)
     actions = serializers.JSONField(required=False)
     variables = serializers.JSONField(required=False, allow_null=True)
+    deleted_action_ids = serializers.ListField(child=serializers.CharField(), required=False)
 
 
 class HogFlowInvocationSerializer(serializers.Serializer):
