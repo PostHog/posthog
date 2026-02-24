@@ -5,6 +5,7 @@ from itertools import groupby
 from typing import Any, Union, cast
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
@@ -449,8 +450,18 @@ def _get_flags_response_for_local_evaluation_batch(
             deleted=False,
         )
         .exclude(id__in=survey_flag_ids)
+        .annotate(
+            evaluation_tag_names_agg=ArrayAgg(
+                "evaluation_tags__tag__name",
+                filter=Q(evaluation_tags__isnull=False),
+                distinct=True,
+            )
+        )
         .order_by("team_id", "key")
     )
+
+    for flag in all_flags:
+        flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
 
     referenced_cohort_ids: set[int] = set()
     for flag in all_flags:
