@@ -40,12 +40,12 @@ class AnthropicConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
-        "claude-haiku-4-5",
-        "claude-sonnet-4-5",
         "claude-opus-4-5",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
         "claude-opus-4-1",
-        "claude-sonnet-4-0",
         "claude-opus-4-0",
+        "claude-sonnet-4-0",
         "claude-3-7-sonnet-latest",
     ]
 
@@ -306,6 +306,10 @@ class AnthropicAdapter:
         except Exception as e:
             logger.exception(f"Anthropic key validation error: {e}")
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
+
+    @staticmethod
+    def supported_model_ids() -> set[str]:
+        return set(AnthropicConfig.SUPPORTED_MODELS)
 
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:

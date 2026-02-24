@@ -11,16 +11,28 @@ SUPPORTED_MODELS_WITH_THINKING = (
 
 
 def get_default_models() -> list[dict[str, str]]:
-    """Returns the default static list of models for all providers."""
+    """Returns the default static list of models for all providers.
+
+    All default models are curated/supported, so tier is always "supported".
+    """
     models: list[dict[str, str]] = []
     models.extend(
-        [{"id": m, "name": m, "provider": "OpenAI", "description": ""} for m in OpenAIConfig.SUPPORTED_MODELS]
+        [
+            {"id": m, "name": m, "provider": "OpenAI", "description": "", "tier": "supported"}
+            for m in OpenAIConfig.SUPPORTED_MODELS
+        ]
     )
     models.extend(
-        [{"id": m, "name": m, "provider": "Anthropic", "description": ""} for m in AnthropicConfig.SUPPORTED_MODELS]
+        [
+            {"id": m, "name": m, "provider": "Anthropic", "description": "", "tier": "supported"}
+            for m in AnthropicConfig.SUPPORTED_MODELS
+        ]
     )
     models.extend(
-        [{"id": m, "name": m, "provider": "Gemini", "description": ""} for m in GeminiConfig.SUPPORTED_MODELS]
+        [
+            {"id": m, "name": m, "provider": "Gemini", "description": "", "tier": "supported"}
+            for m in GeminiConfig.SUPPORTED_MODELS
+        ]
     )
     return models
 

@@ -86,6 +86,11 @@ class Client:
         """List available models for a provider."""
         return _get_provider(provider).list_models(api_key)
 
+    @classmethod
+    def supported_model_ids(cls, provider: str) -> set[str]:
+        """Return the set of curated/supported model IDs for a provider."""
+        return _get_provider(provider).supported_model_ids()
+
 
 def _get_provider(name: str) -> "Provider":
     """Get provider by name."""

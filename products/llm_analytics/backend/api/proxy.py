@@ -332,8 +332,20 @@ class LLMProxyViewSet(viewsets.ViewSet):
             if provider_key:
                 api_key = provider_key.encrypted_config.get("api_key")
                 models = Client.list_models(provider_key.provider, api_key)
+                supported_ids = Client.supported_model_ids(provider_key.provider)
                 provider_display = provider_key.provider.title()
-                return Response([{"id": m, "name": m, "provider": provider_display, "description": ""} for m in models])
+                return Response(
+                    [
+                        {
+                            "id": m,
+                            "name": m,
+                            "provider": provider_display,
+                            "description": "",
+                            "tier": "supported" if m in supported_ids else "other",
+                        }
+                        for m in models
+                    ]
+                )
 
         # Default: return static list of all supported models
         return Response(get_default_models())
