@@ -18,8 +18,6 @@ from posthog.hogql_queries.web_analytics.traffic_type import (
 
 
 class TestTrafficTypePatterns:
-    """Test that bot/automation patterns match expected user agents."""
-
     @pytest.mark.parametrize(
         "pattern,should_match,should_not_match",
         [
@@ -71,8 +69,6 @@ class TestTrafficTypePatterns:
 
 
 class TestTrafficTypeExpressions:
-    """Test that HogQL expressions are built correctly."""
-
     def test_traffic_type_expr_structure(self):
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_traffic_type_expr(user_agent_expr)

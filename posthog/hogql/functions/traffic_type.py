@@ -118,7 +118,8 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
     user_agent_expr = args[0]
 
-    # Create an OR expression checking all bot patterns
+    # Creates 8 separate match() calls. For high-volume CDN logs, a single combined
+    # pattern might be more efficient - profile before optimizing.
     return ast.Or(
         exprs=[
             ast.Call(name="match", args=[user_agent_expr, ast.Constant(value=AI_AGENT_PATTERNS)]),

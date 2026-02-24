@@ -5,8 +5,6 @@ from posthog.hogql.functions.traffic_type import get_bot_type, get_traffic_categ
 
 
 class TestTrafficTypeFunctions:
-    """Test the HogQL traffic type functions."""
-
     def test_get_traffic_type_returns_multiif(self):
         node = ast.Call(name="__preview_getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
@@ -59,8 +57,6 @@ class TestTrafficTypeFunctions:
 
 
 class TestIsBotFunction:
-    """Test the __preview_isBot function."""
-
     def test_is_bot_returns_or_expression(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
@@ -84,8 +80,6 @@ class TestIsBotFunction:
 
 
 class TestGetBotTypeFunction:
-    """Test the __preview_getBotType function."""
-
     def test_get_bot_type_returns_multiif(self):
         node = ast.Call(name="__preview_getBotType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
@@ -119,8 +113,6 @@ class TestGetBotTypeFunction:
 
 
 class TestTrafficTypeFunctionPatterns:
-    """Test that patterns are applied correctly to user agent expressions."""
-
     @pytest.mark.parametrize(
         "function_builder,expected_name",
         [
