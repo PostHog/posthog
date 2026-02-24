@@ -27,13 +27,13 @@ import { FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
+import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsReadonly,
     FeatureFlagSuperConditionsReadonly,
 } from './FeatureFlagReleaseConditionsReadonly'
 import { JSONEditorInput } from './JSONEditorInput'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { featureFlagLogic } from './featureFlagLogic'
 
 interface FeatureFlagOverviewV2Props {
     featureFlag: FeatureFlagType
