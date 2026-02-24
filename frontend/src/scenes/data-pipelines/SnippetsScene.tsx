@@ -34,17 +34,17 @@ export function SnippetsScene(): JSX.Element {
             keybind={[keyBinds.new]}
             intent="New JS snippet"
             interaction="click"
-            scope={Scene.Snippets}
+            scope={Scene.WebScripts}
         >
             <LemonButton
                 type="primary"
-                to={urls.snippetsNew()}
+                to={urls.webScriptsNew()}
                 icon={<IconPlusSmall />}
                 size="small"
-                tooltip="New JS snippet"
-                data-attr="new-snippet"
+                tooltip="New web script"
+                data-attr="new-web-script"
             >
-                New snippet
+                New web script
             </LemonButton>
         </AppShortcut>
     )
@@ -65,10 +65,10 @@ export function SnippetsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={sceneConfigurations[Scene.Snippets].name}
-                description={sceneConfigurations[Scene.Snippets].description}
+                name={sceneConfigurations[Scene.WebScripts].name}
+                description={sceneConfigurations[Scene.WebScripts].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.Snippets].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.WebScripts].iconType || 'default_icon_type',
                 }}
                 actions={action}
             />

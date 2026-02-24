@@ -195,7 +195,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 if (type === 'site_app') {
                     return [
                         {
-                            key: Scene.Snippets,
+                            key: Scene.WebScripts,
                             name: 'Web scripts',
                             path: urls.webScripts(),
                             iconType: 'data_pipeline',

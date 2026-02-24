@@ -976,13 +976,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         sceneKeys: ['HogFunction'],
     },
     {
-        path: `Data/Site app`,
-        type: 'hog_function/site_app',
-        href: urls.snippetsNew(),
-        iconColor: ['var(--color-product-data-pipeline-light)'],
-        sceneKeys: ['HogFunction'],
-    },
-    {
         path: `Data/Source`,
         type: 'hog_function/source',
         href: urls.dataPipelinesNew('source'),
@@ -993,6 +986,13 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: `Data/Transformation`,
         type: 'hog_function/transformation',
         href: urls.dataPipelinesNew('transformation'),
+        iconColor: ['var(--color-product-data-pipeline-light)'],
+        sceneKeys: ['HogFunction'],
+    },
+    {
+        path: `Data/Web script`,
+        type: 'hog_function/site_app',
+        href: urls.webScriptsNew(),
         iconColor: ['var(--color-product-data-pipeline-light)'],
         sceneKeys: ['HogFunction'],
     },

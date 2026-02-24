@@ -617,7 +617,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.Snippets,
+                            identifier: Scene.WebScripts,
                             label: 'Web scripts',
                             icon: <IconPlug />,
                             to: urls.webScripts(),
