@@ -497,9 +497,9 @@ describe('topHog wrapper', () => {
         const mockTracker = createMockTopHog()
         const topHog = createTopHogWrapper(mockTracker)
 
-        // Step that takes at least 10ms
+        // Step that takes at least 20ms (using larger value to avoid flakiness)
         async function slowStep(_input: { teamId: number }) {
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            await new Promise((resolve) => setTimeout(resolve, 20))
             return ok({ done: true })
         }
 
@@ -511,6 +511,7 @@ describe('topHog wrapper', () => {
 
         expect(mockTracker.record).toHaveBeenCalledTimes(1)
         const recordedTime = mockTracker.record.mock.calls[0][1] as number
-        expect(recordedTime).toBeGreaterThanOrEqual(10)
+        // Use a lower threshold than the actual delay to account for timing variance
+        expect(recordedTime).toBeGreaterThanOrEqual(15)
     })
 })
