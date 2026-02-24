@@ -255,7 +255,6 @@ impl FlagSnapshot {
 }
 
 impl FeatureFlagMatcher {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         distinct_id: String,
         device_id: Option<String>,
@@ -264,7 +263,6 @@ impl FeatureFlagMatcher {
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
-        personhog_client: Option<Arc<dyn PersonhogFetcher>>,
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
@@ -279,7 +277,7 @@ impl FeatureFlagMatcher {
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
             skip_writes: false,
-            personhog_client,
+            personhog_client: None,
         }
     }
 
@@ -295,6 +293,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_skip_writes(mut self, skip_writes: bool) -> Self {
         self.skip_writes = skip_writes;
+        self
+    }
+
+    pub fn with_personhog_client(mut self, client: Arc<dyn PersonhogFetcher>) -> Self {
+        self.personhog_client = Some(client);
         self
     }
 

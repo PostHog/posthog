@@ -500,6 +500,18 @@ pub struct Config {
     // Timeout for personhog gRPC requests in milliseconds
     #[envconfig(from = "PERSONHOG_TIMEOUT_MS", default = "3000")]
     pub personhog_timeout_ms: u64,
+
+    // Timeout for establishing a connection to personhog in milliseconds
+    #[envconfig(from = "PERSONHOG_CONNECT_TIMEOUT_MS", default = "5000")]
+    pub personhog_connect_timeout_ms: u64,
+
+    // Interval between HTTP/2 keep-alive pings in seconds
+    #[envconfig(from = "PERSONHOG_KEEP_ALIVE_INTERVAL_SECS", default = "10")]
+    pub personhog_keep_alive_interval_secs: u64,
+
+    // Timeout waiting for a keep-alive ping response in seconds
+    #[envconfig(from = "PERSONHOG_KEEP_ALIVE_TIMEOUT_SECS", default = "20")]
+    pub personhog_keep_alive_timeout_secs: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -694,6 +706,9 @@ impl Config {
             use_personhog: FlexBool(false),
             personhog_url: "http://localhost:50052".to_string(),
             personhog_timeout_ms: 3000,
+            personhog_connect_timeout_ms: 5000,
+            personhog_keep_alive_interval_secs: 10,
+            personhog_keep_alive_timeout_secs: 20,
         }
     }
 

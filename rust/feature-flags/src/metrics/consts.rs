@@ -41,6 +41,13 @@ pub const FLAG_GROUP_QUERY_TIME: &str = "flags_group_query_time";
 pub const FLAG_GROUP_PROCESSING_TIME: &str = "flags_group_processing_time";
 pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
 
+// Personhog gRPC timing (mirrors SQL timing constants for A/B comparison)
+pub const FLAG_PERSONHOG_PERSON_QUERY_TIME: &str = "flags_personhog_person_query_time";
+pub const FLAG_PERSONHOG_COHORT_QUERY_TIME: &str = "flags_personhog_cohort_query_time";
+pub const FLAG_PERSONHOG_GROUP_QUERY_TIME: &str = "flags_personhog_group_query_time";
+pub const FLAG_PERSONHOG_HASH_KEY_QUERY_TIME: &str = "flags_personhog_hash_key_query_time";
+pub const FLAG_PERSONHOG_UPSERT_TIME: &str = "flags_personhog_upsert_time";
+
 // Flag request kludges (to see how often we have to massage our request data to be able to parse it)
 pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";
 

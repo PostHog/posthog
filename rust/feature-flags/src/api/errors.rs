@@ -125,8 +125,11 @@ pub enum FlagError {
     DataParsingError,
     #[error("Parallel batch evaluation task panicked")]
     BatchEvaluationPanicked,
-    #[error("Personhog service error: {0}")]
-    PersonhogError(String),
+    #[error("Personhog service error ({code}): {message}")]
+    PersonhogError {
+        code: tonic::Code,
+        message: String,
+    },
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
 }
@@ -181,7 +184,7 @@ impl FlagError {
             FlagError::DataParsingErrorWithContext(_) => ("flag_data_parsing_error", 500),
 
             // Personhog gRPC errors (503) - transient, service may recover
-            FlagError::PersonhogError(_) => ("personhog_error", 503),
+            FlagError::PersonhogError { .. } => ("personhog_error", 503),
 
             // Service unavailable errors (503) - transient issues, retry may help
             FlagError::RedisUnavailable => ("redis_unavailable", 503),
@@ -319,7 +322,7 @@ impl FlagError {
             | FlagError::PersonNotFound
             | FlagError::PropertiesNotInCache
             | FlagError::StaticCohortMatchesNotCached
-            | FlagError::PersonhogError(_) => StatusCode::SERVICE_UNAVAILABLE,
+            | FlagError::PersonhogError { .. } => StatusCode::SERVICE_UNAVAILABLE,
 
             FlagError::CookielessError(
                 CookielessManagerError::HashError(_)
@@ -505,8 +508,8 @@ impl IntoResponse for FlagError {
                 tracing::error!("Parallel batch evaluation task panicked");
                 (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred during flag evaluation. Please try again later.".to_string())
             }
-            FlagError::PersonhogError(ref msg) => {
-                tracing::error!("Personhog service error: {}", msg);
+            FlagError::PersonhogError { ref code, ref message } => {
+                tracing::error!("Personhog service error ({}): {}", code, message);
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Person data service is currently unavailable. Please try again later.".to_string(),
@@ -743,7 +746,7 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
-            FlagError::PersonhogError("test".to_string()),
+            FlagError::PersonhogError { code: tonic::Code::Unavailable, message: "test".to_string() },
             CookielessManagerError::MissingProperty("test".to_string()).into(), // CookielessError
         ];
 
@@ -853,7 +856,7 @@ mod tests {
             FlagError::PersonNotFound,
             FlagError::PropertiesNotInCache,
             FlagError::StaticCohortMatchesNotCached,
-            FlagError::PersonhogError("test".to_string()),
+            FlagError::PersonhogError { code: tonic::Code::Unavailable, message: "test".to_string() },
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
         ];
 
@@ -942,7 +945,7 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
-            FlagError::PersonhogError("test".to_string()),
+            FlagError::PersonhogError { code: tonic::Code::Unavailable, message: "test".to_string() },
             CookielessManagerError::MissingProperty("test".to_string()).into(),
         ];
 

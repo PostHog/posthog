@@ -6,7 +6,7 @@ use common_types::{Person, PersonId, TeamId};
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GroupIdentifier, HashKeyOverrideInput,
+    GetPersonByDistinctIdRequest, GroupIdentifier, HashKeyOverrideContext, HashKeyOverrideInput,
     UpsertHashKeyOverridesRequest,
 };
 use serde_json::Value;
@@ -63,10 +63,19 @@ pub struct PersonhogClient {
 }
 
 impl PersonhogClient {
-    pub fn new(url: &str, timeout_ms: u64) -> Result<Self, FlagError> {
+    pub fn new(
+        url: &str,
+        timeout_ms: u64,
+        connect_timeout_ms: u64,
+        keep_alive_interval_secs: u64,
+        keep_alive_timeout_secs: u64,
+    ) -> Result<Self, FlagError> {
         let channel = Channel::from_shared(url.to_string())
-            .map_err(|e| FlagError::PersonhogError(format!("Invalid personhog URL: {e}")))?
+            .map_err(|e| FlagError::PersonhogError { code: tonic::Code::InvalidArgument, message: format!("Invalid personhog URL: {e}") })?
             .timeout(Duration::from_millis(timeout_ms))
+            .connect_timeout(Duration::from_millis(connect_timeout_ms))
+            .http2_keep_alive_interval(Duration::from_secs(keep_alive_interval_secs))
+            .keep_alive_timeout(Duration::from_secs(keep_alive_timeout_secs))
             .connect_lazy();
 
         Ok(Self {
@@ -93,7 +102,7 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .get_person_by_distinct_id(request)
             .await
-            .map_err(|s| FlagError::PersonhogError(format!("GetPersonByDistinctId failed: {s}")))?;
+            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("GetPersonByDistinctId failed: {}", s.message()) })?;
 
         let proto_person = match response.into_inner().person {
             Some(p) => p,
@@ -147,7 +156,7 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .check_cohort_membership(request)
             .await
-            .map_err(|s| FlagError::PersonhogError(format!("CheckCohortMembership failed: {s}")))?;
+            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("CheckCohortMembership failed: {}", s.message()) })?;
 
         let memberships = response
             .into_inner()
@@ -183,7 +192,7 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .get_groups(request)
             .await
-            .map_err(|s| FlagError::PersonhogError(format!("GetGroups failed: {s}")))?;
+            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("GetGroups failed: {}", s.message()) })?;
 
         let mut result = HashMap::new();
         for group in response.into_inner().groups {
@@ -208,9 +217,11 @@ impl PersonhogFetcher for PersonhogClient {
         team_id: TeamId,
         distinct_ids: Vec<String>,
     ) -> Result<HashMap<String, String>, FlagError> {
+        let first_distinct_id = distinct_ids.first().cloned();
+
         let request = Request::new(GetHashKeyOverrideContextRequest {
             team_id: team_id as i64,
-            distinct_ids: distinct_ids.clone(),
+            distinct_ids,
             check_person_exists: false,
             read_options: None,
         });
@@ -220,37 +231,13 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .get_hash_key_override_context(request)
             .await
-            .map_err(|s| {
-                FlagError::PersonhogError(format!("GetHashKeyOverrideContext failed: {s}"))
-            })?;
+            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("GetHashKeyOverrideContext failed: {}", s.message()) })?;
 
-        let mut overrides = HashMap::new();
-
-        // Priority is based on distinct_id order (first = highest priority)
-        // Process all results in reverse so later entries get overwritten
         let results = response.into_inner().results;
-        for context in results.iter().rev() {
-            for hash_override in &context.overrides {
-                overrides.insert(
-                    hash_override.feature_flag_key.clone(),
-                    hash_override.hash_key.clone(),
-                );
-            }
-        }
-
-        // Now process first distinct_id to ensure its overrides take precedence
-        if !distinct_ids.is_empty() {
-            if let Some(first_context) = results.iter().find(|c| c.distinct_id == distinct_ids[0]) {
-                for hash_override in &first_context.overrides {
-                    overrides.insert(
-                        hash_override.feature_flag_key.clone(),
-                        hash_override.hash_key.clone(),
-                    );
-                }
-            }
-        }
-
-        Ok(overrides)
+        Ok(merge_hash_key_overrides(
+            &results,
+            first_distinct_id.as_deref(),
+        ))
     }
 
     async fn upsert_hash_key_overrides(
@@ -278,12 +265,46 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .upsert_hash_key_overrides(request)
             .await
-            .map_err(|s| {
-                FlagError::PersonhogError(format!("UpsertHashKeyOverrides failed: {s}"))
-            })?;
+            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("UpsertHashKeyOverrides failed: {}", s.message()) })?;
 
         Ok(())
     }
+}
+
+/// Merges hash key override results, giving priority to the first distinct_id.
+///
+/// Results from the server may arrive in any order. All overrides are collected,
+/// but `primary_distinct_id`'s entries are applied last so they win on conflict.
+fn merge_hash_key_overrides(
+    results: &[HashKeyOverrideContext],
+    primary_distinct_id: Option<&str>,
+) -> HashMap<String, String> {
+    let mut overrides = HashMap::new();
+
+    for context in results.iter() {
+        if primary_distinct_id.is_some_and(|id| id == context.distinct_id) {
+            continue;
+        }
+        for hash_override in &context.overrides {
+            overrides.insert(
+                hash_override.feature_flag_key.clone(),
+                hash_override.hash_key.clone(),
+            );
+        }
+    }
+
+    if let Some(primary_context) = primary_distinct_id
+        .and_then(|id| results.iter().find(|c| c.distinct_id == id))
+    {
+        for hash_override in &primary_context.overrides {
+            overrides.insert(
+                hash_override.feature_flag_key.clone(),
+                hash_override.hash_key.clone(),
+            );
+        }
+    }
+
+    overrides
 }
 
 #[cfg(test)]
@@ -376,7 +397,7 @@ pub mod mock {
             distinct_id: &str,
         ) -> Result<Option<Person>, FlagError> {
             if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError(error.to_string()));
+                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
             }
             Ok(self
                 .person_responses
@@ -391,7 +412,7 @@ pub mod mock {
             _cohort_ids: &[CohortId],
         ) -> Result<HashMap<CohortId, bool>, FlagError> {
             if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError(error.to_string()));
+                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
             }
             Ok(self
                 .cohort_responses
@@ -406,7 +427,7 @@ pub mod mock {
             _group_identifiers: Vec<(GroupTypeIndex, String)>,
         ) -> Result<HashMap<GroupTypeIndex, HashMap<String, Value>>, FlagError> {
             if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError(error.to_string()));
+                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
             }
             Ok(self
                 .group_responses
@@ -421,7 +442,7 @@ pub mod mock {
             _distinct_ids: Vec<String>,
         ) -> Result<HashMap<String, String>, FlagError> {
             if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError(error.to_string()));
+                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
             }
             Ok(self
                 .hash_key_override_responses
@@ -438,7 +459,7 @@ pub mod mock {
             hash_key: String,
         ) -> Result<(), FlagError> {
             if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError(error.to_string()));
+                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
             }
             self.upsert_calls.lock().unwrap().push((
                 team_id,
@@ -448,5 +469,89 @@ pub mod mock {
             ));
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use personhog_proto::personhog::types::v1::HashKeyOverride;
+
+    fn make_context(
+        distinct_id: &str,
+        overrides: Vec<(&str, &str)>,
+    ) -> HashKeyOverrideContext {
+        HashKeyOverrideContext {
+            person_id: 0,
+            distinct_id: distinct_id.to_string(),
+            overrides: overrides
+                .into_iter()
+                .map(|(key, val)| HashKeyOverride {
+                    feature_flag_key: key.to_string(),
+                    hash_key: val.to_string(),
+                })
+                .collect(),
+            existing_feature_flag_keys: vec![],
+        }
+    }
+
+    #[test]
+    fn test_merge_primary_distinct_id_wins_on_conflict() {
+        let results = vec![
+            make_context("user_b", vec![("flag_1", "hash_b")]),
+            make_context("user_a", vec![("flag_1", "hash_a")]),
+        ];
+
+        let overrides = merge_hash_key_overrides(&results, Some("user_a"));
+        assert_eq!(overrides.get("flag_1").unwrap(), "hash_a");
+    }
+
+    #[test]
+    fn test_merge_non_conflicting_overrides_from_all_distinct_ids() {
+        let results = vec![
+            make_context("user_a", vec![("flag_1", "hash_a")]),
+            make_context("user_b", vec![("flag_2", "hash_b")]),
+        ];
+
+        let overrides = merge_hash_key_overrides(&results, Some("user_a"));
+        assert_eq!(overrides.get("flag_1").unwrap(), "hash_a");
+        assert_eq!(overrides.get("flag_2").unwrap(), "hash_b");
+    }
+
+    #[test]
+    fn test_merge_works_regardless_of_result_order() {
+        // primary comes first in results
+        let results_primary_first = vec![
+            make_context("user_a", vec![("flag_1", "hash_a")]),
+            make_context("user_b", vec![("flag_1", "hash_b")]),
+        ];
+        // primary comes last in results
+        let results_primary_last = vec![
+            make_context("user_b", vec![("flag_1", "hash_b")]),
+            make_context("user_a", vec![("flag_1", "hash_a")]),
+        ];
+
+        let overrides_first = merge_hash_key_overrides(&results_primary_first, Some("user_a"));
+        let overrides_last = merge_hash_key_overrides(&results_primary_last, Some("user_a"));
+        assert_eq!(overrides_first, overrides_last);
+        assert_eq!(overrides_first.get("flag_1").unwrap(), "hash_a");
+    }
+
+    #[test]
+    fn test_merge_with_no_primary_distinct_id() {
+        let results = vec![
+            make_context("user_a", vec![("flag_1", "hash_a")]),
+            make_context("user_b", vec![("flag_1", "hash_b")]),
+        ];
+
+        // Without a primary, last writer wins (iteration order)
+        let overrides = merge_hash_key_overrides(&results, None);
+        assert_eq!(overrides.get("flag_1").unwrap(), "hash_b");
+    }
+
+    #[test]
+    fn test_merge_with_empty_results() {
+        let overrides = merge_hash_key_overrides(&[], Some("user_a"));
+        assert!(overrides.is_empty());
     }
 }

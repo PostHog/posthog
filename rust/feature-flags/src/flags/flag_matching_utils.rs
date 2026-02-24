@@ -32,7 +32,9 @@ use crate::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
         FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME,
+        FLAG_PERSON_QUERY_TIME, FLAG_PERSONHOG_COHORT_QUERY_TIME,
+        FLAG_PERSONHOG_GROUP_QUERY_TIME, FLAG_PERSONHOG_HASH_KEY_QUERY_TIME,
+        FLAG_PERSONHOG_PERSON_QUERY_TIME, FLAG_PERSONHOG_UPSERT_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -444,6 +446,12 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
 /// Fetches person, cohort, and group properties via the personhog gRPC service
 /// instead of direct SQL queries.
+#[instrument(skip_all, fields(
+    team_id = %team_id,
+    distinct_id = %distinct_id,
+    cohort_ids = ?static_cohort_ids,
+    group_type_indexes = ?group_type_indexes,
+))]
 async fn fetch_properties_via_personhog(
     flag_evaluation_state: &mut FlagEvaluationState,
     client: &dyn PersonhogFetcher,
@@ -453,10 +461,19 @@ async fn fetch_properties_via_personhog(
     group_keys: &HashSet<String>,
     static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
-    // Fetch person by distinct_id
+    let person_query_start = Instant::now();
+    let person_timer =
+        common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
     let person = client
         .get_person_by_distinct_id(team_id, &distinct_id)
         .await?;
+    person_timer.fin();
+    let person_query_duration = person_query_start.elapsed();
+    info!(
+        duration_ms = person_query_duration.as_millis(),
+        "Personhog person query completed"
+    );
+
     let (person_id, person_props) = person
         .map(|p| (Some(p.id), Some(p.properties)))
         .unwrap_or((None, None));
@@ -465,9 +482,20 @@ async fn fetch_properties_via_personhog(
         flag_evaluation_state.set_person_id(person_id);
 
         if !static_cohort_ids.is_empty() {
+            let cohort_start = Instant::now();
+            let cohort_timer =
+                common_metrics::timing_guard(FLAG_PERSONHOG_COHORT_QUERY_TIME, &[]);
             let cohort_results = client
                 .check_cohort_membership(person_id, &static_cohort_ids)
                 .await?;
+            cohort_timer.fin();
+            let cohort_duration = cohort_start.elapsed();
+            info!(
+                duration_ms = cohort_duration.as_millis(),
+                person_id = person_id,
+                cohort_count = static_cohort_ids.len(),
+                "Personhog cohort query completed"
+            );
             flag_evaluation_state.set_static_cohort_matches(cohort_results);
         } else {
             flag_evaluation_state.set_static_cohort_matches(HashMap::new());
@@ -483,14 +511,24 @@ async fn fetch_properties_via_personhog(
     all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
     flag_evaluation_state.set_person_properties(all_person_properties);
 
-    // Fetch group properties if needed
     if !group_type_indexes.is_empty() {
         let group_identifiers: Vec<(GroupTypeIndex, String)> = group_type_indexes
             .iter()
             .flat_map(|idx| group_keys.iter().map(move |key| (*idx, key.clone())))
             .collect();
 
+        let group_start = Instant::now();
+        let group_timer =
+            common_metrics::timing_guard(FLAG_PERSONHOG_GROUP_QUERY_TIME, &[]);
         let group_properties = client.get_groups(team_id, group_identifiers).await?;
+        group_timer.fin();
+        let group_duration = group_start.elapsed();
+        info!(
+            duration_ms = group_duration.as_millis(),
+            group_type_count = group_type_indexes.len(),
+            group_key_count = group_keys.len(),
+            "Personhog group query completed"
+        );
         for (group_type_index, properties) in group_properties {
             flag_evaluation_state.set_group_properties(group_type_index, properties);
         }
@@ -670,9 +708,17 @@ pub async fn get_feature_flag_hash_key_overrides(
     increment_hash_key_override_lookup_count();
 
     if let Some(client) = personhog_client {
-        return client
+        let start = Instant::now();
+        let timer = common_metrics::timing_guard(FLAG_PERSONHOG_HASH_KEY_QUERY_TIME, &[]);
+        let result = client
             .get_hash_key_override_context(team_id, distinct_id_and_hash_key_override)
             .await;
+        timer.fin();
+        info!(
+            duration_ms = start.elapsed().as_millis(),
+            "Personhog hash key override query completed"
+        );
+        return result;
     }
 
     let retry_strategy = ExponentialBackoff::from_millis(50)
@@ -832,6 +878,43 @@ async fn try_get_feature_flag_hash_key_overrides(
     Ok(feature_flag_hash_key_overrides)
 }
 
+/// Fetches the keys of active feature flags with ensure_experience_continuity enabled.
+async fn get_active_eec_flag_keys(
+    router: &PostgresRouter,
+    team_id: TeamId,
+    operation: &str,
+) -> Result<Vec<String>, FlagError> {
+    let flags_query = r#"
+        SELECT key FROM posthog_featureflag flag
+        JOIN posthog_team team ON flag.team_id = team.id
+        WHERE team.id = $1
+            AND flag.ensure_experience_continuity = TRUE
+            AND flag.active = TRUE
+            AND flag.deleted = FALSE
+    "#;
+
+    let mut conn = get_connection_with_metrics(
+        router.get_non_persons_reader(),
+        "non_persons_reader",
+        operation,
+    )
+    .await
+    .map_err(FlagError::from)?;
+
+    let rows = sqlx::query(flags_query)
+        .bind(team_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| {
+            FlagError::DatabaseError(
+                e,
+                Some(format!("Failed to fetch EEC flags for {operation}")),
+            )
+        })?;
+
+    Ok(rows.iter().map(|row| row.get("key")).collect())
+}
+
 /// Sets feature flag hash key overrides for a list of distinct IDs.
 ///
 /// This function creates hash key overrides for all active feature flags that have
@@ -845,56 +928,48 @@ pub async fn set_feature_flag_hash_key_overrides(
     personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<bool, FlagError> {
     if let Some(client) = personhog_client {
-        // When using personhog, we need to resolve person_id and feature_flag_keys.
-        // Get person from first distinct_id
+        let first_distinct_id = distinct_ids.first().ok_or_else(|| {
+            FlagError::PersonhogError {
+                code: tonic::Code::InvalidArgument,
+                message: "distinct_ids must not be empty".to_string(),
+            }
+        })?;
+
+        let person_start = Instant::now();
+        let person_timer =
+            common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
         let person = client
-            .get_person_by_distinct_id(team_id, &distinct_ids[0])
+            .get_person_by_distinct_id(team_id, first_distinct_id)
             .await?
             .ok_or_else(|| {
-                FlagError::PersonhogError(format!(
-                    "Person not found for distinct_id {}",
-                    distinct_ids[0]
-                ))
+                FlagError::PersonhogError {
+                    code: tonic::Code::NotFound,
+                    message: format!("Person not found for distinct_id {first_distinct_id}"),
+                }
             })?;
+        person_timer.fin();
+        info!(
+            duration_ms = person_start.elapsed().as_millis(),
+            "Personhog person query for hash key overrides completed"
+        );
 
-        // Get active flags with ensure_experience_continuity from non-persons DB
-        let mut non_persons_conn = get_connection_with_metrics(
-            router.get_non_persons_reader(),
-            "non_persons_reader",
-            "set_hash_key_overrides_personhog",
-        )
-        .await
-        .map_err(FlagError::from)?;
-
-        let flags_query = r#"
-            SELECT key FROM posthog_featureflag flag
-            JOIN posthog_team team ON flag.team_id = team.id
-            WHERE team.id = $1
-                AND flag.ensure_experience_continuity = TRUE
-                AND flag.active = TRUE
-                AND flag.deleted = FALSE
-        "#;
-
-        let flag_rows = sqlx::query(flags_query)
-            .bind(team_id)
-            .fetch_all(&mut *non_persons_conn)
-            .await
-            .map_err(|e| {
-                FlagError::DatabaseError(
-                    e,
-                    Some("Failed to fetch flags for personhog upsert".to_string()),
-                )
-            })?;
-
-        let feature_flag_keys: Vec<String> = flag_rows.iter().map(|row| row.get("key")).collect();
+        let feature_flag_keys =
+            get_active_eec_flag_keys(router, team_id, "set_hash_key_overrides_personhog").await?;
 
         if feature_flag_keys.is_empty() {
             return Ok(false);
         }
 
+        let upsert_start = Instant::now();
+        let upsert_timer = common_metrics::timing_guard(FLAG_PERSONHOG_UPSERT_TIME, &[]);
         client
             .upsert_hash_key_overrides(team_id, person.id, feature_flag_keys, hash_key_override)
             .await?;
+        upsert_timer.fin();
+        info!(
+            duration_ms = upsert_start.elapsed().as_millis(),
+            "Personhog hash key upsert completed"
+        );
 
         return Ok(true);
     }
@@ -1525,32 +1600,11 @@ async fn should_write_hash_key_override_via_personhog(
         .await?;
 
     // Step 2: Get active EEC flags from non-persons DB
-    let flags_query = r#"
-        SELECT key FROM posthog_featureflag flag
-        JOIN posthog_team team ON flag.team_id = team.id
-        WHERE team.id = $1
-            AND flag.ensure_experience_continuity = TRUE
-            AND flag.active = TRUE
-            AND flag.deleted = FALSE
-    "#;
-
-    let mut non_persons_conn = get_connection_with_metrics(
-        router.get_non_persons_reader(),
-        "non_persons_reader",
-        "should_write_check_personhog",
-    )
-    .await
-    .map_err(FlagError::from)?;
-
-    let flag_rows = sqlx::query(flags_query)
-        .bind(team_id)
-        .fetch_all(&mut *non_persons_conn)
-        .await
-        .map_err(|e| FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string())))?;
+    let flag_keys =
+        get_active_eec_flag_keys(router, team_id, "should_write_check_personhog").await?;
 
     // Step 3: Check if any EEC flag is missing an override
-    for row in flag_rows {
-        let flag_key: String = row.get("key");
+    for flag_key in flag_keys {
         if !existing_overrides.contains_key(&flag_key) {
             return Ok(true);
         }
@@ -2787,12 +2841,125 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn test_set_hash_key_overrides_no_eec_flags_returns_false() {
+            let context = TestContext::new(None).await;
+            let team = context.insert_new_team(None).await.unwrap();
+            let team_id = team.id;
+            let person_id: PersonId = 100;
+            let distinct_id = "no_eec_user";
+
+            let person = make_test_person(person_id, team_id);
+            let mock = MockPersonhogClient::new().with_person(team_id, distinct_id, Some(person));
+
+            // No EEC flags inserted — query should return empty
+            let router = context.create_postgres_router();
+            let result = set_feature_flag_hash_key_overrides(
+                &router,
+                team_id,
+                vec![distinct_id.to_string()],
+                "anon_hash".to_string(),
+                Some(&mock),
+            )
+            .await
+            .unwrap();
+
+            assert!(!result);
+            assert!(mock.get_upsert_calls().is_empty());
+        }
+
+        #[tokio::test]
+        async fn test_should_write_override_via_personhog_returns_true_when_missing() {
+            let context = TestContext::new(None).await;
+            let team = context.insert_new_team(None).await.unwrap();
+            let team_id = team.id;
+
+            // Mock returns no existing overrides
+            let mock = MockPersonhogClient::new().with_hash_key_overrides(
+                team_id,
+                HashMap::new(),
+            );
+
+            // Insert an active EEC flag
+            let flag_row = FeatureFlagRow {
+                id: 70001,
+                team_id,
+                name: Some("EEC Flag".to_string()),
+                key: "eec_flag".to_string(),
+                filters: json!({"groups": [{"rollout_percentage": 50}]}),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(true),
+                version: Some(1),
+                evaluation_runtime: None,
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            };
+            context.insert_flag(team_id, Some(flag_row)).await.unwrap();
+
+            let router = context.create_postgres_router();
+            let result = should_write_hash_key_override(
+                &router,
+                team_id,
+                "user_a".to_string(),
+                "anon_hash".to_string(),
+                Some(&mock),
+            )
+            .await
+            .unwrap();
+
+            assert!(result);
+        }
+
+        #[tokio::test]
+        async fn test_should_write_override_via_personhog_returns_false_when_all_exist() {
+            let context = TestContext::new(None).await;
+            let team = context.insert_new_team(None).await.unwrap();
+            let team_id = team.id;
+
+            // Mock returns an existing override for the flag
+            let mut existing = HashMap::new();
+            existing.insert("eec_flag".to_string(), "existing_hash".to_string());
+            let mock =
+                MockPersonhogClient::new().with_hash_key_overrides(team_id, existing);
+
+            // Insert an active EEC flag
+            let flag_row = FeatureFlagRow {
+                id: 70002,
+                team_id,
+                name: Some("EEC Flag".to_string()),
+                key: "eec_flag".to_string(),
+                filters: json!({"groups": [{"rollout_percentage": 50}]}),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(true),
+                version: Some(1),
+                evaluation_runtime: None,
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            };
+            context.insert_flag(team_id, Some(flag_row)).await.unwrap();
+
+            let router = context.create_postgres_router();
+            let result = should_write_hash_key_override(
+                &router,
+                team_id,
+                "user_a".to_string(),
+                "anon_hash".to_string(),
+                Some(&mock),
+            )
+            .await
+            .unwrap();
+
+            assert!(!result);
+        }
+
+        #[tokio::test]
         async fn test_personhog_error_propagation() {
             let team_id: TeamId = 1;
             let distinct_id = "error_user";
 
             let mock = MockPersonhogClient::new()
-                .with_error(FlagError::PersonhogError("service unavailable".to_string()));
+                .with_error(FlagError::PersonhogError { code: tonic::Code::Unavailable, message: "service unavailable".to_string() });
 
             let mut state = FlagEvaluationState::default();
 

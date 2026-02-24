@@ -336,7 +336,13 @@ pub async fn serve<F>(
     }
 
     let personhog_client: Option<Arc<dyn PersonhogFetcher>> = if *config.use_personhog {
-        match PersonhogClient::new(&config.personhog_url, config.personhog_timeout_ms) {
+        match PersonhogClient::new(
+            &config.personhog_url,
+            config.personhog_timeout_ms,
+            config.personhog_connect_timeout_ms,
+            config.personhog_keep_alive_interval_secs,
+            config.personhog_keep_alive_timeout_secs,
+        ) {
             Ok(client) => {
                 tracing::info!(
                     url = %config.personhog_url,
