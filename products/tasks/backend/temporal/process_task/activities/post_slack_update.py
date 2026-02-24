@@ -37,13 +37,16 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             pr_url = (task_run.output or {}).get("pr_url")
             handler.update_reaction("white_check_mark")
             handler.post_completion(pr_url, task_url)
+        elif task_run.status == TaskRun.Status.CANCELLED:
+            handler.update_reaction("x")
+            handler.post_cancelled(task_url)
         elif task_run.status == TaskRun.Status.FAILED:
             error = task_run.error_message or "Unknown error"
             handler.update_reaction("x")
             handler.post_error(error, task_url)
         else:
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            handler.post_or_update_progress(stage, task_url)
+            handler.post_or_update_progress(stage, task_url, run_id=str(task_run.id))
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 

@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,7 @@ class SlackThreadContext:
     channel: str
     thread_ts: str
     user_message_ts: str | None = None
+    mentioning_slack_user_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -28,6 +30,8 @@ class SlackThreadContext:
         }
         if self.user_message_ts is not None:
             d["user_message_ts"] = self.user_message_ts
+        if self.mentioning_slack_user_id is not None:
+            d["mentioning_slack_user_id"] = self.mentioning_slack_user_id
         return d
 
     @classmethod
@@ -37,6 +41,7 @@ class SlackThreadContext:
             channel=data["channel"],
             thread_ts=data["thread_ts"],
             user_message_ts=data.get("user_message_ts"),
+            mentioning_slack_user_id=data.get("mentioning_slack_user_id"),
         )
 
 
@@ -114,7 +119,7 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_update_reaction_failed", error=str(e))
 
-    def post_or_update_progress(self, stage: str, task_url: str | None = None) -> None:
+    def post_or_update_progress(self, stage: str, task_url: str | None = None, run_id: str | None = None) -> None:
         """Post a new progress message or update the existing one."""
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
@@ -122,16 +127,46 @@ class SlackThreadHandler:
         ]
 
         if task_url:
+            actions: list[dict[str, Any]] = [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "View agent logs", "emoji": True},
+                    "url": task_url,
+                }
+            ]
+
+            if run_id:
+                terminate_value = json.dumps(
+                    {
+                        "run_id": run_id,
+                        "integration_id": self.context.integration_id,
+                        "mentioning_slack_user_id": self.context.mentioning_slack_user_id,
+                        "thread_ts": self.context.thread_ts,
+                    }
+                )
+                actions.append(
+                    {
+                        "type": "button",
+                        "action_id": "twig_terminate_task",
+                        "style": "danger",
+                        "text": {"type": "plain_text", "text": "X", "emoji": True},
+                        "value": terminate_value,
+                        "confirm": {
+                            "title": {"type": "plain_text", "text": "Terminate task?"},
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": "This will stop the current run and clean up its sandbox.",
+                            },
+                            "confirm": {"type": "plain_text", "text": "Terminate"},
+                            "deny": {"type": "plain_text", "text": "Keep running"},
+                        },
+                    }
+                )
+
             blocks.append(
                 {
                     "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "View agent logs", "emoji": True},
-                            "url": task_url,
-                        },
-                    ],
+                    "elements": actions,
                 }
             )
 
@@ -205,6 +240,26 @@ class SlackThreadHandler:
         ]
 
         self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks)
+
+    def post_cancelled(self, task_url: str) -> None:
+        """Post cancelled message with link to PostHog for details."""
+        header = "*Task Cancelled* :octagonal_sign:"
+
+        blocks: list[dict[str, Any]] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": header}},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "url": task_url,
+                    },
+                ],
+            },
+        ]
+
+        self._delete_progress_and_post(header, blocks)
 
     def _delete_progress_and_post(self, text: str, blocks: list[dict[str, Any]]) -> None:
         """Delete progress message if exists and post final message."""
