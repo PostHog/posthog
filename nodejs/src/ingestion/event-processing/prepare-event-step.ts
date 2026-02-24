@@ -1,6 +1,5 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, PreIngestionEvent, Team } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -10,9 +9,9 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { AI_EVENT_TYPES, processAiEvent } from '../ai'
-import { PipelineResult, ok } from '../pipelines/results'
+import { PipelineWarning } from '../pipelines/pipeline.interface'
+import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 
@@ -29,7 +28,6 @@ export type PrepareEventStepResult<TInput> = Omit<TInput, 'normalizedEvent'> & {
 }
 
 export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
-    kafkaProducer: KafkaProducerWrapper,
     teamManager: TeamManager,
     groupTypeManager: GroupTypeManager,
     groupStore: BatchWritingGroupStore,
@@ -41,14 +39,14 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
         options.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
     )
 
-    return async function prepareEventStep(input: TInput): Promise<PipelineResult<PrepareEventStepResult<TInput>>> {
+    return async function prepareEventStep(input: TInput) {
         const { normalizedEvent, ...rest } = input
         let event = normalizedEvent
 
-        const tsParsingIngestionWarnings: Promise<unknown>[] = []
+        const warnings: PipelineWarning[] = []
         const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
             invalidTimestampCounter.labels(type).inc()
-            tsParsingIngestionWarnings.push(captureIngestionWarning(kafkaProducer, input.team.id, type, details))
+            warnings.push({ type, details })
         }
 
         if (AI_EVENT_TYPES.has(event.event)) {
@@ -65,18 +63,20 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
             event,
             input.team,
             parseEventTimestamp(event, invalidTimestampCallback),
-            event.uuid!,
+            event.uuid,
             input.processPerson,
             groupStore
         )
-        await Promise.all(tsParsingIngestionWarnings)
-
         const historicalMigration = input.headers.historical_migration ?? false
 
-        return ok({
-            ...rest,
-            preparedEvent,
-            historicalMigration,
-        })
+        return ok(
+            {
+                ...rest,
+                preparedEvent,
+                historicalMigration,
+            },
+            [],
+            warnings
+        )
     }
 }

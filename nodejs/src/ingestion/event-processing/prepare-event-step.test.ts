@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '~/plugin-scaffold'
@@ -7,18 +8,19 @@ import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createTestPerson } from '../../../tests/helpers/person'
 import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../tests/helpers/team'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Person, PreIngestionEvent, ProjectId, Team, TimestampFormat } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
-import { AI_EVENT_TYPES, processAiEvent } from '../ai'
+import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
+import { processAiEvent } from '../ai'
 import { PipelineResultType } from '../pipelines/results'
 import { createPrepareEventStep } from './prepare-event-step'
 
 jest.mock('../../worker/ingestion/process-event')
+jest.mock('../../worker/ingestion/timestamps')
 jest.mock('../ai')
 
 const createTestPreIngestionEvent = (overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent => ({
@@ -42,7 +44,6 @@ type TestInput = {
 }
 
 describe('createPrepareEventStep', () => {
-    let mockKafkaProducer: KafkaProducerWrapper
     let mockTeamManager: TeamManager
     let mockGroupTypeManager: GroupTypeManager
     let mockGroupStore: BatchWritingGroupStore
@@ -56,7 +57,6 @@ describe('createPrepareEventStep', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockKafkaProducer = {} as KafkaProducerWrapper
         mockTeamManager = {} as TeamManager
         mockGroupTypeManager = {} as GroupTypeManager
         mockGroupStore = {} as BatchWritingGroupStore
@@ -71,6 +71,7 @@ describe('createPrepareEventStep', () => {
         jest.mocked(EventsProcessor).mockImplementation(
             () => ({ processEvent: mockProcessEvent }) as unknown as EventsProcessor
         )
+        jest.mocked(parseEventTimestamp).mockReturnValue(DateTime.fromISO('2023-01-01T00:00:00.000Z'))
     })
 
     const createInput = (overrides: Partial<TestInput> = {}): TestInput => ({
@@ -90,13 +91,9 @@ describe('createPrepareEventStep', () => {
         const preparedEvent = createTestPreIngestionEvent()
         mockProcessEvent.mockResolvedValue(preparedEvent)
 
-        const step = createPrepareEventStep<TestInput>(
-            mockKafkaProducer,
-            mockTeamManager,
-            mockGroupTypeManager,
-            mockGroupStore,
-            { SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false }
-        )
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        })
         const input = createInput({ processPerson })
         const result = await step(input)
 
@@ -126,13 +123,9 @@ describe('createPrepareEventStep', () => {
         mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
         const headers = createTestEventHeaders({ historical_migration })
 
-        const step = createPrepareEventStep<TestInput>(
-            mockKafkaProducer,
-            mockTeamManager,
-            mockGroupTypeManager,
-            mockGroupStore,
-            { SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false }
-        )
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        })
         const result = await step(createInput({ headers }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -144,13 +137,9 @@ describe('createPrepareEventStep', () => {
     it('should strip normalizedEvent from the output', async () => {
         mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
 
-        const step = createPrepareEventStep<TestInput>(
-            mockKafkaProducer,
-            mockTeamManager,
-            mockGroupTypeManager,
-            mockGroupStore,
-            { SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false }
-        )
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        })
         const result = await step(createInput())
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -162,17 +151,12 @@ describe('createPrepareEventStep', () => {
     it('should process AI events through processAiEvent', async () => {
         const aiEvent = createTestPluginEvent({ event: '$ai_generation' })
         const transformedEvent = createTestPluginEvent({ event: '$ai_generation', properties: { enriched: true } })
-        jest.mocked(AI_EVENT_TYPES).has = jest.fn().mockReturnValue(true)
         jest.mocked(processAiEvent).mockReturnValue(transformedEvent)
         mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
 
-        const step = createPrepareEventStep<TestInput>(
-            mockKafkaProducer,
-            mockTeamManager,
-            mockGroupTypeManager,
-            mockGroupStore,
-            { SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false }
-        )
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        })
         await step(createInput({ normalizedEvent: aiEvent }))
 
         expect(processAiEvent).toHaveBeenCalledWith(aiEvent)
@@ -189,19 +173,14 @@ describe('createPrepareEventStep', () => {
 
     it('should swallow processAiEvent errors and use original event', async () => {
         const aiEvent = createTestPluginEvent({ event: '$ai_generation' })
-        jest.mocked(AI_EVENT_TYPES).has = jest.fn().mockReturnValue(true)
         jest.mocked(processAiEvent).mockImplementation(() => {
             throw new Error('AI processing failed')
         })
         mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
 
-        const step = createPrepareEventStep<TestInput>(
-            mockKafkaProducer,
-            mockTeamManager,
-            mockGroupTypeManager,
-            mockGroupStore,
-            { SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false }
-        )
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        })
         const result = await step(createInput({ normalizedEvent: aiEvent }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -216,17 +195,29 @@ describe('createPrepareEventStep', () => {
         )
     })
 
+    it('should return timestamp parsing warnings as pipeline warnings', async () => {
+        jest.mocked(parseEventTimestamp).mockImplementation((_event, callback) => {
+            callback?.('timestamp_in_the_future', { timestamp: '3000-01-01' })
+            return DateTime.fromISO('2023-01-01T00:00:00.000Z')
+        })
+        mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
+
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        })
+        const result = await step(createInput())
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        expect(result.warnings).toEqual([{ type: 'timestamp_in_the_future', details: { timestamp: '3000-01-01' } }])
+    })
+
     it('should propagate errors from processEvent', async () => {
         const error = new Error('Processing failed')
         mockProcessEvent.mockRejectedValue(error)
 
-        const step = createPrepareEventStep<TestInput>(
-            mockKafkaProducer,
-            mockTeamManager,
-            mockGroupTypeManager,
-            mockGroupStore,
-            { SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false }
-        )
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        })
 
         await expect(step(createInput())).rejects.toThrow('Processing failed')
     })
