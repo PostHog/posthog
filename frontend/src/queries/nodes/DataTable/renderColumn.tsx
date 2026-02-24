@@ -7,6 +7,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -409,8 +410,11 @@ export function renderColumn(
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
         if (typeof value === 'object' && 'display_name' in value && 'key' in value) {
             return (
-                <div className="min-w-40">
-                    <Link to={urls.group(query.source.group_type_index, value.key, true)}>{value.display_name}</Link>
+                <div className="flex flex-col min-w-40">
+                    <LemonTableLink
+                        to={urls.group(query.source.group_type_index, value.key)}
+                        title={value.display_name as string}
+                    />
                     <CopyToClipboardInline
                         explicitValue={value.key}
                         iconStyle={{ color: 'var(--color-accent)' }}
