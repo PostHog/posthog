@@ -309,22 +309,39 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         ],
     }),
     listeners(({ actions, values }) => {
-        const updateCurrentTeam = (): void => {
-            if (values.revenueAnalyticsConfig) {
-                actions.updateCurrentTeam({ revenue_analytics_config: values.revenueAnalyticsConfig })
-                lemonToast.success('Revenue analytics config saved')
-            }
-        }
-
         return {
             addGoal: () => {
-                updateCurrentTeam()
+                if (values.revenueAnalyticsConfig) {
+                    actions.updateCurrentTeam({
+                        revenue_analytics_config: { goals: values.revenueAnalyticsConfig.goals },
+                    })
+                    lemonToast.success('Revenue analytics config saved')
+                }
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpRevenueGoal)
             },
-            deleteGoal: updateCurrentTeam,
-            updateGoal: updateCurrentTeam,
+            deleteGoal: () => {
+                if (values.revenueAnalyticsConfig) {
+                    actions.updateCurrentTeam({
+                        revenue_analytics_config: { goals: values.revenueAnalyticsConfig.goals },
+                    })
+                    lemonToast.success('Revenue analytics config saved')
+                }
+            },
+            updateGoal: () => {
+                if (values.revenueAnalyticsConfig) {
+                    actions.updateCurrentTeam({
+                        revenue_analytics_config: { goals: values.revenueAnalyticsConfig.goals },
+                    })
+                    lemonToast.success('Revenue analytics config saved')
+                }
+            },
             save: () => {
-                updateCurrentTeam()
+                if (values.revenueAnalyticsConfig) {
+                    actions.updateCurrentTeam({
+                        revenue_analytics_config: { events: values.revenueAnalyticsConfig.events },
+                    })
+                    lemonToast.success('Revenue analytics config saved')
+                }
 
                 // Mark ConnectRevenueSource as completed when saving with events configured
                 if ((values.revenueAnalyticsConfig?.events?.length ?? 0) > 0) {
@@ -332,7 +349,10 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 }
             },
             updateFilterTestAccounts: ({ filterTestAccounts }) => {
-                updateCurrentTeam()
+                actions.updateCurrentTeam({
+                    revenue_analytics_config: { filter_test_accounts: filterTestAccounts },
+                })
+                lemonToast.success('Revenue analytics config saved')
                 actions.reportRevenueAnalyticsTestAccountFilterUpdated(filterTestAccounts)
             },
             deleteEvent: ({ eventName }) => actions.reportRevenueAnalyticsEventDeleted(eventName),

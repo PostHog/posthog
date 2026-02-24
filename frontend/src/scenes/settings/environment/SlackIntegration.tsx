@@ -1,142 +1,160 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useValues } from "kea";
+import { useState } from "react";
 
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from "@posthog/lemon-ui";
 
-import api from 'lib/api'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
+import api from "lib/api";
+import { CodeSnippet, Language } from "lib/components/CodeSnippet";
+import {
+  RestrictionScope,
+  useRestrictedArea,
+} from "lib/components/RestrictedArea";
+import { TeamMembershipLevel } from "lib/constants";
+import { IntegrationView } from "lib/integrations/IntegrationView";
+import { integrationsLogic } from "lib/integrations/integrationsLogic";
+import { urls } from "scenes/urls";
+import { userLogic } from "scenes/userLogic";
 
 // Matches production Slack app manifest (app.dev.posthog.dev)
 const getSlackAppManifest = (): any => {
-    const origin = window.location.origin.replace('http://', 'https://')
-    return {
-        display_information: {
-            name: 'PostHog (dev)',
-            description: 'Experimental hog',
-            background_color: '#000000',
-        },
-        features: {
-            app_home: {
-                home_tab_enabled: false,
-                messages_tab_enabled: true,
-                messages_tab_read_only_enabled: false,
-            },
-            bot_user: {
-                display_name: 'PostHog (dev)',
-                always_online: true,
-            },
-            unfurl_domains: ['ngrok.dev', 'slackhog.ngrok.dev', 'posthog.com'],
-            assistant_view: {
-                assistant_description:
-                    'Your AI-powered product assistant. Ask questions, build insights, analyze data.',
-                suggested_prompts: [],
-            },
-        },
-        oauth_config: {
-            redirect_urls: [`${origin}/integrations/slack/callback`],
-            scopes: {
-                bot: [
-                    'app_mentions:read',
-                    'assistant:write',
-                    'channels:history',
-                    'channels:join',
-                    'channels:read',
-                    'chat:write',
-                    'chat:write.public',
-                    'commands',
-                    'groups:history',
-                    'im:history',
-                    'im:write',
-                    'links:read',
-                    'links:write',
-                    'reactions:read',
-                    'reactions:write',
-                    'team:read',
-                    'users:read',
-                    'users:read.email',
-                ],
-            },
-        },
-        settings: {
-            event_subscriptions: {
-                request_url: `${origin}/slack/event-callback`,
-                bot_events: ['app_mention', 'link_shared'],
-            },
-            org_deploy_enabled: false,
-            socket_mode_enabled: false,
-            token_rotation_enabled: false,
-        },
-    }
-}
+  const origin = window.location.origin.replace("http://", "https://");
+  return {
+    display_information: {
+      name: "PostHog (dev)",
+      description: "Experimental hog",
+      background_color: "#000000",
+    },
+    features: {
+      app_home: {
+        home_tab_enabled: false,
+        messages_tab_enabled: true,
+        messages_tab_read_only_enabled: false,
+      },
+      bot_user: {
+        display_name: "PostHog (dev)",
+        always_online: true,
+      },
+      unfurl_domains: ["ngrok.dev", "slackhog.ngrok.dev", "posthog.com"],
+      assistant_view: {
+        assistant_description:
+          "Your AI-powered product assistant. Ask questions, build insights, analyze data.",
+        suggested_prompts: [],
+      },
+    },
+    oauth_config: {
+      redirect_urls: [`${origin}/integrations/slack/callback`],
+      scopes: {
+        bot: [
+          "app_mentions:read",
+          "assistant:write",
+          "channels:history",
+          "channels:join",
+          "channels:read",
+          "chat:write",
+          "chat:write.public",
+          "commands",
+          "groups:history",
+          "im:history",
+          "im:write",
+          "links:read",
+          "links:write",
+          "reactions:read",
+          "reactions:write",
+          "team:read",
+          "users:read",
+          "users:read.email",
+        ],
+      },
+    },
+    settings: {
+      event_subscriptions: {
+        request_url: `${origin}/slack/event-callback`,
+        bot_events: ["app_mention", "link_shared"],
+      },
+      org_deploy_enabled: false,
+      socket_mode_enabled: false,
+      token_rotation_enabled: false,
+    },
+  };
+};
 
 export function SlackIntegration(): JSX.Element {
-    const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
-    const [showSlackInstructions, setShowSlackInstructions] = useState(false)
-    const { user } = useValues(userLogic)
+  const { slackIntegrations, slackAvailable } = useValues(integrationsLogic);
+  const [showSlackInstructions, setShowSlackInstructions] = useState(false);
+  const { user } = useValues(userLogic);
+  const restrictedReason = useRestrictedArea({
+    scope: RestrictionScope.Project,
+    minimumAccessLevel: TeamMembershipLevel.Admin,
+  });
 
-    return (
+  return (
+    <div>
+      <div className="deprecated-space-y-2">
+        {slackIntegrations?.map((integration) => (
+          <IntegrationView key={integration.id} integration={integration} />
+        ))}
+
         <div>
-            <div className="deprecated-space-y-2">
-                {slackIntegrations?.map((integration) => (
-                    <IntegrationView key={integration.id} integration={integration} />
-                ))}
+          {slackAvailable && !restrictedReason ? (
+            <Link
+              to={api.integrations.authorizeUrl({ kind: "slack" })}
+              disableClientSideRouting
+            >
+              <img
+                alt="Connect to Slack workspace"
+                height="40"
+                width="139"
+                src="https://platform.slack-edge.com/img/add_to_slack.png"
+                srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+              />
+            </Link>
+          ) : user?.is_staff ? (
+            !showSlackInstructions ? (
+              <>
+                <LemonButton
+                  type="secondary"
+                  onClick={() => setShowSlackInstructions(true)}
+                >
+                  Show Instructions
+                </LemonButton>
+              </>
+            ) : (
+              <>
+                <h5>To get started</h5>
+                <p>
+                  <ol>
+                    <li>Copy the below Slack App Template</li>
+                    <li>
+                      Go to{" "}
+                      <Link to="https://api.slack.com/apps" target="_blank">
+                        Slack Apps
+                      </Link>
+                    </li>
+                    <li>Create an App using the provided template</li>
+                    <li>
+                      <Link to={urls.instanceSettings()}>
+                        Go to Instance Settings
+                      </Link>{" "}
+                      and update the <code>"SLACK_"</code> properties using the
+                      values from the <b>App Credentials</b> section of your
+                      Slack Apps
+                    </li>
+                  </ol>
 
-                <div>
-                    {slackAvailable ? (
-                        <Link to={api.integrations.authorizeUrl({ kind: 'slack' })} disableClientSideRouting>
-                            <img
-                                alt="Connect to Slack workspace"
-                                height="40"
-                                width="139"
-                                src="https://platform.slack-edge.com/img/add_to_slack.png"
-                                srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
-                            />
-                        </Link>
-                    ) : user?.is_staff ? (
-                        !showSlackInstructions ? (
-                            <>
-                                <LemonButton type="secondary" onClick={() => setShowSlackInstructions(true)}>
-                                    Show Instructions
-                                </LemonButton>
-                            </>
-                        ) : (
-                            <>
-                                <h5>To get started</h5>
-                                <p>
-                                    <ol>
-                                        <li>Copy the below Slack App Template</li>
-                                        <li>
-                                            Go to{' '}
-                                            <Link to="https://api.slack.com/apps" target="_blank">
-                                                Slack Apps
-                                            </Link>
-                                        </li>
-                                        <li>Create an App using the provided template</li>
-                                        <li>
-                                            <Link to={urls.instanceSettings()}>Go to Instance Settings</Link> and update
-                                            the <code>"SLACK_"</code> properties using the values from the{' '}
-                                            <b>App Credentials</b> section of your Slack Apps
-                                        </li>
-                                    </ol>
-
-                                    <CodeSnippet language={Language.JSON}>
-                                        {JSON.stringify(getSlackAppManifest(), null, 2)}
-                                    </CodeSnippet>
-                                </p>
-                            </>
-                        )
-                    ) : (
-                        <p className="text-secondary">
-                            This PostHog instance is not configured for Slack. Please contact the instance owner to
-                            configure it.
-                        </p>
-                    )}
-                </div>
-            </div>
+                  <CodeSnippet language={Language.JSON}>
+                    {JSON.stringify(getSlackAppManifest(), null, 2)}
+                  </CodeSnippet>
+                </p>
+              </>
+            )
+          ) : (
+            <p className="text-secondary">
+              This PostHog instance is not configured for Slack. Please contact
+              the instance owner to configure it.
+            </p>
+          )}
         </div>
-    )
+      </div>
+    </div>
+  );
 }

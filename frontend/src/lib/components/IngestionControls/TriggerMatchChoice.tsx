@@ -2,17 +2,21 @@ import { useActions, useValues } from 'kea'
 
 import { LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { TeamMembershipLevel } from 'lib/constants'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { AccessControlLevel } from '~/types'
 
-import { AccessControlAction } from '../AccessControlAction'
+import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { ingestionControlsLogic } from './ingestionControlsLogic'
 
 export function MatchTypeSelect(): JSX.Element {
-    const { resourceType, matchType } = useValues(ingestionControlsLogic)
+    const { matchType } = useValues(ingestionControlsLogic)
     const { onChangeMatchType } = useActions(ingestionControlsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <div className="flex flex-col gap-y-1">
@@ -21,40 +25,39 @@ export function MatchTypeSelect(): JSX.Element {
             </LemonLabel>
             <div className="flex flex-row gap-x-2 items-center">
                 <div>Start when</div>
-                <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-                    <LemonSelect
-                        options={[
-                            {
-                                label: 'all',
-                                value: 'all',
-                                labelInMenu: (
-                                    <SelectOption
-                                        title="All"
-                                        description="Every trigger must match"
-                                        value="all"
-                                        selectedValue={matchType}
-                                    />
-                                ),
-                            },
-                            {
-                                label: 'any',
-                                value: 'any',
-                                labelInMenu: (
-                                    <SelectOption
-                                        title="Any"
-                                        description="One or more triggers must match"
-                                        value="any"
-                                        selectedValue={matchType}
-                                    />
-                                ),
-                            },
-                        ]}
-                        dropdownMatchSelectWidth={false}
-                        data-attr="trigger-match-choice"
-                        onChange={onChangeMatchType}
-                        value={matchType}
-                    />
-                </AccessControlAction>
+                <LemonSelect
+                    options={[
+                        {
+                            label: 'all',
+                            value: 'all',
+                            labelInMenu: (
+                                <SelectOption
+                                    title="All"
+                                    description="Every trigger must match"
+                                    value="all"
+                                    selectedValue={matchType}
+                                />
+                            ),
+                        },
+                        {
+                            label: 'any',
+                            value: 'any',
+                            labelInMenu: (
+                                <SelectOption
+                                    title="Any"
+                                    description="One or more triggers must match"
+                                    value="any"
+                                    selectedValue={matchType}
+                                />
+                            ),
+                        },
+                    ]}
+                    dropdownMatchSelectWidth={false}
+                    data-attr="trigger-match-choice"
+                    onChange={onChangeMatchType}
+                    value={matchType}
+                    disabledReason={restrictedReason}
+                />
 
                 <div>triggers below match</div>
             </div>

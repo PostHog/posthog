@@ -42,6 +42,8 @@ from posthog.models.integration import (
     SlackIntegration,
     TwilioIntegration,
 )
+from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -51,7 +53,7 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
 
-class IntegrationSerializer(serializers.ModelSerializer):
+class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
@@ -215,6 +217,7 @@ class IntegrationViewSet(
 ):
     scope_object = "integration"
     scope_object_read_actions = ["list", "retrieve", "github_repos"]
+    permission_classes = [TeamMemberStrictManagementPermission]
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 

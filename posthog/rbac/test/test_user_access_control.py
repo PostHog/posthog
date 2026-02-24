@@ -1474,21 +1474,16 @@ class TestFieldLevelAccessControl(BaseUserAccessControlTest):
 
         # Verify session recording fields are mapped
         assert "session_recording_opt_in" in team_mappings
-        assert team_mappings["session_recording_opt_in"] == ("session_recording", "editor")
+        assert team_mappings["session_recording_opt_in"] == ("project", "admin")
         assert "session_recording_sample_rate" in team_mappings
-        assert team_mappings["session_recording_sample_rate"] == ("session_recording", "editor")
+        assert team_mappings["session_recording_sample_rate"] == ("project", "admin")
 
     def test_field_validation_blocks_without_access(self):
         """Test that field validation blocks updates without proper access"""
         from rest_framework.exceptions import ValidationError
 
-        # Give user only viewer access to session recordings
-        self._create_access_control(
-            resource="session_recording",
-            resource_id=None,
-            access_level="viewer",
-            organization_member=self.organization_membership,
-        )
+        # Set project access to "member" (default for all project members)
+        self._create_access_control(resource="project", resource_id=str(self.team.id), access_level="member")
         self._clear_uac_caches()
 
         # Create a mock serializer with access control mixin
@@ -1500,6 +1495,7 @@ class TestFieldLevelAccessControl(BaseUserAccessControlTest):
         serializer = TeamSerializer(instance=self.team, context={"view": view_mock})
 
         # Try to modify a protected field - should raise validation error
+        # session_recording_opt_in requires "admin" access to project, but user only has "member"
         attrs = {"session_recording_opt_in": True}
         with pytest.raises(ValidationError) as exc_info:
             serializer.validate(attrs)
@@ -1510,7 +1506,7 @@ class TestFieldLevelAccessControl(BaseUserAccessControlTest):
         # The error is a list, get the actual message
         error_detail = detail["session_recording_opt_in"]
         error_msg = str(error_detail[0]) if isinstance(error_detail, list) else str(error_detail)
-        assert "editor access to session recordings" in error_msg, f"Got error message: {error_msg!r}"
+        assert "admin access to projects" in error_msg, f"Got error message: {error_msg!r}"
 
     def test_field_validation_allows_with_proper_access(self):
         """Test that field validation allows updates with proper access"""
