@@ -101,7 +101,7 @@ impl Default for GlobalRateLimiterConfig {
         Self {
             global_threshold: 1_000_000,
             window_interval: Duration::from_secs(60),
-            bucket_interval: Duration::from_secs(10),
+            bucket_interval: Duration::from_secs(20),
             redis_key_prefix: "@posthog/global_rate_limiter".to_string(),
             // 10 minutes - long enough to benefit from hot cache under high cardinality
             local_cache_ttl: Duration::from_secs(600),
