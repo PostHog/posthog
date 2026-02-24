@@ -59,6 +59,7 @@ export type CdpConsumerBaseHub = CdpFetchConfig &
         | 'groupRepository'
         // HogWatcherService
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
+        | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
         | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
