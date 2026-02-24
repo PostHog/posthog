@@ -62,7 +62,7 @@ export const manifest: ProductManifest = {
             type: 'hog_function',
             iconType: 'data_pipeline',
             iconColor: ['var(--color-product-data-pipeline-light)'],
-            href: urls.snippets(),
+            href: urls.webScripts(),
             sceneKey: 'Snippets',
             sceneKeys: ['Snippets'],
         },

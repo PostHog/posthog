@@ -197,7 +197,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.Snippets,
                             name: 'Web scripts',
-                            path: urls.snippets(),
+                            path: urls.webScripts(),
                             iconType: 'data_pipeline',
                         },
                         finalCrumb,
