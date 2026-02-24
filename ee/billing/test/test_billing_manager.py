@@ -264,7 +264,7 @@ class TestBillingManager(BaseTest):
         billing_post_request_mock.assert_called_once()
 
         call_args = billing_post_request_mock.call_args
-        assert call_args[0][0].endswith("/api/activate/authorize/uninstall")
+        assert call_args[0][0].endswith("/api/billing/uninstall")
         assert call_args[1]["json"] == {"billing_provider": "vercel"}
         assert "Authorization" in call_args[1]["headers"]
 

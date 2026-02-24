@@ -583,7 +583,7 @@ class BillingManager:
             Response from billing service with success status
         """
         res = requests.post(
-            f"{BILLING_SERVICE_URL}/api/activate/authorize/uninstall",
+            f"{BILLING_SERVICE_URL}/api/billing/uninstall",
             headers=self.get_auth_headers(organization),
             json={"billing_provider": billing_provider.value},
             timeout=30,
