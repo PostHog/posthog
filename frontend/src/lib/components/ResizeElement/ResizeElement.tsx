@@ -2,10 +2,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+const SNAP_TO_DEFAULT_THRESHOLD = 16
+
 type ResizableElementProps = {
     defaultWidth: number
     minWidth?: number
     maxWidth?: number
+    snapToDefault?: boolean
     onResize: (width: number) => void
     children?: React.ReactNode
     className?: string
@@ -20,6 +23,7 @@ export function ResizableElement({
     defaultWidth,
     minWidth = 100,
     maxWidth = 1000,
+    snapToDefault = false,
     onResize,
     children,
     className,
@@ -91,7 +95,10 @@ export function ResizableElement({
                 const deltaX = clientX - startXRef.current
 
                 // Apply the delta to the starting width
-                const newWidth = Math.min(Math.max(startWidthRef.current + deltaX, minWidth), maxWidth)
+                let newWidth = Math.min(Math.max(startWidthRef.current + deltaX, minWidth), maxWidth)
+                if (snapToDefault && Math.abs(newWidth - defaultWidth) <= SNAP_TO_DEFAULT_THRESHOLD) {
+                    newWidth = defaultWidth
+                }
 
                 // Apply width directly to DOM for smoother animation
                 applyWidth(newWidth)
@@ -102,7 +109,7 @@ export function ResizableElement({
                 rafRef.current = null
             })
         },
-        [applyWidth, maxWidth, minWidth, onResize]
+        [applyWidth, defaultWidth, maxWidth, minWidth, onResize, snapToDefault]
     )
 
     const handleMouseMove = useCallback(
@@ -121,8 +128,13 @@ export function ResizableElement({
 
     const handleEnd = useCallback(() => {
         if (isResizing.current) {
-            // Only update React state once at the end of resize
-            setWidth(currentWidthRef.current)
+            let finalWidth = currentWidthRef.current
+            if (snapToDefault && Math.abs(finalWidth - defaultWidth) <= SNAP_TO_DEFAULT_THRESHOLD) {
+                finalWidth = defaultWidth
+                applyWidth(defaultWidth)
+            }
+            setWidth(finalWidth)
+            currentWidthRef.current = finalWidth
             isResizing.current = false
 
             // Clean up any pending animation frame
@@ -133,7 +145,7 @@ export function ResizableElement({
             document.body.classList.remove('is-resizing')
             onResizeEnd?.()
         }
-    }, [onResizeEnd])
+    }, [applyWidth, defaultWidth, onResizeEnd, snapToDefault])
 
     // Use effect for adding/removing global event listeners
     useEffect(() => {
