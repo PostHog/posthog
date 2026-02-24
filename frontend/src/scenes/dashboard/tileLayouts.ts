@@ -89,6 +89,7 @@ function canPlaceToRight(
     })
 }
 
+/** Sort tiles by their layout position (y, then x). */
 export const sortTilesByLayout = (
     tiles: Array<DashboardTile<QueryBasedInsightModel>>,
     col: DashboardLayoutSize
@@ -107,6 +108,87 @@ export const sortTilesByLayout = (
         return 0
     })
 }
+
+const getDefaultSizeForTile = (tile: DashboardTile<QueryBasedInsightModel>): { defaultW: number; defaultH: number } => {
+    const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
+    // Base constraints
+    let defaultW = 6
+    let defaultH = 5
+    // Content-adjusted constraints (note that widths should be factors of 12)
+    if (tile.text) {
+        defaultW = 2
+        defaultH = 2
+    } else if (isFunnelsQuery(query)) {
+        defaultW = 4
+        defaultH = 4
+    } else if (isRetentionQuery(query)) {
+        defaultW = 6
+        defaultH = 7
+    } else if (isPathsQuery(query)) {
+        defaultW = 12 // Paths take up so much space that they need to be full width to be readable
+        defaultH = 7
+    } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
+        defaultW = 2
+        defaultH = 2
+    }
+
+    return { defaultW, defaultH }
+}
+
+const cleanCalculatedLayouts = (layouts: LayoutItem[], columnCount: number): Layout => {
+    const cleanLayouts = layouts.filter(({ y }) => y !== Infinity)
+    const dirtyLayouts = layouts.filter(({ y }) => y === Infinity)
+    console.debug('cleanLayouts', cleanLayouts)
+    console.debug('dirtyLayouts', dirtyLayouts)
+
+    // array of -1 for each column
+    const lowestPoints = Array.from(Array(columnCount)).map(() => -1)
+
+    // set the lowest point for each column
+    for (const { x, y, w, h } of cleanLayouts) {
+        for (let i = x; i <= x + w - 1; i++) {
+            lowestPoints[i] = Math.max(lowestPoints[i], y + h - 1)
+        }
+    }
+
+    for (const { i, w, h, minW, minH } of dirtyLayouts) {
+        // how low are things in "w" consecutive of columns
+        const segmentCount = columnCount - w + 1
+        const lowestSegments = Array.from(Array(segmentCount)).map(() => -1)
+        for (let k = 0; k < segmentCount; k++) {
+            for (let j = k; j <= k + w - 1; j++) {
+                lowestSegments[k] = Math.max(lowestSegments[k], lowestPoints[j])
+            }
+        }
+
+        let lowestIndex = 0
+        let lowestDepth = lowestSegments[0]
+        for (let index = 1; index < segmentCount; index++) {
+            const depth = lowestSegments[index]
+            if (depth < lowestDepth) {
+                lowestIndex = index
+                lowestDepth = depth
+            }
+        }
+
+        cleanLayouts.push({
+            i,
+            x: lowestIndex,
+            y: lowestDepth + 1,
+            w,
+            h,
+            minW,
+            minH,
+        })
+
+        for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
+            lowestPoints[k] = Math.max(lowestPoints[k], lowestDepth + h)
+        }
+    }
+
+    return cleanLayouts
+}
+
 export const calculateLayouts = (
     tiles: DashboardTile<QueryBasedInsightModel>[]
 ): Partial<Record<DashboardLayoutSize, Layout>> => {
@@ -131,36 +213,12 @@ export const calculateLayouts = (
         }
 
         const layouts = (sortedDashboardTiles || []).map((tile) => {
-            const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
-            // Base constraints
-            let defaultW = 6
-            let defaultH = 5
-            // Content-adjusted constraints (note that widths should be factors of 12)
-            if (tile.text) {
-                defaultW = 2
-                defaultH = 2
-            } else if (isFunnelsQuery(query)) {
-                defaultW = 4
-                defaultH = 4
-            } else if (isRetentionQuery(query)) {
-                defaultW = 6
-                defaultH = 7
-            } else if (isPathsQuery(query)) {
-                defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
-                defaultH = 7
-            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
-                defaultW = 2
-                defaultH = 2
-            }
-            // Single-column layout width override
-            if (breakpoint === 'xs') {
-                defaultW = 1
-            }
-
             // For xs layout, ignore stored layout and derive from sm order
             // For sm layout, use stored layout if available
             const layout = breakpoint === 'xs' ? undefined : tile.layouts?.[breakpoint]
             const { x, y, w, h } = layout || {}
+
+            const { defaultW, defaultH } = getDefaultSizeForTile(tile)
 
             const realW = Math.min(w || defaultW, columnCount)
             const realH = h || defaultH
@@ -177,55 +235,7 @@ export const calculateLayouts = (
             return layoutItem
         })
 
-        const cleanLayouts = layouts?.filter(({ y }) => y !== Infinity)
-        const dirtyLayouts = layouts?.filter(({ y }) => y === Infinity)
-
-        // array of -1 for each column
-        const lowestPoints = Array.from(Array(columnCount)).map(() => -1)
-
-        // set the lowest point for each column
-        for (const { x, y, w, h } of cleanLayouts) {
-            for (let i = x; i <= x + w - 1; i++) {
-                lowestPoints[i] = Math.max(lowestPoints[i], y + h - 1)
-            }
-        }
-
-        for (const { i, w, h, minW, minH } of dirtyLayouts) {
-            // how low are things in "w" consecutive of columns
-            const segmentCount = columnCount - w + 1
-            const lowestSegments = Array.from(Array(segmentCount)).map(() => -1)
-            for (let k = 0; k < segmentCount; k++) {
-                for (let j = k; j <= k + w - 1; j++) {
-                    lowestSegments[k] = Math.max(lowestSegments[k], lowestPoints[j])
-                }
-            }
-
-            let lowestIndex = 0
-            let lowestDepth = lowestSegments[0]
-            for (let index = 1; index < segmentCount; index++) {
-                const depth = lowestSegments[index]
-                if (depth < lowestDepth) {
-                    lowestIndex = index
-                    lowestDepth = depth
-                }
-            }
-
-            cleanLayouts.push({
-                i,
-                x: lowestIndex,
-                y: lowestDepth + 1,
-                w,
-                h,
-                minW,
-                minH,
-            })
-
-            for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
-                lowestPoints[k] = Math.max(lowestPoints[k], lowestDepth + h)
-            }
-        }
-
-        allLayouts[breakpoint] = cleanLayouts
+        allLayouts[breakpoint] = cleanCalculatedLayouts(layouts, columnCount)
     }
 
     return allLayouts
