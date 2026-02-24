@@ -75,6 +75,7 @@ export function ByokModelPicker({
                     icon: <LLMProviderIcon provider={group.provider} />,
                     label: group.label,
                     disabled: true,
+                    tooltip: 'This provider key has an issue. Check your provider settings.',
                 }
             }
 
