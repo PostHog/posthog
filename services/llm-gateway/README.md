@@ -41,7 +41,7 @@ The gateway supports two authentication methods:
 When running via mprocs, a personal API key with the `llm_gateway:read` scope is **automatically provisioned** on startup.
 The key is deterministic and survives database resets:
 
-```
+```text
 phx_dev_local_test_api_key_1234567890abcdef
 ```
 
