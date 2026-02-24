@@ -30,8 +30,8 @@ logger = structlog.get_logger(__name__)
 SESSION_CACHE_TTL = 3600  # 1 hour
 
 
-def _session_cache_key(conversation_id: str, server_url: str) -> str:
-    return f"mcp_session:{conversation_id}:{server_url}"
+def _session_cache_key(conversation_id: str, user_id: int, server_url: str) -> str:
+    return f"mcp_session:{conversation_id}:{user_id}:{server_url}"
 
 
 class MCPToolProperty(BaseModel, extra="ignore"):
@@ -281,7 +281,7 @@ class CallMCPServerTool(MaxTool):
         conversation_id = self._get_conversation_id()
         if not conversation_id:
             return None
-        key = _session_cache_key(conversation_id, server_url)
+        key = _session_cache_key(conversation_id, self._user.id, server_url)
         sid = caches["default"].get(key)
         if sid:
             self._session_cache[server_url] = sid
@@ -294,7 +294,7 @@ class CallMCPServerTool(MaxTool):
         conversation_id = self._get_conversation_id()
         if not conversation_id:
             return
-        key = _session_cache_key(conversation_id, server_url)
+        key = _session_cache_key(conversation_id, self._user.id, server_url)
         caches["default"].set(key, session_id, timeout=SESSION_CACHE_TTL)
 
     def _clear_cached_session(self, server_url: str) -> None:
@@ -302,7 +302,7 @@ class CallMCPServerTool(MaxTool):
         conversation_id = self._get_conversation_id()
         if not conversation_id:
             return
-        key = _session_cache_key(conversation_id, server_url)
+        key = _session_cache_key(conversation_id, self._user.id, server_url)
         caches["default"].delete(key)
 
 

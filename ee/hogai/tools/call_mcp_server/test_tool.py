@@ -278,7 +278,7 @@ class TestSessionCaching(TestCallMCPServerTool):
 
             await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
 
-        key = _session_cache_key("conv-2", self.SERVER_URL)
+        key = _session_cache_key("conv-2", self.user.id, self.SERVER_URL)
         self.assertEqual(caches["default"].get(key), "sess-persisted")
 
     async def test_new_tool_instance_reads_session_from_django_cache(self):
@@ -286,7 +286,7 @@ class TestSessionCaching(TestCallMCPServerTool):
 
         from ee.hogai.tools.call_mcp_server.tool import _session_cache_key
 
-        key = _session_cache_key("conv-3", self.SERVER_URL)
+        key = _session_cache_key("conv-3", self.user.id, self.SERVER_URL)
         caches["default"].set(key, "sess-from-cache", timeout=3600)
 
         tool = self._create_tool(installations=self.INSTALLATIONS, conversation_id="conv-3")
@@ -304,7 +304,7 @@ class TestSessionCaching(TestCallMCPServerTool):
 
         from ee.hogai.tools.call_mcp_server.tool import _session_cache_key
 
-        key = _session_cache_key("conv-4", self.SERVER_URL)
+        key = _session_cache_key("conv-4", self.user.id, self.SERVER_URL)
         caches["default"].set(key, "stale-sess", timeout=3600)
 
         tool = self._create_tool(installations=self.INSTALLATIONS, conversation_id="conv-4")
