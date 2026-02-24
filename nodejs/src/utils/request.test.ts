@@ -143,9 +143,8 @@ describe('fetch', () => {
         it('should allow globally routable IPv6 addresses', async () => {
             jest.mocked(dns.lookup).mockResolvedValue([{ address: '2607:f8b0:4004:800::200e', family: 6 }] as any)
 
-            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             // This will fail to connect since it's a mock DNS result, but it should NOT throw SecureRequestError
-            await expect(fetch(`http://example.com`)).rejects.not.toThrow(SecureRequestError)
+            await expect(fetch(`http://example.com`)).rejects.not.toThrow(SecureRequestError) // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
         })
     })
 
