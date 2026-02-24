@@ -66,6 +66,12 @@ class RepoDecision:
     llm_called: bool
 
 
+@dataclass
+class DefaultRepoCommand:
+    action: Literal["set", "show", "clear"]
+    repository: str | None = None
+
+
 def resolve_slack_user(
     slack: SlackIntegration, integration: Integration, slack_user_id: str, channel: str, thread_ts: str
 ) -> SlackUserContext | None:
@@ -491,6 +497,95 @@ def _strip_bot_mentions(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
+def _parse_default_repo_command(text: str) -> DefaultRepoCommand | None:
+    cleaned = _strip_bot_mentions(text).strip()
+    if not cleaned:
+        return None
+
+    clear_match = re.fullmatch(r"default\s+repo\s+clear", cleaned, flags=re.IGNORECASE)
+    if clear_match:
+        return DefaultRepoCommand(action="clear")
+
+    show_match = re.fullmatch(r"default\s+repo\s+show", cleaned, flags=re.IGNORECASE)
+    if show_match:
+        return DefaultRepoCommand(action="show")
+
+    set_match = re.fullmatch(r"default\s+repo\s+set(?:\s+([\w.-]+/[\w.-]+))?", cleaned, flags=re.IGNORECASE)
+    if set_match:
+        return DefaultRepoCommand(action="set", repository=set_match.group(1))
+
+    return None
+
+
+def _get_user_default_repo(team_id: int, user_id: int) -> str | None:
+    from products.slack_app.backend.models import SlackUserRepoPreference
+
+    preference = SlackUserRepoPreference.objects.filter(team_id=team_id, user_id=user_id).first()
+    return preference.repository if preference else None
+
+
+def _set_user_default_repo(team_id: int, user_id: int, repository: str) -> None:
+    from products.slack_app.backend.models import SlackUserRepoPreference
+
+    SlackUserRepoPreference.objects.update_or_create(
+        team_id=team_id,
+        user_id=user_id,
+        defaults={"repository": repository},
+    )
+
+
+def _clear_user_default_repo(team_id: int, user_id: int) -> bool:
+    from products.slack_app.backend.models import SlackUserRepoPreference
+
+    deleted_count, _ = SlackUserRepoPreference.objects.filter(team_id=team_id, user_id=user_id).delete()
+    return bool(deleted_count)
+
+
+def _post_repo_picker_message(
+    *,
+    slack: SlackIntegration,
+    integration: Integration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    event_text: str,
+    user_message_ts: str | None,
+    guidance: str,
+    action_id: str,
+) -> None:
+    context_data = {
+        "integration_id": integration.id,
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "user_message_ts": user_message_ts,
+        "mentioning_slack_user_id": slack_user_id,
+        "event_text": event_text,
+        "created_at": int(time.time()),
+    }
+    context_token = uuid.uuid4().hex
+    cache.set(_picker_context_cache_key(context_token), context_data, timeout=PICKER_TOKEN_MAX_AGE_SECONDS)
+
+    slack.client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=guidance,
+        blocks=[
+            {
+                "type": "section",
+                "block_id": f"twig_repo_picker_v2:{integration.id}:{slack_user_id}:{context_token}",
+                "text": {"type": "mrkdwn", "text": guidance},
+                "accessory": {
+                    "type": "external_select",
+                    "action_id": action_id,
+                    "placeholder": {"type": "plain_text", "text": "Search GitHub repositories..."},
+                    "min_query_length": 0,
+                },
+            },
+        ],
+        metadata={"event_type": "twig_repo_picker", "event_payload": {"context_token": context_token}},
+    )
+
+
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     """Extract an explicit org/repo token from message text, if it matches connected repos."""
     if not text or not all_repos:
@@ -501,6 +596,11 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
 
     for token in cleaned_text.split():
         candidate = token.strip("`'\"()[]{}<>,.;:!?")
+
+        # Slack can format links as <url|label>; for repo tokens we want the label.
+        if "|" in candidate:
+            candidate = candidate.split("|", 1)[1].strip("`'\"()[]{}<>,.;:!?")
+
         if not candidate or "://" in candidate or candidate.startswith("http"):
             continue
         if not re.fullmatch(r"[\w.-]+/[\w.-]+", candidate):
@@ -644,14 +744,14 @@ def select_repository(
     if explicit_repo:
         return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_called=False)
 
-    repos = guess_repository(thread_messages, integration, user=user, all_repos=all_repos)
-    if len(repos) == 1:
-        return RepoDecision(mode="auto", repository=repos[0], reason="llm_single", llm_called=True)
+    user_default_repo = _get_user_default_repo(integration.team_id, user.id)
+    if user_default_repo and user_default_repo in all_repos:
+        return RepoDecision(mode="auto", repository=user_default_repo, reason="user_default_repo", llm_called=False)
 
-    if len(repos) == 0:
-        return RepoDecision(mode="picker", repository=None, reason="llm_no_match", llm_called=True)
+    if user_default_repo and user_default_repo not in all_repos:
+        _clear_user_default_repo(integration.team_id, user.id)
 
-    return RepoDecision(mode="picker", repository=None, reason="llm_ambiguous", llm_called=True)
+    return RepoDecision(mode="picker", repository=None, reason="no_explicit_multi_repo", llm_called=False)
 
 
 def route_twig_event_to_relevant_region(
@@ -691,6 +791,7 @@ def _create_task_for_repo(
     event_text: str,
     thread_messages: list[dict[str, str]],
     user_id: int,
+    slack_user_id: str | None = None,
 ) -> None:
     """Create a Task for the given repo, adding a seedling reaction and handling errors."""
     if user_message_ts:
@@ -708,6 +809,7 @@ def _create_task_for_repo(
         channel=channel,
         thread_ts=thread_ts,
         user_message_ts=user_message_ts,
+        mentioning_slack_user_id=slack_user_id,
     )
 
     try:
@@ -813,6 +915,83 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
         if not user_context:
             return
 
+        default_repo_command = _parse_default_repo_command(event.get("text", ""))
+        if default_repo_command:
+            all_repos = _get_full_repo_names(integration)
+
+            if default_repo_command.action == "show":
+                default_repo = _get_user_default_repo(integration.team_id, user_context.user.id)
+                if default_repo:
+                    slack.client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        text=f"Your default repository is `{default_repo}`.",
+                    )
+                else:
+                    slack.client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        text="You don't have a default repository set. Use `@Twig default repo set org/repo`.",
+                    )
+                return
+
+            if default_repo_command.action == "clear":
+                cleared = _clear_user_default_repo(integration.team_id, user_context.user.id)
+                text = "Cleared your default repository." if cleared else "You don't have a default repository set."
+                slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+                return
+
+            command_repo = default_repo_command.repository or ""
+            if default_repo_command.action == "set" and not command_repo:
+                if not all_repos:
+                    slack.client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        text="I couldn't find any connected GitHub repositories for this project.",
+                    )
+                    return
+
+                _post_repo_picker_message(
+                    slack=slack,
+                    integration=integration,
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    slack_user_id=slack_user_id,
+                    event_text=event.get("text", ""),
+                    user_message_ts=event.get("ts"),
+                    guidance=(
+                        "Pick a default repository for future generic requests. "
+                        "You can still override by explicitly writing `org/repo` in a task request."
+                    ),
+                    action_id="twig_default_repo_select",
+                )
+                return
+
+            if not all_repos:
+                slack.client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text="I couldn't find any connected GitHub repositories for this project.",
+                )
+                return
+
+            explicit_repo = _extract_explicit_repo(command_repo, all_repos)
+            if not explicit_repo:
+                slack.client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text="That repository is not connected to this project. Use `@Twig default repo show` to inspect current setting.",
+                )
+                return
+
+            _set_user_default_repo(integration.team_id, user_context.user.id, explicit_repo)
+            slack.client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text=f"Set your default repository to `{explicit_repo}`.",
+            )
+            return
+
         auth_response = slack.client.auth_test()
         our_bot_id = auth_response.get("bot_id")
 
@@ -848,41 +1027,21 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
                 )
                 return
 
-            context_data = {
-                "integration_id": integration.id,
-                "channel": channel,
-                "thread_ts": thread_ts,
-                "user_message_ts": event.get("ts"),
-                "mentioning_slack_user_id": slack_user_id,
-                "event_text": event.get("text", ""),
-                "created_at": int(time.time()),
-            }
-            context_token = uuid.uuid4().hex
-            cache.set(_picker_context_cache_key(context_token), context_data, timeout=PICKER_TOKEN_MAX_AGE_SECONDS)
-
-            if decision.reason == "llm_ambiguous":
-                guidance = "I found multiple possible repositories. Please select the right one:"
-            else:
-                guidance = "I couldn't determine which repository you're referring to. Please select the repository:"
-
-            slack.client.chat_postMessage(
+            guidance = (
+                "Please select the repository for this task. "
+                "Or @mention me again and include the exact repository as `org/repo`. "
+                "You can also set a default with `@Twig default repo set` or `@Twig default repo set org/repo`."
+            )
+            _post_repo_picker_message(
+                slack=slack,
+                integration=integration,
                 channel=channel,
                 thread_ts=thread_ts,
-                text=guidance,
-                blocks=[
-                    {
-                        "type": "section",
-                        "block_id": f"twig_repo_picker_v2:{integration.id}:{slack_user_id}:{context_token}",
-                        "text": {"type": "mrkdwn", "text": guidance},
-                        "accessory": {
-                            "type": "external_select",
-                            "action_id": "twig_repo_select",
-                            "placeholder": {"type": "plain_text", "text": "Search repositories..."},
-                            "min_query_length": 0,
-                        },
-                    },
-                ],
-                metadata={"event_type": "twig_repo_picker", "event_payload": {"context_token": context_token}},
+                slack_user_id=slack_user_id,
+                event_text=event.get("text", ""),
+                user_message_ts=event.get("ts"),
+                guidance=guidance,
+                action_id="twig_repo_select",
             )
             return
 
@@ -900,6 +1059,7 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
             event_text=event.get("text", ""),
             thread_messages=thread_messages,
             user_id=user_context.user.id,
+            slack_user_id=slack_user_id,
         )
 
     except Exception as e:
@@ -1003,10 +1163,34 @@ def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
     return integration_id, mentioning_slack_user_id
 
 
+def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
+    actions = payload.get("actions", [])
+    action = next((a for a in actions if a.get("action_id") == "twig_terminate_task"), None)
+    if not action:
+        return None, None
+
+    value_raw = action.get("value", "")
+    if not value_raw:
+        return None, None
+
+    try:
+        value = json.loads(value_raw)
+    except json.JSONDecodeError:
+        return None, None
+
+    integration_id = value.get("integration_id")
+    mentioning_user_id = value.get("mentioning_slack_user_id")
+    if not isinstance(integration_id, int):
+        return None, None
+    if mentioning_user_id is not None and not isinstance(mentioning_user_id, str):
+        mentioning_user_id = None
+    return integration_id, mentioning_user_id
+
+
 def _handle_repo_picker_options(payload: dict) -> JsonResponse:
     """Return filtered repo options for the external_select picker."""
     action = payload.get("action_id") or (payload.get("actions", [{}])[0].get("action_id", ""))
-    if action != "twig_repo_select":
+    if action not in {"twig_repo_select", "twig_default_repo_select"}:
         return JsonResponse({"options": []})
 
     context_token = _extract_context_token(payload)
@@ -1076,6 +1260,14 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
+    """Dispatch task termination to Celery and return 200 immediately."""
+    from products.slack_app.backend.tasks import process_twig_task_termination
+
+    process_twig_task_termination.delay(payload)
+    return HttpResponse(status=200)
+
+
 @csrf_exempt
 def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
@@ -1105,6 +1297,7 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     # Check if we own this context locally
     context = _decode_picker_context(context_token) if context_token else None
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
+    terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
 
     local = False
@@ -1112,14 +1305,18 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
         local = Integration.objects.filter(id=context.get("integration_id"), kind="slack-twig").exists()
     elif hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
         local = Integration.objects.filter(id=hinted_integration_id, kind="slack-twig").exists()
+    elif terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
+        local = Integration.objects.filter(id=terminate_integration_id, kind="slack-twig").exists()
 
     logger.info(
         "twig_interactivity_resolution",
         context_token_present=bool(context_token),
         has_context=bool(context),
         hinted_integration_id=hinted_integration_id,
+        terminate_integration_id=terminate_integration_id,
         requesting_user=requesting_user,
         hinted_user=hinted_user_id,
+        terminate_user=terminate_user_id,
         local=local,
         host=request.get_host(),
     )
@@ -1151,7 +1348,9 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if payload_type == "block_actions":
         actions = payload.get("actions", [])
         for action in actions:
-            if action.get("action_id") == "twig_repo_select":
+            if action.get("action_id") in {"twig_repo_select", "twig_default_repo_select"}:
                 return _handle_repo_picker_submit(payload)
+            if action.get("action_id") == "twig_terminate_task":
+                return _handle_terminate_task_submit(payload)
 
     return HttpResponse(status=200)
