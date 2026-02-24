@@ -5,7 +5,7 @@ export function humanizeHogFunctionType(type: HogFunctionTypeType, plural: boole
         return 'source' + (plural ? 's' : '')
     }
     if (type === 'site_app') {
-        return 'JS snippet' + (plural ? 's' : '')
+        return 'Web script' + (plural ? 's' : '')
     }
     return type.replaceAll('_', ' ') + (plural ? 's' : '')
 }

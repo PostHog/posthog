@@ -1561,8 +1561,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_pipeline',
         iconColor: ['var(--color-product-data-pipeline-light)'],
         href: urls.webScripts(),
-        sceneKey: 'Snippets',
-        sceneKeys: ['Snippets'],
+        sceneKey: 'WebScripts',
+        sceneKeys: ['WebScripts'],
     },
     {
         path: 'Workflows',

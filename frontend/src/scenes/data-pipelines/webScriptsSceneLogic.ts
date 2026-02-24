@@ -25,7 +25,7 @@ export const webScriptsSceneLogic = kea<webScriptsSceneLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/snippets': (_, searchParams) => {
+        '/web-scripts': (_, searchParams) => {
             const tab = searchParams.tab === 'history' ? 'history' : 'all'
             actions.setActiveTab(tab)
         },

@@ -52,7 +52,7 @@ export function WebScriptsScene(): JSX.Element {
     const tabs = [
         {
             key: 'all',
-            label: 'All snippets',
+            label: 'All web scripts',
             content: <DataPipelinesHogFunctions kind="site_app" action={action} />,
         },
         {
