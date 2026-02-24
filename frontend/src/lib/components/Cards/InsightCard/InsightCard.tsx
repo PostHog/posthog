@@ -112,7 +112,6 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
-        canResizeWidth,
         showEditingControls,
         showDetailsControls,
         updateColor,
@@ -288,9 +287,9 @@ function InsightCardInternal(
                 </BindLogic>
                 {showResizeHandles && (
                     <>
-                        {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
+                        <ResizeHandle1D orientation="vertical" />
                         <ResizeHandle1D orientation="horizontal" />
-                        {canResizeWidth ? <ResizeHandle2D /> : null}
+                        <ResizeHandle2D />
                     </>
                 )}
                 {children /* Extras, specifically resize handles injected by ReactGridLayout */}

@@ -200,7 +200,6 @@ export function DashboardItems(): JSX.Element {
                         const commonTileProps = {
                             dashboardId: dashboard?.id,
                             showResizeHandles: canEditLayout,
-                            canResizeWidth: !isMobileView,
                             showEditingControls: [
                                 DashboardPlacement.Dashboard,
                                 DashboardPlacement.ProjectHomepage,

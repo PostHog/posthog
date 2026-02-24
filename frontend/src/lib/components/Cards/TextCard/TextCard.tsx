@@ -31,16 +31,7 @@ export function TextContent({ text, closeDetails, className }: TextCardBodyProps
 }
 
 export function TextCardInternal(
-    {
-        textTile,
-        showResizeHandles,
-        canResizeWidth,
-        children,
-        className,
-        moreButtonOverlay,
-        placement,
-        ...divProps
-    }: TextCardProps,
+    { textTile, showResizeHandles, children, className, moreButtonOverlay, placement, ...divProps }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
     const { text } = textTile
@@ -74,9 +65,9 @@ export function TextCardInternal(
 
             {showResizeHandles && (
                 <>
-                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
+                    <ResizeHandle1D orientation="vertical" />
                     <ResizeHandle1D orientation="horizontal" />
-                    {canResizeWidth ? <ResizeHandle2D /> : null}
+                    <ResizeHandle2D />
                 </>
             )}
             {children /* Extras, such as resize handles */}
