@@ -71,7 +71,10 @@ impl PersonhogClient {
         keep_alive_timeout_secs: u64,
     ) -> Result<Self, FlagError> {
         let channel = Channel::from_shared(url.to_string())
-            .map_err(|e| FlagError::PersonhogError { code: tonic::Code::InvalidArgument, message: format!("Invalid personhog URL: {e}") })?
+            .map_err(|e| FlagError::PersonhogError {
+                code: tonic::Code::InvalidArgument,
+                message: format!("Invalid personhog URL: {e}"),
+            })?
             .timeout(Duration::from_millis(timeout_ms))
             .connect_timeout(Duration::from_millis(connect_timeout_ms))
             .http2_keep_alive_interval(Duration::from_secs(keep_alive_interval_secs))
@@ -102,7 +105,10 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .get_person_by_distinct_id(request)
             .await
-            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("GetPersonByDistinctId failed: {}", s.message()) })?;
+            .map_err(|s| FlagError::PersonhogError {
+                code: s.code(),
+                message: format!("GetPersonByDistinctId failed: {}", s.message()),
+            })?;
 
         let proto_person = match response.into_inner().person {
             Some(p) => p,
@@ -156,7 +162,10 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .check_cohort_membership(request)
             .await
-            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("CheckCohortMembership failed: {}", s.message()) })?;
+            .map_err(|s| FlagError::PersonhogError {
+                code: s.code(),
+                message: format!("CheckCohortMembership failed: {}", s.message()),
+            })?;
 
         let memberships = response
             .into_inner()
@@ -187,12 +196,12 @@ impl PersonhogFetcher for PersonhogClient {
             read_options: None,
         });
 
-        let response = self
-            .client
-            .clone()
-            .get_groups(request)
-            .await
-            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("GetGroups failed: {}", s.message()) })?;
+        let response = self.client.clone().get_groups(request).await.map_err(|s| {
+            FlagError::PersonhogError {
+                code: s.code(),
+                message: format!("GetGroups failed: {}", s.message()),
+            }
+        })?;
 
         let mut result = HashMap::new();
         for group in response.into_inner().groups {
@@ -231,7 +240,10 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .get_hash_key_override_context(request)
             .await
-            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("GetHashKeyOverrideContext failed: {}", s.message()) })?;
+            .map_err(|s| FlagError::PersonhogError {
+                code: s.code(),
+                message: format!("GetHashKeyOverrideContext failed: {}", s.message()),
+            })?;
 
         let results = response.into_inner().results;
         Ok(merge_hash_key_overrides(
@@ -265,7 +277,10 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .upsert_hash_key_overrides(request)
             .await
-            .map_err(|s| FlagError::PersonhogError { code: s.code(), message: format!("UpsertHashKeyOverrides failed: {}", s.message()) })?;
+            .map_err(|s| FlagError::PersonhogError {
+                code: s.code(),
+                message: format!("UpsertHashKeyOverrides failed: {}", s.message()),
+            })?;
 
         Ok(())
     }
@@ -293,8 +308,8 @@ fn merge_hash_key_overrides(
         }
     }
 
-    if let Some(primary_context) = primary_distinct_id
-        .and_then(|id| results.iter().find(|c| c.distinct_id == id))
+    if let Some(primary_context) =
+        primary_distinct_id.and_then(|id| results.iter().find(|c| c.distinct_id == id))
     {
         for hash_override in &primary_context.overrides {
             overrides.insert(
@@ -320,7 +335,7 @@ pub mod mock {
         group_responses: HashMap<TeamId, HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         hash_key_override_responses: HashMap<TeamId, HashMap<String, String>>,
         upsert_calls: Arc<Mutex<Vec<UpsertCall>>>,
-        error: Option<FlagError>,
+        error: Option<(tonic::Code, String)>,
     }
 
     impl Default for MockPersonhogClient {
@@ -379,8 +394,8 @@ pub mod mock {
             self
         }
 
-        pub fn with_error(mut self, error: FlagError) -> Self {
-            self.error = Some(error);
+        pub fn with_error(mut self, code: tonic::Code, message: impl Into<String>) -> Self {
+            self.error = Some((code, message.into()));
             self
         }
 
@@ -396,8 +411,11 @@ pub mod mock {
             team_id: TeamId,
             distinct_id: &str,
         ) -> Result<Option<Person>, FlagError> {
-            if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
+            if let Some((code, message)) = &self.error {
+                return Err(FlagError::PersonhogError {
+                    code: *code,
+                    message: message.clone(),
+                });
             }
             Ok(self
                 .person_responses
@@ -411,8 +429,11 @@ pub mod mock {
             person_id: PersonId,
             _cohort_ids: &[CohortId],
         ) -> Result<HashMap<CohortId, bool>, FlagError> {
-            if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
+            if let Some((code, message)) = &self.error {
+                return Err(FlagError::PersonhogError {
+                    code: *code,
+                    message: message.clone(),
+                });
             }
             Ok(self
                 .cohort_responses
@@ -426,8 +447,11 @@ pub mod mock {
             team_id: TeamId,
             _group_identifiers: Vec<(GroupTypeIndex, String)>,
         ) -> Result<HashMap<GroupTypeIndex, HashMap<String, Value>>, FlagError> {
-            if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
+            if let Some((code, message)) = &self.error {
+                return Err(FlagError::PersonhogError {
+                    code: *code,
+                    message: message.clone(),
+                });
             }
             Ok(self
                 .group_responses
@@ -441,8 +465,11 @@ pub mod mock {
             team_id: TeamId,
             _distinct_ids: Vec<String>,
         ) -> Result<HashMap<String, String>, FlagError> {
-            if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
+            if let Some((code, message)) = &self.error {
+                return Err(FlagError::PersonhogError {
+                    code: *code,
+                    message: message.clone(),
+                });
             }
             Ok(self
                 .hash_key_override_responses
@@ -458,8 +485,11 @@ pub mod mock {
             feature_flag_keys: Vec<String>,
             hash_key: String,
         ) -> Result<(), FlagError> {
-            if let Some(ref error) = self.error {
-                return Err(FlagError::PersonhogError { code: tonic::Code::Internal, message: error.to_string() });
+            if let Some((code, message)) = &self.error {
+                return Err(FlagError::PersonhogError {
+                    code: *code,
+                    message: message.clone(),
+                });
             }
             self.upsert_calls.lock().unwrap().push((
                 team_id,
@@ -477,10 +507,7 @@ mod tests {
     use super::*;
     use personhog_proto::personhog::types::v1::HashKeyOverride;
 
-    fn make_context(
-        distinct_id: &str,
-        overrides: Vec<(&str, &str)>,
-    ) -> HashKeyOverrideContext {
+    fn make_context(distinct_id: &str, overrides: Vec<(&str, &str)>) -> HashKeyOverrideContext {
         HashKeyOverrideContext {
             person_id: 0,
             distinct_id: distinct_id.to_string(),

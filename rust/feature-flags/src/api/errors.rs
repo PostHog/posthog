@@ -126,10 +126,7 @@ pub enum FlagError {
     #[error("Parallel batch evaluation task panicked")]
     BatchEvaluationPanicked,
     #[error("Personhog service error ({code}): {message}")]
-    PersonhogError {
-        code: tonic::Code,
-        message: String,
-    },
+    PersonhogError { code: tonic::Code, message: String },
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
 }
@@ -746,7 +743,10 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
-            FlagError::PersonhogError { code: tonic::Code::Unavailable, message: "test".to_string() },
+            FlagError::PersonhogError {
+                code: tonic::Code::Unavailable,
+                message: "test".to_string(),
+            },
             CookielessManagerError::MissingProperty("test".to_string()).into(), // CookielessError
         ];
 
@@ -856,7 +856,10 @@ mod tests {
             FlagError::PersonNotFound,
             FlagError::PropertiesNotInCache,
             FlagError::StaticCohortMatchesNotCached,
-            FlagError::PersonhogError { code: tonic::Code::Unavailable, message: "test".to_string() },
+            FlagError::PersonhogError {
+                code: tonic::Code::Unavailable,
+                message: "test".to_string(),
+            },
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
         ];
 
@@ -945,7 +948,10 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
-            FlagError::PersonhogError { code: tonic::Code::Unavailable, message: "test".to_string() },
+            FlagError::PersonhogError {
+                code: tonic::Code::Unavailable,
+                message: "test".to_string(),
+            },
             CookielessManagerError::MissingProperty("test".to_string()).into(),
         ];
 

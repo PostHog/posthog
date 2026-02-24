@@ -31,10 +31,10 @@ use crate::{
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
-        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME, FLAG_PERSONHOG_COHORT_QUERY_TIME,
-        FLAG_PERSONHOG_GROUP_QUERY_TIME, FLAG_PERSONHOG_HASH_KEY_QUERY_TIME,
-        FLAG_PERSONHOG_PERSON_QUERY_TIME, FLAG_PERSONHOG_UPSERT_TIME,
+        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER,
+        FLAG_PERSONHOG_COHORT_QUERY_TIME, FLAG_PERSONHOG_GROUP_QUERY_TIME,
+        FLAG_PERSONHOG_HASH_KEY_QUERY_TIME, FLAG_PERSONHOG_PERSON_QUERY_TIME,
+        FLAG_PERSONHOG_UPSERT_TIME, FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -462,8 +462,7 @@ async fn fetch_properties_via_personhog(
     static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
     let person_query_start = Instant::now();
-    let person_timer =
-        common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
+    let person_timer = common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
     let person = client
         .get_person_by_distinct_id(team_id, &distinct_id)
         .await?;
@@ -483,8 +482,7 @@ async fn fetch_properties_via_personhog(
 
         if !static_cohort_ids.is_empty() {
             let cohort_start = Instant::now();
-            let cohort_timer =
-                common_metrics::timing_guard(FLAG_PERSONHOG_COHORT_QUERY_TIME, &[]);
+            let cohort_timer = common_metrics::timing_guard(FLAG_PERSONHOG_COHORT_QUERY_TIME, &[]);
             let cohort_results = client
                 .check_cohort_membership(person_id, &static_cohort_ids)
                 .await?;
@@ -518,8 +516,7 @@ async fn fetch_properties_via_personhog(
             .collect();
 
         let group_start = Instant::now();
-        let group_timer =
-            common_metrics::timing_guard(FLAG_PERSONHOG_GROUP_QUERY_TIME, &[]);
+        let group_timer = common_metrics::timing_guard(FLAG_PERSONHOG_GROUP_QUERY_TIME, &[]);
         let group_properties = client.get_groups(team_id, group_identifiers).await?;
         group_timer.fin();
         let group_duration = group_start.elapsed();
@@ -928,24 +925,21 @@ pub async fn set_feature_flag_hash_key_overrides(
     personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<bool, FlagError> {
     if let Some(client) = personhog_client {
-        let first_distinct_id = distinct_ids.first().ok_or_else(|| {
-            FlagError::PersonhogError {
+        let first_distinct_id = distinct_ids
+            .first()
+            .ok_or_else(|| FlagError::PersonhogError {
                 code: tonic::Code::InvalidArgument,
                 message: "distinct_ids must not be empty".to_string(),
-            }
-        })?;
+            })?;
 
         let person_start = Instant::now();
-        let person_timer =
-            common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
+        let person_timer = common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
         let person = client
             .get_person_by_distinct_id(team_id, first_distinct_id)
             .await?
-            .ok_or_else(|| {
-                FlagError::PersonhogError {
-                    code: tonic::Code::NotFound,
-                    message: format!("Person not found for distinct_id {first_distinct_id}"),
-                }
+            .ok_or_else(|| FlagError::PersonhogError {
+                code: tonic::Code::NotFound,
+                message: format!("Person not found for distinct_id {first_distinct_id}"),
             })?;
         person_timer.fin();
         info!(
@@ -2874,10 +2868,7 @@ mod tests {
             let team_id = team.id;
 
             // Mock returns no existing overrides
-            let mock = MockPersonhogClient::new().with_hash_key_overrides(
-                team_id,
-                HashMap::new(),
-            );
+            let mock = MockPersonhogClient::new().with_hash_key_overrides(team_id, HashMap::new());
 
             // Insert an active EEC flag
             let flag_row = FeatureFlagRow {
@@ -2919,8 +2910,7 @@ mod tests {
             // Mock returns an existing override for the flag
             let mut existing = HashMap::new();
             existing.insert("eec_flag".to_string(), "existing_hash".to_string());
-            let mock =
-                MockPersonhogClient::new().with_hash_key_overrides(team_id, existing);
+            let mock = MockPersonhogClient::new().with_hash_key_overrides(team_id, existing);
 
             // Insert an active EEC flag
             let flag_row = FeatureFlagRow {
@@ -2959,7 +2949,7 @@ mod tests {
             let distinct_id = "error_user";
 
             let mock = MockPersonhogClient::new()
-                .with_error(FlagError::PersonhogError { code: tonic::Code::Unavailable, message: "service unavailable".to_string() });
+                .with_error(tonic::Code::Unavailable, "service unavailable");
 
             let mut state = FlagEvaluationState::default();
 
