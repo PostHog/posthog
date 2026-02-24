@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
 
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
 from posthog.helpers.full_text_search import process_query
@@ -48,6 +49,19 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["feature_flag"], 1)
         self.assertEqual(response.json()["counts"]["insight"], 1)
         self.assertEqual(response.json()["counts"]["notebook"], 1)
+
+    def test_search_without_counts(self):
+        response = self.client.get("/api/projects/@current/search?q=sec&include_counts=false")
+
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 4
+        assert "counts" not in response.json()
+
+    def test_search_results_identical_with_and_without_counts(self):
+        response_with = self.client.get("/api/projects/@current/search?q=sec&include_counts=true")
+        response_without = self.client.get("/api/projects/@current/search?q=sec&include_counts=false")
+
+        assert response_with.json()["results"] == response_without.json()["results"]
 
     def test_search_without_query(self):
         response = self.client.get("/api/projects/@current/search")
@@ -232,6 +246,33 @@ class TestSearch(APIBaseTest):
         )
         self.assertEqual(qs_key_filter.count(), 1)
         self.assertEqual(next(iter(qs_key_filter))["extra_fields"]["key"], "filter_active1")
+
+    def test_search_query_count_with_and_without_counts(self):
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        with CaptureQueriesContext(connection) as ctx_with:
+            search_entities(
+                entities=set(ENTITY_MAP.keys()),
+                query="sec",
+                project_id=self.team.project_id,
+                view=mock_view,
+                entity_map=ENTITY_MAP,
+                include_counts=True,
+            )
+
+        with CaptureQueriesContext(connection) as ctx_without:
+            search_entities(
+                entities=set(ENTITY_MAP.keys()),
+                query="sec",
+                project_id=self.team.project_id,
+                view=mock_view,
+                entity_map=ENTITY_MAP,
+                include_counts=False,
+            )
+
+        assert len(ctx_with) - len(ctx_without) >= 13
+        assert len(ctx_without) == 1
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):

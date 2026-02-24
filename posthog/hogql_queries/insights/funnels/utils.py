@@ -92,8 +92,9 @@ def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGu
     return isinstance(entity, DataWarehouseNode)
 
 
-def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str, str, str]:
+def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str, str, str, str]:
     return (
+        node.table_name,
         node.id_field,
         node.distinct_id_field,
         node.timestamp_field,

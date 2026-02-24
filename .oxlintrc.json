@@ -252,6 +252,12 @@
                     }
                 ]
             }
+        },
+        {
+            "files": ["docs/onboarding/**/*.tsx"],
+            "rules": {
+                "react/forbid-elements": "off"
+            }
         }
     ]
 }

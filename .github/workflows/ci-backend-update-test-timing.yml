@@ -3,7 +3,6 @@ name: Backend CI - Update test timing
 on:
     pull_request:
         paths:
-            - '.github/workflows/ci-backend-update-test-timing.yml'
             - '.github/scripts/optimize_test_durations.py'
     workflow_dispatch:
         inputs:
@@ -41,6 +40,8 @@ jobs:
 
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Find CI run to use
               id: find-run
@@ -99,18 +100,23 @@ jobs:
                       --segment Core
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
                       --segment Temporal
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
+                      --segment Products
 
-                  # Merge into single file (Core first, then Temporal overwrites any overlaps)
+                  # Merge into single file (Core → Temporal → Products, later segments overwrite overlaps)
                   python3 -c "
                   import json
-                  with open('/tmp/core_durations') as f: durations = json.load(f)
-                  with open('/tmp/temporal_durations') as f: durations.update(json.load(f))
+                  durations = {}
+                  for path in ['/tmp/core_durations', '/tmp/temporal_durations', '/tmp/products_durations']:
+                      try:
+                          with open(path) as f: durations.update(json.load(f))
+                      except FileNotFoundError: pass
                   with open('.test_durations', 'w') as f:
                       json.dump(durations, f, indent=4, sort_keys=True)
                       f.write('\n')
                   print(f'Merged {len(durations)} tests')
                   "
-                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations
+                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
 
             - name: Check for changes
               id: check-changes
@@ -153,3 +159,5 @@ jobs:
                   branch: chore/update-test-timings
                   base: master
                   delete-branch: true
+                  reviewers: |
+                      PostHog/team-devex

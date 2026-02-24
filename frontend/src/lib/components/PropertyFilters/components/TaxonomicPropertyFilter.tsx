@@ -78,11 +78,14 @@ export function TaxonomicPropertyFilter({
     editable = true,
     operatorAllowlist,
     endpointFilters,
+    hogQLGlobals,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
     const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
-    const groupTypes = showQuickFilters ? [TaxonomicFilterGroupType.QuickFilters, ...baseGroupTypes] : baseGroupTypes
+    const groupTypes = showQuickFilters
+        ? [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
+        : baseGroupTypes
     const taxonomicOnChange: (
         group: TaxonomicFilterGroup,
         value: TaxonomicFilterValue,
@@ -92,7 +95,7 @@ export function TaxonomicPropertyFilter({
         selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
-            taxonomicGroup.type === TaxonomicFilterGroupType.QuickFilters
+            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters
         ) {
             onComplete?.()
         }
@@ -175,6 +178,7 @@ export function TaxonomicPropertyFilter({
             hideBehavioralCohorts={hideBehavioralCohorts}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
+            hogQLGlobals={hogQLGlobals}
         />
     )
 

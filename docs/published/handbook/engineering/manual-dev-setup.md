@@ -6,7 +6,7 @@ showTitle: true
 
 # Manual setup
 
-This documentation is deprecated, and likely not up to date. Please use the [Flox-based instant setup](/handbook/engineering/developing-locally#setup-with-flox-recommended) instead.
+This documentation is deprecated, and likely not up to date. Please use the [Flox-based instant setup](./developing-locally#setup-with-flox-recommended) instead.
 
 ## 1. Spin up external services
 
@@ -291,4 +291,4 @@ To get some practical test data into your brand-new instance of PostHog, run `DE
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
-You can now change PostHog in any way you want. See [Project structure](/handbook/engineering/project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
+You can now change PostHog in any way you want. See [Project structure](./project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.

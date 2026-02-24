@@ -5,46 +5,73 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-// Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
-const getSlackAppManifest = (): any => ({
-    display_information: {
-        name: 'PostHog',
-        description: 'Product insights right where you need them',
-        background_color: '#f54e00',
-    },
-    features: {
-        app_home: {
-            home_tab_enabled: false,
-            messages_tab_enabled: false,
-            messages_tab_read_only_enabled: true,
+// Matches production Slack app manifest (app.dev.posthog.dev)
+const getSlackAppManifest = (): any => {
+    const origin = window.location.origin.replace('http://', 'https://')
+    return {
+        display_information: {
+            name: 'PostHog (dev)',
+            description: 'Experimental hog',
+            background_color: '#000000',
         },
-        bot_user: {
-            display_name: 'PostHog',
-            always_online: false,
+        features: {
+            app_home: {
+                home_tab_enabled: false,
+                messages_tab_enabled: true,
+                messages_tab_read_only_enabled: false,
+            },
+            bot_user: {
+                display_name: 'PostHog (dev)',
+                always_online: true,
+            },
+            unfurl_domains: ['ngrok.dev', 'slackhog.ngrok.dev', 'posthog.com'],
+            assistant_view: {
+                assistant_description:
+                    'Your AI-powered product assistant. Ask questions, build insights, analyze data.',
+                suggested_prompts: [],
+            },
         },
-        unfurl_domains: [window.location.hostname],
-    },
-    oauth_config: {
-        redirect_urls: [`${window.location.origin.replace('http://', 'https://')}/integrations/slack/callback`],
-        scopes: {
-            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
+        oauth_config: {
+            redirect_urls: [`${origin}/integrations/slack/callback`],
+            scopes: {
+                bot: [
+                    'app_mentions:read',
+                    'assistant:write',
+                    'channels:history',
+                    'channels:join',
+                    'channels:read',
+                    'chat:write',
+                    'chat:write.public',
+                    'commands',
+                    'groups:history',
+                    'im:history',
+                    'im:write',
+                    'links:read',
+                    'links:write',
+                    'reactions:read',
+                    'reactions:write',
+                    'team:read',
+                    'users:read',
+                    'users:read.email',
+                ],
+            },
         },
-    },
-    settings: {
-        event_subscriptions: {
-            request_url: `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`,
-            bot_events: ['link_shared'],
+        settings: {
+            event_subscriptions: {
+                request_url: `${origin}/slack/event-callback`,
+                bot_events: ['app_mention', 'link_shared'],
+            },
+            org_deploy_enabled: false,
+            socket_mode_enabled: false,
+            token_rotation_enabled: false,
         },
-        org_deploy_enabled: false,
-        socket_mode_enabled: false,
-        token_rotation_enabled: false,
-    },
-})
+    }
+}
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
@@ -53,16 +80,6 @@ export function SlackIntegration(): JSX.Element {
 
     return (
         <div>
-            <p>
-                Integrate with Slack directly to get more advanced options such as{' '}
-                <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack channels of your choice.
-                Guidance on integrating with Slack available{' '}
-                <Link to="https://posthog.com/docs/product-analytics/subscriptions#slack-subscriptions">
-                    in our docs
-                </Link>
-                .
-            </p>
-
             <div className="deprecated-space-y-2">
                 {slackIntegrations?.map((integration) => (
                     <IntegrationView key={integration.id} integration={integration} />

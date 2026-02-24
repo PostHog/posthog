@@ -8,7 +8,7 @@ test.describe('SQL Editor', () => {
     test('See SQL Editor', async ({ page }) => {
         await expect(page.locator('[data-attr=editor-scene]')).toBeVisible()
         await expect(page.locator('[data-attr=sql-editor-source-empty-state]')).toBeVisible()
-        await expect(page.getByText('SQL query')).toBeVisible()
+        await expect(page.locator('.scene-name h1 span').getByText('New SQL query', { exact: true })).toBeVisible()
     })
 
     test('Add source link', async ({ page }) => {
@@ -31,10 +31,13 @@ test.describe('SQL Editor', () => {
         await expect(page.locator('[data-attr=hogql-query-editor]')).toBeVisible()
         await page.locator('[data-attr=hogql-query-editor]').click()
         await page.locator('[data-attr=hogql-query-editor]').pressSequentially('SELECT 1')
+        await page.locator('[data-attr=sql-editor-run-button]').click()
+        await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
 
-        // Wait for save button to be enabled before clicking
-        await expect(page.locator('[data-attr=sql-editor-save-view-button]')).toBeEnabled()
-        await page.locator('[data-attr=sql-editor-save-view-button]').click()
+        // Open save options, then click save as view
+        await expect(page.locator('[data-attr=sql-editor-save-options-button]')).toBeEnabled()
+        await page.locator('[data-attr=sql-editor-save-options-button]').click()
+        await page.getByText('Save as view', { exact: true }).click()
 
         // Wait for the modal/dialog to appear and be ready
         const nameInput = page.locator('[data-attr=sql-editor-input-save-view-name]')
@@ -53,7 +56,7 @@ test.describe('SQL Editor', () => {
 
         // Wait for the success message which confirms the API call completed
         await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
-        await expect(page.getByText(`Editing view "${uniqueViewName}"`)).toBeVisible()
+        await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
     })
 
     test('Materialize view pane', async ({ page }) => {

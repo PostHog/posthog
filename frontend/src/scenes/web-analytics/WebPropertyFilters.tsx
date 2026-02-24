@@ -8,8 +8,8 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isWebAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AnyPropertyFilter } from '~/types'
@@ -79,7 +79,7 @@ export const WebPropertyFilters = ({
         <Popover
             visible={displayFilters}
             onClickOutside={() => setDisplayFilters(false)}
-            placement="bottom"
+            placement="bottom-start"
             className="max-w-200"
             overlay={
                 <div className="p-2">

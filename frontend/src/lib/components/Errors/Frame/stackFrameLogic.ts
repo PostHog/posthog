@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -28,6 +28,16 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
     actions({
         loadFromRawIds: (rawIds: ErrorTrackingStackFrame['raw_id'][]) => ({ rawIds }),
         loadForSymbolSet: (symbolSetId: ErrorTrackingSymbolSet['id']) => ({ symbolSetId }),
+        setLoadStartTime: (startTime: number | null) => ({ startTime }),
+    }),
+
+    reducers({
+        loadStartTime: [
+            null as number | null,
+            {
+                setLoadStartTime: (_, { startTime }) => startTime,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -52,12 +62,23 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
         ],
     })),
 
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
+        loadFromRawIds: () => {
+            actions.setLoadStartTime(performance.now())
+        },
         loadFromRawIdsSuccess: ({ stackFrameRecords }) => {
+            const durationMs =
+                values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
+            actions.setLoadStartTime(null)
+
             const recordsWithContext = Object.values(stackFrameRecords).filter((record) => record.context)
-            posthog.capture('error_tracking_frame_context_loaded', {
+            posthog.capture('error_tracking_stack_trace_loaded', {
+                duration_ms: durationMs,
                 frame_count: recordsWithContext.length,
             })
+        },
+        loadFromRawIdsFailure: () => {
+            actions.setLoadStartTime(null)
         },
     })),
 ])

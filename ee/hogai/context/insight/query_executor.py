@@ -129,6 +129,7 @@ class AssistantQueryExecutor:
         execution_mode: Optional[ExecutionMode] = None,
         insight_id=None,
         debug_timing=False,
+        truncate_results: bool = True,
     ) -> tuple[str, bool]:
         """
         Run a query and format the results with detailed fallback information.
@@ -166,7 +167,9 @@ class AssistantQueryExecutor:
             try:
                 # Attempt to format results using query-specific formatters
                 format_start = time.time()
-                formatted_results = await self._compress_results(query, response_dict, debug_timing=debug_timing)
+                formatted_results = await self._compress_results(
+                    query, response_dict, debug_timing=debug_timing, truncate_results=truncate_results
+                )
                 format_elapsed = time.time() - format_start
                 total_elapsed = time.time() - start_time
                 if debug_timing:
@@ -402,7 +405,11 @@ class AssistantQueryExecutor:
         return response_dict
 
     async def _compress_results(
-        self, query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery, response: dict, debug_timing=False
+        self,
+        query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+        response: dict,
+        debug_timing=False,
+        truncate_results: bool = True,
     ) -> str:
         """
         Format query results using appropriate formatter based on query type.
@@ -439,7 +446,10 @@ class AssistantQueryExecutor:
                 result = RetentionResultsFormatter(query, response["results"]).format()
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
-                result = SQLResultsFormatter(query, response["results"], response["columns"]).format()
+                max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
+                result = SQLResultsFormatter(
+                    query, response["results"], response["columns"], max_cell_length=max_cell_length
+                ).format()
             elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
                 formatter_name = "RevenueAnalyticsGrossRevenueResultsFormatter"
                 result = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
@@ -511,6 +521,7 @@ async def execute_and_format_query(
     query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
     execution_mode: Optional[ExecutionMode] = None,
     insight_id: Optional[int] = None,
+    truncate_results: bool = True,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -532,7 +543,9 @@ async def execute_and_format_query(
     query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
     query_runner = AssistantQueryExecutor(team, utc_now_datetime)
-    results, used_fallback = await query_runner.arun_and_format_query(query, execution_mode, insight_id)
+    results, used_fallback = await query_runner.arun_and_format_query(
+        query, execution_mode, insight_id, truncate_results=truncate_results
+    )
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
     currency = team.base_currency or CurrencyCode.USD.value
 

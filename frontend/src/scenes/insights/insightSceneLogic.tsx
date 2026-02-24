@@ -9,17 +9,18 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
@@ -35,6 +36,7 @@ import {
     ItemMode,
     ProjectTreeRef,
     QueryBasedInsightModel,
+    SidePanelTab,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -57,6 +59,19 @@ function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
             (filter.properties == null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
             filter.breakdown_filter == null)
     )
+}
+
+function normalizeItemId(itemId: string | undefined): string | number | null {
+    if (itemId === undefined) {
+        return null
+    }
+    if (itemId === 'new' || itemId.startsWith('new-')) {
+        return 'new'
+    }
+    if (Number.isInteger(+itemId)) {
+        return parseInt(itemId, 10)
+    }
+    return itemId
 }
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
@@ -136,14 +151,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         itemId: [
             null as null | string | number,
             {
-                setSceneState: (_, { itemId }) =>
-                    itemId !== undefined
-                        ? itemId === 'new' || itemId?.startsWith('new-')
-                            ? 'new'
-                            : Number.isInteger(+itemId)
-                              ? parseInt(itemId, 10)
-                              : itemId
-                        : null,
+                setSceneState: (_, { itemId }) => normalizeItemId(itemId),
             },
         ],
         alertId: [
@@ -279,12 +287,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                           path: urls.llmAnalyticsDashboard(),
                                           iconType: 'llm_analytics' as FileSystemIconType,
                                       }
-                                    : {
-                                          key: Scene.SavedInsights,
-                                          name: 'Product analytics',
-                                          path: urls.savedInsights(),
-                                          iconType: 'product_analytics' as FileSystemIconType,
-                                      },
+                                    : sceneSource === 'endpoints'
+                                      ? {
+                                            key: Scene.Endpoints,
+                                            name: 'endpoints',
+                                            path: urls.endpoints(),
+                                            iconType: 'endpoints' as FileSystemIconType,
+                                        }
+                                      : {
+                                            key: Scene.SavedInsights,
+                                            name: 'Product analytics',
+                                            path: urls.savedInsights(),
+                                            iconType: 'product_analytics' as FileSystemIconType,
+                                        },
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
@@ -388,7 +403,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     })),
     listeners(({ sharedListeners, values }) => ({
         setInsightMode: sharedListeners.reloadInsightLogic,
-        setSceneState: sharedListeners.reloadInsightLogic,
+        setSceneState: [
+            sharedListeners.reloadInsightLogic,
+            ({ sceneSource }) => {
+                if (sceneSource === 'endpoints') {
+                    sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Info)
+                }
+            },
+        ],
         upgradeQuery: async ({ query }) => {
             let upgradedQuery: Node | null = null
 
@@ -441,17 +463,26 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const currentScene = sceneLogic.findMounted()?.values
 
-            const alertChanged = alert_id !== values.alertId
+            const alertChanged = (alert_id ?? null) !== values.alertId
+            const isExistingInsight = shortId !== 'new'
+
+            const itemIdChanged =
+                (currentScene?.activeSceneLogic as BuiltLogic<insightSceneLogicType>)?.values.itemId !==
+                normalizeItemId(itemId)
 
             if (
+                isExistingInsight &&
                 currentScene?.activeSceneId === Scene.Insight &&
                 currentScene.activeSceneLogic &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
                     insightMode &&
-                !alertChanged
+                !alertChanged &&
+                !itemIdChanged
             ) {
-                // If nothing about the scene has changed, don't do anything
+                // Nothing about the scene has changed, skip re-processing.
+                // New insights (/insights/new) are excluded because the insight type
+                // or dashboard in hash/search params may have changed.
                 return
             }
 
@@ -468,14 +499,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
-                itemId !== values.itemId ||
+                (itemId ?? null) !== values.itemId ||
                 (sceneSource ?? null) !== values.sceneSource ||
                 alertChanged ||
-                !objectsEqual(variablesOverride, values.variablesOverride) ||
-                !objectsEqual(filtersOverride, values.filtersOverride) ||
-                !objectsEqual(tileFiltersOverride, values.tileFiltersOverride) ||
-                dashboard !== values.dashboardId ||
-                dashboardName !== values.dashboardName
+                !objectsEqual(variablesOverride ?? null, values.variablesOverride) ||
+                !objectsEqual(filtersOverride ?? null, values.filtersOverride) ||
+                !objectsEqual(tileFiltersOverride ?? null, values.tileFiltersOverride) ||
+                (dashboard ?? null) !== values.dashboardId ||
+                (dashboardName ?? null) !== values.dashboardName
             ) {
                 actions.setSceneState(
                     insightId,

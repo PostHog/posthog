@@ -2,8 +2,9 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -30,6 +31,8 @@ import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColum
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
+
+export const MAX_VALUE_COLUMNS = 100
 
 export interface InsightsTableProps {
     /** Key for the entityFilterLogic */
@@ -83,7 +86,7 @@ export function InsightsTable({
         interval,
         breakdownFilter,
         trendsFilter,
-        isSingleSeries,
+        isSingleSeriesDefinition,
         getTrendsColor,
         getTrendsHidden,
         insightData,
@@ -94,6 +97,7 @@ export function InsightsTable({
     )
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
+    const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -117,6 +121,25 @@ export function InsightsTable({
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
+    // When there's only one series definition and a single breakdown, the "Series" column would
+    // redundantly show the same event name on every row. Instead, merge the breakdown
+    // info into the first column and skip the separate "Breakdown" column.
+    const isSingleSeriesWithBreakdown =
+        isSingleSeriesDefinition &&
+        isValidBreakdown(breakdownFilter) &&
+        !(breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 1)
+
+    const formatItemBreakdownLabel = isValidBreakdown(breakdownFilter)
+        ? (item: IndexedTrendResult): string =>
+              formatBreakdownLabel(
+                  Array.isArray(item.breakdown_value) ? item.breakdown_value[0] : item.breakdown_value,
+                  breakdownFilter,
+                  allCohorts?.results,
+                  formatPropertyValueForDisplay,
+                  breakdownFilter.breakdowns ? 0 : undefined
+              )
+        : undefined
+
     columns.push({
         title: (
             <div className="flex items-center gap-4">
@@ -129,21 +152,38 @@ export function InsightsTable({
                         disabledReason={editingDisabledReason}
                     />
                 )}
-                <span>Series</span>
+                {isSingleSeriesWithBreakdown ? (
+                    breakdownFilter?.breakdown ? (
+                        <BreakdownColumnTitle breakdownFilter={breakdownFilter} />
+                    ) : (
+                        <MultipleBreakdownColumnTitle>
+                            {extractDisplayLabel(breakdownFilter?.breakdowns?.[0]?.property?.toString() ?? '')}
+                        </MultipleBreakdownColumnTitle>
+                    )
+                ) : (
+                    <span>Series</span>
+                )}
             </div>
         ),
         render: (_, item) => {
-            const label = (
+            const label = isSingleSeriesWithBreakdown ? (
+                <BreakdownColumnItem
+                    item={item}
+                    formatItemBreakdownLabel={formatItemBreakdownLabel!}
+                    breakdownFilter={breakdownFilter}
+                />
+            ) : (
                 <SeriesColumnItem
                     item={item}
                     indexedResults={indexedResults}
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
-                    hasMultipleSeries={!isSingleSeries}
+                    hasMultipleSeries={!isSingleSeriesDefinition}
                     hasBreakdown={isValidBreakdown(breakdownFilter)}
                 />
             )
+
             return hasCheckboxes ? (
                 <SeriesCheckColumnItem
                     item={item}
@@ -159,6 +199,13 @@ export function InsightsTable({
         },
         key: 'label',
         sorter: (a, b) => {
+            if (isSingleSeriesWithBreakdown) {
+                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                    return a.breakdown_value - b.breakdown_value
+                }
+                return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
+            }
+
             const labelA = a.action?.name || a.label || ''
             const labelB = b.action?.name || b.label || ''
             return labelA.localeCompare(labelB)
@@ -166,41 +213,33 @@ export function InsightsTable({
     })
 
     if (breakdownFilter?.breakdown) {
-        const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-            formatBreakdownLabel(
-                item.breakdown_value,
-                breakdownFilter,
-                allCohorts?.results,
-                formatPropertyValueForDisplay
-            )
-
-        columns.push({
-            title: (
-                <BreakdownColumnTitle
-                    breakdownFilter={breakdownFilter}
-                    isPinned={isColumnPinned('breakdown')}
-                    onTogglePin={() => toggleColumnPin('breakdown')}
-                />
-            ),
-            render: (_, item) => {
-                return (
-                    <BreakdownColumnItem
-                        item={item}
-                        formatItemBreakdownLabel={formatItemBreakdownLabel}
+        if (!isSingleSeriesWithBreakdown) {
+            columns.push({
+                title: (
+                    <BreakdownColumnTitle
                         breakdownFilter={breakdownFilter}
+                        isPinned={isColumnPinned('breakdown')}
+                        onTogglePin={() => toggleColumnPin('breakdown')}
                     />
-                )
-            },
-            key: 'breakdown',
-            sorter: (a, b) => {
-                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
-                    return a.breakdown_value - b.breakdown_value
-                }
-                const labelA = formatItemBreakdownLabel(a)
-                const labelB = formatItemBreakdownLabel(b)
-                return compareFn()(labelA, labelB)
-            },
-        })
+                ),
+                render: (_, item) => {
+                    return (
+                        <BreakdownColumnItem
+                            item={item}
+                            formatItemBreakdownLabel={formatItemBreakdownLabel!}
+                            breakdownFilter={breakdownFilter}
+                        />
+                    )
+                },
+                key: 'breakdown',
+                sorter: (a, b) => {
+                    if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                        return a.breakdown_value - b.breakdown_value
+                    }
+                    return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
+                },
+            })
+        }
 
         if (isTrends && display === ChartDisplayType.WorldMap) {
             columns.push({
@@ -214,7 +253,7 @@ export function InsightsTable({
                 },
             })
         }
-    } else if (breakdownFilter?.breakdowns) {
+    } else if (breakdownFilter?.breakdowns && !isSingleSeriesWithBreakdown) {
         breakdownFilter.breakdowns.forEach((breakdown, index) => {
             const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
                 formatBreakdownLabel(
@@ -327,7 +366,13 @@ export function InsightsTable({
             return aValue - bValue
         }
 
-        return results.map((_, index) => ({
+        const visibleStartIndex = Math.max(0, results.length - maxVisibleColumns)
+        const visibleDataIndices = Array.from(
+            { length: results.length - visibleStartIndex },
+            (_, i) => visibleStartIndex + i
+        )
+
+        return visibleDataIndices.map((index) => ({
             title: isStickiness ? (
                 `${interval ? capitalizeFirstLetter(interval) : 'Day'} ${index + 1}`
             ) : (
@@ -341,24 +386,49 @@ export function InsightsTable({
                     weekStartDay={weekStartDay}
                 />
             ),
-            render: (_, item: IndexedTrendResult) => {
-                return (
-                    <ValueColumnItem
-                        index={index}
-                        item={item}
-                        isStickiness={isStickiness}
-                        renderCount={renderCount}
-                        formatPropertyValueForDisplay={formatPropertyValueForDisplay}
-                    />
-                )
-            },
+            render: (_, item: IndexedTrendResult) => (
+                <ValueColumnItem
+                    index={index}
+                    item={item}
+                    isStickiness={isStickiness}
+                    renderCount={renderCount}
+                    formatPropertyValueForDisplay={formatPropertyValueForDisplay}
+                />
+            ),
             key: `data-${index}`,
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, renderCount, formatPropertyValueForDisplay, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        indexedResults,
+        renderCount,
+        formatPropertyValueForDisplay,
+        isStickiness,
+        compareFilter?.compare,
+        interval,
+        maxVisibleColumns,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const totalValueColumns = indexedResults?.[0]?.data?.length ?? 0
+    const hiddenColumns = totalValueColumns - valueColumns.length
 
     columns.push(...valueColumns)
+
+    if (hiddenColumns > 0) {
+        columns.push({
+            title: (
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={() => setMaxVisibleColumns((prev) => prev + MAX_VALUE_COLUMNS)}
+                >
+                    +{Math.min(hiddenColumns, MAX_VALUE_COLUMNS).toLocaleString()} columns
+                </LemonButton>
+            ),
+            render: () => null,
+            key: 'load-more-columns',
+        })
+    }
 
     return (
         <LemonTable

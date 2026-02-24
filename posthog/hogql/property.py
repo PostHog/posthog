@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CohortPropertyFilter,
@@ -40,7 +41,7 @@ from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.utils import map_virtual_properties
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
@@ -365,6 +366,20 @@ def _expr_to_compare_op(
                 left=ast.Call(name="toString", args=[expr]),
                 right=ast.Constant(value=f"%{single_value}%"),
             )
+    elif operator == PropertyOperator.ICONTAINS_MULTI:
+        # Always expect multiple values for multi-contains operator
+        if isinstance(value, list):
+            values_list = value
+        else:
+            values_list = cast(list, [value])
+        return _multi_search_found(_create_multi_search_call(expr, values_list))
+    elif operator == PropertyOperator.NOT_ICONTAINS_MULTI:
+        # Always expect multiple values for multi-not-contains operator
+        if isinstance(value, list):
+            values_list = value
+        else:
+            values_list = cast(list, [value])
+        return _multi_search_not_found(_create_multi_search_call(expr, values_list))
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
             name="ifNull",
@@ -1106,23 +1121,25 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-        action = Action.objects.get(pk=entity.id, team=team)
-        return action_to_expr(action)
-    if entity.id is None:
-        return ast.Constant(value=True)
-
-    filters: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value=entity.id),
-        )
-    ]
+        # action
+        try:
+            action = Action.objects.get(pk=entity.id, team=team)
+        except Action.DoesNotExist:
+            raise ValidationError(f"Action ID {entity.id} does not exist!")
+        event_expr = action_to_expr(action)
+    elif entity.id is None:
+        # all events
+        event_expr = ast.Constant(value=True)
+    else:
+        # event
+        event_expr = parse_expr("events.event = {event}", {"event": ast.Constant(value=entity.id)})
 
     if entity.properties is not None and entity.properties != []:
-        filters.append(property_to_expr(entity.properties, team))
-
-    return ast.And(exprs=filters)
+        # add property filters
+        filter_expr = property_to_expr(entity.properties, team)
+        return ast.And(exprs=[event_expr, filter_expr])
+    else:
+        return event_expr
 
 
 def tag_name_to_expr(tag_name: str):
@@ -1180,10 +1197,87 @@ def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
 
 
+def get_lowercase_index_hint(property, team: Team) -> ast.Call:
+    """
+    Returns an index hint for a case insensitive index on `lower(key)`
+    e.g. for the property `body ILIKE '%STR%'` return `indexHint(lower(body) ILIKE '%str%')`
+         this means we can use ngram indexes on `lower(body)` efficiently
+    """
+    expr = property_to_expr(property, team=team)
+    return ast.Call(name="indexHint", args=[_LowercaseIndexRewriter().visit(expr)])
+
+
+class _LowercaseIndexRewriter(CloningVisitor):
+    """Rewrites an expression tree so it can leverage a case-insensitive index on ``lower(key)``.
+
+    Transformations applied:
+    - All ``toString(x)`` calls are unwrapped to just ``x`` (stripped, not replaced).
+    - ``ILike`` → ``lower(left) Like lower_const`` / ``NotILike`` → ``lower(left) NotLike lower_const``
+    - ``multiSearchAnyCaseInsensitive(haystack, needles)`` → ``multiSearchAny(lower(haystack), lowered_needles)``
+    """
+
+    def visit_call(self, node: ast.Call):
+        if node.name == "toString" and len(node.args) == 1:
+            # Strip toString
+            return self.visit(node.args[0])
+
+        if node.name == "ifNull" and len(node.args) >= 1:
+            # Strip ifNull
+            return self.visit(node.args[0])
+
+        if node.name == "multiSearchAnyCaseInsensitive" and len(node.args) == 2:
+            # multiSearchAnyCaseInsensitive(haystack, needles)
+            # → multiSearchAny(lower(haystack), lowered_needles)
+            haystack = self.visit(node.args[0])
+            haystack = ast.Call(name="lower", args=[haystack])
+            needles = node.args[1]
+            # Lowercase all needle constants
+            if isinstance(needles, ast.Array):
+                needles = ast.Array(
+                    exprs=[
+                        ast.Constant(value=str(e.value).lower())
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        else self.visit(e)
+                        for e in needles.exprs
+                    ]
+                )
+            else:
+                needles = self.visit(needles)
+            return ast.Call(name="multiSearchAny", args=[haystack, needles])
+
+        return super().visit_call(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        op = node.op
+        wrap_left_lower = False
+
+        if op == ast.CompareOperationOp.ILike:
+            op = ast.CompareOperationOp.Like
+            wrap_left_lower = True
+        elif op == ast.CompareOperationOp.NotILike:
+            op = ast.CompareOperationOp.NotLike
+            wrap_left_lower = True
+
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+
+        if wrap_left_lower:
+            left = ast.Call(name="lower", args=[left])
+            if isinstance(right, ast.Constant) and isinstance(right.value, str):
+                right = ast.Constant(value=right.value.lower())
+
+        return ast.CompareOperation(
+            left=left,
+            right=right,
+            op=op,
+        )
+
+
 def operator_is_negative(operator: PropertyOperator) -> bool:
     return operator in [
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,

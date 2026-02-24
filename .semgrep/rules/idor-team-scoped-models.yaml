@@ -65,12 +65,15 @@ rules:
                               |BatchExportBackfill
                               |BatchImport
                               |ChangeRequest
+                              |ClusteringConfig
                               |Cohort
                               |Comment
                               |Conversation
+                              |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |DAG
                               |Dashboard
                               |DashboardTemplate
                               |DataColorTheme
@@ -96,6 +99,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
+                              |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingStackFrame
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
@@ -131,6 +135,7 @@ rules:
                               |MessageTemplate
                               |Node
                               |Notebook
+                              |ObjectMediaPreview
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -146,6 +151,7 @@ rules:
                               |SharingConfiguration
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalSourceConfig
                               |SingleSessionSummary
                               |Subscription
                               |Survey
@@ -221,12 +227,15 @@ rules:
                         |BatchExportBackfill
                         |BatchImport
                         |ChangeRequest
+                        |ClusteringConfig
                         |Cohort
                         |Comment
                         |Conversation
+                        |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |DAG
                         |Dashboard
                         |DashboardTemplate
                         |DataColorTheme
@@ -252,6 +261,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
+                        |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
@@ -287,6 +297,7 @@ rules:
                         |MessageTemplate
                         |Node
                         |Notebook
+                        |ObjectMediaPreview
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
@@ -302,6 +313,7 @@ rules:
                         |SharingConfiguration
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalSourceConfig
                         |SingleSessionSummary
                         |Subscription
                         |Survey

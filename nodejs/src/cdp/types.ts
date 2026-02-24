@@ -363,6 +363,7 @@ export type HogFunctionTypeType =
     | 'transformation'
     | 'internal_destination'
     | 'source_webhook'
+    | 'warehouse_source_webhook'
     | 'site_destination'
 
 export interface HogFunctionMappingType {

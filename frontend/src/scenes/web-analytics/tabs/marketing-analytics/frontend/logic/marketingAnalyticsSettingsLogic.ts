@@ -34,6 +34,14 @@ export interface IntegrationSettingsModalState {
     initialUtmValue: string
 }
 
+export interface TestMappingResult {
+    status: 'idle' | 'loading' | 'success' | 'error'
+    message?: string
+    row_count?: number
+    columns?: string[]
+    sample_data?: any[][]
+}
+
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     sources_map: {},
     conversion_goals: [],
@@ -100,6 +108,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             initialUtmValue: string
         ) => ({ integration, initialTab, initialUtmValue }),
         closeIntegrationSettingsModal: true,
+        testMapping: (tableId: string, sourceMap: SourceMap) => ({ tableId, sourceMap }),
+        setTestMappingResult: (tableId: string, result: TestMappingResult) => ({ tableId, result }),
     }),
     reducers(({ values }) => ({
         marketingAnalyticsConfig: [
@@ -266,6 +276,19 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 }),
             },
         ],
+        testMappingResults: [
+            {} as Record<string, TestMappingResult>,
+            {
+                testMapping: (state, { tableId }) => ({
+                    ...state,
+                    [tableId]: { status: 'loading' as const },
+                }),
+                setTestMappingResult: (state, { tableId, result }) => ({
+                    ...state,
+                    [tableId]: result,
+                }),
+            },
+        ],
     })),
     selectors({
         sources_map: [
@@ -364,6 +387,33 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateCampaignNameMappings: trackSettingsUpdated,
             updateCustomSourceMappings: trackSettingsUpdated,
             updateCampaignFieldPreferences: trackSettingsUpdated,
+            testMapping: async ({ tableId, sourceMap }) => {
+                try {
+                    const response = await api.create(
+                        `api/environments/${values.currentTeamId}/marketing_analytics/test_mapping/`,
+                        { table_id: tableId, source_map: sourceMap }
+                    )
+                    if (response.success) {
+                        actions.setTestMappingResult(tableId, {
+                            status: 'success',
+                            message: `${response.row_count} rows returned`,
+                            row_count: response.row_count,
+                            columns: response.columns,
+                            sample_data: response.sample_data,
+                        })
+                    } else {
+                        actions.setTestMappingResult(tableId, {
+                            status: 'error',
+                            message: response.error || 'Unknown error',
+                        })
+                    }
+                } catch (e: any) {
+                    actions.setTestMappingResult(tableId, {
+                        status: 'error',
+                        message: e.message || 'Failed to test mapping',
+                    })
+                }
+            },
             loadIntegrationCampaigns: async ({ integration }) => {
                 const fieldInfo = MARKETING_INTEGRATION_FIELD_MAP[integration]
                 if (!fieldInfo) {

@@ -1,4 +1,4 @@
-import { multitabEditorLogicType } from '../multitabEditorLogicType'
+import { sqlEditorLogicType } from '../sqlEditorLogicType'
 
 // Handlers for AI query suggestions
 
@@ -7,9 +7,9 @@ export const aiSuggestionOnRejectText = 'Reject'
 
 export const aiSuggestionOnAccept = (
     shouldRunQuery: boolean,
-    actions: multitabEditorLogicType['actions'],
-    values: multitabEditorLogicType['values'],
-    props: multitabEditorLogicType['props']
+    actions: sqlEditorLogicType['actions'],
+    values: sqlEditorLogicType['values'],
+    props: sqlEditorLogicType['props']
 ): void => {
     actions.reportAIQueryAccepted()
 
@@ -35,8 +35,8 @@ export const aiSuggestionOnAccept = (
 }
 
 export const aiSuggestionOnReject = (
-    actions: multitabEditorLogicType['actions'],
-    values: multitabEditorLogicType['values']
+    actions: sqlEditorLogicType['actions'],
+    values: sqlEditorLogicType['values']
 ): void => {
     actions.reportAIQueryRejected()
     // Revert to the original query content (before AI's suggestion and before any user edits)

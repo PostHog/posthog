@@ -14,7 +14,7 @@ import { sessionTabLogic } from './sessionTabLogic'
 export function SessionRecordingTab(): JSX.Element {
     const { loading } = useValues(exceptionCardLogic)
     return (
-        <TabsPrimitiveContent value="recording">
+        <TabsPrimitiveContent value="recording" className="flex-1 min-h-0 overflow-y-auto">
             {match(loading)
                 .with(true, () => <SessionRecordingLoading />)
                 .with(false, () => <SessionRecordingContent />)
@@ -46,7 +46,7 @@ export function SessionRecordingContent(): JSX.Element {
     }, [seekToTimestamp, recordingTimestamp, setPlay, isNotFound, sessionPlayerMetaDataLoading])
 
     return (
-        <div className="max-h-[500px] h-[500px] flex justify-center items-center">
+        <div className="h-full flex justify-center items-center">
             <SessionRecordingPlayer
                 {...recordingProps}
                 mode={SessionRecordingPlayerMode.Standard}

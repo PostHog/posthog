@@ -4,9 +4,9 @@ import { IconTrash } from '@posthog/icons'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
+import { IconLink } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
-import { IconLink } from '../icons'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
 
@@ -174,7 +174,7 @@ WithExpandableRows.args = {
     expandable: {
         rowExpandable: (record) => record.occupation !== 'Retired',
         expandedRowRender: function RenderCow() {
-            return <img src="https://c.tenor.com/WAFH6TX2VIYAAAAC/polish-cow.gif" />
+            return <img src="https://c.tenor.com/WAFH6TX2VIYAAAAC/polish-cow.gif" alt="Dancing cow" />
         },
     },
 }

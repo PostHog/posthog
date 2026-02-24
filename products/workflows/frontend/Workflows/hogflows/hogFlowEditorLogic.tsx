@@ -25,9 +25,9 @@ import { urls } from 'scenes/urls'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
-import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
+import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
@@ -752,9 +752,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     // Auto-create workflow variables if the action has a default output_variable
                     let updatedVariables = values.workflow.variables
-                    if (newAction.output_variable?.key) {
-                        const prefix = newAction.output_variable.key
-                        if (newAction.output_variable.spread) {
+                    const outputVars = Array.isArray(newAction.output_variable)
+                        ? newAction.output_variable
+                        : newAction.output_variable
+                          ? [newAction.output_variable]
+                          : []
+
+                    for (const outputVar of outputVars) {
+                        if (!outputVar.key) {
+                            continue
+                        }
+                        const prefix = outputVar.key
+                        if (outputVar.spread) {
                             // Create individual variables for each expected property
                             const spreadKeys = [
                                 'status',

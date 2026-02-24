@@ -29,7 +29,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
     return (
         <Tabs.Root
             className={cn(
-                'scene-panel-container bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
+                'scene-panel-navigation bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
                 'z-[var(--z-scene-panel)] lg:rounded-none '
             )}
             value={activeTab}
@@ -46,7 +46,13 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                 ]
                     .filter((tab) => tab === SidePanelTab.Info || visibleTabs.includes(tab))
                     .map((tab) => {
-                        const { Icon, label } = SIDE_PANEL_TABS[tab]!
+                        const { Icon, label: defaultLabel } = SIDE_PANEL_TABS[tab]!
+                        const label =
+                            tab === SidePanelTab.AccessControl
+                                ? 'Access'
+                                : tab === SidePanelTab.Discussion
+                                  ? 'Discuss'
+                                  : defaultLabel
                         return (
                             <Tabs.Tab
                                 key={tab}
@@ -55,11 +61,16 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                                     <ButtonPrimitive
                                         {...props}
                                         onClick={() => openSidePanel(tab as SidePanelTab)}
-                                        tooltip={label}
-                                        className="size-[33px] @[600px]/side-panel:w-auto hover:bg-transparent group justify-center @[600px]/side-panel:justify-normal"
+                                        tooltip={defaultLabel}
+                                        data-attr={`context-panel-tab-${tab}`}
+                                        className="size-[33px] @[540px]/side-panel:w-auto hover:bg-transparent group justify-center @[540px]/side-panel:justify-normal"
                                     >
                                         {tab === SidePanelTab.Max ? (
-                                            <IconSparkles className={cn('text-ai size-4 -mt-[1px] ml-[2px]')} />
+                                            <IconSparkles
+                                                className={cn(
+                                                    'text-ai size-4 -mt-[1px] ml-[2px] group-hover/button-primitive:animate-hue-rotate'
+                                                )}
+                                            />
                                         ) : (
                                             <Icon
                                                 className={cn(
@@ -70,7 +81,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                                         )}
                                         <span
                                             className={cn(
-                                                'hidden @[600px]/side-panel:block text-tertiary group-hover:text-primary',
+                                                'hidden @[540px]/side-panel:block text-tertiary group-hover:text-primary',
                                                 activeTab === tab ? 'text-primary' : 'text-tertiary'
                                             )}
                                         >
@@ -87,9 +98,10 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                     onClick={() => {
                         closeSidePanel()
                     }}
+                    data-attr="context-panel-close-button"
                     tooltip={
                         <>
-                            Close scene panel{' '}
+                            Close context panel{' '}
                             <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
                         </>
                     }

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight, IconGear, IconInfo } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconFilter, IconGear, IconQuestion } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -12,61 +12,14 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ClusterCard } from './ClusterCard'
 import { ClusterDistributionBar } from './ClusterDistributionBar'
-import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
+import { clusteringConfigLogic, isValidFilter } from './clusteringConfigLogic'
+import { ClusteringSettingsPanel } from './ClusteringSettingsPanel'
 import { clustersAdminLogic } from './clustersAdminLogic'
+import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
-import { Cluster, ClusteringLevel, ClusteringParams } from './types'
-
-function ClusteringParamsTooltip({ params }: { params: ClusteringParams }): JSX.Element {
-    const formatMethodParams = (methodParams: Record<string, unknown>): string => {
-        if (!methodParams || Object.keys(methodParams).length === 0) {
-            return 'default'
-        }
-        return Object.entries(methodParams)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join(', ')
-    }
-
-    return (
-        <div className="text-xs space-y-0.5 min-w-64">
-            <div className="font-semibold mb-2">Clustering parameters</div>
-            <div className="flex justify-between gap-4">
-                <span className="opacity-70 shrink-0">Clustering</span>
-                <span className="font-medium text-right">{params.clustering_method}</span>
-            </div>
-            {Object.keys(params.clustering_method_params || {}).length > 0 && (
-                <div className="flex justify-between gap-4">
-                    <span className="opacity-70 shrink-0">Method params</span>
-                    <span className="font-medium text-right">
-                        {formatMethodParams(params.clustering_method_params)}
-                    </span>
-                </div>
-            )}
-            <div className="flex justify-between gap-4">
-                <span className="opacity-70 shrink-0">Dim. reduction</span>
-                <span className="font-medium text-right">
-                    {params.dimensionality_reduction_method}
-                    {params.dimensionality_reduction_method !== 'none' &&
-                        ` (${params.dimensionality_reduction_ndims}d)`}
-                </span>
-            </div>
-            <div className="flex justify-between gap-4">
-                <span className="opacity-70 shrink-0">Visualization</span>
-                <span className="font-medium text-right">{params.visualization_method}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-                <span className="opacity-70 shrink-0">Normalization</span>
-                <span className="font-medium text-right">{params.embedding_normalization}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-                <span className="opacity-70 shrink-0">Max samples</span>
-                <span className="font-medium text-right">{params.max_samples.toLocaleString()}</span>
-            </div>
-        </div>
-    )
-}
+import { Cluster, ClusteringLevel } from './types'
 
 export function ClustersView(): JSX.Element {
     const {
@@ -88,8 +41,11 @@ export function ClustersView(): JSX.Element {
         useActions(clustersLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(clustersAdminLogic)
+    const { config } = useValues(clusteringConfigLogic)
+    const { openSettingsPanel } = useActions(clusteringConfigLogic)
 
     const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
+    const activeFilterCount = config.event_filters.filter(isValidFilter).length
 
     if (clusteringRunsLoading) {
         return (
@@ -209,16 +165,20 @@ export function ClustersView(): JSX.Element {
                                 {dayjs(currentRun.windowStart).format('MMM D')} -{' '}
                                 {dayjs(currentRun.windowEnd).format('MMM D, YYYY')}
                             </span>
-                            {currentRun.clusteringParams && (
-                                <Tooltip
-                                    title={<ClusteringParamsTooltip params={currentRun.clusteringParams} />}
-                                    placement="bottom"
-                                >
-                                    <IconInfo className="text-muted-alt cursor-help" />
-                                </Tooltip>
-                            )}
                         </div>
                     )}
+
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconFilter />}
+                        onClick={openSettingsPanel}
+                        tooltip="Configure event filters applied to the next automated clustering run"
+                        data-attr="clusters-settings-button"
+                        status={activeFilterCount > 0 ? 'danger' : 'default'}
+                    >
+                        {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
+                    </LemonButton>
 
                     {showAdminPanel && (
                         <AccessControlAction
@@ -271,6 +231,42 @@ export function ClustersView(): JSX.Element {
                     {isScatterPlotExpanded && (
                         <div className="border-t p-4">
                             <ClusterScatterPlot traceSummaries={traceSummaries} />
+                            <div className="flex items-center justify-between mt-2">
+                                <span className="text-xs text-muted">Drag to zoom &middot; Double-click to reset</span>
+                                <Tooltip
+                                    title={
+                                        <div className="space-y-1.5">
+                                            <p className="font-semibold mb-0">WTH (What The Hog) is this?</p>
+                                            <p className="mb-0">
+                                                Each dot is a{' '}
+                                                {clusteringLevel === 'generation' ? 'generation' : 'trace'}. We crunched
+                                                them through embeddings and squished them into 2D so similar ones land
+                                                near each other.
+                                            </p>
+                                            <p className="mb-0">
+                                                Clusters of dots = groups of{' '}
+                                                {clusteringLevel === 'generation' ? 'generations' : 'traces'} that your
+                                                LLM handled in a similar way. Outliers are the loners that didn't fit
+                                                any group.
+                                            </p>
+                                            <p className="mb-0">
+                                                Click any dot to drill into that specific{' '}
+                                                {clusteringLevel === 'generation' ? 'generation' : 'trace'}.
+                                            </p>
+                                        </div>
+                                    }
+                                    placement="left"
+                                    docLink="https://posthog.com/docs/llm-analytics/clusters"
+                                >
+                                    <span
+                                        className="inline-flex items-center gap-1 text-xs text-muted hover:text-default cursor-pointer transition-colors"
+                                        data-attr="clusters-scatter-plot-wth"
+                                    >
+                                        <IconQuestion className="text-sm" />
+                                        WTH is this?
+                                    </span>
+                                </Tooltip>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -301,6 +297,9 @@ export function ClustersView(): JSX.Element {
             {!currentRunLoading && sortedClusters.length === 0 && currentRun && (
                 <div className="text-center p-8 text-muted">No clusters found in this run.</div>
             )}
+
+            {/* Settings Panel */}
+            <ClusteringSettingsPanel />
 
             {/* Admin Modal */}
             {showAdminPanel && <ClusteringAdminModal />}

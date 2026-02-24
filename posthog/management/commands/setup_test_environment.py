@@ -75,7 +75,7 @@ class Command(BaseCommand):
         create_clickhouse_schema_in_parallel(CREATE_MV_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_VIEW_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_DICTIONARY_QUERIES)
-        create_clickhouse_schema_in_parallel(CREATE_DATA_QUERIES)
+        create_clickhouse_schema_in_parallel(CREATE_DATA_QUERIES())
 
 
 def create_clickhouse_schema_in_parallel(queries):

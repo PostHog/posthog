@@ -129,7 +129,7 @@ pub fn decompress_payload(
         match String::from_utf8(buf) {
             Ok(s) => s,
             Err(e) => {
-                error!("decompress_payload: failed to decode gzip: {}", e);
+                error!("decompress_payload: failed to decode gzip: {e:#}");
                 return Err(CaptureError::RequestDecodingError(String::from(
                     "invalid gzip data",
                 )));
@@ -143,7 +143,7 @@ pub fn decompress_payload(
         match decompress_lz64(&bytes, limit) {
             Ok(payload) => payload,
             Err(e) => {
-                error!("decompress_payload: failed LZ64 decompress: {:?}", e);
+                error!("decompress_payload: failed LZ64 decompress: {e:#}");
                 return Err(e);
             }
         }
@@ -157,7 +157,7 @@ pub fn decompress_payload(
         let s = String::from_utf8(bytes.into()).map_err(|e| {
             error!(
                 valid_up_to = &e.utf8_error().valid_up_to(),
-                "decompress_payload: failed to convert request payload to UTF8: {}", e
+                "decompress_payload: failed to convert request payload to UTF8: {e:#}"
             );
             CaptureError::RequestDecodingError(String::from("invalid UTF8 in request payload"))
         })?;
@@ -197,14 +197,14 @@ pub fn decompress_payload(
                         unwrapped_payload
                     }
                     Err(e) => {
-                        error!("decompress_payload: failed UTF8 conversion after post-decode base64: {}", e);
+                        error!("decompress_payload: failed UTF8 conversion after post-decode base64: {e:#}");
                         payload
                     }
                 },
                 Err(e) => {
                     error!(
                         path = path,
-                        "decompress_payload: failed post-decode base64 unwrap: {}", e
+                        "decompress_payload: failed post-decode base64 unwrap: {e:#}"
                     );
                     payload
                 }

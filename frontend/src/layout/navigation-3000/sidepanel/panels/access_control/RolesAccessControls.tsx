@@ -3,11 +3,10 @@ import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconInfo, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
-    LemonDivider,
     LemonInput,
     LemonInputSelect,
     LemonModal,
@@ -25,7 +24,6 @@ import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { fullName } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -41,7 +39,6 @@ export function RolesAccessControls(): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
-    const { updateOrganization } = useActions(organizationLogic)
 
     const defaultRoleRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -127,82 +124,31 @@ export function RolesAccessControls(): JSX.Element {
     ]
 
     return (
-        <div className="deprecated-space-y-2">
-            <p>
-                Use roles to group your organization members and assign them permissions. Roles are currently used for
-                access control but we will be expanding their uses in the future.
-            </p>
+        <div>
+            <LemonTable
+                columns={columns}
+                dataSource={sortedRoles ?? []}
+                loading={rolesLoading}
+                expandable={{
+                    isRowExpanded: (role) => !!selectedRoleId && role?.id === selectedRoleId,
+                    onRowExpand: (role) => (role ? selectRoleId(role.id) : undefined),
+                    onRowCollapse: () => selectRoleId(null),
+                    expandedRowRender: (role) => (role ? <RoleDetails roleId={role?.id} /> : null),
+                    rowExpandable: (role) => !!role,
+                }}
+            />
 
-            <div>
-                <LemonTable
-                    columns={columns}
-                    dataSource={sortedRoles ?? []}
-                    loading={rolesLoading}
-                    expandable={{
-                        isRowExpanded: (role) => !!selectedRoleId && role?.id === selectedRoleId,
-                        onRowExpand: (role) => (role ? selectRoleId(role.id) : undefined),
-                        onRowCollapse: () => selectRoleId(null),
-                        expandedRowRender: (role) => (role ? <RoleDetails roleId={role?.id} /> : null),
-                        rowExpandable: (role) => !!role,
-                    }}
-                />
+            <LemonButton
+                className="mt-2"
+                type="primary"
+                onClick={() => setEditingRoleId('new')}
+                icon={<IconPlus />}
+                disabledReason={defaultRoleRestrictionReason}
+            >
+                Add a role
+            </LemonButton>
 
-                <LemonButton
-                    className="mt-2"
-                    type="primary"
-                    onClick={() => setEditingRoleId('new')}
-                    icon={<IconPlus />}
-                    disabledReason={defaultRoleRestrictionReason}
-                >
-                    Add a role
-                </LemonButton>
-
-                <RoleModal />
-
-                <div className="my-6">
-                    <LemonDivider />
-                </div>
-
-                <h4 className="mb-2">Default role for new members</h4>
-                <p className="text-muted mb-2">
-                    Automatically assign a role to new members when they join the organization.
-                    <Tooltip title="When a new user joins your organization (via invite or signup), they will automatically be added to this role, inheriting all its permissions. This helps ensure consistent access control for new team members.">
-                        <IconInfo className="ml-1" />
-                    </Tooltip>
-                </p>
-                <div className="max-w-80">
-                    <LemonSelect
-                        fullWidth
-                        value={currentOrganization?.default_role_id || null}
-                        onChange={(value) => {
-                            guardAvailableFeature(
-                                AvailableFeature.ADVANCED_PERMISSIONS,
-                                updateOrganization.bind(null, { default_role_id: value })
-                            )
-                        }}
-                        options={[
-                            { value: null, label: 'No default role' },
-                            ...(sortedRoles?.map((role) => ({
-                                value: role.id,
-                                label: role.name,
-                                element: (
-                                    <div>
-                                        {role.name}
-                                        {role.id === currentOrganization?.default_role_id && (
-                                            <LemonTag type="primary" className="ml-2" size="small">
-                                                Current default
-                                            </LemonTag>
-                                        )}
-                                    </div>
-                                ),
-                            })) || []),
-                        ]}
-                        placeholder="Select a default role..."
-                        loading={rolesLoading}
-                        disabledReason={defaultRoleRestrictionReason}
-                    />
-                </div>
-            </div>
+            <RoleModal />
         </div>
     )
 }
@@ -392,5 +338,51 @@ function RoleModal(): JSX.Element {
                 </LemonField>
             </LemonModal>
         </Form>
+    )
+}
+
+export function DefaultRoleSelector(): JSX.Element {
+    const { sortedRoles, rolesLoading } = useValues(roleAccessControlLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+
+    const defaultRoleRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
+
+    return (
+        <div className="max-w-80">
+            <LemonSelect
+                fullWidth
+                value={currentOrganization?.default_role_id || null}
+                onChange={(value) => {
+                    guardAvailableFeature(
+                        AvailableFeature.ADVANCED_PERMISSIONS,
+                        updateOrganization.bind(null, { default_role_id: value })
+                    )
+                }}
+                options={[
+                    { value: null, label: 'No default role' },
+                    ...(sortedRoles?.map((role) => ({
+                        value: role.id,
+                        label: role.name,
+                        element: (
+                            <div>
+                                {role.name}
+                                {role.id === currentOrganization?.default_role_id && (
+                                    <LemonTag type="primary" className="ml-2" size="small">
+                                        Current default
+                                    </LemonTag>
+                                )}
+                            </div>
+                        ),
+                    })) || []),
+                ]}
+                placeholder="Select a default role..."
+                loading={rolesLoading}
+                disabledReason={defaultRoleRestrictionReason}
+            />
+        </div>
     )
 }
