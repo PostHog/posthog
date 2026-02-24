@@ -1,0 +1,65 @@
+import pytest
+from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
+
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_response_in_tests
+
+
+class TestTrafficTypeSnapshot(BaseTest):
+    """Snapshot tests for traffic type classification HogQL functions."""
+
+    def _create_test_events(self):
+        user_agents = [
+            ("GPTBot/1.0", "bot"),
+            ("Mozilla/5.0 Chrome/120.0", "human"),
+            ("curl/7.64.1", "automation"),
+            ("Googlebot/2.1", "search"),
+        ]
+        for ua, distinct_id in user_agents:
+            _create_event(
+                distinct_id=distinct_id,
+                event="$pageview",
+                team=self.team,
+                properties={"$raw_user_agent": ua},
+            )
+        flush_persons_and_events()
+
+    @pytest.mark.parametrize(
+        "function_name,alias",
+        [
+            ("__preview_getTrafficType", "traffic_type"),
+            ("__preview_getTrafficCategory", "category"),
+            ("__preview_isBot", "is_bot"),
+            ("__preview_getBotType", "bot_type"),
+        ],
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_traffic_type_functions_sql_query(self, function_name: str, alias: str):
+        self._create_test_events()
+        response = execute_hogql_query(
+            f"""
+            SELECT
+                {function_name}(properties.$raw_user_agent) as {alias},
+                count() as count
+            FROM events
+            WHERE event = '$pageview'
+            GROUP BY {alias}
+            ORDER BY {alias}
+            """,
+            self.team,
+        )
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_filter_bots_sql_query(self):
+        self._create_test_events()
+        response = execute_hogql_query(
+            """
+            SELECT event, properties.$raw_user_agent as user_agent
+            FROM events
+            WHERE event = '$pageview' AND NOT __preview_isBot(properties.$raw_user_agent)
+            ORDER BY user_agent
+            """,
+            self.team,
+        )
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
