@@ -5,8 +5,9 @@ import {
 } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
 import { AlertType } from '~/lib/components/Alerts/types'
-import { DashboardBasicType, HogFunctionType, InsightModel } from '~/types'
+import { DashboardBasicType, DashboardType, HogFunctionType, InsightModel } from '~/types'
 
+import { generateDashboardLayoutHCL } from './dashboardLayoutHclExporter'
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
 import { generateInsightHCL } from './insightHclExporter'
 
@@ -79,7 +80,7 @@ const DASHBOARD_EXPORTER: ResourceExporter<Partial<DashboardBasicType>, Dashboar
 }
 
 export function generateDashboardHCL(
-    dashboard: Partial<DashboardBasicType>,
+    dashboard: Partial<DashboardType>,
     options: DashboardHclExportOptions = {}
 ): DashboardExportResult {
     const allWarnings: string[] = []
@@ -95,15 +96,17 @@ export function generateDashboardHCL(
     hclSections.push(result.hcl)
     allWarnings.push(...result.warnings)
 
+    const dashboardTfName = sanitizeResourceName(
+        DASHBOARD_EXPORTER.getResourceName(dashboard),
+        DASHBOARD_EXPORTER.resourceLabel
+    )
+    const dashboardTfReference = dashboard.id ? `${DASHBOARD_EXPORTER.resourceType}.${dashboardTfName}.id` : undefined
+
     // Generate child insights if provided
+    const insightIdReplacements = new Map<number, string>()
     if (options.insights && options.insights.length > 0) {
-        const dashboardTfName = sanitizeResourceName(
-            DASHBOARD_EXPORTER.getResourceName(dashboard),
-            DASHBOARD_EXPORTER.resourceLabel
-        )
         const dashboardIdReplacements = new Map<number, string>()
-        if (dashboard.id) {
-            const dashboardTfReference = `${DASHBOARD_EXPORTER.resourceType}.${dashboardTfName}.id`
+        if (dashboard.id && dashboardTfReference) {
             dashboardIdReplacements.set(dashboard.id, dashboardTfReference)
         }
 
@@ -118,7 +121,28 @@ export function generateDashboardHCL(
             hclSections.push('')
             hclSections.push(insightResult.hcl)
             allWarnings.push(...insightResult.warnings.map((w) => `[Insight: ${insight.name || insight.id}] ${w}`))
+
+            if (insight.id) {
+                const insightTfName = sanitizeResourceName(
+                    insight.name || insight.derived_name || `insight_${insight.id}`,
+                    'insight'
+                )
+                insightIdReplacements.set(insight.id, `posthog_insight.${insightTfName}.id`)
+            }
         }
+    }
+
+    // Generate dashboard layout if tiles are present
+    if (dashboard.tiles && dashboard.tiles.length > 0) {
+        const layoutResult = generateDashboardLayoutHCL(dashboard, {
+            dashboardTfReference,
+            insightIdReplacements,
+            projectId: options.projectId,
+            includeImport: options.includeImport,
+        })
+        hclSections.push('')
+        hclSections.push(layoutResult.hcl)
+        allWarnings.push(...layoutResult.warnings.map((w) => `[Layout] ${w}`))
     }
 
     return {

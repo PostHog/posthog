@@ -120,6 +120,7 @@ from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
 
+
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 
 
