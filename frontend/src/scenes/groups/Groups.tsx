@@ -23,7 +23,6 @@ import { QueryContext } from '~/queries/types'
 
 import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 
-import { getCRMColumns } from './crm/utils'
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
 
@@ -74,9 +73,6 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             title: groupTypeName,
         },
     } as QueryContext['columns']
-    if (hasCustomerAnalyticsEnabled) {
-        columns = getCRMColumns(groupTypeName, groupTypeIndex)
-    }
 
     return (
         <SceneContent>
