@@ -50,7 +50,7 @@ class Command(BaseCommand):
         # [1] "signal"        - document type
         # [2] uuid            - document id
         # [3] timestamp       - timestamp
-        # [4] timestamp       - updated_at
+        # [4] timestamp       - inserted_at
         # [5] description     - signal description text
         # [6] metadata json   - json string containing source_product, source_type, source_id, weight, extra, etc.
         rows = []
