@@ -690,6 +690,39 @@ class TestExports(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_session_recording_export_after_losing_access(self, _name, url_template) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        other_user = User.objects.create_and_join(self.organization, "rbac-recording@posthog.com", "password")
+        recording = SessionRecording.objects.create(team=self.team, session_id="test-session-123")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "test-session-123"},
+            created_by=other_user,
+        )
+
+        self.organization.available_product_features = [{"key": "advanced_permissions", "name": "Advanced permissions"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            resource_id=str(recording.id),
+            team=self.team,
+            access_level="none",
+        )
+
+        self.client.force_login(other_user)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
             ("image/png", 2, "png_export"),  # PNG format with 2 expected results
             ("text/csv", 1, "csv_export"),  # CSV format with 1 expected result
             ("image/jpeg", 3, None),  # Unsupported format returns all (3)

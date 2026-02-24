@@ -318,6 +318,15 @@ class ExportedAssetViewSet(
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
 
         resource = instance.dashboard or instance.insight
+        if not resource and instance.export_context:
+            session_recording_id = instance.export_context.get("session_recording_id")
+            if session_recording_id:
+                from posthog.session_recordings.models.session_recording import SessionRecording
+
+                resource = SessionRecording.objects.filter(
+                    team_id=instance.team_id, session_id=session_recording_id
+                ).first()
+
         if resource and not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
             raise NotFound()
 
