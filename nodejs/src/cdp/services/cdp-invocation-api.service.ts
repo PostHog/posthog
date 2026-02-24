@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { ModifiedRequest } from '~/api/router'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
