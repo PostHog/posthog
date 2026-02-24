@@ -7,8 +7,8 @@ import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { identifierToHuman } from 'lib/utils'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationType } from '~/types'

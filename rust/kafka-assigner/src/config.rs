@@ -1,6 +1,9 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use envconfig::Envconfig;
+
+use crate::strategy::{AssignmentStrategy, StickyBalancedStrategy};
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
@@ -45,6 +48,10 @@ pub struct Config {
 
     #[envconfig(default = "300")]
     pub handoff_timeout_secs: u64,
+
+    // ── Strategy ────────────────────────────────────────────────────
+    #[envconfig(default = "sticky-balanced")]
+    pub assignment_strategy: String,
 }
 
 impl Config {
@@ -82,6 +89,13 @@ impl Config {
 
     pub fn handoff_timeout(&self) -> Duration {
         Duration::from_secs(self.handoff_timeout_secs)
+    }
+
+    pub fn build_strategy(&self) -> Result<Arc<dyn AssignmentStrategy>, String> {
+        match self.assignment_strategy.as_str() {
+            "sticky-balanced" => Ok(Arc::new(StickyBalancedStrategy)),
+            other => Err(format!("unknown assignment strategy: {other}")),
+        }
     }
 }
 

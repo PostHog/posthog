@@ -11,8 +11,8 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'

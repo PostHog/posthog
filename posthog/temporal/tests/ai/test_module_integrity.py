@@ -66,9 +66,7 @@ class TestAITemporalModuleIntegrity:
             "get_sessions_to_prime_activity",
             "fetch_segments_activity",
             "cluster_segments_activity",
-            "match_clusters_activity",
-            "label_clusters_activity",
-            "persist_reports_activity",
+            "emit_signals_from_clusters_activity",
             "get_proactive_tasks_enabled_team_ids_activity",
             "actionability_judge_activity",
             "assign_and_emit_signal_activity",
@@ -86,7 +84,6 @@ class TestAITemporalModuleIntegrity:
             "safety_judge_activity",
             "wait_for_signal_in_clickhouse_activity",
             "summarize_signals_activity",
-            "wait_for_signal_in_clickhouse_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

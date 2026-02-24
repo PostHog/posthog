@@ -17,11 +17,11 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
 import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { editCustomProductsModalLogic } from './editCustomProductsModalLogic'
 

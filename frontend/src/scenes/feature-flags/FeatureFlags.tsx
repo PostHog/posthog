@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
@@ -9,16 +9,16 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -30,8 +30,8 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -53,10 +53,9 @@ import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
-import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
-import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
+import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 
 // Component for selection checkbox that uses hooks directly to avoid stale closure issues
 function FeatureFlagSelectionCheckbox({
@@ -238,13 +237,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? "You don't have permission to edit this feature flag."
                                             : null
                                     }
-                                    onClick={() => {
-                                        if (featureFlag.id) {
-                                            featureFlagLogic({ id: featureFlag.id }).mount()
-                                            featureFlagLogic({ id: featureFlag.id }).actions.editFeatureFlag(true)
-                                            router.actions.push(urls.featureFlag(featureFlag.id))
-                                        }
-                                    }}
+                                    to={combineUrl(urls.featureFlag(featureFlag.id), { edit: true }).url}
                                 >
                                     Edit
                                 </LemonButton>

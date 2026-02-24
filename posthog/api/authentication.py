@@ -231,8 +231,6 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
 
-        # Evaluate signin attempt with WorkOS Radar (log-only mode, does not block)
-        # Get user_id if user exists, for better tracking in the event
         existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
         evaluate_auth_attempt(
             request=request._request,

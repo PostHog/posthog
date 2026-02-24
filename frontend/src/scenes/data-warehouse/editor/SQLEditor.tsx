@@ -26,12 +26,12 @@ import {
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 
-import { ViewLinkModal } from '../ViewLinkModal'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { QueryHistoryModal } from './QueryHistoryModal'
-import { QueryWindow } from './QueryWindow'
+import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
 import { outputPaneLogic } from './outputPaneLogic'
+import { QueryHistoryModal } from './QueryHistoryModal'
+import { QueryWindow } from './QueryWindow'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 

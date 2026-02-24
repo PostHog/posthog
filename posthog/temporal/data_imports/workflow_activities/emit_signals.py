@@ -210,6 +210,12 @@ def _build_emitter_outputs(
     for record in records:
         output = emitter(team_id, record)
         if output is not None:
+            # Avoid serializing datetime objects
+            if output.extra:
+                output = dataclasses.replace(
+                    output,
+                    extra={k: v.isoformat() if isinstance(v, datetime) else v for k, v in output.extra.items()},
+                )
             outputs.append(output)
     return outputs
 
@@ -453,7 +459,7 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
                 "description": output.description,
                 "weight": output.weight,
                 "extra": output.extra,
-            }
+            },
         ).encode("utf-8")
     )
 
@@ -515,6 +521,8 @@ async def _emit_signals(
         for i, output in enumerate(outputs):
             results[i] = tg.create_task(_bounded_emit(output))
     succeeded = sum(1 for task in results.values() if task.result())
+    if succeeded == 0 and len(outputs) > 0:
+        raise RuntimeError(f"All {len(outputs)} signal emissions failed")
     return succeeded
 
 

@@ -493,12 +493,13 @@ class DockerSandbox:
         )
 
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
+        org_path = f"/tmp/workspace/repos/{org}"
 
         clone_command = (
-            f"rm -rf {target_path} && "
-            f"mkdir -p /tmp/workspace/repos/{org} && "
-            f"cd /tmp/workspace/repos/{org} && "
-            f"git clone {repo_url} {repo}"
+            f"rm -rf {shlex.quote(target_path)} && "
+            f"mkdir -p {shlex.quote(org_path)} && "
+            f"cd {shlex.quote(org_path)} && "
+            f"git clone {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
@@ -515,7 +516,7 @@ class DockerSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        result = self.execute(f"cd {repo_path} && git status --porcelain")
+        result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         is_clean = not result.stdout.strip()
 
         return is_clean, result.stdout
@@ -557,8 +558,8 @@ class DockerSandbox:
 
         command = (
             f"cd /scripts && "
-            f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {repo_path} "
-            f"--taskId {task_id} --runId {run_id} --mode {mode} "
+            f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 
