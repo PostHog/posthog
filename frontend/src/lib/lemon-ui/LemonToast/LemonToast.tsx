@@ -6,9 +6,9 @@ import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import { isChristmas } from 'lib/holidays'
 import { hashCodeForString } from 'lib/utils'
 
+import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { Spinner } from '../Spinner'
-import { IconErrorOutline, IconGift } from '../icons'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return (

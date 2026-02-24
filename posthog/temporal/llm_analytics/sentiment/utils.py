@@ -77,7 +77,7 @@ def build_trace_result(
 
 
 def collect_pending(
-    generations: list[tuple[str, dict]],
+    generations: list[tuple[str, object]],
     trace_id: str,
     cap: int,
 ) -> list[PendingClassification]:
@@ -89,8 +89,8 @@ def collect_pending(
 
     pending: list[PendingClassification] = []
 
-    for event_uuid, props in generations:
-        user_messages = extract_user_messages_individually(props.get("$ai_input"))
+    for event_uuid, ai_input in generations:
+        user_messages = extract_user_messages_individually(ai_input)
         if not user_messages:
             continue
 
