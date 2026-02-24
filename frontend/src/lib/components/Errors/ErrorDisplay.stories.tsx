@@ -10,9 +10,7 @@ const meta: Meta<typeof ErrorDisplay> = {
     component: ErrorDisplay,
     parameters: {
         testOptions: {
-            viewport: {
-                width: 720,
-            },
+            viewport: { width: 720, height: 720 },
         },
     },
     decorators: [
