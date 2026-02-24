@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import { Counter, Histogram } from 'prom-client'
 
 import { RedisV2 } from '../redis/redis-v2'
 
@@ -26,6 +27,25 @@ export enum IdempotencyState {
 const ACKED_SCORE_OFFSET = 1e16
 
 const BASE_REDIS_KEY = process.env.NODE_ENV === 'test' ? '@posthog-test/idempotency' : '@posthog/idempotency'
+
+const idempotencyClaimResults = new Counter({
+    name: 'idempotency_claim_results_total',
+    help: 'Count of claim results by state and namespace',
+    labelNames: ['state', 'namespace'],
+})
+
+const idempotencyOperationDuration = new Histogram({
+    name: 'idempotency_operation_duration_ms',
+    help: 'Duration of idempotency operations in ms',
+    labelNames: ['operation', 'namespace'],
+    buckets: [0.5, 1, 2, 5, 10, 20, 50, 100],
+})
+
+const idempotencyErrors = new Counter({
+    name: 'idempotency_errors_total',
+    help: 'Count of idempotency operations that failed (Redis unavailable)',
+    labelNames: ['operation', 'namespace'],
+})
 
 export interface IdempotencyServiceConfig {
     maxSize: number
@@ -69,6 +89,7 @@ export class IdempotencyService {
             return new Map()
         }
 
+        const startTime = performance.now()
         const now = Date.now()
 
         // Pipeline 1: attempt claim (ZADD NX) + check state (ZSCORE) for each entry, then trim + expire per namespace
@@ -88,6 +109,9 @@ export class IdempotencyService {
         })
 
         if (!results) {
+            for (const ns of namespacesUsed) {
+                idempotencyErrors.inc({ operation: 'claim', namespace: ns })
+            }
             return null
         }
 
@@ -101,12 +125,15 @@ export class IdempotencyService {
 
             if (zaddResult === 1) {
                 states.set(key, IdempotencyState.New)
+                idempotencyClaimResults.inc({ state: 'new', namespace })
             } else {
                 const score = scoreResult !== null ? parseFloat(scoreResult) : 0
                 if (score >= ACKED_SCORE_OFFSET) {
                     states.set(key, IdempotencyState.Acked)
+                    idempotencyClaimResults.inc({ state: 'acked', namespace })
                 } else {
                     states.set(key, IdempotencyState.Existing)
+                    idempotencyClaimResults.inc({ state: 'existing', namespace })
                     toTouch.push([namespace, key])
                 }
             }
@@ -121,6 +148,10 @@ export class IdempotencyService {
             })
         }
 
+        for (const ns of namespacesUsed) {
+            idempotencyOperationDuration.observe({ operation: 'claim', namespace: ns }, performance.now() - startTime)
+        }
+
         return states
     }
 
@@ -129,11 +160,12 @@ export class IdempotencyService {
             return
         }
 
+        const startTime = performance.now()
         const now = Date.now()
         const ackScore = now + ACKED_SCORE_OFFSET
+        const namespacesUsed = new Set<string>()
 
-        await this.redis.usePipeline({ name: 'idempotency-ack', failOpen: true }, (pipeline) => {
-            const namespacesUsed = new Set<string>()
+        const results = await this.redis.usePipeline({ name: 'idempotency-ack', failOpen: true }, (pipeline) => {
             for (const [namespace, key] of entries) {
                 pipeline.zadd(this.redisKey(namespace), 'XX', ackScore, key)
                 namespacesUsed.add(namespace)
@@ -142,6 +174,14 @@ export class IdempotencyService {
                 pipeline.expire(this.redisKey(namespace), this.keyTtlSeconds)
             }
         })
+
+        for (const ns of namespacesUsed) {
+            if (!results) {
+                idempotencyErrors.inc({ operation: 'ack', namespace: ns })
+            } else {
+                idempotencyOperationDuration.observe({ operation: 'ack', namespace: ns }, performance.now() - startTime)
+            }
+        }
     }
 
     async releaseBatch(entries: [namespace: string, key: IdempotencyKey][]): Promise<void> {
@@ -149,10 +189,25 @@ export class IdempotencyService {
             return
         }
 
-        await this.redis.usePipeline({ name: 'idempotency-release', failOpen: true }, (pipeline) => {
+        const startTime = performance.now()
+        const namespacesUsed = new Set<string>()
+
+        const results = await this.redis.usePipeline({ name: 'idempotency-release', failOpen: true }, (pipeline) => {
             for (const [namespace, key] of entries) {
                 pipeline.zrem(this.redisKey(namespace), key)
+                namespacesUsed.add(namespace)
             }
         })
+
+        for (const ns of namespacesUsed) {
+            if (!results) {
+                idempotencyErrors.inc({ operation: 'release', namespace: ns })
+            } else {
+                idempotencyOperationDuration.observe(
+                    { operation: 'release', namespace: ns },
+                    performance.now() - startTime
+                )
+            }
+        }
     }
 }
