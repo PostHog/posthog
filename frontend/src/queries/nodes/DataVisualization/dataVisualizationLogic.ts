@@ -988,12 +988,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         effectiveVisualizationType: [
-            (s) => [s.visualizationType, s.columns, s.response],
-            (visualizationType, columns, response): ChartDisplayType => {
+            (s) => [s.visualizationType, s.autoVisualizationType, s.columns, s.response],
+            (visualizationType, autoVisualizationType, columns, response): ChartDisplayType => {
                 const isTimeSeriesData = hasTimeSeriesData(columns, response)
 
                 if (visualizationType === ChartDisplayType.Auto) {
-                    return getAutoVisualizationType(columns, response)
+                    return autoVisualizationType
                 }
 
                 if (!isTimeSeriesData && isTimeSeriesVisualizationType(visualizationType)) {
@@ -1002,6 +1002,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return visualizationType
             },
+        ],
+        autoVisualizationType: [
+            (s) => [s.columns, s.response],
+            (columns, response): ChartDisplayType => getAutoVisualizationType(columns, response),
         ],
         isTableVisualization: [
             (s) => [s.effectiveVisualizationType],
@@ -1092,6 +1096,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ...query,
                 display: visualizationType,
             }))
+
+            const isAutoHeatmap =
+                visualizationType === ChartDisplayType.Auto &&
+                getAutoVisualizationType(values.columns, values.response) === ChartDisplayType.TwoDimensionalHeatmap
+
+            if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap || isAutoHeatmap) {
+                applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
+            }
         },
         toggleChartSettingsPanel: ({ open }) => {
             const shouldOpen = open ?? !values.isChartSettingsPanelOpen
@@ -1189,10 +1201,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
             }
 
-            if (
-                values.isChartSettingsPanelOpen &&
-                values.effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap
-            ) {
+            if (values.effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
                 applyAutoHeatmapSettings(actions, value, values.chartSettings.heatmap ?? {})
             }
         },

@@ -298,4 +298,30 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
+    it('auto-fills 2d heatmap columns when selecting auto on heatmap data', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['region', 'segment', 'count'],
+            types: [
+                ['region', 'String'],
+                ['segment', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [['US', 'Enterprise', 10]],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsBar)
+        logic.actions.setVisualizationType(ChartDisplayType.Auto)
+
+        await expectLogic(logic).toMatchValues({
+            visualizationType: ChartDisplayType.Auto,
+            effectiveVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
+            chartSettings: {
+                heatmap: {
+                    xAxisColumn: 'region',
+                    yAxisColumn: 'segment',
+                    valueColumn: 'count',
+                },
+            },
+        })
+    })
 })

@@ -13,7 +13,35 @@ interface TableDisplayProps extends Pick<LemonSelectProps<ChartDisplayType>, 'di
 
 export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
-    const { effectiveVisualizationType, hasDateTimeColumns, visualizationType } = useValues(dataVisualizationLogic)
+    const { autoVisualizationType, hasDateTimeColumns, visualizationType } = useValues(dataVisualizationLogic)
+
+    const displayTypeLabels: Record<ChartDisplayType, string> = {
+        [ChartDisplayType.Auto]: 'Auto',
+        [ChartDisplayType.ActionsLineGraph]: 'Line chart',
+        [ChartDisplayType.ActionsBar]: 'Bar chart',
+        [ChartDisplayType.ActionsUnstackedBar]: 'Unstacked bar chart',
+        [ChartDisplayType.ActionsStackedBar]: 'Stacked bar chart',
+        [ChartDisplayType.ActionsAreaGraph]: 'Area chart',
+        [ChartDisplayType.ActionsLineGraphCumulative]: 'Cumulative line chart',
+        [ChartDisplayType.BoldNumber]: 'Big number',
+        [ChartDisplayType.ActionsPie]: 'Pie chart',
+        [ChartDisplayType.ActionsBarValue]: 'Value chart',
+        [ChartDisplayType.ActionsTable]: 'Table',
+        [ChartDisplayType.WorldMap]: 'World map',
+        [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
+        [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
+    }
+
+    const renderDisplayTypeLabel = (displayType: ChartDisplayType): string => {
+        const selectedLabel = displayTypeLabels[displayType] ?? displayType
+
+        if (displayType !== ChartDisplayType.Auto) {
+            return selectedLabel
+        }
+
+        const resolvedLabel = displayTypeLabels[autoVisualizationType] ?? autoVisualizationType
+        return `Auto (${resolvedLabel})`
+    }
 
     const options: LemonSelectOptions<ChartDisplayType> = [
         {
@@ -22,7 +50,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                 {
                     value: ChartDisplayType.Auto,
                     icon: <IconTrends />,
-                    label: 'Auto',
+                    label: renderDisplayTypeLabel(ChartDisplayType.Auto),
                 },
                 {
                     value: ChartDisplayType.ActionsTable,
@@ -69,34 +97,6 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
             ],
         },
     ]
-
-    const displayTypeLabels: Record<ChartDisplayType, string> = {
-        [ChartDisplayType.Auto]: 'Auto',
-        [ChartDisplayType.ActionsLineGraph]: 'Line chart',
-        [ChartDisplayType.ActionsBar]: 'Bar chart',
-        [ChartDisplayType.ActionsUnstackedBar]: 'Unstacked bar chart',
-        [ChartDisplayType.ActionsStackedBar]: 'Stacked bar chart',
-        [ChartDisplayType.ActionsAreaGraph]: 'Area chart',
-        [ChartDisplayType.ActionsLineGraphCumulative]: 'Cumulative line chart',
-        [ChartDisplayType.BoldNumber]: 'Big number',
-        [ChartDisplayType.ActionsPie]: 'Pie chart',
-        [ChartDisplayType.ActionsBarValue]: 'Value chart',
-        [ChartDisplayType.ActionsTable]: 'Table',
-        [ChartDisplayType.WorldMap]: 'World map',
-        [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
-        [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
-    }
-
-    const renderDisplayTypeLabel = (displayType: ChartDisplayType): string => {
-        const selectedLabel = displayTypeLabels[displayType] ?? displayType
-
-        if (displayType !== ChartDisplayType.Auto) {
-            return selectedLabel
-        }
-
-        const resolvedLabel = displayTypeLabels[effectiveVisualizationType] ?? effectiveVisualizationType
-        return `Auto (${resolvedLabel})`
-    }
 
     return (
         <LemonSelect
