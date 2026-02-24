@@ -451,7 +451,7 @@ class EventViewSet(
         event_names = request.GET.getlist("event_name", None)
         has_event_name = bool(event_names and len(event_names) > 0)
         is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
-        
+
         # Reject personal API key requests without event_name filter
         if is_personal_api_key and not has_event_name:
             raise serializers.ValidationError(
@@ -459,7 +459,7 @@ class EventViewSet(
                 "For queries without event filters, please use the Query endpoint instead: "
                 "https://posthog.com/docs/api/query"
             )
-        
+
         EVENT_VALUES_COUNTER.labels(
             has_event_name=str(has_event_name),
             auth="personal_api_key" if is_personal_api_key else "app",
