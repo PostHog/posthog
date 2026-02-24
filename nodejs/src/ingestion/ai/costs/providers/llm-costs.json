@@ -1090,6 +1090,10 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000017
             },
+            "modelrun-fp4": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.0000015
+            },
             "novita-fp8": {
                 "prompt_token": 2.7e-7,
                 "completion_token": 0.000001,
@@ -6035,24 +6039,24 @@
         "model": "qwen/qwen3.5-397b-a17b",
         "cost": {
             "default": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 0.000001,
-                "cache_read_token": 1.5e-7
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000035,
+                "cache_read_token": 5.5e-7
             },
             "alibaba": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000036
             },
             "atlas-cloud-fp8": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 0.000001,
-                "cache_read_token": 1.5e-7
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000035,
+                "cache_read_token": 5.5e-7
             },
             "novita": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000036
             },
-            "parasail-bf16": {
+            "parasail-fp8": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000036
             },
