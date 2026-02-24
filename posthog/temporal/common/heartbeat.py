@@ -56,7 +56,7 @@ class Heartbeater:
 
         heartbeat_timeout = activity.info().heartbeat_timeout
 
-        if heartbeat_timeout:
+        if heartbeat_timeout is not None:
             self.heartbeat_task = asyncio.create_task(
                 self._heartbeat_forever(heartbeat_timeout.total_seconds() / self.factor)
             )
@@ -101,11 +101,11 @@ class Heartbeater:
         self.heartbeat_on_shutdown_task = None
 
     async def _heartbeat_forever(self, delay):
-        """Heartbeat forever every delay seconds."""
+        """Heartbeat forever every ``delay`` seconds."""
         while True:
-            await asyncio.sleep(delay)
             activity.heartbeat(*self.details)
             self.logger.debug("Heartbeat")
+            await asyncio.sleep(delay)
 
 
 class LivenessHeartbeater(Heartbeater):
