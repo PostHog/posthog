@@ -4,10 +4,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
+import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { selectExistingFeatureFlagModalLogic } from '../ExperimentForm/selectExistingFeatureFlagModalLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
-import { NEW_EXPERIMENT } from '../constants'
 import type { experimentWizardLogicType } from './experimentWizardLogicType'
 
 export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'

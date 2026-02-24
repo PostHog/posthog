@@ -15,10 +15,15 @@ import { ProductTourStepsEditor } from './editor'
 import { productTourLogic } from './productTourLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
-    const { productTour, productTourForm, isEditingProductTour, draftSaveStatus, draftActionInProgress } = useValues(
-        productTourLogic({ id })
-    )
-    const { discardDraft, publishDraft, setProductTourFormValue, openToolbarModal } = useActions(
+    const {
+        productTour,
+        productTourForm,
+        isEditingProductTour,
+        draftSaveStatus,
+        draftActionInProgress,
+        isProductTourFormSubmitting,
+    } = useValues(productTourLogic({ id }))
+    const { discardDraft, submitProductTourForm, setProductTourFormValue, openToolbarModal } = useActions(
         productTourLogic({ id })
     )
 
@@ -63,8 +68,8 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                onClick={publishDraft}
-                                loading={draftActionInProgress === 'publish'}
+                                onClick={submitProductTourForm}
+                                loading={isProductTourFormSubmitting}
                                 disabledReason={draftActionInProgress ? 'Saving...' : undefined}
                             >
                                 Save

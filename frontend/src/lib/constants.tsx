@@ -350,7 +350,7 @@ export const FEATURE_FLAGS = {
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
-    PRODUCT_TOURS_RICH_TEXT: 'product-tours-rich-text', // owner: @adboio #team-surveys
+    PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys
     PROJECT_UPGRADE_MODAL_REDESIGN: 'project-upgrade-modal-redesign', // owner: @reecejones #team-platform-features
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
     POSTHOG_AI_CHANGELOG: 'posthog-ai-changelog', // owner: #team-posthog-ai
@@ -387,6 +387,7 @@ export const FEATURE_FLAGS = {
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
+    SURVEYS_FORM_BUILDER: 'surveys-form-builder', // owner: @adboio #team-surveys
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true
     SURVEYS_WEB_ANALYTICS_CROSS_SELL: 'surveys-in-web-analytics', // owner: @adboio #team-surveys

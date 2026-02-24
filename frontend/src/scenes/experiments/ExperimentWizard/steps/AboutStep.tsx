@@ -9,8 +9,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { slugify } from 'lib/utils'
 
 import { SelectExistingFeatureFlagModal } from '../../ExperimentForm/SelectExistingFeatureFlagModal'
-import { VariantsPanelLinkFeatureFlag } from '../../ExperimentForm/VariantsPanelLinkFeatureFlag'
 import { selectExistingFeatureFlagModalLogic } from '../../ExperimentForm/selectExistingFeatureFlagModalLogic'
+import { VariantsPanelLinkFeatureFlag } from '../../ExperimentForm/VariantsPanelLinkFeatureFlag'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 export function AboutStep(): JSX.Element {
