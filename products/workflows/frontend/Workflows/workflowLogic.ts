@@ -403,11 +403,13 @@ export const workflowLogic = kea<workflowLogicType>([
             metadataSaved: (state: HogFlow | null, { updates }: { updates: Partial<HogFlow> }) =>
                 state ? { ...state, ...updates } : state,
         },
-        draftSavedAt: [
+        lastSavedAt: [
             null as string | null,
             {
-                loadWorkflowSuccess: (_, { originalWorkflow }) => originalWorkflow?.draft_updated_at ?? null,
+                loadWorkflowSuccess: (_, { originalWorkflow }) =>
+                    originalWorkflow?.draft_updated_at ?? originalWorkflow?.updated_at ?? null,
                 saveDraftToServerSuccess: (_, { draftSaveResult }) => draftSaveResult?.draft_updated_at ?? null,
+                saveWorkflowSuccess: (_, { originalWorkflow }) => originalWorkflow?.updated_at ?? null,
                 publishDraftToServerSuccess: () => null,
                 discardDraftOnServerSuccess: () => null,
             },
@@ -732,7 +734,6 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
             const tasksToMarkAsCompleted: SetupTaskId[] = []
-            lemonToast.success('Workflow saved')
             if (props.id === 'new' && originalWorkflow.id) {
                 router.actions.replace(
                     urls.workflow(
@@ -925,7 +926,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 delete (toCreate as any).updated_at
                 try {
                     const created = await api.hogFlows.createHogFlow(toCreate)
-                    lemonToast.success('Workflow auto-saved')
                     router.actions.replace(
                         urls.workflow(created.id, workflowSceneLogic.findMounted()?.values.currentTab || 'workflow')
                     )
@@ -944,9 +944,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
             }
         },
-        saveDraftToServerSuccess: () => {
-            lemonToast.success('Draft saved')
-        },
+        saveDraftToServerSuccess: () => {},
         publishWorkflow: () => {
             actions.publishDraftToServer()
         },
@@ -1011,7 +1009,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.saveDraftNow()
             }, 5000)
         },
-        // Autosave: debounce 10s after changes
+        // Autosave: debounce 5s after changes
         setWorkflowValues: () => {
             if (cache.autosaveTimer) {
                 clearTimeout(cache.autosaveTimer)
@@ -1019,6 +1017,12 @@ export const workflowLogic = kea<workflowLogicType>([
             cache.autosaveTimer = setTimeout(() => {
                 actions.saveDraftNow()
             }, 5000)
+        },
+        // Cancel autosave when the user explicitly saves/submits
+        submitWorkflow: () => {
+            if (cache.autosaveTimer) {
+                clearTimeout(cache.autosaveTimer)
+            }
         },
     })),
     // Clean up debounce timers to prevent saves firing after navigation
