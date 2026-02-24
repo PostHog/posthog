@@ -77,8 +77,12 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             offset_value = self.paginator.offset
             pagination_limit = limit_value + offset_value + 1
 
-            # Determine ordering based on randomOrder parameter
-            order_clause = "rand()" if self.query.randomOrder else "max(timestamp) DESC"
+            # The subquery ordering must match the main query's ORDER BY first_timestamp DESC
+            # (where first_timestamp = min(timestamp)). Using a different ordering here (e.g.
+            # max(timestamp)) causes pagination bugs: the subquery selects trace IDs in one
+            # order but the main query re-sorts them differently, so OFFSET-based slicing
+            # produces overlapping or missing traces across pages.
+            order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
 
             trace_ids_query = parse_select(
                 f"""

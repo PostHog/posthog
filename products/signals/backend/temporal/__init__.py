@@ -8,6 +8,7 @@ from products.signals.backend.temporal.grouping import (
     get_embedding_activity,
     match_signal_to_report_activity,
     run_signal_semantic_search_activity,
+    wait_for_signal_in_clickhouse_activity,
 )
 from products.signals.backend.temporal.safety_judge import safety_judge_activity
 from products.signals.backend.temporal.summarize_signals import summarize_signals_activity
@@ -42,5 +43,6 @@ ACTIVITIES = [
     reset_report_to_potential_activity,
     run_signal_semantic_search_activity,
     safety_judge_activity,
+    wait_for_signal_in_clickhouse_activity,
     summarize_signals_activity,
 ]

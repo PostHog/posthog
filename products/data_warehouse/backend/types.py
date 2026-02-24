@@ -173,6 +173,7 @@ class ExternalDataSourceType(models.TextChoices):
     BREVO = "Brevo", "Brevo"
     POSTMARK = "Postmark", "Postmark"
     GRANOLA = "Granola", "Granola"
+    BUILDBETTER = "BuildBetter", "BuildBetter"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

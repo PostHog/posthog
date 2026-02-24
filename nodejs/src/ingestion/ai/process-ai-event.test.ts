@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
 import { CostModelSource } from './costs/cost-model-matching'

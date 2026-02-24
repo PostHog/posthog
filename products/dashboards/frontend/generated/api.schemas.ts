@@ -20,14 +20,14 @@
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -74,8 +74,8 @@ export type DashboardRestrictionLevelApi =
     (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
 
 export const DashboardRestrictionLevelApi = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
+    Number21: 21,
+    Number37: 37,
 } as const
 
 export interface DashboardCollaboratorApi {
@@ -101,26 +101,26 @@ export interface DashboardCollaboratorApi {
 export type CreationModeEnumApi = (typeof CreationModeEnumApi)[keyof typeof CreationModeEnumApi]
 
 export const CreationModeEnumApi = {
-    default: 'default',
-    template: 'template',
-    duplicate: 'duplicate',
-    unlisted: 'unlisted',
+    Default: 'default',
+    Template: 'template',
+    Duplicate: 'duplicate',
+    Unlisted: 'unlisted',
 } as const
 
 export type EffectiveRestrictionLevelEnumApi =
     (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
 
 export const EffectiveRestrictionLevelEnumApi = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
+    Number21: 21,
+    Number37: 37,
 } as const
 
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
 export const EffectivePrivilegeLevelEnumApi = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
+    Number21: 21,
+    Number37: 37,
 } as const
 
 /**
@@ -373,8 +373,8 @@ export type DashboardsListParams = {
 export type DashboardsListFormat = (typeof DashboardsListFormat)[keyof typeof DashboardsListFormat]
 
 export const DashboardsListFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsCreateParams = {
@@ -384,8 +384,8 @@ export type DashboardsCreateParams = {
 export type DashboardsCreateFormat = (typeof DashboardsCreateFormat)[keyof typeof DashboardsCreateFormat]
 
 export const DashboardsCreateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsRetrieveParams = {
@@ -395,8 +395,8 @@ export type DashboardsRetrieveParams = {
 export type DashboardsRetrieveFormat = (typeof DashboardsRetrieveFormat)[keyof typeof DashboardsRetrieveFormat]
 
 export const DashboardsRetrieveFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsUpdateParams = {
@@ -406,8 +406,8 @@ export type DashboardsUpdateParams = {
 export type DashboardsUpdateFormat = (typeof DashboardsUpdateFormat)[keyof typeof DashboardsUpdateFormat]
 
 export const DashboardsUpdateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsPartialUpdateParams = {
@@ -418,8 +418,8 @@ export type DashboardsPartialUpdateFormat =
     (typeof DashboardsPartialUpdateFormat)[keyof typeof DashboardsPartialUpdateFormat]
 
 export const DashboardsPartialUpdateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsDestroyParams = {
@@ -429,8 +429,8 @@ export type DashboardsDestroyParams = {
 export type DashboardsDestroyFormat = (typeof DashboardsDestroyFormat)[keyof typeof DashboardsDestroyFormat]
 
 export const DashboardsDestroyFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsMoveTilePartialUpdateParams = {
@@ -441,8 +441,8 @@ export type DashboardsMoveTilePartialUpdateFormat =
     (typeof DashboardsMoveTilePartialUpdateFormat)[keyof typeof DashboardsMoveTilePartialUpdateFormat]
 
 export const DashboardsMoveTilePartialUpdateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsStreamTilesRetrieveParams = {
@@ -453,8 +453,8 @@ export type DashboardsStreamTilesRetrieveFormat =
     (typeof DashboardsStreamTilesRetrieveFormat)[keyof typeof DashboardsStreamTilesRetrieveFormat]
 
 export const DashboardsStreamTilesRetrieveFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsCreateFromTemplateJsonCreateParams = {
@@ -465,8 +465,8 @@ export type DashboardsCreateFromTemplateJsonCreateFormat =
     (typeof DashboardsCreateFromTemplateJsonCreateFormat)[keyof typeof DashboardsCreateFromTemplateJsonCreateFormat]
 
 export const DashboardsCreateFromTemplateJsonCreateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsCreateUnlistedDashboardCreateParams = {
@@ -477,8 +477,8 @@ export type DashboardsCreateUnlistedDashboardCreateFormat =
     (typeof DashboardsCreateUnlistedDashboardCreateFormat)[keyof typeof DashboardsCreateUnlistedDashboardCreateFormat]
 
 export const DashboardsCreateUnlistedDashboardCreateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DataColorThemesListParams = {

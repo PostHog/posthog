@@ -6,8 +6,8 @@ import { useMemo, useState } from 'react'
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
-import { Query } from '~/queries/Query/Query'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
+import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     MarketingAnalyticsColumnsSchemaNames,

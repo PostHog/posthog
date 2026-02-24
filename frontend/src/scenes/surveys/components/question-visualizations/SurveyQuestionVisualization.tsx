@@ -4,12 +4,12 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, pluralize } from 'lib/utils'
 import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
-import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { QuestionProcessedResponses, SurveyQuestion, SurveyQuestionType } from '~/types'
