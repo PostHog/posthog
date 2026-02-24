@@ -22,16 +22,16 @@ export async function putClientMapping(kv: KVNamespace, proxyClientId: string, m
     await kv.put(`${CLIENT_PREFIX}${proxyClientId}`, JSON.stringify(mapping))
 }
 
-export async function getRegionSelection(kv: KVNamespace, proxyClientId: string): Promise<Region | null> {
-    const data = await kv.get(`${REGION_PREFIX}${proxyClientId}`)
+export async function getRegionSelection(kv: KVNamespace, key: string): Promise<Region | null> {
+    const data = await kv.get(`${REGION_PREFIX}${key}`)
     if (data === 'us' || data === 'eu') {
         return data
     }
     return null
 }
 
-export async function putRegionSelection(kv: KVNamespace, proxyClientId: string, region: Region): Promise<void> {
-    await kv.put(`${REGION_PREFIX}${proxyClientId}`, region, {
+export async function putRegionSelection(kv: KVNamespace, key: string, region: Region): Promise<void> {
+    await kv.put(`${REGION_PREFIX}${key}`, region, {
         expirationTtl: REGION_SELECTION_TTL,
     })
 }

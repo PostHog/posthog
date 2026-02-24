@@ -25,12 +25,18 @@ export async function handleAuthorize(request: Request, kv: KVNamespace): Promis
     // Show the region picker page, passing through all OAuth params
     const html = REGION_PICKER_HTML.replace('{{AUTHORIZE_PARAMS}}', url.search)
     return new Response(html, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'X-Frame-Options': 'DENY',
+            'X-Content-Type-Options': 'nosniff',
+            'Referrer-Policy': 'no-referrer',
+        },
     })
 }
 
 async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNamespace): Promise<Response> {
     const clientId = url.searchParams.get('client_id')
+    const state = url.searchParams.get('state')
     let regionalClientId = clientId
 
     // Translate proxy client_id to regional client_id if we have a mapping
@@ -39,8 +45,13 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         if (mapping) {
             regionalClientId = region === 'eu' ? mapping.eu_client_id : mapping.us_client_id
         }
+    }
 
-        // Store region selection for the token exchange step
+    // Store region selection keyed by the OAuth state param (unique per session)
+    // to avoid concurrent users overwriting each other's region choice
+    if (state) {
+        await putRegionSelection(kv, state, region)
+    } else if (clientId) {
         await putRegionSelection(kv, clientId, region)
     }
 

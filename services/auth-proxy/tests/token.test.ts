@@ -11,9 +11,9 @@ beforeEach(() => {
 })
 
 describe('handleToken', () => {
-    it('proxies to the correct region when region is stored in KV', async () => {
+    it('proxies to the correct region when region is stored in KV by state', async () => {
         mockKVGet(mockKV, (key: string, type?: unknown) => {
-            if (key === 'region:proxy_client_123') {
+            if (key === 'region:oauth_state_123') {
                 return Promise.resolve('us')
             }
             if (key === 'client:proxy_client_123' && type === 'json') {
@@ -42,7 +42,7 @@ describe('handleToken', () => {
         const request = new Request('https://auth.posthog.com/oauth/token/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'grant_type=authorization_code&code=test_code&client_id=proxy_client_123',
+            body: 'grant_type=authorization_code&code=test_code&client_id=proxy_client_123&state=oauth_state_123',
         })
 
         const response = await handleToken(request, mockKV)
@@ -55,7 +55,23 @@ describe('handleToken', () => {
         expect(fetchCall[0]).toContain('us.posthog.com')
     })
 
-    it('falls back to try-both when no region in KV', async () => {
+    it('returns error for authorization_code grant when region is unknown', async () => {
+        mockKVGetValue(mockKV, null)
+
+        const request = new Request('https://auth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=authorization_code&code=test_code&client_id=unknown_client',
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('invalid_request')
+    })
+
+    it('falls back to try-both for refresh_token grants', async () => {
         mockKVGetValue(mockKV, null)
 
         vi.stubGlobal(
@@ -71,7 +87,7 @@ describe('handleToken', () => {
                 .mockResolvedValueOnce(
                     new Response(
                         JSON.stringify({
-                            access_token: 'pha_eu_token',
+                            access_token: 'pha_eu_refreshed',
                             token_type: 'bearer',
                         }),
                         { status: 200, headers: { 'Content-Type': 'application/json' } }
@@ -82,13 +98,13 @@ describe('handleToken', () => {
         const request = new Request('https://auth.posthog.com/oauth/token/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'grant_type=authorization_code&code=test_code&client_id=unknown_client',
+            body: 'grant_type=refresh_token&refresh_token=rt_test&client_id=unknown_client',
         })
 
         const response = await handleToken(request, mockKV)
         const data = (await response.json()) as Record<string, unknown>
 
-        expect(data.access_token).toBe('pha_eu_token')
+        expect(data.access_token).toBe('pha_eu_refreshed')
         expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
     })
 })

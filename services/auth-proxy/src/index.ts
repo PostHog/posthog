@@ -78,11 +78,14 @@ export default {
 
             return new Response('Not found', { status: 404 })
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Unknown error'
-            return new Response(JSON.stringify({ error: 'server_error', error_description: message }), {
-                status: 500,
-                headers: { 'Content-Type': 'application/json' },
-            })
+            console.error('Unhandled error:', error instanceof Error ? error.message : error)
+            return new Response(
+                JSON.stringify({ error: 'server_error', error_description: 'An internal error occurred' }),
+                {
+                    status: 500,
+                    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+                }
+            )
         }
     },
 }

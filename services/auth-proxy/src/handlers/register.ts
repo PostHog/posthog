@@ -24,7 +24,7 @@ export async function handleRegister(request: Request, kv: KVNamespace): Promise
         }),
         fetch(`${POSTHOG_EU_BASE_URL}/oauth/register/`, {
             method: 'POST',
-            headers: new Headers(request.headers),
+            headers: new Headers(headers),
             body,
         }),
     ])

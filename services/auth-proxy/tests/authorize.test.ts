@@ -68,7 +68,7 @@ describe('handleAuthorize', () => {
         expect(location).not.toContain('_region')
     })
 
-    it('stores region selection in KV for later token exchange', async () => {
+    it('stores region selection keyed by state param', async () => {
         const mapping = { us_client_id: 'us_id', eu_client_id: 'eu_id', created_at: Date.now() }
         mockKVGet(mockKV, (_key: string, type?: unknown) => {
             if (type === 'json') {
@@ -78,13 +78,22 @@ describe('handleAuthorize', () => {
         })
 
         const request = new Request(
-            'https://auth.posthog.com/oauth/authorize/?client_id=us_id&response_type=code&_region=eu'
+            'https://auth.posthog.com/oauth/authorize/?client_id=us_id&response_type=code&state=abc123&_region=eu'
         )
         await handleAuthorize(request, mockKV)
 
         const putCalls = vi.mocked(mockKV.put).mock.calls
-        const regionPut = putCalls.find(([key]) => (key as string).startsWith('region:'))
+        const regionPut = putCalls.find(([key]) => (key as string) === 'region:abc123')
         expect(regionPut).toBeTruthy()
         expect(regionPut![1]).toBe('eu')
+    })
+
+    it('sets security headers on region picker page', async () => {
+        const request = new Request('https://auth.posthog.com/oauth/authorize/?client_id=abc&response_type=code')
+        const response = await handleAuthorize(request, mockKV)
+
+        expect(response.headers.get('x-frame-options')).toBe('DENY')
+        expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+        expect(response.headers.get('referrer-policy')).toBe('no-referrer')
     })
 })
