@@ -466,12 +466,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         getPropertyDefinition: [
             (s) => [s.propertyDefinitionStorage],
             (
-                    propertyDefinitionStorage
-                ): ((
-                    s: TaxonomicFilterValue,
-                    type: PropertyDefinitionType,
-                    groupTypeIndex?: number
-                ) => PropertyDefinition | null) =>
+                propertyDefinitionStorage
+            ): ((
+                s: TaxonomicFilterValue,
+                type: PropertyDefinitionType,
+                groupTypeIndex?: number
+            ) => PropertyDefinition | null) =>
                 (
                     propertyName: TaxonomicFilterValue,
                     type: PropertyDefinitionType,
@@ -490,12 +490,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         describeProperty: [
             (s) => [s.propertyDefinitionStorage],
             (
-                    propertyDefinitionStorage
-                ): ((
-                    s: TaxonomicFilterValue,
-                    type: PropertyDefinitionType,
-                    groupTypeIndex?: number
-                ) => string | null) =>
+                propertyDefinitionStorage
+            ): ((s: TaxonomicFilterValue, type: PropertyDefinitionType, groupTypeIndex?: number) => string | null) =>
                 (propertyName: TaxonomicFilterValue, type: PropertyDefinitionType, groupTypeIndex?: number) => {
                     if (
                         !propertyName ||

@@ -51,7 +51,7 @@ USAGE
     from posthog_typed import PosthogTyped
 
     client = PosthogTyped(
-        "<ph_project_api_key>",
+        "<ph_project_token>",
         host="<ph_client_api_host>",
     )
 

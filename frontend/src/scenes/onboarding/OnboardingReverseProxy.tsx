@@ -4,8 +4,8 @@ import { InviteMembersButton } from 'lib/components/Account/InviteMembersButton'
 
 import { OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from './OnboardingStep'
 import { OnboardingStepComponentType } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 const proxyDocs = [
     {

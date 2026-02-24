@@ -16,6 +16,7 @@ import { ExperimentWizard } from './ExperimentWizard/ExperimentWizard'
 import { experimentWizardLogic } from './ExperimentWizard/experimentWizardLogic'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
+import { ExperimentView } from './ExperimentView/ExperimentView'
 
 export const scene: SceneExport<ExperimentSceneLogicProps> = {
     component: Experiment,

@@ -134,7 +134,7 @@ export interface PropertyItemApi {
 }
 
 export interface PropertyApi {
-    /** 
+    /**
  You can use a simplified version:
 ```json
 {
