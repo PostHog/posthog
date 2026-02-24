@@ -235,7 +235,7 @@
         </p>
     </div>
     <script>
-        const params = new URLSearchParams('{{AUTHORIZE_PARAMS}}');
+        const params = new URLSearchParams(window.location.search);
         function buildUrl(region) {
             params.set('_region', region);
             return '/oauth/authorize/?' + params.toString();

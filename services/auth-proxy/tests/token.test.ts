@@ -52,7 +52,7 @@ describe('handleToken', () => {
         expect(data.access_token).toBe('pha_test_token')
 
         const fetchCall = vi.mocked(fetch).mock.calls[0]!
-        expect(fetchCall[0]).toContain('us.posthog.com')
+        expect(String(fetchCall[0])).toMatch(/^https:\/\/us\.posthog\.com/)
     })
 
     it('returns error for authorization_code grant when region is unknown', async () => {

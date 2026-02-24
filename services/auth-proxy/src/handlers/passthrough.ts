@@ -1,3 +1,4 @@
+import { POSTHOG_EU_BASE_URL, POSTHOG_US_BASE_URL } from '@/lib/constants'
 import { getClientMapping, getRegionSelection } from '@/lib/kv'
 import { proxyPostWithClientId, proxyToRegion, tryBothRegions } from '@/lib/proxy'
 
@@ -13,11 +14,43 @@ export async function handleRevoke(request: Request, kv: KVNamespace): Promise<R
 }
 
 /**
- * Introspect token — try both regions since the token could be from either.
+ * Introspect token — try US first, then EU.
+ * Unlike tryBothRegions, we check the response body: introspect returns
+ * 200 {"active": false} for unknown tokens, so HTTP status alone isn't enough.
  */
 export async function handleIntrospect(request: Request): Promise<Response> {
-    const { response } = await tryBothRegions(request, '/oauth/introspect/')
-    return response
+    const body = await request.text()
+    const headers = new Headers(request.headers)
+    headers.delete('host')
+    headers.delete('content-length')
+
+    const usResponse = await fetch(new URL('/oauth/introspect/', POSTHOG_US_BASE_URL).toString(), {
+        method: 'POST',
+        headers,
+        body,
+    })
+
+    if (usResponse.ok) {
+        const usData = await usResponse.json<Record<string, unknown>>()
+        if (usData.active === true) {
+            return new Response(JSON.stringify(usData), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+            })
+        }
+    }
+
+    const euHeaders = new Headers(request.headers)
+    euHeaders.delete('host')
+    euHeaders.delete('content-length')
+
+    const euResponse = await fetch(new URL('/oauth/introspect/', POSTHOG_EU_BASE_URL).toString(), {
+        method: 'POST',
+        headers: euHeaders,
+        body,
+    })
+
+    return euResponse
 }
 
 /**

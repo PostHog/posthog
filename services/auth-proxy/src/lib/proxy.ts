@@ -52,6 +52,7 @@ export async function proxyPostWithClientId(
 
     const headers = new Headers(request.headers)
     headers.delete('host')
+    headers.delete('content-length')
 
     return fetch(url.toString(), {
         method: 'POST',

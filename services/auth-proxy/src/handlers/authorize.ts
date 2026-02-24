@@ -22,9 +22,8 @@ export async function handleAuthorize(request: Request, kv: KVNamespace): Promis
         return redirectToRegionalAuthorize(url, selectedRegion, kv)
     }
 
-    // Show the region picker page, passing through all OAuth params
-    const html = REGION_PICKER_HTML.replace('{{AUTHORIZE_PARAMS}}', url.search)
-    return new Response(html, {
+    // Show the region picker page (JS reads query params from window.location.search)
+    return new Response(REGION_PICKER_HTML, {
         headers: {
             'Content-Type': 'text/html; charset=utf-8',
             'X-Frame-Options': 'DENY',
