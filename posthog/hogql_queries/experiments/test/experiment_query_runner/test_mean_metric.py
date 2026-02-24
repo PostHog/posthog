@@ -24,6 +24,8 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
+    snapshot_replace_all_numbers = True
+
     @parameterized.expand(
         [
             ("direct", False),
