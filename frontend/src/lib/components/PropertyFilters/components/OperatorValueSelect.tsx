@@ -342,6 +342,7 @@ export function OperatorSelect({
             size={size}
             menu={{
                 closeParentPopoverOnClickInside: false,
+                className: '!max-h-[300px]',
             }}
             startVisible={startVisible}
         />
