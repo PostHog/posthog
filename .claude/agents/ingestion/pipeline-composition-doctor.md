@@ -76,16 +76,16 @@ The framework throws if this invariant is violated.
 ```typescript
 // GOOD - one result per input
 function createBatchStep(): BatchProcessingStep<Input, Output> {
-    return function batchStep(inputs) {
-        return Promise.resolve(inputs.map(input => ok(transform(input))))
-    }
+  return function batchStep(inputs) {
+    return Promise.resolve(inputs.map((input) => ok(transform(input))))
+  }
 }
 
 // BAD - filtering inside batch step (changes cardinality)
 function createBatchStep(): BatchProcessingStep<Input, Output> {
-    return function batchStep(inputs) {
-        return Promise.resolve(inputs.filter(isValid).map(input => ok(transform(input))))
-    }
+  return function batchStep(inputs) {
+    return Promise.resolve(inputs.filter(isValid).map((input) => ok(transform(input))))
+  }
 }
 ```
 

@@ -106,16 +106,16 @@ Don't repeat them.
 ```typescript
 // GOOD - types inferred from ProcessingStep<T, T & { parsed: boolean }>
 function createParseStep<T extends { raw: string }>(): ProcessingStep<T, T & { parsed: boolean }> {
-    return function parseStep(input) {
-        return Promise.resolve(ok({ ...input, parsed: true }))
-    }
+  return function parseStep(input) {
+    return Promise.resolve(ok({ ...input, parsed: true }))
+  }
 }
 
 // BAD - redundant annotation on inner function
 function createParseStep<T extends { raw: string }>(): ProcessingStep<T, T & { parsed: boolean }> {
-    return function parseStep(input: T): Promise<PipelineResult<T & { parsed: boolean }>> {
-        return Promise.resolve(ok({ ...input, parsed: true }))
-    }
+  return function parseStep(input: T): Promise<PipelineResult<T & { parsed: boolean }>> {
+    return Promise.resolve(ok({ ...input, parsed: true }))
+  }
 }
 ```
 
@@ -126,17 +126,17 @@ Dependencies are injected via factory function parameters, never via globals or 
 ```typescript
 // GOOD - config injected via factory
 function createLookupStep(db: Database, timeout: number): ProcessingStep<Input, Output> {
-    return function lookupStep(input) {
-        // uses db and timeout from closure
-    }
+  return function lookupStep(input) {
+    // uses db and timeout from closure
+  }
 }
 
 // BAD - reads from global
 const db = getGlobalDatabase()
 function createLookupStep(): ProcessingStep<Input, Output> {
-    return function lookupStep(input) {
-        // uses module-level db
-    }
+  return function lookupStep(input) {
+    // uses module-level db
+  }
 }
 ```
 
