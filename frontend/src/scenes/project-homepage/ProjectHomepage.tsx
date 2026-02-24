@@ -18,9 +18,9 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
-import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 import { DashboardPlacement } from '~/types'
 
 export const scene: SceneExport = {

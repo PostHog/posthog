@@ -97,6 +97,8 @@ export interface TaxonomicFilterProps {
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
+    /** Optionally customize definition popover contents for selected items. */
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export interface DataWarehousePopoverField {
@@ -122,6 +124,12 @@ export type TaxonomicFilterRenderProps = {
     infiniteListLogicProps: InfiniteListLogicProps
 }
 export type TaxonomicFilterRender = (props: TaxonomicFilterRenderProps) => JSX.Element | null
+export type DefinitionPopoverRendererProps = {
+    item: TaxonomicDefinitionTypes
+    group: TaxonomicFilterGroup
+    defaultView: JSX.Element
+}
+export type DefinitionPopoverRenderer = (props: DefinitionPopoverRendererProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
     name: string
@@ -160,6 +168,10 @@ export interface TaxonomicFilterGroup {
     propertyAllowList?: string[]
     /** Passed to the component specified via the `render` key */
     componentProps?: Record<string, any>
+    /** Minimum number of characters before a remote search is issued. */
+    minSearchQueryLength?: number
+    /** Description shown in the empty state when minSearchQueryLength is set. */
+    searchDescription?: string
 }
 
 export enum TaxonomicFilterGroupType {
@@ -181,7 +193,11 @@ export enum TaxonomicFilterGroupType {
     NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
     PageviewUrls = 'pageview_urls',
+    PageviewEvents = 'pageview_events',
     Screens = 'screens',
+    ScreenEvents = 'screen_events',
+    EmailAddresses = 'email_addresses',
+    AutocaptureEvents = 'autocapture_events',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
     GroupsPrefix = 'groups',

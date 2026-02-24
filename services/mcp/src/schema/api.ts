@@ -72,6 +72,7 @@ export const ApiOAuthIntrospectionSchema = z.discriminatedUnion('active', [
         scope: z.string(),
         scoped_teams: z.array(z.number()),
         scoped_organizations: z.array(z.string()),
+        client_name: z.string().optional(),
     }),
     z.object({
         active: z.literal(false),

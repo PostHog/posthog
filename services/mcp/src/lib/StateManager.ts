@@ -47,7 +47,11 @@ export class StateManager {
             throw new Error(ErrorCode.INACTIVE_OAUTH_TOKEN)
         }
 
-        const { scope, scoped_teams, scoped_organizations } = introspectionResult.data
+        const { scope, scoped_teams, scoped_organizations, client_name } = introspectionResult.data
+
+        if (client_name) {
+            await this._cache.set('clientName', client_name)
+        }
 
         return {
             scopes: scope ? scope.split(' ') : [],

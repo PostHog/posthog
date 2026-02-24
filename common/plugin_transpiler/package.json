@@ -2,14 +2,14 @@
     "name": "@posthog/plugin-transpiler",
     "version": "1.0.0",
     "description": "Transpiles site apps TSX to browser JS via stdin/stdout",
+    "license": "MIT",
+    "author": "PostHog Inc.",
     "main": "transpile.mjs",
     "scripts": {
         "build": "tsc -b && node build.mjs",
         "start:dist": "node dist/index.js",
         "start": "npm run build && npm run start:dist"
     },
-    "author": "PostHog Inc.",
-    "license": "MIT",
     "dependencies": {
         "@babel/standalone": "^7.23.2",
         "@posthog/esbuilder": "workspace:*",
