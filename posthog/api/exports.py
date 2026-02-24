@@ -4,6 +4,7 @@ from typing import Any
 
 from django.conf import settings
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
@@ -12,7 +13,7 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
@@ -312,6 +313,15 @@ class ExportedAssetViewSet(
                 queryset = queryset.filter(export_format=export_format_filter)
 
         return queryset
+
+    def safely_get_object(self, queryset):
+        instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
+
+        resource = instance.dashboard or instance.insight
+        if resource and not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+            raise NotFound()
+
+        return instance
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True, required_scopes=["export:read"])
