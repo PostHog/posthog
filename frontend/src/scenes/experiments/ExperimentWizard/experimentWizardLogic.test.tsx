@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
@@ -10,9 +11,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { FeatureFlagType } from '~/types'
 
+import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
-import { NEW_EXPERIMENT } from '../constants'
 import { experimentsLogic } from '../experimentsLogic'
 import { experimentWizardLogic } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'

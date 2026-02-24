@@ -5,8 +5,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { ExperimentWizardStepper } from './ExperimentWizardStepper'
 import { experimentWizardLogic } from './experimentWizardLogic'
+import { ExperimentWizardStepper } from './ExperimentWizardStepper'
 import { AboutStep } from './steps/AboutStep'
 import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'

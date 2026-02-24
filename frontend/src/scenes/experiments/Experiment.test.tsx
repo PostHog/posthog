@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,8 +10,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { Experiment as ExperimentType } from '~/types'
 
-import { Experiment } from './Experiment'
 import { NEW_EXPERIMENT } from './constants'
+import { Experiment } from './Experiment'
 import { FORM_MODES, experimentLogic } from './experimentLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'
 import { experimentsLogic } from './experimentsLogic'
