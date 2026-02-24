@@ -10,9 +10,7 @@
         "newlinesBetween": true,
         "internalPattern": ["~/", "@/"],
         "groups": [
-            "global-styles",
-            "side_effect_style",
-            "style",
+            ["custom-styles", "side_effect_style", "style"],
             "mocks",
             "spies",
             "side_effect",
@@ -27,8 +25,8 @@
         ],
         "customGroups": [
             {
-                "groupName": "global-styles",
-                "elementNamePattern": ["~/styles"]
+                "groupName": "custom-styles",
+                "elementNamePattern": ["~/styles", "*.scss"]
             },
             {
                 "groupName": "mocks",

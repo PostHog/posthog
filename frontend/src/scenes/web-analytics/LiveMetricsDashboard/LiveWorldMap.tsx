@@ -1,4 +1,4 @@
-import 'scenes/insights/views/WorldMap/WorldMap.scss'
+import '~/scenes/insights/views/WorldMap/WorldMap.scss'
 
 import { useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
