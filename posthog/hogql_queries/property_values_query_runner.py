@@ -71,7 +71,13 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
 
     def _calculate(self) -> PropertyValuesQueryResponse:
         query = self.to_query()
-        result = execute_hogql_query(query, team=self.team, timings=self.timings)
+        result = execute_hogql_query(
+            query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
         results = self._format_results(result.results)
         return PropertyValuesQueryResponse(
             results=results,

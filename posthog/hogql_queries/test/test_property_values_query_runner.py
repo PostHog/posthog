@@ -55,16 +55,30 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert {r.name for r in results} == expected_names
 
-    def test_event_property_values_filtered_by_event_name(self):
+    @parameterized.expand(
+        [
+            ("single_event", ["$pageview"], {"Chrome"}),
+            ("multiple_events", ["$pageview", "$click"], {"Chrome", "Firefox"}),
+        ]
+    )
+    def test_event_property_values_filtered_by_event_name(self, _name, event_names, expected_names):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
         _create_event(event="$click", distinct_id="u1", team=self.team, properties={"browser": "Firefox"})
+        _create_event(event="$identify", distinct_id="u1", team=self.team, properties={"browser": "Safari"})
         flush_persons_and_events()
 
         results = self._run(
-            PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser", event_names=["$pageview"])
+            PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser", event_names=event_names)
         )
-        assert len(results) == 1
-        assert results[0].name == "Chrome"
+        assert {r.name for r in results} == expected_names
+
+    def test_event_property_values_is_column(self):
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={})
+        _create_event(event="$click", distinct_id="u2", team=self.team, properties={})
+        flush_persons_and_events()
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="event", is_column=True))
+        assert {r.name for r in results} == {"$pageview", "$click"}
 
     def test_event_property_count_is_absent(self):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
@@ -129,7 +143,8 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"),
         )
-        first = runner.calculate()
+        first = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(first, CachedPropertyValuesQueryResponse)
         second = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         assert isinstance(second, CachedPropertyValuesQueryResponse)
         assert second.is_cached is True

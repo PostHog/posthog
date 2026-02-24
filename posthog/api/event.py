@@ -499,7 +499,8 @@ class EventViewSet(
             ),
         )
         result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
-        assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+        if not isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse)):
+            raise TypeError(f"Unexpected result type from PropertyValuesQueryRunner: {type(result)}")
         return self._return_with_short_cache([item.model_dump(exclude_none=True) for item in result.results])
 
     def _event_property_values_filtered(
@@ -507,7 +508,9 @@ class EventViewSet(
         query_params: EventValueQueryParams,
         property_filters: builtins.list[tuple[str, str]],
     ) -> response.Response:
-        """Run an event property values query with ad-hoc property filters (not cached)."""
+        # TODO: this duplicates most of PropertyValuesQueryRunner._event_query. We should prob extend
+        # PropertyValuesQuery with an optional property_filters field so the runner handles both paths
+        # in the future.
         chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
         date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
         date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")

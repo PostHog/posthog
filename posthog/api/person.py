@@ -532,10 +532,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ),
             )
             result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
-            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            if not isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse)):
+                raise TypeError(f"Unexpected result type from PropertyValuesQueryRunner: {type(result)}")
             results = [item.model_dump(exclude_none=True) for item in result.results]
             span.set_attribute("result_count", len(results))
-            return response.Response(results)
+            resp = response.Response(results)
+            resp["Cache-Control"] = "max-age=10"
+            return resp
 
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
