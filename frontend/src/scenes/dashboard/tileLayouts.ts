@@ -1,4 +1,4 @@
-import { Layout } from 'react-grid-layout'
+import { Layout, LayoutItem } from 'react-grid-layout'
 
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
@@ -165,7 +165,7 @@ export const calculateLayouts = (
             const realW = Math.min(w || defaultW, columnCount)
             const realH = h || defaultH
 
-            return {
+            const layoutItem: LayoutItem = {
                 i: tile.id?.toString(),
                 x: x != null && Number.isInteger(x) && x + realW - 1 < columnCount ? x : 0,
                 y: y != null && Number.isInteger(y) ? y : Infinity,
@@ -174,6 +174,7 @@ export const calculateLayouts = (
                 minW: 1,
                 minH: 1,
             }
+            return layoutItem
         })
 
         const cleanLayouts = layouts?.filter(({ y }) => y !== Infinity)
