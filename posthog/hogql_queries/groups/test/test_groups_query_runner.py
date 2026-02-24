@@ -97,7 +97,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             limit=10,
             offset=0,
-            select=["properties.arr"],
+            select=["group_name", "key", "properties.arr"],
         )
 
         query_runner = GroupsQueryRunner(query=query, team=self.team)
@@ -234,7 +234,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit=10,
             offset=0,
             search="test",
-            select=["properties.arr"],
+            select=["group_name", "key", "properties.arr"],
             orderBy=["properties.arr DESC"],  # User-specified ordering
         )
 
@@ -258,7 +258,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             limit=10,
             offset=0,
-            select=["properties.arr"],
+            select=["group_name", "key", "properties.arr"],
             orderBy=["properties.arr DESC"],
         )
 
@@ -276,7 +276,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             limit=10,
             offset=0,
-            select=["properties.arr"],
+            select=["group_name", "key", "properties.arr"],
             orderBy=["properties.arr"],
         )
 
@@ -351,7 +351,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     group_type_index=0,
                 )
             ],
-            select=["properties.arr"],
+            select=["group_name", "key", "properties.arr"],
         )
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
@@ -408,7 +408,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     value="org0.inc",
                 )
             ],
-            select=["properties.arr"],
+            select=["group_name", "key", "properties.arr"],
         )
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
@@ -430,7 +430,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             limit=10,
             offset=0,
-            select=['properties."prop with whitespace"'],
+            select=["group_name", "key", 'properties."prop with whitespace"'],
         )
 
         query_runner = GroupsQueryRunner(query=query, team=self.team)
@@ -441,13 +441,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(group[1], "myorg")
         self.assertEqual(group[2], "true")
 
-    def test_column_ordering_consistency(self):
-        """Test that group_name and key are ALWAYS the first two columns in results.
-
-        IMPORTANT: The frontend (crm/utils.tsx) depends on this ordering,
-        specifically hardcoding that 'key' is at index 1. This test ensures
-        that contract is maintained regardless of select parameter ordering.
-        """
+    def test_column_ordering_respects_user_select(self):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -473,71 +467,43 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "Default (no select specified)",
                 None,
                 ["group_name", "key"],
-                {
-                    0: "Test Organization",  # group_name
-                    1: "test_org",  # key
-                },
+                {0: "Test Organization", 1: "test_org"},
             ),
             (
-                "Select with properties before group_name/key",
+                "Properties before group_name/key",
                 ["properties.priority", "properties.status", "group_name", "key"],
-                ["group_name", "key", "properties.priority", "properties.status"],
-                {
-                    0: "Test Organization",  # group_name
-                    1: "test_org",  # key
-                    2: 100,  # priority
-                    3: "active",  # status
-                },
+                ["properties.priority", "properties.status", "group_name", "key"],
+                {0: 100, 1: "active", 2: "Test Organization", 3: "test_org"},
             ),
             (
-                "Select with only additional properties (no explicit group_name/key)",
+                "Only properties (no group_name/key)",
                 ["properties.status", "properties.priority"],
-                ["group_name", "key", "properties.status", "properties.priority"],
-                {
-                    0: "Test Organization",  # group_name
-                    1: "test_org",  # key
-                    2: "active",  # status
-                    3: 100,  # priority
-                },
+                ["properties.status", "properties.priority"],
+                {0: "active", 1: 100},
             ),
             (
-                "Select with properties interspersed with group_name/key",
+                "Interspersed ordering",
                 ["properties.status", "key", "properties.priority", "group_name"],
-                ["group_name", "key", "properties.status", "properties.priority"],
-                {
-                    0: "Test Organization",  # group_name
-                    1: "test_org",  # key
-                    2: "active",  # status
-                    3: 100,  # priority
-                },
+                ["properties.status", "key", "properties.priority", "group_name"],
+                {0: "active", 1: "test_org", 2: 100, 3: "Test Organization"},
             ),
             (
-                "Select with duplicate group_name and key",
+                "Duplicates are removed",
                 ["group_name", "key", "properties.status", "group_name", "key"],
                 ["group_name", "key", "properties.status"],
-                {
-                    0: "Test Organization",  # group_name
-                    1: "test_org",  # key
-                    2: "active",  # status
-                },
+                {0: "Test Organization", 1: "test_org", 2: "active"},
             ),
             (
-                "Select with only key specified",
+                "Only key",
                 ["key"],
-                ["group_name", "key"],
-                {
-                    0: "Test Organization",  # group_name
-                    1: "test_org",  # key
-                },
+                ["key"],
+                {0: "test_org"},
             ),
             (
-                "Select with only group_name specified",
+                "Only group_name",
                 ["group_name"],
-                ["group_name", "key"],
-                {
-                    0: "Test Organization",  # group_name
-                    1: "test_org",  # key
-                },
+                ["group_name"],
+                {0: "Test Organization"},
             ),
         ]
 
@@ -551,8 +517,6 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
                 result = GroupsQueryRunner(query=query, team=self.team).calculate()
 
-                self.assertEqual(result.columns[0], "group_name", "First column must always be group_name")
-                self.assertEqual(result.columns[1], "key", "Second column must always be key")
                 self.assertEqual(result.columns, expected_columns)
 
                 for index, expected_value in expected_values.items():

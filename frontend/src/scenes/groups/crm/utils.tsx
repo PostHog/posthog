@@ -7,27 +7,30 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { QueryContext } from '~/queries/types'
+import { isGroupsQuery } from '~/queries/utils'
 
 export function getCRMColumns(groupTypeName: string, groupTypeIndex: number): QueryContext['columns'] {
     return {
         group_name: {
             title: groupTypeName,
-            render: function renderGroupName({ record, value }) {
-                // IMPORTANT: Backend guarantees that 'key' is ALWAYS at index 1 in the results array
-                // This is enforced by groups_query_runner.py which always returns group_name at index 0
-                // and key at index 1, regardless of the select parameter ordering.
-                // See test_column_ordering_consistency in test_groups_query_runner.py
-                const groupKey = (record as string[])[1]
+            render: function renderGroupName({ record, value, query }) {
+                const keyIndex = isGroupsQuery(query.source) ? (query.source.select?.indexOf('key') ?? -1) : -1
+                const groupKey = keyIndex >= 0 ? String((record as string[])[keyIndex]) : undefined
                 return (
                     <div className="min-w-40">
-                        <LemonTableLink to={urls.group(groupTypeIndex, groupKey)} title={value as string} />
-                        <CopyToClipboardInline
-                            explicitValue={groupKey}
-                            iconStyle={{ color: 'var(--color-accent)' }}
-                            description="group id"
-                        >
-                            {stringWithWBR(groupKey, 100)}
-                        </CopyToClipboardInline>
+                        <LemonTableLink
+                            to={groupKey ? urls.group(groupTypeIndex, groupKey) : undefined}
+                            title={value as string}
+                        />
+                        {groupKey && (
+                            <CopyToClipboardInline
+                                explicitValue={groupKey}
+                                iconStyle={{ color: 'var(--color-accent)' }}
+                                description="group id"
+                            >
+                                {stringWithWBR(groupKey, 100)}
+                            </CopyToClipboardInline>
+                        )}
                     </div>
                 )
             },

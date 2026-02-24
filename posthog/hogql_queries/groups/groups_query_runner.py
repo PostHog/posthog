@@ -28,17 +28,15 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
         if self.is_aggregation_query:
             # For aggregation queries, use select as-is (e.g., ['count(*)'])
             self.columns = self.query.select or []
+        elif self.query.select:
+            seen: set[str] = set()
+            self.columns = []
+            for col in self.query.select:
+                if col not in seen:
+                    seen.add(col)
+                    self.columns.append(col)
         else:
-            # IMPORTANT: group_name and key MUST always be the first two columns
-            # The frontend (crm/utils.tsx) depends on this ordering, specifically
-            # hardcoding that 'key' is at index 1 in the results array.
-            # See test_column_ordering_consistency for regression tests.
-            self.columns = [
-                "group_name",
-                "key",
-            ]
-            if self.query.select:
-                self.columns.extend([col for col in self.query.select if col not in self.columns])
+            self.columns = ["group_name", "key"]
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
@@ -120,14 +118,16 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                 order_by.append(similarity_order) if has_user_ordering else order_by.insert(0, similarity_order)
 
             return ast.SelectQuery(
-                select=[
-                    ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
-                    *[parse_expr(col) for col in self.columns[1:]],
-                ],
+                select=[self._column_to_expr(col) for col in self.columns],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
                 where=where,
                 order_by=order_by,
             )
+
+    def _column_to_expr(self, col: str) -> ast.Expr:
+        if col == "group_name":
+            return ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])])
+        return parse_expr(col)
 
     def _calculate(self) -> GroupsQueryResponse:
         response = self.paginator.execute_hogql_query(
