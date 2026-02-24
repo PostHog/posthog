@@ -750,21 +750,6 @@ jobs:
                       exit 1
                   fi
 
-            - name: Check if MCP generated output is up to date
-              run: |
-                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-                  if ! git diff --exit-code; then
-                      echo ""
-                      echo "::error::MCP generated output is out of date!"
-                      echo ""
-                      echo "YAML definitions, tool handlers, or Zod schemas are out of sync."
-                      echo "Run locally:"
-                      echo "  hogli build:openapi"
-                      echo "  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all"
-                      echo "Then commit the updated generated files."
-                      exit 1
-                  fi
-
                   echo "::notice::Committing updated OpenAPI types to PR branch"
 
                   # Verify branch hasn't advanced since CI started
@@ -801,6 +786,21 @@ jobs:
                   git commit -m "chore: update OpenAPI generated types"
                   git push origin "$BRANCH"
                   echo "::notice::Pushed updated OpenAPI types to $BRANCH"
+
+            - name: Check if MCP generated output is up to date
+              run: |
+                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+                  if ! git diff --exit-code; then
+                      echo ""
+                      echo "::error::MCP generated output is out of date!"
+                      echo ""
+                      echo "YAML definitions, tool handlers, or Zod schemas are out of sync."
+                      echo "Run locally:"
+                      echo "  hogli build:openapi"
+                      echo "  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all"
+                      echo "Then commit the updated generated files."
+                      exit 1
+                  fi
 
     django:
         needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions]
