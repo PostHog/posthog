@@ -65,7 +65,7 @@ class TestSlackTokenStorage(BaseTest):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT slack_bot_token FROM conversations_teamconversationsslackconfig WHERE team_id = %s",
+                "SELECT slack_bot_token FROM posthog_conversations_slack_config WHERE team_id = %s",
                 [self.team.pk],
             )
             raw_value = cursor.fetchone()[0]
