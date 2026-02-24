@@ -152,6 +152,59 @@ function configsEqual(a: unknown, b: unknown): boolean {
     return JSON.stringify(normalizeForComparison(a)) === JSON.stringify(normalizeForComparison(b))
 }
 
+const BRANCHING_ACTION_TYPES = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
+
+/**
+ * Strip soft-deleted actions from a workflow and reconnect edges.
+ * Processes leaf nodes first, then branching parents, so that by the time
+ * we remove a branching node its branch children are already gone and only
+ * the continue edge remains for reconnection.
+ */
+function stripDeletedActions(
+    actions: HogFlowAction[],
+    edges: HogFlow['edges'],
+    deletedIds: Set<string>
+): { actions: HogFlowAction[]; edges: HogFlow['edges'] } {
+    let remainingActions = [...actions]
+    let remainingEdges = [...edges]
+
+    const sortedIds = [...deletedIds].sort((a, b) => {
+        const aIsBranching = BRANCHING_ACTION_TYPES.includes(remainingActions.find((act) => act.id === a)?.type ?? '')
+        const bIsBranching = BRANCHING_ACTION_TYPES.includes(remainingActions.find((act) => act.id === b)?.type ?? '')
+        return aIsBranching === bIsBranching ? 0 : aIsBranching ? 1 : -1
+    })
+
+    for (const id of sortedIds) {
+        const outgoing = remainingEdges.find((e) => e.from === id && e.type === 'continue')
+        if (outgoing) {
+            remainingEdges = remainingEdges.map((edge) => (edge.to === id ? { ...edge, to: outgoing.to } : edge))
+        }
+        remainingEdges = remainingEdges.filter((e) => e.from !== id && e.to !== id)
+        remainingActions = remainingActions.filter((a) => a.id !== id)
+    }
+
+    return { actions: remainingActions, edges: remainingEdges }
+}
+
+const DRAFT_CONTENT_FIELDS: (keyof HogFlow)[] = [
+    'name',
+    'description',
+    'trigger_masking',
+    'conversion',
+    'exit_condition',
+    'edges',
+    'actions',
+    'variables',
+]
+
+function buildDraftData(workflow: HogFlow): Partial<HogFlow> {
+    const data: Partial<HogFlow> = {}
+    for (const field of DRAFT_CONTENT_FIELDS) {
+        ;(data as any)[field] = workflow[field]
+    }
+    return data
+}
+
 export const workflowLogic = kea<workflowLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
     props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
@@ -233,33 +286,13 @@ export const workflowLogic = kea<workflowLogicType>([
                 saveWorkflow: async (updates: HogFlow) => {
                     updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
-                    // Strip soft-deleted actions and reconnect edges
-                    const deletedIds = values.draftDeletedActionIds
-                    if (deletedIds.size > 0) {
-                        let edges = [...updates.edges]
-                        let remainingActions = [...updates.actions]
-
-                        const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
-                        const sortedDeletedIds = [...deletedIds].sort((a, b) => {
-                            const aIsBranching = branchingTypes.includes(
-                                remainingActions.find((act) => act.id === a)?.type ?? ''
-                            )
-                            const bIsBranching = branchingTypes.includes(
-                                remainingActions.find((act) => act.id === b)?.type ?? ''
-                            )
-                            return aIsBranching === bIsBranching ? 0 : aIsBranching ? 1 : -1
-                        })
-
-                        for (const id of sortedDeletedIds) {
-                            const outgoing = edges.find((e) => e.from === id && e.type === 'continue')
-                            if (outgoing) {
-                                edges = edges.map((edge) => (edge.to === id ? { ...edge, to: outgoing.to } : edge))
-                            }
-                            edges = edges.filter((e) => e.from !== id && e.to !== id)
-                            remainingActions = remainingActions.filter((a) => a.id !== id)
-                        }
-
-                        updates = { ...updates, edges, actions: remainingActions }
+                    if (values.draftDeletedActionIds.size > 0) {
+                        const stripped = stripDeletedActions(
+                            updates.actions,
+                            updates.edges,
+                            values.draftDeletedActionIds
+                        )
+                        updates = { ...updates, ...stripped }
                     }
 
                     if (!props.id || props.id === 'new') {
@@ -286,20 +319,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         return null
                     }
                     const workflow = sanitizeWorkflow({ ...values.workflow }, values.hogFunctionTemplatesById)
-                    const draftData: Partial<HogFlow> = {}
-                    const draftFields: (keyof HogFlow)[] = [
-                        'name',
-                        'description',
-                        'trigger_masking',
-                        'conversion',
-                        'exit_condition',
-                        'edges',
-                        'actions',
-                        'variables',
-                    ]
-                    for (const field of draftFields) {
-                        ;(draftData as any)[field] = workflow[field]
-                    }
+                    const draftData = buildDraftData(workflow)
                     // Persist soft-deleted action IDs in the draft so they survive page reload.
                     // The actual stripping + edge reconnection happens at publish time.
                     if (values.draftDeletedActionIds.size > 0) {
@@ -316,53 +336,17 @@ export const workflowLogic = kea<workflowLogicType>([
                     if (!props.id || props.id === 'new') {
                         return null
                     }
-                    // Strip soft-deleted actions and reconnect edges before publishing.
-                    // Process leaf nodes first, then branching parents, so that by the
-                    // time we remove a branching node its branch children are already gone.
-                    const deletedIds = values.draftDeletedActionIds
-                    if (deletedIds.size > 0) {
+                    // Strip soft-deleted actions before publishing
+                    if (values.draftDeletedActionIds.size > 0) {
                         const workflow = sanitizeWorkflow({ ...values.workflow }, values.hogFunctionTemplatesById)
-                        const draftData: Partial<HogFlow> = {}
-                        const draftFields: (keyof HogFlow)[] = [
-                            'name',
-                            'description',
-                            'trigger_masking',
-                            'conversion',
-                            'exit_condition',
-                            'edges',
-                            'actions',
-                            'variables',
-                        ]
-                        for (const field of draftFields) {
-                            ;(draftData as any)[field] = workflow[field]
-                        }
-
-                        let edges = draftData.edges ?? []
-                        let remainingActions = draftData.actions ?? []
-
-                        const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
-                        const sortedDeletedIds = [...deletedIds].sort((a, b) => {
-                            const aIsBranching = branchingTypes.includes(
-                                remainingActions.find((act) => act.id === a)?.type ?? ''
-                            )
-                            const bIsBranching = branchingTypes.includes(
-                                remainingActions.find((act) => act.id === b)?.type ?? ''
-                            )
-                            return aIsBranching === bIsBranching ? 0 : aIsBranching ? 1 : -1
-                        })
-
-                        for (const id of sortedDeletedIds) {
-                            const outgoing = edges.find((e) => e.from === id && e.type === 'continue')
-                            if (outgoing) {
-                                edges = edges.map((edge) => (edge.to === id ? { ...edge, to: outgoing.to } : edge))
-                            }
-                            edges = edges.filter((e) => e.from !== id && e.to !== id)
-                            remainingActions = remainingActions.filter((a) => a.id !== id)
-                        }
-
-                        draftData.edges = edges
-                        draftData.actions = remainingActions
-                        // Save the stripped draft, then publish it
+                        const draftData = buildDraftData(workflow)
+                        const stripped = stripDeletedActions(
+                            draftData.actions ?? [],
+                            draftData.edges ?? [],
+                            values.draftDeletedActionIds
+                        )
+                        draftData.actions = stripped.actions
+                        draftData.edges = stripped.edges
                         await api.hogFlows.saveDraft(props.id, draftData)
                     }
                     return api.hogFlows.publishDraft(props.id)
