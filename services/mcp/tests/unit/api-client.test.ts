@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { USER_AGENT } from '@/lib/constants'
@@ -24,17 +24,29 @@ describe('ApiClient', () => {
         expect(baseUrl).toBe(customUrl)
     })
 
-    it('should build correct headers', () => {
+    it('should send correct headers on fetch', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
         const client = new ApiClient({
             apiToken: 'test-token-123',
             baseUrl: 'https://example.com',
         })
 
-        const headers = (client as any).buildHeaders()
-        expect(headers).toEqual({
+        // Call the private fetch method
+        await (client as any).fetch('https://example.com/api/test', {
+            method: 'POST',
+            body: JSON.stringify({ key: 'value' }),
+        })
+
+        expect(mockFetch).toHaveBeenCalledOnce()
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers).toEqual({
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
             'User-Agent': USER_AGENT,
         })
+
+        vi.unstubAllGlobals()
     })
 })
