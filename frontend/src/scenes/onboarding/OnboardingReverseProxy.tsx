@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -16,23 +15,11 @@ import { ProxyRecord, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStepComponentType } from './onboardingLogic'
+import { onboardingReverseProxyLogic } from './onboardingReverseProxyLogic'
 import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingReverseProxy: OnboardingStepComponentType = () => {
-    const { proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
-    const { acknowledgeCloudflareOptIn, showForm } = useActions(proxyLogic)
-
-    useEffect(() => {
-        showForm()
-    }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Acknowledge Cloudflare opt-in when a record is successfully created
-    const hasRecords = proxyRecords.length > 0
-    useEffect(() => {
-        if (hasRecords) {
-            acknowledgeCloudflareOptIn()
-        }
-    }, [hasRecords]) // eslint-disable-line react-hooks/exhaustive-deps
+    const { proxyRecords, proxyRecordsLoading } = useValues(onboardingReverseProxyLogic)
 
     const hasValidRecord = proxyRecords.some((r) => r.status === 'valid')
     const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting' || r.status === 'issuing')
@@ -55,7 +42,7 @@ export const OnboardingReverseProxy: OnboardingStepComponentType = () => {
 OnboardingReverseProxy.stepKey = OnboardingStepKey.REVERSE_PROXY
 
 function AddDomainForm({ proxyRecordsLoading }: { proxyRecordsLoading: boolean }): JSX.Element {
-    const { createRecord } = useValues(proxyLogic)
+    const { createRecord } = useValues(proxyLogic) // This must be the original `proxyLogic` to have all the form values and actions
     const { reportOnboardingReverseProxyDomainEntered, reportOnboardingReverseProxyDocsClicked } =
         useActions(eventUsageLogic)
 
@@ -77,7 +64,7 @@ function AddDomainForm({ proxyRecordsLoading }: { proxyRecordsLoading: boolean }
                 .
             </p>
 
-            <Form logic={proxyLogic} formKey="createRecord" enableFormOnSubmit className="space-y-3">
+            <Form logic={onboardingReverseProxyLogic} formKey="createRecord" enableFormOnSubmit className="space-y-3">
                 <LemonField name="domain" label="Domain">
                     <LemonInput autoFocus placeholder="e.g. t.mydomain.com" data-attr="domain-input" />
                 </LemonField>
