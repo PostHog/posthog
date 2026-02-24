@@ -483,22 +483,13 @@ pub struct Config {
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
 ///
-/// Tokio handles request I/O (DB, Redis, network) and lightweight sequential flag
-/// evaluation. Workers spend most of their time in `.await`, so a quarter of the
-/// core count is sufficient. Rayon handles CPU-bound parallel batch evaluation for
-/// large flag sets (>= PARALLEL_EVAL_THRESHOLD). Because `rayon::spawn` + `oneshot`
-/// frees the Tokio worker, the two pools never compete for the same work — but they
-/// do share the CFS budget.
-///
-/// We give Rayon the full core count and Tokio a quarter (ceil), accepting ~25%
-/// oversubscription (e.g. 2 + 8 = 10 threads on 8 cores). Production profiling
-/// showed Tokio workers at only 12.8% busy ratio with 50% of cores (4 workers on
-/// 8 vCPUs), parking ~9,000 times per 15s interval. Meanwhile, CFS throttling
-/// spikes (10–15%) correlated with every p99 latency spike above 1,000ms — the
-/// extra Tokio threads competed with Rayon during parallel batch evaluations.
-/// Reducing to 25% of cores (2 workers on 8 vCPUs) projects ~25% busy ratio,
-/// still well below the 0.6 saturation threshold, while cutting total thread count
-/// from 12→10 and reducing CFS contention during parallel batches.
+/// The two pools share a single CFS budget (cores × 100ms per period).
+/// Rayon bursts — all threads active during `into_par_iter` — can consume
+/// the entire budget, throttling Tokio workers and stalling sequential
+/// requests that happen to overlap. To prevent this, total threads are
+/// capped at the core count: Tokio gets ceil(cores/4), Rayon gets the rest.
+/// This guarantees that even worst-case concurrent activity stays within
+/// the CFS quota and eliminates throttle-induced tail-latency spikes.
 pub struct ThreadCounts {
     pub tokio_workers: usize,
     pub rayon_threads: usize,
@@ -519,15 +510,15 @@ impl ThreadCounts {
     /// `into_par_iter` degrades toward sequential execution.
     pub fn default_max_concurrent_batch_evals(&self) -> usize {
         // Integer ceil(rayon_threads / 3): keeps ~3 threads per batch.
+        //   4 threads → 2 batches  (2 threads each)
         //   6 threads → 2 batches  (3 threads each)
-        //   8 threads → 3 batches  (~2.7 threads each)
         //  12 threads → 4 batches  (3 threads each)
         self.rayon_threads.div_ceil(3).max(1)
     }
 
     fn from_cores(cores: usize) -> Self {
         let tokio_workers = cores.div_ceil(4).max(1);
-        let rayon_threads = cores.max(1);
+        let rayon_threads = cores.saturating_sub(tokio_workers).max(1);
 
         Self {
             tokio_workers,
@@ -1071,11 +1062,11 @@ mod thread_counts_tests {
 
     #[rstest]
     #[case::single_core(1, 1, 1)]
-    #[case::two_cores(2, 1, 2)]
-    #[case::four_cores(4, 1, 4)]
-    #[case::six_cores(6, 2, 6)]
-    #[case::eight_cores(8, 2, 8)]
-    #[case::sixteen_cores(16, 4, 16)]
+    #[case::two_cores(2, 1, 1)]
+    #[case::four_cores(4, 1, 3)]
+    #[case::six_cores(6, 2, 4)]
+    #[case::eight_cores(8, 2, 6)]
+    #[case::sixteen_cores(16, 4, 12)]
     fn test_thread_allocation(
         #[case] cores: usize,
         #[case] expected_tokio: usize,
@@ -1102,12 +1093,31 @@ mod thread_counts_tests {
     }
 
     #[test]
-    fn test_rayon_gets_full_core_count() {
+    fn test_total_threads_never_exceed_core_count() {
+        // 1 core is the only exception: both pools need at least 1 thread,
+        // so total is 2. On all real multi-core pods (>= 2 cores) the
+        // invariant holds strictly.
+        for cores in 2..=128 {
+            let counts = ThreadCounts::from_cores(cores);
+            assert!(
+                counts.tokio_workers + counts.rayon_threads <= cores,
+                "total threads ({} + {} = {}) must not exceed {cores} cores",
+                counts.tokio_workers,
+                counts.rayon_threads,
+                counts.tokio_workers + counts.rayon_threads,
+            );
+        }
+    }
+
+    #[test]
+    fn test_rayon_gets_remaining_cores() {
         for cores in 1..=128 {
             let counts = ThreadCounts::from_cores(cores);
+            let tokio = cores.div_ceil(4).max(1);
             assert_eq!(
-                counts.rayon_threads, cores,
-                "rayon should get full core count for {cores} cores"
+                counts.rayon_threads,
+                cores.saturating_sub(tokio).max(1),
+                "rayon should get cores - tokio for {cores} cores"
             );
         }
     }
