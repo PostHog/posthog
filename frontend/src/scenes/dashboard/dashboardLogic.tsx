@@ -85,7 +85,6 @@ import {
     encodeURLFilters,
     encodeURLVariables,
     getInsightWithRetry,
-    layoutsByTile,
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
