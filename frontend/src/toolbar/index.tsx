@@ -1,5 +1,4 @@
 import '~/styles'
-
 import './styles.scss'
 
 import { KeaPlugin, resetContext } from 'kea'

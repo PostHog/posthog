@@ -85,7 +85,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),
-            ['searchQuery', 'value', 'groupType', 'taxonomicGroups', 'topMatchItems'],
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups', 'topMatchItems', 'anyGroupLoading'],
             teamLogic,
             ['currentTeamId'],
         ],
@@ -293,6 +293,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     })),
     selectors({
         listGroupType: [(_, p) => [p.listGroupType], (listGroupType) => listGroupType],
+        isSuggestedFilters: [
+            (s) => [s.listGroupType],
+            (listGroupType: TaxonomicFilterGroupType): boolean =>
+                listGroupType === TaxonomicFilterGroupType.SuggestedFilters,
+        ],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
@@ -305,6 +310,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         minSearchQueryLength: [(s) => [s.group], (group) => group?.minSearchQueryLength ?? 0],
+        needsMoreSearchCharacters: [
+            (s) => [s.minSearchQueryLength, s.searchQuery],
+            (minSearchQueryLength, searchQuery) => {
+                if (minSearchQueryLength <= 0) {
+                    return false
+                }
+
+                return searchQuery.trim().length < minSearchQueryLength
+            },
+        ],
         excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
         propertyAllowList: [(s) => [s.group], (group) => group?.propertyAllowList],
         scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
@@ -324,6 +339,59 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (isExpandable, index, totalListCount) => isExpandable && index === totalListCount - 1,
         ],
         hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
+        showNonCapturedEventOption: [
+            (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
+            (
+                allowNonCapturedEvents: boolean,
+                listGroupType: TaxonomicFilterGroupType,
+                searchQuery: string,
+                isLoading: boolean,
+                results: TaxonomicDefinitionTypes[]
+            ): boolean =>
+                allowNonCapturedEvents &&
+                (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+                    listGroupType === TaxonomicFilterGroupType.Events) &&
+                searchQuery.trim().length > 0 &&
+                !isLoading &&
+                results.length === 0,
+        ],
+        showEmptyState: [
+            (s) => [
+                s.totalListCount,
+                s.isLoading,
+                s.isSuggestedFilters,
+                s.anyGroupLoading,
+                s.searchQuery,
+                s.hasRemoteDataSource,
+                s.showNonCapturedEventOption,
+                s.needsMoreSearchCharacters,
+            ],
+            (
+                totalListCount: number,
+                isLoading: boolean,
+                isSuggestedFilters: boolean,
+                anyGroupLoading: boolean,
+                searchQuery: string,
+                hasRemoteDataSource: boolean,
+                showNonCapturedEventOption: boolean,
+                needsMoreSearchCharacters: boolean
+            ): boolean =>
+                (totalListCount === 0 &&
+                    !isLoading &&
+                    !(isSuggestedFilters && anyGroupLoading) &&
+                    (!!searchQuery || !hasRemoteDataSource) &&
+                    !showNonCapturedEventOption) ||
+                needsMoreSearchCharacters,
+        ],
+        showLoadingState: [
+            (s) => [s.isLoading, s.isSuggestedFilters, s.anyGroupLoading, s.results],
+            (
+                isLoading: boolean,
+                isSuggestedFilters: boolean,
+                anyGroupLoading: boolean,
+                results: TaxonomicDefinitionTypes[]
+            ): boolean => (isLoading || (isSuggestedFilters && anyGroupLoading)) && (!results || results.length === 0),
+        ],
         rawLocalItems: [
             (selectors) => [
                 (state, props: InfiniteListLogicProps) => {

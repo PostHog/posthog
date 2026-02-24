@@ -24,9 +24,10 @@ import { Hub, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
-import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues, fetchPersons } from '../../src/worker/ingestion/persons/repositories/test-helpers'
+import { EventsProcessor } from '../../src/worker/ingestion/process-event'
+import { parseEventTimestamp } from '../../src/worker/ingestion/timestamps'
 import { createTestEventHeaders } from '../helpers/event-headers'
 import { resetKafka } from '../helpers/kafka'
 import { createTestMessage } from '../helpers/kafka-message'
@@ -105,7 +106,6 @@ describe('processEvent', () => {
             event: 'default event',
             ...data,
         }
-        const eventTimestamp = timestamp.toUTC()
 
         const personsStoreForBatch = new BatchWritingPersonsStore(
             new PostgresPersonRepository(hub.postgres),
@@ -119,35 +119,29 @@ describe('processEvent', () => {
             groupRepository: hub.groupRepository,
             clickhouseGroupRepository: hub.clickhouseGroupRepository,
         })
-        const runner = new EventPipelineRunner(
-            {
-                SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
-                TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
-                PIPELINE_STEP_STALLED_LOG_TIMEOUT: hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
-                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
-                PERSON_MERGE_ASYNC_ENABLED: hub.PERSON_MERGE_ASYNC_ENABLED,
-                PERSON_MERGE_ASYNC_TOPIC: hub.PERSON_MERGE_ASYNC_TOPIC,
-                PERSON_MERGE_SYNC_BATCH_SIZE: hub.PERSON_MERGE_SYNC_BATCH_SIZE,
-                PERSON_JSONB_SIZE_ESTIMATE_ENABLE: hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-                PERSON_PROPERTIES_UPDATE_ALL: hub.PERSON_PROPERTIES_UPDATE_ALL,
-            },
-            hub.kafkaProducer,
+        const eventsProcessor = new EventsProcessor(
             hub.teamManager,
             hub.groupTypeManager,
+            hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
+        )
+        const preparedEvent = await eventsProcessor.processEvent(
+            String(normalizedEvent.distinct_id),
             normalizedEvent,
+            team,
+            parseEventTimestamp(normalizedEvent, () => {}),
+            normalizedEvent.uuid!,
+            true,
             groupStoreForBatch
         )
-        const res = await runner.runEventPipeline(normalizedEvent, eventTimestamp, team, true, person)
-        if (isOkResult(res)) {
+        {
             const createEventStep = createCreateEventStep()
-            const { person, preparedEvent, processPerson, historicalMigration } = res.value
             const createResult = await createEventStep({
                 person,
                 preparedEvent,
-                processPerson,
-                historicalMigration,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: createTestMessage(),
+                processPerson: true,
+                historicalMigration: false,
+                headers: createTestEventHeaders(),
+                message: createTestMessage(),
             })
 
             if (isOkResult(createResult)) {
@@ -163,7 +157,7 @@ describe('processEvent', () => {
                 }
             }
 
-            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])
+            await flushPersonStoreToKafka(hub, personsStoreForBatch, [])
         }
         await groupStoreForBatch.flush()
     }

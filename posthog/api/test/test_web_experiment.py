@@ -73,6 +73,9 @@ class TestWebExperiment(APIBaseTest):
                 "payload_count": 0,
                 "creation_context": "web_experiments",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 

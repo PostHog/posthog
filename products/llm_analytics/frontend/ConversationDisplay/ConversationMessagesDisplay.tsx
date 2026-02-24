@@ -7,14 +7,14 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 
-import { LLMInputOutput } from '../LLMInputOutput'
-import { SearchHighlight } from '../SearchHighlight'
 import { MessageSentimentBar } from '../components/SentimentTag'
+import { LLMInputOutput } from '../LLMInputOutput'
 import { llmSentimentLazyLoaderLogic } from '../llmSentimentLazyLoaderLogic'
+import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {

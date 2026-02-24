@@ -43,8 +43,8 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -78,8 +78,8 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: false,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -110,8 +110,8 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -143,8 +143,8 @@ describe('create-event-step', () => {
                 preparedEvent: eventWithSetProperties,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -173,8 +173,8 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -209,8 +209,8 @@ describe('create-event-step', () => {
                 preparedEvent: eventWithElements,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -239,8 +239,8 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 customProperty: 'test',
                 lastStep: 'prepareEventStep',
             }
@@ -260,8 +260,8 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -295,8 +295,8 @@ describe('create-event-step', () => {
                     preparedEvent: eventWithType,
                     processPerson: true,
                     historicalMigration: false,
-                    inputHeaders: createTestEventHeaders(),
-                    inputMessage: mockMessage,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -321,8 +321,8 @@ describe('create-event-step', () => {
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
                     historicalMigration: true,
-                    inputHeaders: createTestEventHeaders(),
-                    inputMessage: mockMessage,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -345,8 +345,8 @@ describe('create-event-step', () => {
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
                     historicalMigration: false,
-                    inputHeaders: createTestEventHeaders(),
-                    inputMessage: mockMessage,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -380,8 +380,8 @@ describe('create-event-step', () => {
                     preparedEvent: mockPreparedEvent,
                     processPerson: config.processPerson,
                     historicalMigration: false,
-                    inputHeaders: createTestEventHeaders(),
-                    inputMessage: mockMessage,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 

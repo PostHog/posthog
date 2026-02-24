@@ -1257,7 +1257,7 @@ class TestUserAPI(APIBaseTest):
         }
 
         # Create some feature flags
-        FeatureFlag.objects.create(team=self.team, key="test-flag-1", created_by=self.user, rollout_percentage=100)
+        FeatureFlag.objects.create(team=self.team, key="test-flag-1", created_by=self.user)
         FeatureFlag.objects.create(
             team=self.team,
             key="test-flag-2",

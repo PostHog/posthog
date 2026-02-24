@@ -17,7 +17,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { BaseMathType, LiveEvent } from '~/types'
 
+import { createStreamConnection } from './createStreamConnection'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
+import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 import {
     BrowserBreakdownItem,
     ChartDataPoint,
@@ -27,8 +29,6 @@ import {
     PathItem,
     SlidingWindowBucket,
 } from './LiveWebAnalyticsMetricsTypes'
-import { createStreamConnection } from './createStreamConnection'
-import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
 const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
