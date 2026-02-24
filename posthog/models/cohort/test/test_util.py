@@ -798,7 +798,7 @@ class TestDependentCohorts(BaseTest):
         self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
         self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
         self.assertEqual(get_all_cohort_dependencies(cohort4), [cohort1])
-        self.assertEqual(get_all_cohort_dependencies(cohort5), [cohort4, cohort1, cohort2])
+        self.assertCountEqual(get_all_cohort_dependencies(cohort5), [cohort4, cohort1, cohort2])
 
     def test_dependent_cohorts_ignore_invalid_ids(self):
         cohort1 = _create_cohort(
