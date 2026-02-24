@@ -3,12 +3,11 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout/legacy'
+import { type RefObject, useEffect, useRef, useState } from 'react'
+import ReactGridLayout, { useContainerWidth } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -35,7 +34,9 @@ export function DashboardItems(): JSX.Element {
     const {
         dashboard,
         tiles,
+        layout,
         layouts,
+        sizeKey,
         dashboardMode,
         placement,
         isRefreshingQueued,
@@ -90,41 +91,38 @@ export function DashboardItems(): JSX.Element {
         'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
     })
 
-    const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
+    const { width: gridWrapperWidth, containerRef: gridWrapperRef, mounted } = useContainerWidth()
+
     const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
     const canEditLayout = dashboardMode === DashboardMode.Edit && !isMobileView
 
     return (
-        <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
-            {gridWrapperWidth && (
+        <div className="dashboard-items-wrapper" ref={gridWrapperRef as RefObject<HTMLDivElement>}>
+            {mounted && (
                 <ReactGridLayout
                     width={gridWrapperWidth}
+                    gridConfig={{
+                        cols: BREAKPOINT_COLUMN_COUNTS[sizeKey ?? 'sm'],
+                        rowHeight: GRID_ROW_HEIGHT,
+                        margin: [GRID_HORIZONTAL_MARGIN, GRID_VERTICAL_MARGIN],
+                        containerPadding: [0, 0],
+                    }}
+                    dragConfig={{
+                        enabled: canEditLayout,
+                        handle: '.CardMeta,.TextCard__body',
+                        cancel: 'a,table,button,.Popover',
+                    }}
+                    resizeConfig={{
+                        enabled: canEditLayout,
+                        handles: ['s', 'e', 'se'],
+                    }}
+                    layout={layouts[sizeKey ?? 'sm']}
                     className={className}
-                    draggableHandle=".CardMeta,.TextCard__body"
-                    isDraggable={canEditLayout}
-                    isResizable={canEditLayout}
-                    layouts={layouts}
-                    rowHeight={GRID_ROW_HEIGHT}
-                    margin={[GRID_HORIZONTAL_MARGIN, GRID_VERTICAL_MARGIN]}
-                    containerPadding={[0, 0]}
-                    onLayoutChange={(_, newLayouts) => {
-                        if (dashboardMode === DashboardMode.Edit) {
-                            updateLayouts(newLayouts)
-                        }
-                    }}
-                    onWidthChange={(containerWidth, _, newCols) => {
-                        updateContainerWidth(containerWidth, newCols)
-                    }}
-                    breakpoints={BREAKPOINTS}
-                    resizeHandles={['s', 'e', 'se']}
-                    cols={BREAKPOINT_COLUMN_COUNTS}
-                    onResize={(_layout: any, _oldItem: any, newItem: any) => {
-                        if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
-                            setResizingItem(newItem)
-                        }
-                    }}
-                    onResizeStop={() => {
-                        setResizingItem(null)
+                    onLayoutChange={(...rest) => {
+                        console.debug('newLayout', rest)
+                        // if (dashboardMode === DashboardMode.Edit) {
+                        //     updateLayouts(newLayouts)
+                        // }
                     }}
                     onDragStart={() => {
                         scrollContainerRef.current = document.getElementById('main-content')
@@ -189,7 +187,17 @@ export function DashboardItems(): JSX.Element {
                             isDragging.current = false
                         }, 250)
                     }}
-                    draggableCancel="a,table,button,.Popover"
+                    onResize={(_layout: any, _oldItem: any, newItem: any) => {
+                        if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
+                            setResizingItem(newItem)
+                        }
+                    }}
+                    onResizeStop={() => {
+                        setResizingItem(null)
+                    }}
+                    onWidthChange={(containerWidth, _, newCols) => {
+                        updateContainerWidth(containerWidth, newCols)
+                    }}
                 >
                     {tiles?.map((tile) => {
                         const { insight, text } = tile
