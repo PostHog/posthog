@@ -45,16 +45,14 @@ The key is deterministic and survives database resets:
 phx_dev_local_test_api_key_1234567890abcdef
 ```
 
-You can also create or update it manually:
+You can also run it manually:
 
 ```bash
-python manage.py setup_local_api_key --scopes llm_gateway:read
+python manage.py setup_local_api_key --add-scopes llm_gateway:read
 ```
 
-| Flag       | Default            | Description                             |
-| ---------- | ------------------ | --------------------------------------- |
-| `--email`  | `test@posthog.com` | User to create the key for              |
-| `--scopes` | None               | Space-separated list of scopes to grant |
+`--add-scopes` merges into existing scopes without removing any.
+`--scopes` replaces all scopes on the key.
 
 ## User attribution
 
