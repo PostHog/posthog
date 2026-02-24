@@ -23,6 +23,7 @@ from posthog.models.cohort.util import (
     CohortErrorCode,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    get_nested_cohort_ids,
     get_static_cohort_size,
     parse_error_code,
     print_cohort_hogql_query,
@@ -617,6 +618,82 @@ class TestCohortUtils(BaseTest):
                 print_cohort_hogql_query(cohort, context, team=self.team)
 
         self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
+
+
+class TestGetNestedCohortIds(BaseTest):
+    def test_no_cohort_references(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="leaf",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        assert get_nested_cohort_ids(cohort) == set()
+
+    def test_single_cohort_reference(self):
+        inner = _create_cohort(
+            team=self.team,
+            name="inner",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        outer = _create_cohort(
+            team=self.team,
+            name="outer",
+            groups=[{"properties": [{"key": "id", "value": inner.pk, "type": "cohort"}]}],
+        )
+        assert get_nested_cohort_ids(outer) == {inner.pk}
+
+    def test_multiple_cohort_references(self):
+        a = _create_cohort(
+            team=self.team,
+            name="a",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        b = _create_cohort(
+            team=self.team,
+            name="b",
+            groups=[{"properties": [{"key": "name", "value": "test2", "type": "person"}]}],
+        )
+        parent = _create_cohort(
+            team=self.team,
+            name="parent",
+            groups=[
+                {
+                    "properties": [
+                        {"key": "id", "value": a.pk, "type": "cohort"},
+                        {"key": "id", "value": b.pk, "type": "cohort"},
+                    ]
+                }
+            ],
+        )
+        assert get_nested_cohort_ids(parent) == {a.pk, b.pk}
+
+    def test_invalid_value_skipped(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="bad-ref",
+            groups=[{"properties": [{"key": "id", "value": "not-a-number", "type": "cohort"}]}],
+        )
+        assert get_nested_cohort_ids(cohort) == set()
+
+    def test_mixed_property_types(self):
+        inner = _create_cohort(
+            team=self.team,
+            name="inner",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        outer = _create_cohort(
+            team=self.team,
+            name="mixed",
+            groups=[
+                {
+                    "properties": [
+                        {"key": "email", "value": "a@a.com", "type": "person"},
+                        {"key": "id", "value": inner.pk, "type": "cohort"},
+                    ]
+                }
+            ],
+        )
+        assert get_nested_cohort_ids(outer) == {inner.pk}
 
 
 class TestDependentCohorts(BaseTest):
