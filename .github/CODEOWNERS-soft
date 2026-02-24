@@ -129,19 +129,18 @@ posthog/tasks/exports/** @PostHog/team-analytics-platform
 # Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-customer-analytics
 products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-customer-analytics
 
-# Feature Flags platform (the `/flags` and `/decide` endpoints + associated utils) - owned by @PostHog/team-feature-flags
-rust/feature-flags/ @PostHog/team-feature-flags
-posthog/api/decide.py @PostHog/team-feature-flags
-posthog/models/flag_matching.py @PostHog/team-feature-flags
+# Feature Flags platform (the `/flags` endpoint + associated utils) - owned by @PostHog/team-flags-platform
+rust/feature-flags/ @PostHog/team-flags-platform
+posthog/models/feature_flag/flag_matching.py @PostHog/team-flags-platform
 
-# Feature Flags CRUD operations - owned by @PostHog/team-feature-flags
-posthog/models/feature_flag/ @PostHog/team-feature-flags
-posthog/api/feature_flag.py @PostHog/team-feature-flags
-posthog/api/test/test_feature_flag_dependency_deletion.py @PostHog/team-feature-flags
-posthog/api/test/test_feature_flag_utils.py @PostHog/team-feature-flags
-posthog/api/test/test_feature_flag.py @PostHog/team-feature-flags
-posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags
-posthog/test/test_feature_flag.py @PostHog/team-feature-flags
+# Feature Flags CRUD operations - owned by @PostHog/team-feature-flags and @PostHog/team-flags-platform
+posthog/models/feature_flag/ @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/api/feature_flag.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/api/test/test_feature_flag_dependency_deletion.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/api/test/test_feature_flag_utils.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/api/test/test_feature_flag.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/test/test_feature_flag.py @PostHog/team-feature-flags @PostHog/team-flags-platform
 
 # Cohorts - owned by @PostHog/team-feature-flags
 posthog/api/cohort.py @PostHog/team-feature-flags

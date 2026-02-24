@@ -103,6 +103,7 @@ import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagForm } from './FeatureFlagForm'
 import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagOverviewV2 } from './FeatureFlagOverviewV2'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -232,7 +233,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         {
             label: 'Overview',
             key: FeatureFlagsTab.OVERVIEW,
-            content: (
+            content: useFormUI ? (
+                <FeatureFlagOverviewV2 featureFlag={featureFlag} onGetFeedback={handleGetFeedback} />
+            ) : (
                 <>
                     <div className="flex flex-col gap-4">
                         <FeatureFlagRollout readOnly onGetFeedback={handleGetFeedback} />
@@ -444,6 +447,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         evaluationRuntime={featureFlag.evaluation_runtime}
+                                        isDisabled={!featureFlag.active}
                                     />
                                     <SceneDivider />
                                 </>
@@ -928,7 +932,10 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
         // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
         // eslint-disable-next-line react-hooks/rules-of-hooks
         const dashboardLogicValues = useValues(
-            dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+            dashboardLogic({
+                id: dashboardId,
+                placement: DashboardPlacement.FeatureFlag,
+            })
         )
         dashboard = dashboardLogicValues.dashboard
     }
@@ -1182,7 +1189,9 @@ function FeatureFlagRollout({
                                         <Label intent="menu">Linked experiment</Label>
                                         <div className="flex gap-1 items-center">
                                             <CopyToClipboardInline
-                                                iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                                                iconStyle={{
+                                                    color: 'var(--lemon-button-icon-opacity)',
+                                                }}
                                                 className="font-normal text-sm"
                                                 description="experiment name"
                                             >
@@ -1520,7 +1529,10 @@ function FeatureFlagRollout({
                                     isDraftExperiment={isDraftExperiment}
                                     onVariantChange={(index, field, value) => {
                                         const currentVariants = [...variants]
-                                        currentVariants[index] = { ...currentVariants[index], [field]: value }
+                                        currentVariants[index] = {
+                                            ...currentVariants[index],
+                                            [field]: value,
+                                        }
                                         setFeatureFlag({
                                             ...featureFlag,
                                             filters: {
