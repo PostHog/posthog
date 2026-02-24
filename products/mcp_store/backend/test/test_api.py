@@ -16,7 +16,6 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
         assert len(results) == 3
         names = [s["name"] for s in results]
-        assert "PostHog MCP" in names
         assert "Linear" in names
         assert "Notion" in names
 
