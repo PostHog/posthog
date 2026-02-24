@@ -482,7 +482,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: true,
         pauseIframePlayback: true,
         restartIframePlayback: true,
-        setCurrentSegment: (segment: RecordingSegment, shouldSeek: boolean = true) => ({ segment, shouldSeek }),
+        setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
         setRootFrame: (frame: HTMLDivElement | null) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
@@ -1375,7 +1375,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
         },
-        setCurrentSegment: ({ segment, shouldSeek }) => {
+        setCurrentSegment: ({ segment }) => {
             // Check if we should skip this segment
             if (!segment.isActive && values.skipInactivitySetting && segment.kind !== 'buffer') {
                 // In video export mode with metadata footer, instantly seek past inactive segments
@@ -1408,8 +1408,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 // Otherwise keep existing player visible (last valid frame)
             }
-            // Only seek if requested - prevents infinite recursion when called from updateAnimation
-            if (shouldSeek && values.currentTimestamp !== undefined) {
+            if (values.currentTimestamp !== undefined) {
                 actions.seekToTimestamp(values.currentTimestamp)
             }
         },
@@ -1820,8 +1819,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // NOTE: confusingly this setCurrentTimestamp call is essential to playback
                     // we rely on the segmentation to travel smoothly through the recording
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
-                    // Pass false to prevent seeking - we're already updating animation, don't recurse
-                    actions.setCurrentSegment(nextSegment, false)
+                    actions.setCurrentSegment(nextSegment)
                 } else {
                     // At the end of the recording. Pause the player and set fully to the end
                     actions.setEndReached()
