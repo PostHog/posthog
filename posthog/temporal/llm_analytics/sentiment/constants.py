@@ -16,7 +16,9 @@ MAX_MESSAGE_CHARS = 2000
 # Batch classification
 CLASSIFY_BATCH_SIZE = 32  # texts per ONNX forward pass
 MAX_CLASSIFICATIONS_PER_TRACE = 200
-MAX_GENERATIONS = 50  # ClickHouse LIMIT for generation events per trace
+MAX_GENERATIONS_PER_TRACE = 10  # per-trace cap enforced by window function in ClickHouse
+MAX_INPUT_BYTES = 50_000  # skip $ai_input payloads larger than this (accumulated conversation histories)
+MIN_INPUT_BYTES = 100  # skip tiny $ai_input payloads (tool calls with no user content)
 QUERY_LOOKBACK_DAYS = 30  # timestamp filter to enable partition pruning
 
 # Temporal workflow/activity config
@@ -29,14 +31,32 @@ MAX_RETRY_ATTEMPTS = 2  # retry policy for both workflow and activity
 CACHE_TTL = 60 * 60 * 24  # 24 hours — events are immutable once ingested
 BATCH_MAX_TRACE_IDS = 10
 
-# HogQL query template for fetching $ai_generation events
+# HogQL query template for fetching $ai_generation events.
+# Uses a window function to cap rows per trace at the ClickHouse level,
+# and a size filter to skip tool calls (tiny) and accumulated conversation
+# histories (huge) — the same user messages appear in earlier, smaller
+# generations so we lose nothing.
 GENERATIONS_QUERY = """
-    SELECT uuid, properties.$ai_input AS ai_input, properties.$ai_trace_id AS trace_id
-    FROM events
-    WHERE event = '$ai_generation'
-      AND timestamp >= toDateTime({date_from}, 'UTC')
-      AND timestamp <= toDateTime({date_to}, 'UTC')
-      AND properties.$ai_trace_id IN {trace_ids}
-    ORDER BY trace_id, timestamp DESC
-    LIMIT {max_rows}
+    SELECT uuid, ai_input, trace_id
+    FROM (
+        SELECT
+            uuid,
+            properties.$ai_input AS ai_input,
+            properties.$ai_trace_id AS trace_id,
+            row_number() OVER (
+                PARTITION BY properties.$ai_trace_id
+                ORDER BY timestamp DESC
+            ) AS rn
+        FROM events
+        WHERE event = '$ai_generation'
+          AND timestamp >= toDateTime({date_from}, 'UTC')
+          AND timestamp <= toDateTime({date_to}, 'UTC')
+          AND properties.$ai_trace_id IN {trace_ids}
+          -- skip tiny tool call payloads with no user content
+          AND length(properties.$ai_input) >= {min_input_bytes}
+          -- skip huge accumulated conversation histories
+          AND length(properties.$ai_input) <= {max_input_bytes}
+    )
+    -- last N qualified generations per trace
+    WHERE rn <= {max_gens_per_trace}
 """
