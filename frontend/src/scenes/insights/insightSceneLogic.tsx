@@ -61,6 +61,19 @@ function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
     )
 }
 
+function normalizeItemId(itemId: string | undefined): string | number | null {
+    if (itemId === undefined) {
+        return null
+    }
+    if (itemId === 'new' || itemId.startsWith('new-')) {
+        return 'new'
+    }
+    if (Number.isInteger(+itemId)) {
+        return parseInt(itemId, 10)
+    }
+    return itemId
+}
+
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     tabAwareScene(),
@@ -138,14 +151,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         itemId: [
             null as null | string | number,
             {
-                setSceneState: (_, { itemId }) =>
-                    itemId !== undefined
-                        ? itemId === 'new' || itemId?.startsWith('new-')
-                            ? 'new'
-                            : Number.isInteger(+itemId)
-                              ? parseInt(itemId, 10)
-                              : itemId
-                        : null,
+                setSceneState: (_, { itemId }) => normalizeItemId(itemId),
             },
         ],
         alertId: [
@@ -460,15 +466,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const alertChanged = (alert_id ?? null) !== values.alertId
             const isExistingInsight = shortId !== 'new'
 
-            // Normalize itemId the same way the reducer does for comparison
-            const normalizedItemId =
-                itemId !== undefined
-                    ? itemId === 'new' || itemId?.startsWith('new-')
-                        ? 'new'
-                        : Number.isInteger(+itemId)
-                          ? parseInt(itemId, 10)
-                          : itemId
-                    : null
+            const normalizedItemId = normalizeItemId(itemId)
             const itemIdChanged =
                 (currentScene?.activeSceneLogic as BuiltLogic<insightSceneLogicType>)?.values.itemId !==
                 normalizedItemId
