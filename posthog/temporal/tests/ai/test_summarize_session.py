@@ -25,7 +25,6 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai import AI_WORKFLOWS, SIGNALS_WORKFLOWS
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
-    _compress_redis_data,
     decompress_redis_data,
     generate_state_key,
     get_data_class_from_redis,
@@ -38,6 +37,7 @@ from posthog.temporal.ai.session_summary.summarize_session import (
     stream_llm_single_session_summary_activity,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.common.redis_payload import compress_str
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext, SyncRedisTestContext
 
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
@@ -174,7 +174,7 @@ class TestStreamLlmSummaryActivity:
         ateam: Team,
     ):
         llm_input_data = mock_single_session_summary_llm_inputs(mock_session_id, auser.id)
-        compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input_data)))
+        compressed_llm_input_data = compress_str(json.dumps(dataclasses.asdict(llm_input_data)))
         key_base = "stream_llm_test_base"
         input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id, key_base)
         # Generate Redis keys
@@ -331,7 +331,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
         # Prepare test data
         session_id = mock_session_id
         llm_input_data = mock_single_session_summary_llm_inputs(session_id, user_id)
-        compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input_data)))
+        compressed_llm_input_data = compress_str(json.dumps(dataclasses.asdict(llm_input_data)))
         redis_key_base = f"test_workflow_key_base_{uuid.uuid4()}"
         workflow_id = f"test_workflow_{uuid.uuid4()}"
         # Create workflow input object
@@ -387,8 +387,8 @@ class TestSummarizeSingleSessionStreamWorkflow:
         intermediate_redis_data = {"last_summary_state": intermediate_summary, "timestamp": 1234567890}
         final_redis_data = {"last_summary_state": expected_final_summary, "timestamp": 1234567891}
         # Compress the data as it would be stored in Redis
-        compressed_intermediate_data = _compress_redis_data(json.dumps(intermediate_redis_data))
-        compressed_final_data = _compress_redis_data(json.dumps(final_redis_data))
+        compressed_intermediate_data = compress_str(json.dumps(intermediate_redis_data))
+        compressed_final_data = compress_str(json.dumps(final_redis_data))
         # Track Redis calls to properly mock responses
         redis_call_count = 0
 

@@ -10,6 +10,7 @@ The test data is stored in two files in this directory:
 """
 
 import gzip
+import json
 import uuid
 from pathlib import Path
 
@@ -22,9 +23,14 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.redis import get_async_client
 from posthog.temporal.ai.video_segment_clustering.activities import cluster_segments_activity
+from posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters import (
+    emit_signals_from_clusters_activity,
+)
 from posthog.temporal.ai.video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
 from posthog.temporal.ai.video_segment_clustering.models import (
+    Cluster,
     ClusteringWorkflowInputs,
     EmitSignalsActivityInputs,
     EmitSignalsResult,
@@ -33,6 +39,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     VideoSegment,
     VideoSegmentMetadata,
 )
+from posthog.temporal.ai.video_segment_clustering.state import generate_redis_key, store_fetch_result
 
 pytestmark = [
     pytest.mark.django_db(transaction=True),
@@ -46,9 +53,14 @@ _test_video_segments: list[VideoSegment] = []  # With embeddings, for clustering
 
 
 @activity.defn(name="fetch_segments_activity")
-async def mock_fetch_segments_activity(_inputs: FetchSegmentsActivityInputs) -> FetchSegmentsResult:
-    """Return pre-loaded test segments."""
-    return FetchSegmentsResult(segments=_test_segments)
+async def mock_fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchSegmentsResult:
+    """Return pre-loaded test segments - stores in Redis for cluster/emit activities to load."""
+    redis_key = generate_redis_key(inputs.team_id, activity.info().workflow_run_id)
+    redis_client = get_async_client()
+    document_ids = [s.document_id for s in _test_segments]
+    distinct_ids = list({s.distinct_id for s in _test_segments if s.distinct_id})
+    await store_fetch_result(redis_client, redis_key, document_ids, distinct_ids)
+    return FetchSegmentsResult(redis_key=redis_key, document_count=len(_test_segments))
 
 
 @activity.defn(name="emit_signals_from_clusters_activity")
@@ -151,8 +163,6 @@ async def test_video_segment_clustering_workflow_emits_signals(ateam, test_segme
 
 async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_embeddings):
     """Test that the emit signals activity calls emit_signal() for each labeled cluster."""
-    from posthog.temporal.ai.video_segment_clustering.models import Cluster
-
     mock_emit = AsyncMock()
     mock_genai_response = AsyncMock()
     mock_genai_response.text = '{"actionable": true, "title": "Test issue", "description": "Test description"}'
@@ -165,14 +175,30 @@ async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_
         Cluster(cluster_id=1, segment_ids=[s.document_id for s in segments[3:6]], size=3),
     ]
 
+    distinct_ids = list({s.distinct_id for s in segments if s.distinct_id})
+    metadata_for_doc = lambda s: {
+        "session_id": s.session_id,
+        "start_time": s.start_time,
+        "end_time": s.end_time,
+        "distinct_id": s.distinct_id,
+        "session_start_time": s.session_start_time,
+        "session_end_time": s.session_end_time,
+        "session_duration": s.session_duration,
+        "session_active_seconds": s.session_active_seconds,
+    }
+    mock_rows = [(s.document_id, s.content, json.dumps(metadata_for_doc(s)), None) for s in segments]
+
     inputs = EmitSignalsActivityInputs(
         team_id=ateam.id,
         clusters=clusters,
-        segments=segments,
+        redis_key="test-redis-key",
     )
 
     mock_activity_info = MagicMock()
     mock_activity_info.workflow_id = "test-workflow-id"
+
+    async def mock_load_fetch_result(_redis, _key):
+        return [s.document_id for s in segments], distinct_ids
 
     with (
         patch(
@@ -182,6 +208,14 @@ async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_
         patch(
             "posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters.genai"
         ) as mock_genai_module,
+        patch(
+            "posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters.load_fetch_result",
+            side_effect=mock_load_fetch_result,
+        ),
+        patch(
+            "posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters.fetch_video_segment_metadata_by_document_ids",
+            return_value=mock_rows,
+        ),
         patch(
             "posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters.count_distinct_persons",
             return_value=3,
@@ -196,11 +230,6 @@ async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_
         ),
     ):
         mock_genai_module.AsyncClient.return_value = mock_genai_client
-
-        from posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters import (
-            emit_signals_from_clusters_activity,
-        )
-
         result = await emit_signals_from_clusters_activity(inputs)
 
     assert result.signals_emitted == 2

@@ -14,6 +14,7 @@ from sklearn.metrics.pairwise import cosine_distances
 from temporalio import activity
 
 from posthog.models.team import Team
+from posthog.redis import get_async_client
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
@@ -21,6 +22,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     ClusterSegmentsActivityInputs,
     VideoSegment,
 )
+from posthog.temporal.ai.video_segment_clustering.state import load_fetch_result
 from posthog.temporal.common.logger import get_logger
 
 from ..data import fetch_video_segment_embedding_rows
@@ -63,8 +65,10 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
 
     """
     team = await Team.objects.aget(id=inputs.team_id)
+    redis_client = get_async_client()
+    document_ids, _ = await load_fetch_result(redis_client, inputs.redis_key)
     # We fetch segments here instead of passing via Temporal, to avoid large Temporal payloads (each embedding is 3 KB)
-    segments = await _fetch_embeddings_by_document_ids(team, inputs.document_ids)
+    segments = await _fetch_embeddings_by_document_ids(team, document_ids)
 
     # Run in to_thread as clustering is CPU-bound
     clustering_with_centroids = await asyncio.to_thread(_perform_clustering, segments)
