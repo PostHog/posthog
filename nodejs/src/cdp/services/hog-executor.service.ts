@@ -157,7 +157,7 @@ export class HogExecutorService {
     private recipientTokensService: RecipientTokensService
 
     constructor(private hub: HogExecutorServiceHub) {
-        this.recipientTokensService = new RecipientTokensService(hub)
+        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
     }

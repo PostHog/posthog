@@ -2,6 +2,10 @@ import { env } from 'cloudflare:workers'
 
 import type { CloudRegion } from '@/tools/types'
 
+import packageJson from '../../package.json'
+
+export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
+
 // Region-specific PostHog API base URLs
 export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
 export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'

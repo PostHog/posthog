@@ -1022,6 +1022,48 @@ class TestExports(APIBaseTest):
         self.assertEqual(asset.failure_type, "user")
 
 
+class TestExportHeatmapSSRFValidation(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("metadata_endpoint", "http://169.254.169.254/latest/meta-data/"),
+            ("localhost", "http://localhost/admin"),
+            ("loopback_ip", "http://127.0.0.1:8080/secret"),
+            ("private_ip_10", "http://10.0.0.1/internal"),
+            ("private_ip_192", "http://192.168.1.1/internal"),
+            ("internal_domain", "http://service.cluster.local/api"),
+            ("file_scheme", "file:///etc/passwd"),
+        ]
+    )
+    def test_rejects_ssrf_heatmap_url(self, _name: str, url: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {
+                    "heatmap_url": url,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.api.exports.exporter")
+    @patch("posthog.security.url_validation.resolve_host_ips")
+    def test_accepts_valid_external_heatmap_url(self, mock_resolve, mock_exporter_task) -> None:
+        import ipaddress
+
+        mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {
+                    "heatmap_url": "https://example.com/page",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
 class TestExportMixin(APIBaseTest):
     def _get_export_output(self, path: str) -> list[str]:
         """

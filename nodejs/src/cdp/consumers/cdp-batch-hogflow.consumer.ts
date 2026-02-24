@@ -53,7 +53,14 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hogflow')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.hogRateLimiter = new HogRateLimiterService(hub, this.redis)
+        this.hogRateLimiter = new HogRateLimiterService(
+            {
+                bucketSize: hub.CDP_RATE_LIMITER_BUCKET_SIZE,
+                refillRate: hub.CDP_RATE_LIMITER_REFILL_RATE,
+                ttl: hub.CDP_RATE_LIMITER_TTL,
+            },
+            this.redis
+        )
 
         this.clickHouseRouter = new ClickHouseRouter(hub)
         this.clickHousePersonsRepository = new ClickHousePersonRepository(this.clickHouseRouter)
