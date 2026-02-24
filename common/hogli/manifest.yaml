@@ -272,7 +272,8 @@ build:
             - build:schema-latest-versions
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
     build:openapi-schema:
-        cmd: 'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py
+        cmd:
+            'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 OPENAPI_MOCK_INTERNAL_API_SECRET=1 python manage.py
             spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI
             schema written to frontend/tmp/openapi.json"
 
