@@ -139,7 +139,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
     tabAwareScene(),
-    connect(() => ({
+    connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById'],

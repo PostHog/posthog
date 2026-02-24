@@ -68,7 +68,6 @@ export const infoTabLogic = kea<infoTabLogicType>([
 
                     return res
                 },
-                resetDataModelingJobs: () => null,
             },
         ],
     })),
