@@ -41,7 +41,7 @@ The assistant used the todo list because:
 4. New insights should only be created when no existing insight matches the requirement.
 """.strip()
 
-MODE_DESCRIPTION = "General-purpose mode for product analytics tasks."
+PRODUCT_ANALYTICS_MODE_DESCRIPTION = "General-purpose mode for product analytics tasks."
 
 
 class ProductAnalyticsAgentToolkit(AgentToolkit):
@@ -60,7 +60,7 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
 
 product_analytics_agent = AgentModeDefinition(
     mode=AgentMode.PRODUCT_ANALYTICS,
-    mode_description=MODE_DESCRIPTION,
+    mode_description=PRODUCT_ANALYTICS_MODE_DESCRIPTION,
     toolkit_class=ProductAnalyticsAgentToolkit,
     node_class=ChatAgentExecutable,
     tools_node_class=ChatAgentToolsExecutable,
@@ -81,7 +81,7 @@ subagent_product_analytics_agent = replace(product_analytics_agent, toolkit_clas
 
 chat_agent_plan_product_analytics_agent = AgentModeDefinition(
     mode=AgentMode.PRODUCT_ANALYTICS,
-    mode_description=MODE_DESCRIPTION,
+    mode_description=PRODUCT_ANALYTICS_MODE_DESCRIPTION,
     toolkit_class=ReadOnlyProductAnalyticsAgentToolkit,  # Only CreateInsightTool
     node_class=ChatAgentPlanExecutable,
     tools_node_class=ChatAgentPlanToolsExecutable,
