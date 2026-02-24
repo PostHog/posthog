@@ -11,7 +11,7 @@
  * Invoked by `hogli build:openapi` as a separate step from frontend types.
  */
 /* eslint-disable no-console */
-import { execSync } from 'node:child_process'
+import { execSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -248,9 +248,12 @@ for (const def of definitions) {
 
 // Format all generated files
 if (outputDirs.length > 0) {
-    const globs = outputDirs.map((d) => `"${d}/**/*.ts"`).join(' ')
+    const globs = outputDirs.map((d) => `${d}/**/*.ts`)
     try {
-        execSync(`pnpm exec oxfmt --no-error-on-unmatched-pattern ${globs}`, { stdio: 'pipe', cwd: repoRoot })
+        spawnSync('pnpm', ['exec', 'oxfmt', '--no-error-on-unmatched-pattern', ...globs], {
+            stdio: 'pipe',
+            cwd: repoRoot,
+        })
     } catch {
         // Not critical
     }

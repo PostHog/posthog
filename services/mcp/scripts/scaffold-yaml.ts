@@ -14,7 +14,7 @@
  *   pnpm scaffold-yaml --path /api/projects/{project_id}/actions/
  *   pnpm scaffold-yaml --sync-all
  */
-import { execSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -65,9 +65,11 @@ function formatWithPrettier(filePaths: string[]): void {
     if (filePaths.length === 0) {
         return
     }
-    const quoted = filePaths.map((f) => `"${f}"`).join(' ')
     try {
-        execSync(`pnpm exec oxfmt --no-error-on-unmatched-pattern ${quoted}`, { stdio: 'pipe', cwd: REPO_ROOT })
+        spawnSync('pnpm', ['exec', 'oxfmt', '--no-error-on-unmatched-pattern', ...filePaths], {
+            stdio: 'pipe',
+            cwd: REPO_ROOT,
+        })
     } catch {
         // Not critical — oxfmt may not be available in all environments
     }
