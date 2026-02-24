@@ -76,13 +76,14 @@ export interface ParseMessageStepConfig {
 
 /**
  * Creates a step that parses raw Kafka messages into ParsedMessageData.
+ * This step is additive - it preserves all input properties and adds parsedMessage.
  *
  * This step processes one message at a time since there are no batch-level optimizations.
  * Gzip decompression is done synchronously since the pipeline already runs steps concurrently.
  */
-export function createParseMessageStep(
+export function createParseMessageStep<T extends ParseMessageStepInput>(
     config?: ParseMessageStepConfig
-): ProcessingStep<ParseMessageStepInput, ParseMessageStepOutput> {
+): ProcessingStep<T, T & ParseMessageStepOutput> {
     const topTracker = config?.topTracker
 
     return async function parseMessageStep(input) {
@@ -149,8 +150,6 @@ export function createParseMessageStep(
         const startDiff = Math.abs(startDateTime.diffNow('day').days)
         const endDiff = Math.abs(endDateTime.diffNow('day').days)
         if (startDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS || endDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS) {
-            // TODO: This warning is currently ignored because the pipeline doesn't have team context yet.
-            // Once team filtering is added to the pipeline, wire up IngestionWarningHandlingBatchPipeline.
             return drop(
                 'message_timestamp_diff_too_large',
                 [],
@@ -201,6 +200,6 @@ export function createParseMessageStep(
             topTracker.increment('parse_time_ms_by_session_id', trackingKey, parseDurationMs)
         }
 
-        return Promise.resolve(ok({ parsedMessage }))
+        return Promise.resolve(ok({ ...input, parsedMessage }))
     }
 }

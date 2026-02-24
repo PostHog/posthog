@@ -7,14 +7,17 @@ use moka::future::{Cache, CacheBuilder};
 
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
     issue_resolution::Issue,
     metric_consts::LINKING_STAGE,
     stages::{
         linking::{issue::IssueLinker, suppression::IssueSuppression},
         pipeline::ExceptionEventPipelineItem,
     },
-    types::{batch::Batch, operator::TeamId, stage::Stage},
+    types::{
+        batch::Batch,
+        operator::TeamId,
+        stage::{Stage, StageResult},
+    },
 };
 
 #[derive(Clone)]
@@ -26,13 +29,12 @@ pub struct LinkingStage {
 impl Stage for LinkingStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         LINKING_STAGE
     }
 
-    async fn process(self, batch: Batch<Self::Input>) -> Result<Batch<Self::Output>, Self::Error> {
+    async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         batch
             .apply_operator(IssueLinker, self.clone())
             .await?
@@ -43,7 +45,11 @@ impl Stage for LinkingStage {
 
 impl From<&Arc<AppContext>> for LinkingStage {
     fn from(ctx: &Arc<AppContext>) -> Self {
-        let issue_cache = CacheBuilder::new(1000).build();
+        let issue_cache = CacheBuilder::new(1000)
+            .time_to_live(std::time::Duration::from_secs(
+                ctx.config.issue_cache_ttl_seconds,
+            ))
+            .build();
         Self {
             app_context: ctx.clone(),
             issue_cache,

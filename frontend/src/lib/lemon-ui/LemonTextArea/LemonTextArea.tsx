@@ -5,8 +5,10 @@ import TextareaAutosize from 'react-textarea-autosize'
 
 import { cn } from 'lib/utils/css-classes'
 
-interface LemonTextAreaPropsBase
-    extends Pick<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'> {
+interface LemonTextAreaPropsBase extends Pick<
+    React.TextareaHTMLAttributes<HTMLTextAreaElement>,
+    'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'
+> {
     id?: string
     value?: string
     defaultValue?: string

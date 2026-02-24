@@ -11,8 +11,8 @@ import { urls } from 'scenes/urls'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
 
-import { WORKFLOW_METRICS_INFO } from '../../WorkflowMetrics'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID } from '../../workflowLogic'
+import { WORKFLOW_METRICS_INFO } from '../../WorkflowMetrics'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {

@@ -1,3 +1,4 @@
+import { JSONContent } from '@tiptap/core'
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -127,6 +128,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Session context actions
         loadPerson: true,
         loadPreviousTickets: true,
+
+        // Draft message state (persists across tab switches)
+        setDraftContent: (content: JSONContent | null) => ({ content }),
+        setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -264,6 +269,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 sendMessage: () => true,
                 setMessageSending: (_, { sending }) => sending,
+            },
+        ],
+        draftContent: [
+            null as JSONContent | null,
+            {
+                setDraftContent: (_, { content }) => content,
+            },
+        ],
+        draftIsPrivate: [
+            false,
+            {
+                setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
             },
         ],
     }),

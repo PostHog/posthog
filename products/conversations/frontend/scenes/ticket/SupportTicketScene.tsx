@@ -52,8 +52,19 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
+        draftContent,
+        draftIsPrivate,
     } = useValues(logic)
-    const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
+    const {
+        setStatus,
+        setPriority,
+        setAssignee,
+        sendMessage,
+        updateTicket,
+        loadOlderMessages,
+        setDraftContent,
+        setDraftIsPrivate,
+    } = useActions(logic)
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -124,6 +135,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         showPrivateOption
                         unreadCustomerCount={ticket?.unread_customer_count}
                         showDeliveryStatus={ticket?.channel_source === 'widget'}
+                        draftContent={draftContent}
+                        onDraftChange={setDraftContent}
+                        isPrivate={draftIsPrivate}
+                        onPrivateChange={setDraftIsPrivate}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />

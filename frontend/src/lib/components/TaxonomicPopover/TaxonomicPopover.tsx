@@ -6,6 +6,7 @@ import { IconX } from '@posthog/icons'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     ExcludedProperties,
     SelectedProperties,
     TaxonomicFilterGroupType,
@@ -18,8 +19,10 @@ import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
-export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
-    extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideAction'> {
+export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue> extends Omit<
+    LemonButtonProps,
+    'children' | 'onClick' | 'sideAction'
+> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType | null
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
@@ -45,6 +48,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
     allowNonCapturedEvents?: boolean
     sideIcon?: React.ReactElement | null
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -82,6 +86,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         dataWarehousePopoverFields,
         maxContextOptions,
         allowNonCapturedEvents,
+        definitionPopoverRenderer,
         width,
         placement,
         sideIcon,
@@ -137,6 +142,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                     maxContextOptions={maxContextOptions}
                     allowNonCapturedEvents={allowNonCapturedEvents}
+                    definitionPopoverRenderer={definitionPopoverRenderer}
                     width={width}
                 />
             }

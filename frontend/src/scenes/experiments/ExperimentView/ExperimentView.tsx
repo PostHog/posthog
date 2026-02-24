@@ -1,30 +1,22 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
+import { IconSparkles } from '@posthog/icons'
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
+import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentForm } from '~/scenes/experiments/ExperimentForm'
+import { createExperimentLogic } from '~/scenes/experiments/ExperimentForm/createExperimentLogic'
+import { ExperimentWizard } from '~/scenes/experiments/ExperimentWizard/ExperimentWizard'
+import { experimentWizardLogic } from '~/scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
-import { ActivityScope, ExperimentProgressStatus } from '~/types'
+import { ActivityScope } from '~/types'
 
-import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
-import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
-import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
-import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
-import { LegacySharedMetricModal } from '../Metrics/LegacySharedMetricModal'
-import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { SharedMetricModal } from '../Metrics/SharedMetricModal'
-import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
-import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
-import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
-import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
-import { Metrics } from '../MetricsView/new/Metrics'
-import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -34,11 +26,31 @@ import {
 } from '../components/ResultsBreakdown'
 import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
 import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
+import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { getExperimentStatus } from '../experimentsLogic'
+import { isExperimentCreationIncomplete } from '../experimentsLogic'
+import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
+import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
+import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
+import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
+import { LegacySharedMetricModal } from '../Metrics/LegacySharedMetricModal'
+import { MetricSourceModal } from '../Metrics/MetricSourceModal'
+import { SharedMetricModal } from '../Metrics/SharedMetricModal'
+import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
+import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
+import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
+import { Metrics } from '../MetricsView/new/Metrics'
+import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
+import {
+    EditConclusionModal,
+    LegacyExploreButton,
+    LegacyResultsQuery,
+    LoadingState,
+    PageHeaderCustom,
+} from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
@@ -49,13 +61,23 @@ import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
-import {
-    EditConclusionModal,
-    LegacyExploreButton,
-    LegacyResultsQuery,
-    LoadingState,
-    PageHeaderCustom,
-} from './components'
+
+const AiAnalysisTab = (): JSX.Element => {
+    const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
+
+    return (
+        <div className="flex flex-row gap-2">
+            <SummarizeExperimentButton
+                disabledReason={
+                    !hasMinimumExposureForResults
+                        ? 'Experiment needs at least 50 exposures to summarize results.'
+                        : undefined
+                }
+            />
+            <SummarizeSessionReplaysButton experiment={experiment} />
+        </div>
+    )
+}
 
 const MetricsTab = (): JSX.Element => {
     const {
@@ -94,9 +116,11 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
+
     return (
         <>
-            {usesNewQueryRunner && (
+            {usesNewQueryRunner && !isAiAnalysisTabEnabled && (
                 <div className="mt-1 mb-4 flex justify-start gap-2">
                     <SummarizeExperimentButton
                         disabledReason={
@@ -108,6 +132,7 @@ const MetricsTab = (): JSX.Element => {
                     <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
             )}
+
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />
@@ -195,6 +220,7 @@ const MetricsTab = (): JSX.Element => {
         </>
     )
 }
+
 const CodeTab = (): JSX.Element => {
     const { experiment } = useValues(experimentLogic)
 
@@ -234,21 +260,23 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
+    const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM', 'test')
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
+
     /**
      * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
      * we show the experiment view.
      */
-    const allPrimaryMetrics = [
-        ...(experiment.metrics || []),
-        ...(experiment.saved_metrics || []).filter((sm) => sm.metadata.type === 'primary'),
-    ]
-
-    if (
-        !experimentLoading &&
-        getExperimentStatus(experiment) === ExperimentProgressStatus.Draft &&
-        experiment.type === 'product' &&
-        allPrimaryMetrics.length === 0
-    ) {
+    if (!experimentLoading && isExperimentCreationIncomplete(experiment)) {
+        if (showWizard) {
+            return (
+                <BindLogic logic={createExperimentLogic} props={{ experiment, tabId }}>
+                    <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
+                        <ExperimentWizard />
+                    </BindLogic>
+                </BindLogic>
+            )
+        }
         return <ExperimentForm draftExperiment={experiment} tabId={tabId} />
     }
 
@@ -271,6 +299,20 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
+                            ...(isAiAnalysisTabEnabled && usesNewQueryRunner
+                                ? [
+                                      {
+                                          key: 'ai_analysis',
+                                          label: (
+                                              <div className="flex items-center gap-1">
+                                                  <IconSparkles />
+                                                  <span>AI analysis</span>
+                                              </div>
+                                          ),
+                                          content: <AiAnalysisTab />,
+                                      },
+                                  ]
+                                : []),
                             ...(!isExperimentDraft
                                 ? [
                                       {

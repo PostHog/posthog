@@ -27,14 +27,14 @@ export const getTraceloopSteps = (ctx: OnboardingComponentsContext): StepDefinit
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Paste in your PostHog project API key:</Markdown>
+                    <Markdown>Paste in your PostHog project token:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'text',
                                 file: 'API Key',
                                 code: dedent`
-                                <ph_project_api_key>
+                                <ph_project_token>
                             `,
                             },
                         ]}

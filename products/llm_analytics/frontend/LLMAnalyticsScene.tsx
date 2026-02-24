@@ -12,6 +12,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -19,8 +20,8 @@ import { objectsEqual } from 'lib/utils'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
@@ -34,16 +35,16 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
+import { useSortableColumns } from './hooks/useSortableColumns'
+import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
+import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
-import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
@@ -51,7 +52,7 @@ import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './ta
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
-import { sanitizeTraceUrlSearchParams, truncateValue } from './utils'
+import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -180,7 +181,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
 
     // Helper to safely extract uuid and traceId from a result row based on current column configuration
-    const getRowIds = (result: unknown): { uuid: string; traceId: string } | null => {
+    const getRowIds = (result: unknown): { uuid: string; traceId: string; traceTimestamp?: string } | null => {
         if (!Array.isArray(result) || !isEventsQuery(generationsQuery.source)) {
             return null
         }
@@ -191,6 +192,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
         const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
+        const timestampIndex = columns.findIndex((col) => col === 'timestamp')
 
         if (uuidIndex < 0 || traceIdIndex < 0) {
             return null
@@ -198,9 +200,14 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
         const uuid = result[uuidIndex]
         const traceId = result[traceIdIndex]
+        const timestampValue = timestampIndex >= 0 ? result[timestampIndex] : null
 
         if (typeof uuid === 'string' && typeof traceId === 'string') {
-            return { uuid, traceId }
+            const parsedTimestamp =
+                timestampValue != null && dayjs(String(timestampValue)).isValid()
+                    ? getTraceTimestamp(String(timestampValue))
+                    : undefined
+            return { uuid, traceId, traceTimestamp: parsedTimestamp }
         }
 
         return null
@@ -259,6 +266,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                                 combineUrl(urls.llmAnalyticsTrace(ids.traceId), {
                                                     ...nonTraceSearchParams,
                                                     event: value,
+                                                    timestamp: ids.traceTimestamp,
                                                     back_to: 'generations',
                                                 }).url
                                             }
@@ -563,7 +571,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     evaluations
                 </Link>
             ) : null,
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS] ? (
+            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
                     onClick={() => toggleProduct('Prompts', true)}
