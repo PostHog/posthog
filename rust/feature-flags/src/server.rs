@@ -10,6 +10,7 @@ use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
+use crate::tokio_monitor::TokioRuntimeMonitor;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
@@ -138,6 +139,12 @@ pub async fn serve<F>(
         cohort_cache_clone
             .start_monitoring(cohort_cache_monitor_interval)
             .await;
+    });
+
+    // Start Tokio runtime monitoring
+    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
+    tokio::spawn(async move {
+        tokio_monitor.start_monitoring().await;
     });
 
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
