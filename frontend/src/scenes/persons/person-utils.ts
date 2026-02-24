@@ -122,7 +122,8 @@ export const getHogqlQueryStringForPersonId = (): HogQLQueryString => {
                     groupArray(101)(pdi2.distinct_id) as distinct_ids,
                     properties,
                     is_identified,
-                    created_at
+                    created_at,
+                    last_seen_at
                 FROM persons
                 LEFT JOIN (
                     SELECT
@@ -139,5 +140,5 @@ export const getHogqlQueryStringForPersonId = (): HogQLQueryString => {
                         AND argMax(pdi2.person_id, pdi2.version) = {id}
                 ) AS pdi2 ON pdi2.person_id = persons.id
                 WHERE persons.id = {id}
-                GROUP BY id, properties, is_identified, created_at`
+                GROUP BY id, properties, is_identified, created_at, last_seen_at`
 }

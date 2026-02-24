@@ -5,6 +5,7 @@ import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/s
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { LLMProviderKeysSettings } from '@posthog/products-llm-analytics/frontend/settings/LLMProviderKeysSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
@@ -50,8 +51,8 @@ import {
     ActivityLogSettings,
 } from './environment/ActivityLogSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
-import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
+import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
@@ -70,13 +71,13 @@ import { FeaturePreviewsComingSoon, FeaturePreviewsSettings } from './environmen
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
+import { GithubIntegration, LinearIntegration } from './environment/Integrations'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
-import { GithubIntegration, LinearIntegration } from './environment/Integrations'
 import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
-import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
+import MCPServerSettings from './environment/MCPServerSettings'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
@@ -113,12 +114,12 @@ import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
 import { OrganizationAI } from './organization/OrgAI'
-import { OrganizationDisplayName } from './organization/OrgDisplayName'
-import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
-import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
+import { OrganizationDisplayName } from './organization/OrgDisplayName'
+import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -146,8 +147,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'variables',
-                title: 'Project API key & ID',
-                description: 'Your project API key and ID used to connect SDKs and APIs to this environment.',
+                title: 'Project token & ID',
+                description: 'Your project token and ID used to connect SDKs and APIs to this environment.',
                 component: <TeamVariables />,
                 keywords: ['api key', 'token', 'project id'],
             },
@@ -569,6 +570,28 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Connect external data sources like Stripe for revenue tracking.',
                 component: <ExternalDataSourceConfiguration />,
                 keywords: ['stripe', 'import', 'sync', 'data warehouse'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-llm-analytics',
+        title: 'LLM analytics',
+        group: 'Products',
+        flag: 'LLM_ANALYTICS_EVALUATIONS',
+        accessControl: {
+            resourceType: AccessControlResourceType.LlmAnalytics,
+            minimumAccessLevel: AccessControlLevel.Editor,
+        },
+        settings: [
+            {
+                id: 'llm-analytics-byok',
+                title: 'Bring Your Own Key (BYOK)',
+                description:
+                    'Add and manage provider API keys for LLM analytics features, including evaluations and playground.',
+                component: <LLMProviderKeysSettings />,
+                docsUrl: 'https://posthog.com/docs/llm-analytics/evaluations',
+                keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
             },
         ],
     },

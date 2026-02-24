@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { BuiltLogic, useValues } from 'kea'
 
 import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
 import { LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -8,18 +8,14 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { EvaluationRun } from '../evaluations/types'
-import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
+import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
 
-export function GenerationEvalRunsTable({ generationEventId }: { generationEventId: string }): JSX.Element {
-    return (
-        <BindLogic logic={generationEvaluationRunsLogic} props={{ generationEventId }}>
-            <GenerationEvalRunsTableContent />
-        </BindLogic>
-    )
-}
-
-function GenerationEvalRunsTableContent(): JSX.Element {
-    const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationEvaluationRunsLogic)
+export function GenerationEvalRunsTable({
+    generationRunsLogic,
+}: {
+    generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
+}): JSX.Element {
+    const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationRunsLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {

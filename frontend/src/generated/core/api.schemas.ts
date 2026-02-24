@@ -552,6 +552,8 @@ export interface ProjectBackwardCompatApi {
     conversations_enabled?: boolean | null
     conversations_settings?: unknown | null
     logs_settings?: unknown | null
+    /** @nullable */
+    proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
@@ -675,6 +677,8 @@ export interface PatchedProjectBackwardCompatApi {
     conversations_enabled?: boolean | null
     conversations_settings?: unknown | null
     logs_settings?: unknown | null
+    /** @nullable */
+    proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
