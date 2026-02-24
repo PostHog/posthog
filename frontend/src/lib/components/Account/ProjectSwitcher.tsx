@@ -10,8 +10,8 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { globalModalsLogic } from '~/layout/GlobalModals'
@@ -19,8 +19,8 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { ProjectName } from './ProjectMenu'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
+import { ProjectName } from './ProjectMenu'
 
 interface ProjectListItem {
     type: 'project'

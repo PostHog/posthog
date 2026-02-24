@@ -7,6 +7,7 @@ import { uuid } from 'lib/utils'
 import {
     PRODUCT_TOUR_STEP_WIDTHS,
     ProductTourStep,
+    ProductTourStepTranslation,
     ProductTourStepType,
     ProductTourStepWidth,
     ProductTourSurveyQuestion,
@@ -14,6 +15,36 @@ import {
     StepOrderVersion,
     SurveyPosition,
 } from '~/types'
+
+export function resolveStepTranslation(step: ProductTourStep, lang: string | null): ProductTourStep {
+    if (!lang) {
+        return step
+    }
+
+    const t: ProductTourStepTranslation | undefined = step.translations?.[lang]
+    if (!t) {
+        return step
+    }
+
+    const resolved = { ...step }
+
+    if (t.content !== undefined) {
+        resolved.content = t.content
+    }
+
+    if (t.buttons && resolved.buttons) {
+        resolved.buttons = {
+            primary: resolved.buttons.primary && { ...resolved.buttons.primary, ...t.buttons.primary },
+            secondary: resolved.buttons.secondary && { ...resolved.buttons.secondary, ...t.buttons.secondary },
+        }
+    }
+
+    if (t.survey && resolved.survey) {
+        resolved.survey = { ...resolved.survey, ...t.survey }
+    }
+
+    return resolved
+}
 
 export const DEFAULT_RATING_QUESTION = 'How helpful was this tour?'
 export const DEFAULT_OPEN_QUESTION = 'Any feedback on this tour?'
@@ -123,8 +154,14 @@ export function getExplainerStepContent(): JSONContent {
 }
 
 export function getDefaultSurveyContent(type: ProductTourSurveyQuestionType): ProductTourSurveyQuestion {
+    const defaults: Partial<ProductTourSurveyQuestion> = {
+        backButtonText: 'Back',
+        submitButtonText: 'Submit',
+    }
+
     if (type === 'rating') {
         return {
+            ...defaults,
             type: 'rating',
             questionText: DEFAULT_RATING_QUESTION,
             display: 'emoji',
@@ -134,6 +171,7 @@ export function getDefaultSurveyContent(type: ProductTourSurveyQuestionType): Pr
         }
     }
     return {
+        ...defaults,
         type: 'open',
         questionText: DEFAULT_OPEN_QUESTION,
     }

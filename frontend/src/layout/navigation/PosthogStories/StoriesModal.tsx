@@ -9,10 +9,10 @@ import { IconX } from '@posthog/icons'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { StoriesPlayer, Story } from './StoriesPlayer'
 import { storiesLogic } from './storiesLogic'
 import { CloseOverlayAction, StoryType } from './storiesMap'
 import type { story } from './storiesMap'
+import { StoriesPlayer, Story } from './StoriesPlayer'
 
 const IMAGE_STORY_INTERVAL = 6000
 const MIN_WIDTH = 320 // Minimum width in pixels

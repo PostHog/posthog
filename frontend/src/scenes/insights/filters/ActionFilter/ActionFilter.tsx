@@ -31,6 +31,7 @@ import {
     FunnelExclusionLegacy,
     InsightType,
     Optional,
+    PropertyOperator,
 } from '~/types'
 
 import { teamLogic } from '../../../teamLogic'
@@ -110,6 +111,7 @@ export interface ActionFilterProps {
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    operatorAllowlist?: PropertyOperator[]
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -148,6 +150,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         allowNonCapturedEvents,
         hogQLGlobals,
         definitionPopoverRenderer,
+        operatorAllowlist,
     },
     ref
 ): JSX.Element {
@@ -228,6 +231,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         excludedProperties,
         allowNonCapturedEvents,
         hogQLGlobals,
+        operatorAllowlist,
         inlineEventsDocLink: isTrendsFilter(filters)
             ? 'https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline'
             : 'https://posthog.com/docs/product-analytics/funnels#combine-events-inline',

@@ -4661,6 +4661,7 @@ dependencies = [
  "tokio-util",
  "tonic 0.12.3",
  "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -4921,9 +4922,9 @@ dependencies = [
 name = "lifecycle"
 version = "0.1.0"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "metrics",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
