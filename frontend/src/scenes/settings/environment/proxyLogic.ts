@@ -172,7 +172,7 @@ export const proxyLogic = kea<proxyLogicType>([
     })),
     forms(({ actions, values }) => ({
         createRecord: {
-            defaults: { domain: initialDomainFor(values.user) },
+            defaults: { domain: initialDomainFor(values.user, values.proxyRecords) },
             errors: ({ domain }: { domain: string }) => ({
                 domain:
                     domain === ''
