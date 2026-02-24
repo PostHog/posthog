@@ -3,8 +3,8 @@ use std::ops::Not;
 
 use crate::util::{empty_datetime_is_none, empty_string_uuid_is_none};
 use chrono::{DateTime, Utc};
-use rdkafka::message::{Header, Headers, OwnedHeaders};
 use metrics::counter;
+use rdkafka::message::{Header, Headers, OwnedHeaders};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -520,10 +520,7 @@ mod tests {
             distinct_id: Some(Value::String("  hello  ".to_string())),
             ..Default::default()
         };
-        assert_eq!(
-            event.extract_distinct_id(),
-            Some("  hello  ".to_string()),
-        );
+        assert_eq!(event.extract_distinct_id(), Some("  hello  ".to_string()),);
     }
 
     #[test]
