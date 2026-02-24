@@ -16,9 +16,9 @@ import {
     ExperimentExposureTimeSeries,
 } from '~/queries/schema/schema-general'
 
+import { exposureCriteriaModalLogic } from '../ExperimentForm/exposureCriteriaModalLogic'
 import { experimentLogic } from '../experimentLogic'
 import { useChartColors } from '../MetricsView/shared/colors'
-import { modalsLogic } from '../modalsLogic'
 import { filterLowMultipleVariant, getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
 
@@ -142,7 +142,7 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 export function Exposures(): JSX.Element {
     const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft, featureFlags } =
         useValues(experimentLogic)
-    const { openExposureCriteriaModal } = useActions(modalsLogic)
+    const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const colors = useChartColors()
 
     const [isCollapsed, setIsCollapsed] = useState(true)
@@ -336,7 +336,7 @@ export function Exposures(): JSX.Element {
                                                 size="xsmall"
                                                 className="flex items-center gap-2"
                                                 type="secondary"
-                                                onClick={() => openExposureCriteriaModal()}
+                                                onClick={() => openExposureCriteriaModal(exposureCriteria)}
                                             >
                                                 Edit exposure criteria
                                             </LemonButton>
@@ -361,7 +361,7 @@ export function Exposures(): JSX.Element {
                                         size="xsmall"
                                         className="flex items-center gap-2"
                                         type="secondary"
-                                        onClick={() => openExposureCriteriaModal()}
+                                        onClick={() => openExposureCriteriaModal(exposureCriteria)}
                                     />
                                 </div>
                             </div>
