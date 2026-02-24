@@ -45,8 +45,8 @@ import queryInsight from './insights/query'
 import updateInsight from './insights/update'
 // LLM Observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-import logsListAttributeValues from './logs/listAttributeValues'
 import logsListAttributes from './logs/listAttributes'
+import logsListAttributeValues from './logs/listAttributeValues'
 // Logs
 import logsQuery from './logs/query'
 // Organizations
@@ -181,8 +181,8 @@ export const getToolsFromContext = async (
 ): Promise<Tool<ZodObjectAny>[]> => {
     const useGenerated = context.env.USE_GENERATED_TOOLS === 'true'
     const effectiveMap = useGenerated ? { ...TOOL_MAP, ...GENERATED_TOOL_MAP } : TOOL_MAP
-
-    const allowedToolNames = getFilteredToolNames(options)
+    const excludeTools = options?.excludeTools ?? []
+    const allowedToolNames = getFilteredToolNames(options).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {

@@ -12,9 +12,9 @@ import { IconPlus, IconX } from '@posthog/icons'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconMenu } from 'lib/lemon-ui/icons'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
@@ -26,6 +26,7 @@ import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
+import { sidePanelOfframpLogic } from '../navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
@@ -40,6 +41,8 @@ export function SceneTabs(): JSX.Element {
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const { showOfframpModal } = useActions(sidePanelOfframpLogic)
+    const { isSceneTabsOfframpDismissed } = useValues(sidePanelOfframpLogic)
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -143,6 +146,17 @@ export function SceneTabs(): JSX.Element {
                                 <IconPlus className="!ml-0 size-3" />
                             </Link>
                         </AppShortcut>
+
+                        {isRemovingSidePanelFlag && !isSceneTabsOfframpDismissed && (
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    showOfframpModal()
+                                }}
+                                className="ml-auto text-tertiary hover:text-primary"
+                            >
+                                Where's the panel? 🤔
+                            </ButtonPrimitive>
+                        )}
                     </div>
                 </SortableContext>
             </DndContext>

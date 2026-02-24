@@ -1,5 +1,3 @@
-import { ItemCategory, ItemRenderer, TimelineItem } from '..'
-
 import { IconTerminal } from '@posthog/icons'
 
 import { Dayjs } from 'lib/dayjs'
@@ -7,6 +5,7 @@ import { uuid } from 'lib/utils'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
+import { ItemCategory, ItemRenderer, TimelineItem } from '..'
 import { BasePreview, LogEntryLoader } from './base'
 
 export interface ConsoleLogItem extends TimelineItem {

@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { P, match } from 'ts-pattern'
 
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
 import { LoadingExceptionList } from 'lib/components/Errors/ExceptionList/LoadingExceptionList'
 import { RawExceptionList } from 'lib/components/Errors/ExceptionList/RawExceptionList'
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import posthog from 'lib/posthog-typed'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'

@@ -1,12 +1,14 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
+import { createTestPerson } from '../../../tests/helpers/person'
 import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../tests/helpers/team'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { ProjectId, Team, TimestampFormat } from '../../types'
+import { Person, ProjectId, Team, TimestampFormat } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import {
@@ -16,7 +18,6 @@ import {
 } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, PipelineResultType, ok } from '../pipelines/results'
 import { EventPipelineRunnerInput, createEventPipelineRunnerV1Step } from './event-pipeline-runner-v1-step'
 
@@ -65,11 +66,12 @@ describe('event-pipeline-runner-v1-step', () => {
     let mockKafkaProducer: KafkaProducerWrapper
     let mockTeamManager: TeamManager
     let mockGroupTypeManager: GroupTypeManager
-    let mockPersonsStore: PersonsStore
     let mockGroupStore: BatchWritingGroupStore
+    let mockPerson: Person
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
     let mockMessage: Message
     let mockEvent: PluginEvent
+    let mockTimestamp: DateTime
     let mockTeam: Team
     let mockHeaders: any
 
@@ -90,8 +92,8 @@ describe('event-pipeline-runner-v1-step', () => {
         mockKafkaProducer = {} as KafkaProducerWrapper
         mockTeamManager = {} as TeamManager
         mockGroupTypeManager = {} as GroupTypeManager
-        mockPersonsStore = {} as PersonsStore
         mockGroupStore = {} as BatchWritingGroupStore
+        mockPerson = createTestPerson()
 
         mockMessage = createTestMessage({
             value: Buffer.from('test message'),
@@ -111,6 +113,8 @@ describe('event-pipeline-runner-v1-step', () => {
             site_url: 'https://test.com',
             now: '2023-01-01T00:00:00.000Z',
         })
+
+        mockTimestamp = DateTime.fromISO('2023-01-01T00:00:00.000Z', { zone: 'utc' })
 
         mockTeam = createTestTeam()
 
@@ -137,16 +141,16 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockPersonsStore,
                 mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
+                person: mockPerson,
             }
 
             const result = await step(input)
@@ -156,11 +160,16 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockTeamManager,
                 mockGroupTypeManager,
                 mockEvent,
-                mockPersonsStore,
                 mockGroupStore,
                 mockHeaders
             )
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, true, false)
+            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
+                mockEvent,
+                mockTimestamp,
+                mockTeam,
+                true,
+                mockPerson
+            )
             expect(result.type).toBe(PipelineResultType.OK)
             expect(result.sideEffects).toEqual([ackPromise])
             if (result.type === PipelineResultType.OK) {
@@ -179,16 +188,16 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockPersonsStore,
                 mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
+                person: mockPerson,
             }
 
             await expect(step(input)).rejects.toThrow('Retriable error')
@@ -204,16 +213,16 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockPersonsStore,
                 mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
+                person: mockPerson,
             }
 
             await expect(step(input)).rejects.toThrow('Non-retriable error')
@@ -228,16 +237,16 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockPersonsStore,
                 mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
+                person: mockPerson,
             }
 
             await expect(step(input)).rejects.toThrow('Error without isRetriable')
@@ -257,16 +266,16 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockPersonsStore,
                 mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
+                person: mockPerson,
             }
 
             const result = await step(input)
@@ -288,16 +297,16 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockPersonsStore,
                 mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
+                person: mockPerson,
             }
 
             const result = await step(input)
@@ -319,16 +328,16 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockPersonsStore,
                 mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
+                person: mockPerson,
             }
 
             await step(input)
@@ -339,7 +348,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockTeamManager,
                 mockGroupTypeManager,
                 mockEvent,
-                mockPersonsStore,
                 mockGroupStore,
                 mockHeaders
             )
@@ -355,117 +363,27 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockPersonsStore,
                 mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
+                person: mockPerson,
             }
 
             await step(input)
             expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledTimes(1)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, true, false)
-        })
-    })
-
-    describe('processPerson and forceDisablePersonProcessing flags', () => {
-        beforeEach(() => {
-            const mockResult = createTestEventPipelineResult()
-            const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
-            mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
-        })
-
-        it('should pass processPerson=false and forceDisablePersonProcessing=true to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(
-                mockConfig,
-                mockKafkaProducer,
-                mockTeamManager,
-                mockGroupTypeManager,
-                mockPersonsStore,
-                mockGroupStore
+            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
+                mockEvent,
+                mockTimestamp,
+                mockTeam,
+                true,
+                mockPerson
             )
-            const input: EventPipelineRunnerInput = {
-                message: mockMessage,
-                event: mockEvent,
-                team: mockTeam,
-                headers: mockHeaders,
-                processPerson: false,
-                forceDisablePersonProcessing: true,
-            }
-
-            await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, false, true)
-        })
-
-        it('should pass processPerson=true and forceDisablePersonProcessing=false to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(
-                mockConfig,
-                mockKafkaProducer,
-                mockTeamManager,
-                mockGroupTypeManager,
-                mockPersonsStore,
-                mockGroupStore
-            )
-            const input: EventPipelineRunnerInput = {
-                message: mockMessage,
-                event: mockEvent,
-                team: mockTeam,
-                headers: mockHeaders,
-                processPerson: true,
-                forceDisablePersonProcessing: false,
-            }
-
-            await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, true, false)
-        })
-
-        it('should pass processPerson=false and forceDisablePersonProcessing=false to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(
-                mockConfig,
-                mockKafkaProducer,
-                mockTeamManager,
-                mockGroupTypeManager,
-                mockPersonsStore,
-                mockGroupStore
-            )
-            const input: EventPipelineRunnerInput = {
-                message: mockMessage,
-                event: mockEvent,
-                team: mockTeam,
-                headers: mockHeaders,
-                processPerson: false,
-                forceDisablePersonProcessing: false,
-            }
-
-            await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, false, false)
-        })
-
-        it('should pass processPerson=true and forceDisablePersonProcessing=true to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(
-                mockConfig,
-                mockKafkaProducer,
-                mockTeamManager,
-                mockGroupTypeManager,
-                mockPersonsStore,
-                mockGroupStore
-            )
-            const input: EventPipelineRunnerInput = {
-                message: mockMessage,
-                event: mockEvent,
-                team: mockTeam,
-                headers: mockHeaders,
-                processPerson: true,
-                forceDisablePersonProcessing: true,
-            }
-
-            await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, true, true)
         })
     })
 })

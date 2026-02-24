@@ -35,13 +35,13 @@ import {
     HogFunctionTypeType,
 } from '~/types'
 
-import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionBackfills } from './backfills/HogFunctionBackfills'
-import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import {
     HogFunctionConfigurationClearChangesButton,
     HogFunctionConfigurationSaveButton,
 } from './configuration/components/HogFunctionConfigurationButtons'
+import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
+import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
@@ -150,7 +150,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     iconType: 'data_pipeline',
                 }
 
-                if (type === 'internal_destination' && (alertId || returnTo)) {
+                if (type === 'internal_destination' && alertId) {
                     // returnTo contains the full path back to the alert edit view
                     // Strip the alert_id param for the insight breadcrumb
                     const alertPath = returnTo ?? urls.alert(alertId!)
@@ -242,6 +242,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: 'Notifications',
+                            path: returnTo,
                         },
                         finalCrumb,
                     ]

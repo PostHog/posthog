@@ -8,13 +8,13 @@ from .models import SignalReport, SignalReportArtefact
 class SignalReportArtefactInline(admin.TabularInline):
     model = SignalReportArtefact
     extra = 0
-    fields = ("id", "type", "content_size", "created_at")
+    fields = ("id", "type", "content_preview", "created_at")
     readonly_fields = fields
     can_delete = False
 
-    @admin.display(description="Content size (bytes)")
-    def content_size(self, obj: SignalReportArtefact) -> int:
-        return len(obj.content) if obj.content else 0
+    @admin.display(description="Content preview")
+    def content_preview(self, obj: SignalReportArtefact) -> str:
+        return (obj.content[:200] + "...") if len(obj.content) > 200 else obj.content
 
 
 class SignalReportAdmin(admin.ModelAdmin):
@@ -59,7 +59,6 @@ class SignalReportAdmin(admin.ModelAdmin):
         "promoted_at",
         "last_run_at",
         "relevant_user_count",
-        "cluster_centroid_updated_at",
     )
 
     fieldsets = (
@@ -67,7 +66,6 @@ class SignalReportAdmin(admin.ModelAdmin):
         ("Content", {"fields": ("title", "summary", "error")}),
         ("Stats", {"fields": ("signal_count", "total_weight", "relevant_user_count", "signals_at_run")}),
         ("Related", {"fields": ("conversation",)}),
-        ("Clustering", {"fields": ("cluster_centroid_updated_at",)}),
         ("Dates", {"fields": ("created_at", "updated_at", "promoted_at", "last_run_at")}),
     )
 

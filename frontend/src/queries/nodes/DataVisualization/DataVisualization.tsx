@@ -26,20 +26,20 @@ import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
+import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
-import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { LineGraph } from './Components/Charts/LineGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
+import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
-import { VariablesForInsight } from './Components/Variables/Variables'
 import { variableModalLogic } from './Components/Variables/variableModalLogic'
+import { VariablesForInsight } from './Components/Variables/Variables'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
-import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 
@@ -53,6 +53,7 @@ export interface DataTableVisualizationProps {
     cachedResults?: AnyResponseType
     editMode?: boolean
     readOnly?: boolean
+    embedded?: boolean
     exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
@@ -72,6 +73,7 @@ export function DataTableVisualization({
     variablesOverride,
     attachTo,
     editMode,
+    embedded,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
@@ -144,6 +146,7 @@ export function DataTableVisualization({
                                 readOnly={readOnly}
                                 exportContext={exportContext}
                                 editMode={editMode}
+                                embedded={embedded}
                             />
                         </BindLogic>
                     </BindLogic>
@@ -312,7 +315,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     </>
                 )}
 
-                <VariablesForInsight />
+                {!props.embedded && <VariablesForInsight />}
 
                 <div className="flex flex-1 flex-row gap-4">
                     <div className="w-full h-full flex-1 overflow-auto">{component}</div>

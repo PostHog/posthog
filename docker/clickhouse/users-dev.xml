@@ -34,6 +34,7 @@
             <number_of_mutations_to_throw>1</number_of_mutations_to_throw>
 
             <stream_poll_timeout_ms>50</stream_poll_timeout_ms>
+            <stream_flush_interval_ms>500</stream_flush_interval_ms>
 
             <!-- Development performance optimizations -->
             <max_threads>2</max_threads>

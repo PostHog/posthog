@@ -18,7 +18,14 @@ import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDis
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
+import {
+    formatLLMCost,
+    formatLLMLatency,
+    formatLLMUsage,
+    getTraceTimestamp,
+    normalizeMessages,
+    sanitizeTraceUrlSearchParams,
+} from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
@@ -29,6 +36,7 @@ export function LLMAnalyticsTraces(): JSX.Element {
     return (
         <div data-attr="llm-trace-table">
             <DataTable
+                attachTo={llmAnalyticsSharedLogic}
                 query={{
                     ...tracesQuery,
                     showSavedFilters: true,
@@ -79,6 +87,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 render: TraceNameColumn,
             },
             person: llmAnalyticsColumnRenderers.person,
+            sentiment: llmAnalyticsColumnRenderers.sentiment,
             errors: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
@@ -106,13 +115,14 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
+    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <strong>
             <Tooltip title={row.id}>
                 <Link
                     to={
                         combineUrl(urls.llmAnalyticsTrace(row.id), {
-                            ...searchParams,
+                            ...nonTraceSearchParams,
                             back_to: 'traces',
                             timestamp: getTraceTimestamp(row.createdAt),
                         }).url
@@ -129,13 +139,14 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
+    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <div className="flex items-center gap-2">
             <strong>
                 <Link
                     to={
                         combineUrl(urls.llmAnalyticsTrace(row.id), {
-                            ...searchParams,
+                            ...nonTraceSearchParams,
                             back_to: 'traces',
                             timestamp: getTraceTimestamp(row.createdAt),
                         }).url

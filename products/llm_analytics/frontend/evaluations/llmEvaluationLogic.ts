@@ -1,15 +1,18 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb } from '~/types'
 
 import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
@@ -32,12 +35,16 @@ export interface AvailableModel {
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
+    tabId?: string
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
+    key(
+        (props) =>
+            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}::${props.tabId ?? 'default'}`
+    ),
 
     connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
@@ -53,6 +60,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
+
+        // Signal emission
+        loadSignalConfig: true,
+        loadSignalConfigSuccess: (enabled: boolean) => ({ enabled }),
+        setSignalEmission: (enabled: boolean) => ({ enabled }),
+        setSignalEmissionSuccess: (enabled: boolean) => ({ enabled }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -218,6 +231,22 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationSuccess: () => false,
             },
         ],
+        signalEmissionEnabled: [
+            false,
+            {
+                loadSignalConfigSuccess: (_, { enabled }) => enabled,
+                setSignalEmissionSuccess: (_, { enabled }) => enabled,
+            },
+        ],
+        signalEmissionLoading: [
+            false,
+            {
+                loadSignalConfig: () => true,
+                loadSignalConfigSuccess: () => false,
+                setSignalEmission: () => true,
+                setSignalEmissionSuccess: () => false,
+            },
+        ],
         hasUnsavedChanges: [
             false,
             {
@@ -326,6 +355,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 actions.loadAvailableModels({ provider, keyId })
+
+                // Load signal emission config for existing evals (staff only)
+                if (props.evaluationId !== 'new' && userLogic.values.user?.is_staff) {
+                    actions.loadSignalConfig()
+                }
             }
         },
 
@@ -413,6 +447,62 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 actions.loadEvaluationSuccess(newEvaluation)
             } else {
                 actions.loadEvaluationSuccess(values.originalEvaluation)
+            }
+        },
+
+        loadSignalConfig: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await api.get(`api/projects/${teamId}/signal_source_configs/`)
+                const configs = response.results ?? response
+                const llmEvalConfig = configs.find(
+                    (c: any) => c.source_product === 'llm_analytics' && c.source_type === 'evaluation'
+                )
+                const ids: string[] = llmEvalConfig?.config?.evaluation_ids ?? []
+                actions.loadSignalConfigSuccess(!!llmEvalConfig?.enabled && ids.includes(props.evaluationId))
+            } catch {
+                actions.loadSignalConfigSuccess(false)
+            }
+        },
+
+        setSignalEmission: async ({ enabled }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await api.get(`api/projects/${teamId}/signal_source_configs/`)
+                const configs = response.results ?? response
+                const existing = configs.find(
+                    (c: any) => c.source_product === 'llm_analytics' && c.source_type === 'evaluation'
+                )
+
+                if (existing) {
+                    const currentIds: string[] = existing.config?.evaluation_ids ?? []
+                    const newIds = enabled
+                        ? [...new Set([...currentIds, props.evaluationId])]
+                        : currentIds.filter((id: string) => id !== props.evaluationId)
+                    await api.update(`api/projects/${teamId}/signal_source_configs/${existing.id}/`, {
+                        enabled: true,
+                        config: { ...existing.config, evaluation_ids: newIds },
+                    })
+                    actions.setSignalEmissionSuccess(enabled)
+                } else if (enabled) {
+                    await api.create(`api/projects/${teamId}/signal_source_configs/`, {
+                        source_product: 'llm_analytics',
+                        source_type: 'evaluation',
+                        enabled: true,
+                        config: { evaluation_ids: [props.evaluationId] },
+                    })
+                    actions.setSignalEmissionSuccess(true)
+                }
+            } catch (error) {
+                // Revert to previous state on failure
+                actions.setSignalEmissionSuccess(!enabled)
+                throw error
             }
         },
 
@@ -516,6 +606,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     anthropic: [],
                     gemini: [],
                     openrouter: [],
+                    fireworks: [],
                 }
                 for (const key of providerKeys) {
                     if (key.provider in byProvider) {
@@ -530,6 +621,23 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.providerKeysByProvider, s.selectedProvider],
             (providerKeysByProvider: Record<LLMProvider, LLMProviderKey[]>, selectedProvider: LLMProvider) =>
                 providerKeysByProvider[selectedProvider] || [],
+        ],
+
+        evaluationProviderKeyIssue: [
+            (s) => [s.evaluation, s.providerKeys],
+            (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
+                const providerKeyId = evaluation?.model_configuration?.provider_key_id
+                if (!providerKeyId) {
+                    return null
+                }
+
+                const providerKey = providerKeys.find((key) => key.id === providerKeyId)
+                if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                    return null
+                }
+
+                return providerKey
+            },
         ],
 
         runsLookup: [
@@ -615,7 +723,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, props }) => ({
+    tabAwareUrlToAction(({ actions, props }) => ({
         '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'

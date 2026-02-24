@@ -14,7 +14,7 @@ export function SidePanelContentContainer({
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (
-        <div className={isRemovingSidePanelFlag ? 'h-full' : 'contents'}>
+        <div className={cn('scene-panel-content-container', isRemovingSidePanelFlag ? 'h-full' : 'contents')}>
             <ScrollableShadows
                 direction="vertical"
                 innerClassName="p-2 flex flex-col"

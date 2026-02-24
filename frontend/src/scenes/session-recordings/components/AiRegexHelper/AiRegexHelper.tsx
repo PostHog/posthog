@@ -7,8 +7,8 @@ import posthog from 'posthog-js'
 import { IconAI, IconCopy, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { aiRegexHelperLogic } from './aiRegexHelperLogic'

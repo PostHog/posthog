@@ -82,6 +82,35 @@ pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
 // Labels: team_id, operation_type (person_query, cohort_query, group_query)
 pub const FLAG_DB_OPERATIONS_PER_REQUEST: &str = "flags_db_operations_per_request";
 
+// Rayon dispatcher metrics
+// These track semaphore backpressure on the parallel evaluation path.
+
+// Time spent waiting for a semaphore permit before entering the Rayon pool (histogram, ms).
+// Near-zero means the pool is not saturated; high values mean batches are queueing.
+pub const RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME: &str = "flags_rayon_dispatcher_semaphore_wait_ms";
+
+// Number of semaphore permits available at dispatch time (gauge).
+// Consistently 0 means the Rayon pool is fully saturated.
+pub const RAYON_DISPATCHER_AVAILABLE_PERMITS: &str = "flags_rayon_dispatcher_available_permits";
+
+// Time spent executing work on the Rayon pool, excluding semaphore wait (histogram, ms).
+// Compare with RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME to understand whether tail latency
+// comes from semaphore contention or actual computation time.
+pub const RAYON_DISPATCHER_EXECUTION_TIME: &str = "flags_rayon_dispatcher_execution_ms";
+
+// Counter of semaphore acquisitions that had to wait (no permits available).
+// The ratio contended/total indicates how often the Rayon pool is at capacity.
+pub const RAYON_DISPATCHER_CONTENDED_ACQUIRES: &str =
+    "flags_rayon_dispatcher_contended_acquires_total";
+
+// Total semaphore acquisitions (counter). Used as denominator for contention ratio.
+pub const RAYON_DISPATCHER_TOTAL_ACQUIRES: &str = "flags_rayon_dispatcher_acquires_total";
+
+// Number of batch tasks currently executing on the Rayon pool (gauge).
+// With N semaphore permits, this should stay in [0, N]. Consistently at N
+// means the pool is saturated and the semaphore is the bottleneck.
+pub const RAYON_DISPATCHER_INFLIGHT_TASKS: &str = "flags_rayon_dispatcher_inflight_tasks";
+
 // Flag batch evaluation metrics
 // These track the performance difference between sequential and parallel evaluation strategies.
 // Used for A/B testing and tuning the PARALLEL_EVAL_THRESHOLD.

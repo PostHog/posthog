@@ -5,7 +5,7 @@ import snappy
 import aiohttp
 
 from posthog.storage.recordings.block_storage import EncryptedBlockStorage, encrypted_block_storage
-from posthog.storage.recordings.errors import BlockDeletionNotSupportedError, BlockFetchError, RecordingDeletedError
+from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
 
 
 class TestEncryptedBlockStorage:
@@ -260,35 +260,6 @@ class TestDeleteRecording:
             await client.delete_recording("session-123", 1)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("deleted_at", [1700000000, None])
-    async def test_410_raises_recording_deleted_error(self, client, mock_session, deleted_at):
-        mock_response = AsyncMock()
-        mock_response.status = 410
-        mock_response.json = AsyncMock(
-            return_value={"error": "Recording has already been deleted", "deleted_at": deleted_at}
-        )
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.delete = MagicMock(return_value=mock_response)
-
-        with pytest.raises(RecordingDeletedError, match="Recording has already been deleted") as exc_info:
-            await client.delete_recording("session-123", 1)
-        assert exc_info.value.deleted_at == deleted_at
-
-    @pytest.mark.asyncio
-    async def test_501_raises_not_supported_error(self, client, mock_session):
-        mock_response = AsyncMock()
-        mock_response.status = 501
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.delete = MagicMock(return_value=mock_response)
-
-        with pytest.raises(BlockDeletionNotSupportedError, match="not supported"):
-            await client.delete_recording("session-123", 1)
-
-    @pytest.mark.asyncio
     async def test_client_error_raises_error(self, client, mock_session):
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -306,6 +277,75 @@ class TestDeleteRecording:
 
         with pytest.raises(BlockFetchError, match="Failed to delete recording"):
             await client.delete_recording("session-123", 1)
+
+
+class TestBulkDeleteRecordings:
+    @pytest.fixture
+    def mock_session(self):
+        return MagicMock(spec=aiohttp.ClientSession)
+
+    @pytest.fixture
+    def client(self, mock_session):
+        return EncryptedBlockStorage(mock_session, "http://localhost:6740")
+
+    @pytest.mark.asyncio
+    async def test_successful_bulk_delete(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json = AsyncMock(return_value={"deleted": ["s1", "s2"], "failed": []})
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.post = MagicMock(return_value=mock_response)
+
+        result = await client.bulk_delete_recordings(["s1", "s2"], 1)
+
+        assert result == []
+        mock_session.post.assert_called_once_with(
+            "http://localhost:6740/api/projects/1/recordings/bulk_delete",
+            json={"session_ids": ["s1", "s2"]},
+        )
+
+    @pytest.mark.asyncio
+    async def test_partial_failure(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json = AsyncMock(
+            return_value={
+                "deleted": ["s1"],
+                "failed": [{"session_id": "s2", "error": "not_found"}],
+            }
+        )
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.post = MagicMock(return_value=mock_response)
+
+        result = await client.bulk_delete_recordings(["s1", "s2"], 1)
+
+        assert result == ["s2"]
+
+    @pytest.mark.asyncio
+    async def test_http_error_returns_all_as_failed(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = MagicMock(
+            side_effect=aiohttp.ClientResponseError(
+                request_info=MagicMock(),
+                history=(),
+                status=500,
+            )
+        )
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.post = MagicMock(return_value=mock_response)
+
+        result = await client.bulk_delete_recordings(["s1", "s2"], 1)
+
+        assert result == ["s1", "s2"]
 
 
 class TestEncryptedBlockStorageContextManager:
@@ -331,6 +371,8 @@ class TestEncryptedBlockStorageContextManager:
     async def test_creates_client_with_configured_url(self):
         with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = True
 
             with patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session:
                 mock_session = AsyncMock()
@@ -346,3 +388,43 @@ class TestEncryptedBlockStorageContextManager:
                 call_kwargs = mock_client_session.call_args[1]
                 assert call_kwargs["timeout"].total == 30
                 assert call_kwargs["timeout"].connect == 5
+                assert call_kwargs["headers"] == {}
+
+    @pytest.mark.asyncio
+    async def test_warns_when_secret_missing_in_production(self):
+        with (
+            patch("posthog.storage.recordings.block_storage.settings") as mock_settings,
+            patch("posthog.storage.recordings.block_storage.logger") as mock_logger,
+            patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session,
+        ):
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = False
+
+            mock_session = AsyncMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_client_session.return_value = mock_session
+
+            async with encrypted_block_storage():
+                pass
+
+            mock_logger.warning.assert_called_once_with("encrypted_block_storage.missing_internal_api_secret")
+
+    @pytest.mark.asyncio
+    async def test_passes_internal_api_secret_header(self):
+        with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = "test-secret"
+
+            with patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session:
+                mock_session = AsyncMock()
+                mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+                mock_session.__aexit__ = AsyncMock(return_value=None)
+                mock_client_session.return_value = mock_session
+
+                async with encrypted_block_storage() as storage:
+                    assert storage.session == mock_session
+
+                call_kwargs = mock_client_session.call_args[1]
+                assert call_kwargs["headers"] == {"X-Internal-Api-Secret": "test-secret"}
