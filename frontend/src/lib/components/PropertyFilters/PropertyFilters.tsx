@@ -55,6 +55,7 @@ export interface PropertyFiltersProps {
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
+    enableLargeListVirtualization?: boolean
 }
 
 export function PropertyFilters({
@@ -91,6 +92,7 @@ export function PropertyFilters({
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
+    enableLargeListVirtualization = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -163,6 +165,7 @@ export function PropertyFilters({
                                             editable={editable}
                                             operatorAllowlist={operatorAllowlist}
                                             hogQLGlobals={hogQLGlobals}
+                                            enableLargeListVirtualization={enableLargeListVirtualization}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

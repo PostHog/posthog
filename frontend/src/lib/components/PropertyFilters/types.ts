@@ -65,4 +65,5 @@ export interface PropertyFilterInternalProps {
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
+    enableLargeListVirtualization?: boolean
 }

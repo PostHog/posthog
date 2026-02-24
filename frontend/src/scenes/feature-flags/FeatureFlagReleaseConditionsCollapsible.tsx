@@ -9,6 +9,7 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -175,6 +176,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
         filters,
         onChange,
     })
+
+    const enableLargeListVirtualization = useFeatureFlag('LEMON_INPUT_SELECT_VIRTUALIZATION')
 
     const {
         taxonomicGroupTypes,
@@ -407,6 +410,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                                     taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                                     hasRowOperator={false}
+                                                    enableLargeListVirtualization={enableLargeListVirtualization}
                                                 />
                                             </div>
 

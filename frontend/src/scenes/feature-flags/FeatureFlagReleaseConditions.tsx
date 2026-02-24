@@ -144,6 +144,7 @@ export function FeatureFlagReleaseConditions({
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     const showBucketingIdentifierUI = useFeatureFlag('FLAG_BUCKETING_IDENTIFIER')
+    const enableLargeListVirtualization = useFeatureFlag('LEMON_INPUT_SELECT_VIRTUALIZATION')
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
@@ -352,6 +353,7 @@ export function FeatureFlagReleaseConditions({
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
                                 allowRelativeDateOptions
+                                enableLargeListVirtualization={enableLargeListVirtualization}
                                 excludedProperties={
                                     featureFlagKey
                                         ? { [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey] }

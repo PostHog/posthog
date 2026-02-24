@@ -79,6 +79,7 @@ export function TaxonomicPropertyFilter({
     operatorAllowlist,
     endpointFilters,
     hogQLGlobals,
+    enableLargeListVirtualization = false,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
@@ -227,6 +228,7 @@ export function TaxonomicPropertyFilter({
                     : undefined
             }
             operatorAllowlist={operatorAllowlist}
+            enableLargeListVirtualization={enableLargeListVirtualization}
         />
     )
 

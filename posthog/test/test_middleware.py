@@ -777,6 +777,23 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Should not be blocked by impersonation middleware (might get other errors)
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
 
+    def test_read_only_impersonation_allows_user_blast_radius_endpoint(self):
+        """Verify read-only impersonation allows POST to user_blast_radius endpoint."""
+        self.login_as_other_user_read_only()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        # POST to user_blast_radius endpoint - the endpoint is read-only despite using POST
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius/",
+            data={"condition": {"properties": []}},
+            content_type="application/json",
+        )
+
+        # Should not be blocked by impersonation middleware (might get other errors)
+        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+
     def test_regular_impersonation_allows_write(self):
         """Verify regular (non-read-only) impersonation can still write."""
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")

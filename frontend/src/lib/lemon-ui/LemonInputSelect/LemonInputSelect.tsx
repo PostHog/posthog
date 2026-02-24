@@ -5,16 +5,14 @@ import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@d
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
-import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { List } from 'react-window'
+import React, { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
-import { AutoSizer } from 'lib/components/AutoSizer'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -31,90 +29,9 @@ const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
 const VIRTUALIZED_SELECT_OPTION_HEIGHT = 33
 
 const VIRTUALIZED_MAX_DROPDOWN_HEIGHT = 420
-
-interface VirtualizedOptionRowProps<T = string> {
-    visibleOptions: LemonInputSelectOption<T>[]
-    selectedIndex: number
-    stringKeys: string[]
-    wasLimitReached: boolean
-    limit?: number
-    _onActionItem: (key: string, e?: MouseEvent) => void
-    setSelectedIndex: (index: number) => void
-    allowCustomValues?: boolean
-    disableEditing?: boolean
-    setInputValue: (value: string) => void
-    inputRef: React.RefObject<HTMLInputElement | null>
-    _onFocus: () => void
-    getInputLabel: (option: LemonInputSelectOption<T>) => React.ReactNode
-    getOptionIcon: (option: LemonInputSelectOption<T>, isSelected: boolean) => JSX.Element | null | undefined
-}
-
-function VirtualizedOptionRow<T = string>({
-    index,
-    style,
-    visibleOptions,
-    selectedIndex,
-    stringKeys,
-    wasLimitReached,
-    limit,
-    _onActionItem,
-    setSelectedIndex,
-    allowCustomValues,
-    disableEditing,
-    setInputValue,
-    inputRef,
-    _onFocus,
-    getInputLabel,
-    getOptionIcon,
-}: {
-    ariaAttributes: Record<string, unknown>
-    index: number
-    style: CSSProperties
-} & VirtualizedOptionRowProps<T>): JSX.Element {
-    const option = visibleOptions[index]
-    const isFocused = index === selectedIndex
-    const isSelected = stringKeys.includes(option.key)
-    const isDisabled = wasLimitReached && !isSelected
-    return (
-        <LemonButton
-            style={style}
-            key={option.key}
-            type="tertiary"
-            size="small"
-            fullWidth
-            active={isFocused}
-            onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
-            onMouseEnter={() => setSelectedIndex(index)}
-            disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
-            tooltip={option.tooltip}
-            icon={getOptionIcon(option, isSelected)}
-            sideAction={
-                !option.__isInput && allowCustomValues && !disableEditing
-                    ? {
-                          icon: <IconPencil className={!isFocused ? 'invisible' : undefined} />,
-                          tooltip: (
-                              <>
-                                  Edit this value
-                                  <KeyboardShortcut option enter />
-                              </>
-                          ),
-                          onClick: () => {
-                              setInputValue(option.key)
-                              inputRef.current?.focus()
-                              _onFocus()
-                          },
-                      }
-                    : undefined
-            }
-        >
-            <span className="whitespace-nowrap ph-no-capture truncate">
-                {!option.__isInput && !option.__isCustomValue
-                    ? (option.labelComponent ?? option.label)
-                    : getInputLabel(option)}
-            </span>
-        </LemonButton>
-    )
-}
+// Maximum height for value snacks container
+const VALUE_SNACKS_MAX_HEIGHT = 320
+// Estimated height per snack row (snacks are variable width but consistent height)
 
 export interface LemonInputSelectOption<T = string> {
     key: string
@@ -169,6 +86,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     disableCommaSplitting?: boolean
     action?: LemonInputSelectAction
     virtualized?: boolean
+    /** Enable virtualization for large lists (>100 values) with vertical layout */
+    enableLargeListVirtualization?: boolean
     /** Enable drag-and-drop reordering of values */
     sortable?: boolean
     /** Render single-mode values as snack pills (matching multi-mode appearance) */
@@ -208,6 +127,7 @@ export function LemonInputSelect<T = string>({
     disableCommaSplitting = false,
     action,
     virtualized = false,
+    enableLargeListVirtualization = false,
     sortable = false,
     status = 'default',
     singleValueAsSnack = false,
@@ -579,6 +499,15 @@ export function LemonInputSelect<T = string>({
         [values, getStringKey, onChange]
     )
 
+    // Check if we need to use virtualization for large lists
+    // Use virtualization for >100 values in multiple mode to prevent OOM
+    // Only when explicitly enabled via prop
+    // Memoize to prevent race conditions and unnecessary re-renders
+    const useVirtualization = useMemo(
+        () => enableLargeListVirtualization && mode === 'multiple' && values.length > 100,
+        [enableLargeListVirtualization, mode, values.length]
+    )
+
     const valuesPrefix = useMemo(() => {
         // For single mode with a selected value and no active input, show the value as prefix since
         // showing the entered value as placeholder was unintuitive
@@ -615,6 +544,11 @@ export function LemonInputSelect<T = string>({
             return null
         }
 
+        // For large lists, don't render as prefix - will be rendered with virtualization
+        if (useVirtualization) {
+            return null
+        }
+
         const preInputValues = itemBeingEditedIndex !== null ? values.slice(0, itemBeingEditedIndex) : values
 
         // TRICKY: We don't want the popover to affect the snack buttons
@@ -629,6 +563,8 @@ export function LemonInputSelect<T = string>({
                     }
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
+                    limitHeight={true}
+                    enableVirtualization={useVirtualization}
                 />
             </PopoverReferenceContext.Provider>
         )
@@ -651,6 +587,43 @@ export function LemonInputSelect<T = string>({
         singleValueAsSnack,
         onChange,
         setInputValue,
+        useVirtualization,
+    ])
+
+    const virtualizedValues = useMemo(() => {
+        // Only render virtualized values for large lists
+        if (!useVirtualization) {
+            return null
+        }
+
+        return (
+            <div className="w-full mb-2">
+                <PopoverReferenceContext.Provider value={null}>
+                    <ValueSnacks
+                        values={values.map(getStringKey)}
+                        options={options}
+                        onClose={(value) => _onActionItem(value, null)}
+                        onInitiateEdit={
+                            allowCustomValues && !disableEditing ? (value) => _onActionItem(value, null, true) : null
+                        }
+                        sortable={sortable}
+                        onDragEnd={handleDragEnd}
+                        limitHeight={true}
+                        enableVirtualization={useVirtualization}
+                    />
+                </PopoverReferenceContext.Provider>
+            </div>
+        )
+    }, [
+        useVirtualization,
+        values,
+        getStringKey,
+        options,
+        _onActionItem,
+        allowCustomValues,
+        disableEditing,
+        sortable,
+        handleDragEnd,
     ])
 
     const valuesAndClearButtonSuffix = useMemo(() => {
@@ -682,6 +655,8 @@ export function LemonInputSelect<T = string>({
                     }
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
+                    limitHeight={true}
+                    enableVirtualization={useVirtualization}
                 />
                 {isClearButtonVisible && (
                     <div
@@ -723,6 +698,7 @@ export function LemonInputSelect<T = string>({
         size,
         onChange,
         singleValueAsSnack,
+        useVirtualization,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
@@ -740,18 +716,6 @@ export function LemonInputSelect<T = string>({
             </span>
         )
     }, [displayMode, mode, inputValue, loading, values.length, options.length])
-
-    const virtualizedListHeight = useMemo(() => {
-        if (visibleOptions.length <= 1) {
-            return VIRTUALIZED_SELECT_OPTION_HEIGHT
-        }
-        const height = visibleOptions.length * VIRTUALIZED_SELECT_OPTION_HEIGHT
-
-        if (height > VIRTUALIZED_MAX_DROPDOWN_HEIGHT) {
-            return VIRTUALIZED_MAX_DROPDOWN_HEIGHT
-        }
-        return height
-    }, [visibleOptions])
 
     const wasLimitReached = values.length >= limit
 
@@ -786,7 +750,293 @@ export function LemonInputSelect<T = string>({
         return undefined
     }
 
-    return (
+    return useVirtualization ? (
+        <LemonDropdown
+            matchWidth
+            closeOnClickInside={false}
+            actionable
+            visible={showPopover}
+            onClickOutside={() => {
+                popoverFocusRef.current = false
+                setShowPopover(false)
+                // It seems more intuitive to lose focus of drop down entirely when clicking outside of the field.
+                // If this behavior at some point is not desired for multiple mode anymore, it should be kept for single mode.
+                inputRef.current?.blur()
+            }}
+            onClickInside={(e) => {
+                popoverFocusRef.current = true
+                e.stopPropagation()
+            }}
+            className={popoverClassName}
+            placement="top-start"
+            fallbackPlacements={['top-end', 'bottom-start', 'bottom-end']}
+            loadingBar={loading && visibleOptions.length > 0}
+            overlay={
+                <div className="deprecated-space-y-px overflow-y-auto">
+                    {title && <h5 className="mx-2 my-1">{title}</h5>}
+
+                    {bulkActions && mode === 'multiple' && (
+                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
+                            {bulkActions === 'select-and-clear-all' && (
+                                <LemonButton
+                                    size="small"
+                                    className="flex-1"
+                                    disabledReason={
+                                        values.length === allOptionsMap.size
+                                            ? 'All options are already selected'
+                                            : undefined
+                                    }
+                                    tooltipPlacement="top-start"
+                                    tooltipArrowOffset={50}
+                                    onClick={() => {
+                                        const allKeys = Array.from(allOptionsMap.keys())
+                                        const allTypedValues = allKeys.map(getTypedValue)
+                                        onChange?.(allTypedValues)
+                                    }}
+                                    icon={
+                                        <LemonCheckbox
+                                            checked={
+                                                values.length === allOptionsMap.size
+                                                    ? true
+                                                    : values.length
+                                                      ? 'indeterminate'
+                                                      : false
+                                            }
+                                            className="pointer-events-none"
+                                        />
+                                    }
+                                >
+                                    Select all
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                size="small"
+                                className={clsx({ 'flex-1': bulkActions === 'clear-all' })}
+                                tooltipPlacement={bulkActions === 'select-and-clear-all' ? 'top-end' : 'top-start'}
+                                tooltipArrowOffset={bulkActions === 'clear-all' ? 30 : undefined}
+                                disabledReason={values.length === 0 ? 'No options are selected' : undefined}
+                                onClick={() => onChange?.([])}
+                            >
+                                Clear all
+                            </LemonButton>
+                        </div>
+                    )}
+
+                    {action && (
+                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
+                            <LemonButton
+                                size="small"
+                                className="flex-1"
+                                disabledReason={action?.disabledReason}
+                                onClick={action?.onClick}
+                            >
+                                {action?.children}
+                            </LemonButton>
+                        </div>
+                    )}
+
+                    {visibleOptions.length > 0 ? (
+                        visibleOptions.length > 100 ? (
+                            <>
+                                <div
+                                    style={{
+                                        height: VIRTUALIZED_MAX_DROPDOWN_HEIGHT - 60,
+                                        overflowY: 'auto',
+                                    }}
+                                    className="space-y-px"
+                                >
+                                    {visibleOptions.map((option, index) => {
+                                        const isFocused = index === selectedIndex
+                                        const isSelected = stringKeys.includes(option.key)
+                                        const isDisabled = wasLimitReached && !isSelected
+                                        return (
+                                            <LemonButton
+                                                key={option.key}
+                                                type="tertiary"
+                                                size="small"
+                                                fullWidth
+                                                active={isFocused}
+                                                onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
+                                                onMouseEnter={() => setSelectedIndex(index)}
+                                                disabledReason={
+                                                    isDisabled ? `Limit of ${limit} options reached` : undefined
+                                                }
+                                                tooltip={option.tooltip}
+                                                icon={getOptionIcon(option, isSelected)}
+                                                style={{ minHeight: VIRTUALIZED_SELECT_OPTION_HEIGHT }}
+                                                sideAction={
+                                                    !option.__isInput && allowCustomValues && !disableEditing
+                                                        ? {
+                                                              icon: (
+                                                                  <IconPencil
+                                                                      className={!isFocused ? 'invisible' : undefined}
+                                                                  />
+                                                              ),
+                                                              tooltip: (
+                                                                  <>
+                                                                      Edit this value <KeyboardShortcut option enter />
+                                                                  </>
+                                                              ),
+                                                              onClick: () => {
+                                                                  setInputValue(option.key)
+                                                                  inputRef.current?.focus()
+                                                                  _onFocus()
+                                                              },
+                                                          }
+                                                        : undefined
+                                                }
+                                            >
+                                                <span className="whitespace-nowrap ph-no-capture truncate">
+                                                    {!option.__isInput && !option.__isCustomValue
+                                                        ? (option.labelComponent ?? option.label)
+                                                        : getInputLabel(option)}
+                                                </span>
+                                            </LemonButton>
+                                        )
+                                    })}
+                                </div>
+                                {/* Add value input visible at bottom of dropdown for large lists */}
+                                {allowCustomValues && inputValue && (
+                                    <div className="border-t border-border p-1">
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="small"
+                                            fullWidth
+                                            onClick={() => _onActionItem(inputValue)}
+                                        >
+                                            <span className="whitespace-nowrap ph-no-capture truncate">
+                                                {getInputLabel({ key: inputValue, label: inputValue, __isInput: true })}
+                                            </span>
+                                        </LemonButton>
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            visibleOptions.map((option, index) => {
+                                const isFocused = index === selectedIndex
+                                const isSelected = stringKeys.includes(option.key)
+                                const isDisabled = wasLimitReached && !isSelected
+                                return (
+                                    <LemonButton
+                                        key={option.key}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        active={isFocused}
+                                        onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
+                                        onMouseEnter={() => setSelectedIndex(index)}
+                                        disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
+                                        tooltip={option.tooltip}
+                                        icon={getOptionIcon(option, isSelected)}
+                                        sideAction={
+                                            !option.__isInput && allowCustomValues && !disableEditing
+                                                ? {
+                                                      // To reduce visual clutter we only show the icon on focus or hover,
+                                                      // but we do want it present to make sure the layout is stable
+                                                      icon: (
+                                                          <IconPencil
+                                                              className={!isFocused ? 'invisible' : undefined}
+                                                          />
+                                                      ),
+                                                      tooltip: (
+                                                          <>
+                                                              Edit this value <KeyboardShortcut option enter />
+                                                          </>
+                                                      ),
+                                                      onClick: () => {
+                                                          setInputValue(option.key)
+                                                          inputRef.current?.focus()
+                                                          _onFocus()
+                                                      },
+                                                  }
+                                                : undefined
+                                        }
+                                    >
+                                        <span className="whitespace-nowrap ph-no-capture truncate">
+                                            {
+                                                !option.__isInput && !option.__isCustomValue
+                                                    ? (option.labelComponent ?? option.label) // Regular option
+                                                    : getInputLabel(option) // Input-based option
+                                            }
+                                        </span>
+                                    </LemonButton>
+                                )
+                            })
+                        )
+                    ) : loading ? (
+                        <>
+                            {range(5).map((x) => (
+                                // 33px is the height of a regular list item
+                                <div key={x} className="flex gap-2 items-center h-[33px] px-2">
+                                    <LemonSkeleton.Circle className="size-[18px]" />
+                                    <LemonSkeleton className="h-3.5 w-full" />
+                                </div>
+                            ))}
+                        </>
+                    ) : (
+                        <>
+                            {emptyStateComponent ? (
+                                emptyStateComponent
+                            ) : (
+                                <p className="text-secondary italic p-1">
+                                    {allowCustomValues
+                                        ? 'Start typing and press Enter to add options'
+                                        : `No options matching "${inputValue}"`}
+                                </p>
+                            )}
+                        </>
+                    )}
+                </div>
+            }
+        >
+            <LemonInput
+                inputRef={inputRef}
+                placeholder={
+                    displayMode === 'count'
+                        ? undefined
+                        : values.length === 0
+                          ? placeholder
+                          : mode === 'single'
+                            ? undefined // When value is selected in single mode, no placeholder (value shown but rendered as prefix)
+                            : allowCustomValues
+                              ? 'Add value'
+                              : disablePrompting
+                                ? undefined
+                                : 'Pick value'
+                }
+                autoWidth={fullWidth ? false : autoWidth}
+                fullWidth={fullWidth}
+                prefix={virtualizedValues}
+                suffix={
+                    <>
+                        {countPlaceholder}
+                        {valuesAndClearButtonSuffix}
+                    </>
+                }
+                onFocus={_onFocus}
+                onBlur={_onBlur}
+                value={inputValue}
+                onChange={setInputValue}
+                onClick={_onClick}
+                onKeyDown={_onKeyDown}
+                disabled={disabled}
+                autoFocus={autoFocus}
+                transparentBackground={transparentBackground}
+                className={clsx(
+                    '!h-auto leading-7 max-w-full w-full', // leading-7 means line height aligned with LemonSnack height
+                    // Putting button-like text styling on the single-select unfocused placeholder
+                    // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)
+                    mode === 'multiple' && 'flex-wrap',
+                    mode === 'single' && values.length > 0 && '*:*:font-medium *:*:placeholder:font-medium',
+                    mode === 'single' && values.length > 0 && !showPopover && '*:*:placeholder:text-default',
+                    className
+                )}
+                data-attr={dataAttr}
+                size={size}
+                status={status}
+            />
+        </LemonDropdown>
+    ) : (
         <LemonDropdown
             matchWidth
             closeOnClickInside={false}
@@ -872,38 +1122,81 @@ export function LemonInputSelect<T = string>({
                     )}
 
                     {visibleOptions.length > 0 ? (
-                        virtualized ? (
-                            <div>
-                                <AutoSizer
-                                    renderProp={({ width }) =>
-                                        width ? (
-                                            <List<VirtualizedOptionRowProps<T>>
-                                                style={{ width, height: virtualizedListHeight }}
-                                                rowCount={visibleOptions.length}
-                                                overscanCount={100}
-                                                rowHeight={VIRTUALIZED_SELECT_OPTION_HEIGHT}
-                                                rowComponent={VirtualizedOptionRow}
-                                                rowProps={{
-                                                    visibleOptions,
-                                                    selectedIndex,
-                                                    stringKeys,
-                                                    wasLimitReached,
-                                                    limit,
-                                                    _onActionItem,
-                                                    setSelectedIndex,
-                                                    allowCustomValues,
-                                                    disableEditing,
-                                                    setInputValue,
-                                                    inputRef,
-                                                    _onFocus,
-                                                    getInputLabel,
-                                                    getOptionIcon,
-                                                }}
-                                            />
-                                        ) : null
-                                    }
-                                />
-                            </div>
+                        visibleOptions.length > 100 ? (
+                            <>
+                                <div
+                                    style={{
+                                        height: VIRTUALIZED_MAX_DROPDOWN_HEIGHT - 60,
+                                        overflowY: 'auto',
+                                    }}
+                                    className="space-y-px"
+                                >
+                                    {visibleOptions.map((option, index) => {
+                                        const isFocused = index === selectedIndex
+                                        const isSelected = stringKeys.includes(option.key)
+                                        const isDisabled = wasLimitReached && !isSelected
+                                        return (
+                                            <LemonButton
+                                                key={option.key}
+                                                type="tertiary"
+                                                size="small"
+                                                fullWidth
+                                                active={isFocused}
+                                                onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
+                                                onMouseEnter={() => setSelectedIndex(index)}
+                                                disabledReason={
+                                                    isDisabled ? `Limit of ${limit} options reached` : undefined
+                                                }
+                                                tooltip={option.tooltip}
+                                                icon={getOptionIcon(option, isSelected)}
+                                                style={{ minHeight: VIRTUALIZED_SELECT_OPTION_HEIGHT }}
+                                                sideAction={
+                                                    !option.__isInput && allowCustomValues && !disableEditing
+                                                        ? {
+                                                              icon: (
+                                                                  <IconPencil
+                                                                      className={!isFocused ? 'invisible' : undefined}
+                                                                  />
+                                                              ),
+                                                              tooltip: (
+                                                                  <>
+                                                                      Edit this value <KeyboardShortcut option enter />
+                                                                  </>
+                                                              ),
+                                                              onClick: () => {
+                                                                  setInputValue(option.key)
+                                                                  inputRef.current?.focus()
+                                                                  _onFocus()
+                                                              },
+                                                          }
+                                                        : undefined
+                                                }
+                                            >
+                                                <span className="whitespace-nowrap ph-no-capture truncate">
+                                                    {!option.__isInput && !option.__isCustomValue
+                                                        ? (option.labelComponent ?? option.label)
+                                                        : getInputLabel(option)}
+                                                </span>
+                                            </LemonButton>
+                                        )
+                                    })}
+                                </div>
+                                {/* Input always visible at bottom for large lists */}
+                                {allowCustomValues && inputValue && (
+                                    <div className="border-t border-border p-1">
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="small"
+                                            fullWidth
+                                            onClick={() => _onActionItem(inputValue)}
+                                        >
+                                            <span className="whitespace-nowrap ph-no-capture truncate">
+                                                {getInputLabel({ key: inputValue, label: inputValue, __isInput: true })}
+                                            </span>
+                                        </LemonButton>
+                                    </div>
+                                )}
+                            </>
                         ) : (
                             visibleOptions.map((option, index) => {
                                 const isFocused = index === selectedIndex
@@ -1106,6 +1399,157 @@ function DraggableValueSnack<T = string>({
     )
 }
 
+const VirtualizedValuesList = React.memo(function VirtualizedValuesList<T = string>({
+    values,
+    options,
+    onClose,
+    onInitiateEdit,
+}: {
+    values: string[]
+    options: LemonInputSelectOption<T>[]
+    onClose: (value: string) => void
+    onInitiateEdit: ((value: string) => void) | null
+}): JSX.Element {
+    const [scrollTop, setScrollTop] = useState(0)
+    const [rows, setRows] = useState<string[][]>([])
+    const measureRef = useRef<HTMLDivElement>(null)
+
+    // Create rows by measuring how many items fit per row
+    // Debounce measurements to avoid frequent re-renders that could cause focus loss
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            if (!measureRef.current) {
+                return
+            }
+
+            const containerWidth = measureRef.current.offsetWidth - 32 // Account for padding + scrollbar
+            const tempRows: string[][] = []
+            let currentRow: string[] = []
+            let currentRowWidth = 0
+
+            // Create a temporary element to measure text width
+            const tempSpan = document.createElement('span')
+            tempSpan.style.visibility = 'hidden'
+            tempSpan.style.position = 'absolute'
+            tempSpan.style.whiteSpace = 'nowrap'
+            tempSpan.className = 'LemonSnack' // Use same styling for measurement
+
+            try {
+                document.body.appendChild(tempSpan)
+
+                values.forEach((value) => {
+                    const option = options.find((opt) => opt.key === value)
+                    const label = option?.label ?? value
+
+                    // Estimate width (rough calculation for LemonSnack)
+                    tempSpan.textContent = label
+                    const itemWidth = tempSpan.offsetWidth + 40 // Add padding/borders/close button + extra margin
+
+                    if (currentRowWidth + itemWidth > containerWidth && currentRow.length > 0) {
+                        // Start new row
+                        tempRows.push([...currentRow])
+                        currentRow = [value]
+                        currentRowWidth = itemWidth + 4 // Add gap
+                    } else {
+                        // Add to current row
+                        currentRow.push(value)
+                        currentRowWidth += itemWidth + 4 // Add gap
+                    }
+                })
+
+                // Add final row
+                if (currentRow.length > 0) {
+                    tempRows.push(currentRow)
+                }
+            } finally {
+                // Ensure cleanup happens even if an error occurs
+                if (document.body.contains(tempSpan)) {
+                    document.body.removeChild(tempSpan)
+                }
+            }
+            setRows(tempRows)
+        }, 50) // 50ms debounce
+
+        return () => clearTimeout(timeoutId)
+    }, [values, options])
+
+    // Row-based virtualization
+    const rowHeight = 32 // Estimated height per row
+    const containerHeight = VALUE_SNACKS_MAX_HEIGHT
+    const visibleRowCount = Math.ceil(containerHeight / rowHeight)
+    const startRowIndex = Math.max(0, Math.floor(scrollTop / rowHeight))
+    const endRowIndex = Math.min(rows.length, startRowIndex + visibleRowCount + 2) // Extra buffer
+
+    const visibleRows = rows.slice(startRowIndex, endRowIndex)
+    const topSpacer = startRowIndex * rowHeight
+    const bottomSpacer = (rows.length - endRowIndex) * rowHeight
+
+    const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>): void => {
+        setScrollTop(e.currentTarget.scrollTop)
+    }, [])
+
+    const totalContentHeight = rows.length * rowHeight + (rows.length > 0 ? (rows.length - 1) * 4 : 0) // Add gap spacing
+    const isScrollable = totalContentHeight > VALUE_SNACKS_MAX_HEIGHT
+
+    return (
+        <div className="w-full">
+            <div
+                ref={measureRef}
+                style={{
+                    maxHeight: VALUE_SNACKS_MAX_HEIGHT,
+                    overflowY: isScrollable ? 'auto' : 'hidden',
+                }}
+                className="px-1 w-full"
+                onScroll={handleScroll}
+            >
+                {/* Top spacer for non-visible rows above */}
+                {topSpacer > 0 && <div style={{ height: topSpacer }} />}
+
+                {/* Visible rows */}
+                {visibleRows.map((row, rowIndex) => (
+                    <div
+                        key={startRowIndex + rowIndex}
+                        className="flex flex-wrap gap-1 mb-1"
+                        style={{ minHeight: rowHeight }}
+                    >
+                        {row.map((value) => {
+                            const option: LemonInputSelectOption<T> = options.find(
+                                (option) => option.key === value
+                            ) ?? {
+                                key: value,
+                                label: value,
+                                labelComponent: null,
+                            }
+
+                            return (
+                                <LemonSnack
+                                    key={value}
+                                    title={option?.label}
+                                    onClose={() => onClose(value)}
+                                    onClick={onInitiateEdit ? () => onInitiateEdit(value) : undefined}
+                                    className="cursor-text"
+                                >
+                                    {option?.labelComponent ?? option?.label}
+                                </LemonSnack>
+                            )
+                        })}
+                    </div>
+                ))}
+
+                {/* Bottom spacer for non-visible rows below */}
+                {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} />}
+            </div>
+
+            {/* Warning when content is scrollable */}
+            {isScrollable && (
+                <div className="text-xs text-muted mt-1 px-1">Scroll to see all {values.length} values</div>
+            )}
+        </div>
+    )
+})
+
+VirtualizedValuesList.displayName = 'VirtualizedValuesList'
+
 function ValueSnacks<T = string>({
     values,
     options,
@@ -1113,6 +1557,8 @@ function ValueSnacks<T = string>({
     onInitiateEdit,
     sortable = false,
     onDragEnd,
+    limitHeight = false,
+    enableVirtualization = false,
 }: {
     values: string[]
     options: LemonInputSelectOption<T>[]
@@ -1120,6 +1566,8 @@ function ValueSnacks<T = string>({
     onInitiateEdit: ((value: string) => void) | null
     sortable?: boolean
     onDragEnd?: (event: DragEndEvent) => void
+    limitHeight?: boolean
+    enableVirtualization?: boolean
 }): JSX.Element {
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -1177,15 +1625,39 @@ function ValueSnacks<T = string>({
         )
     })
 
-    if (sortable && onDragEnd) {
-        return (
+    const contentElement =
+        sortable && onDragEnd ? (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
                 <SortableContext items={values} strategy={rectSortingStrategy}>
                     {content}
                 </SortableContext>
             </DndContext>
+        ) : (
+            <>{content}</>
+        )
+
+    if (limitHeight) {
+        // Simple scrollable container for very large lists (>100 values)
+        if (values.length > 100 && enableVirtualization) {
+            // For large lists, use virtualized rendering (only render visible items)
+            return (
+                <VirtualizedValuesList
+                    values={values}
+                    options={options}
+                    onClose={onClose}
+                    onInitiateEdit={onInitiateEdit}
+                />
+            )
+        }
+
+        // For normal lists with limitHeight, use regular rendering with height limit
+        return (
+            <div className="flex flex-wrap gap-1 overflow-y-auto pr-1" style={{ maxHeight: VALUE_SNACKS_MAX_HEIGHT }}>
+                {contentElement}
+            </div>
         )
     }
 
-    return <>{content}</>
+    // For lists without height limit, return content directly
+    return contentElement
 }

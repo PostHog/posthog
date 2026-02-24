@@ -45,6 +45,7 @@ export interface PropertyValueProps {
     preloadValues?: boolean
     forceSingleSelect?: boolean
     validationError?: string | null
+    enableLargeListVirtualization?: boolean
 }
 
 export function PropertyValue({
@@ -65,6 +66,7 @@ export function PropertyValue({
     preloadValues = false,
     forceSingleSelect = false,
     validationError = null,
+    enableLargeListVirtualization = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -319,6 +321,8 @@ export function PropertyValue({
                       : undefined
             }
             popoverClassName="max-w-200"
+            virtualized={enableLargeListVirtualization}
+            enableLargeListVirtualization={enableLargeListVirtualization}
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
                 const isSuggested = initialSuggestedValues.set.has(name)

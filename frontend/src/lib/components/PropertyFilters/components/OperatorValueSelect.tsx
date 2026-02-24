@@ -60,6 +60,7 @@ export interface OperatorValueSelectProps {
      * Force single-select mode regardless of operator type
      * **/
     forceSingleSelect?: boolean
+    enableLargeListVirtualization?: boolean
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -114,6 +115,7 @@ export function OperatorValueSelect({
     startVisible,
     operatorAllowlist,
     forceSingleSelect,
+    enableLargeListVirtualization = false,
 }: OperatorValueSelectProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const semverTargetingEnabled = !!featureFlags[FEATURE_FLAGS.SEMVER_TARGETING]
@@ -275,6 +277,7 @@ export function OperatorValueSelect({
                         size={size}
                         forceSingleSelect={forceSingleSelect}
                         validationError={validationError}
+                        enableLargeListVirtualization={enableLargeListVirtualization}
                     />
                 </div>
             )}
