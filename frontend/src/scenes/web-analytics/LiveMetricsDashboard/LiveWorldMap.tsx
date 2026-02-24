@@ -44,7 +44,7 @@ export const LiveWorldMap = ({ data, totalEvents }: LiveWorldMapProps): JSX.Elem
     return (
         <div className="relative">
             <svg
-                className="WorldMap max-w-4xl mx-auto"
+                className="WorldMap"
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 2754 1200"
                 width="100%"
