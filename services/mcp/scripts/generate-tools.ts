@@ -607,6 +607,10 @@ ${spreads}
         path.join(GENERATED_DIR, 'index.ts'),
     ]
     spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], { stdio: 'pipe', cwd: REPO_ROOT })
+    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH], {
+        stdio: 'pipe',
+        cwd: REPO_ROOT,
+    })
 }
 
 main()
