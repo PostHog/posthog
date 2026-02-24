@@ -789,6 +789,8 @@ def update_all_orgs_billing_quotas(
                 if set_org_usage_summary(org, todays_usage=todays_report):
                     org.save(update_fields=["usage"])
 
+                org_is_limited = False
+                org_is_suspended = False
                 for resource in QuotaResource:
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
@@ -798,10 +800,14 @@ def update_all_orgs_billing_quotas(
                         limiting_suspended_until = result.get("quota_limiting_suspended_until")
                         if limiting_suspended_until:
                             quota_limiting_suspended_orgs[field][org_id] = limiting_suspended_until
-                            orgs_suspended_count += 1
+                            org_is_suspended = True
                         elif quota_limited_until:
                             quota_limited_orgs[field][org_id] = quota_limited_until
-                            orgs_limited_count += 1
+                            org_is_limited = True
+                if org_is_suspended:
+                    orgs_suspended_count += 1
+                if org_is_limited:
+                    orgs_limited_count += 1
 
             orgs_processed += 1
             if orgs_processed % 1000 == 0:
