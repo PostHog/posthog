@@ -286,7 +286,6 @@ async def run_consumer_from_stage(
     return result
 
 
-_GET_TOTAL_RECORD_BATCH_BYTES_COUNT = operator.attrgetter("total_record_batch_bytes_count")
 DEFAULT_MAX_CONSUMERS = 10
 DEFAULT_MIN_CONSUMERS = 1
 DEFAULT_POLL_DELAY_SECONDS = 3
@@ -517,7 +516,7 @@ class ConsumerGroup(typing.Protocol[_C]):
             self.time_elapsed_window = 0
 
         now = time.monotonic()
-        current_total_bytes_exported = sum(map(_GET_TOTAL_RECORD_BATCH_BYTES_COUNT, self.consumers))
+        current_total_bytes_exported = sum(map(operator.attrgetter("total_record_batch_bytes_count"), self.consumers))
         bytes_exported_since_last_poll = current_total_bytes_exported - self.bytes_exported
 
         self.time_elapsed = now - self.start_time
