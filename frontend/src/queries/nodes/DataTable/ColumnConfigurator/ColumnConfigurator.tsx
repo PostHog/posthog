@@ -16,11 +16,11 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
+import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'

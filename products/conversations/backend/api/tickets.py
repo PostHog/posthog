@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Sequence
 
 from django.db import transaction
@@ -12,6 +13,7 @@ from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -256,6 +258,21 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Attach person data
         self._attach_persons_to_tickets([instance])
 
+        # Track internal analytics
+        try:
+            report_user_action(
+                request.user,
+                "support ticket viewed",
+                {
+                    "channel_source": instance.channel_source,
+                    "ticket_status": instance.status,
+                    "is_assigned": getattr(instance, "assignment", None) is not None,
+                },
+                self.team,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
+
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -266,11 +283,12 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         old_status = instance.status
         old_priority = instance.priority
 
-        # Handle assignee separately since it's not a direct model field
-        assignee = request.data.pop("assignee", None) if "assignee" in request.data else ...
+        # Extract assignee without mutating request.data
+        assignee = request.data.get("assignee", ...) if "assignee" in request.data else ...
+        data = {k: v for k, v in request.data.items() if k != "assignee"}
 
         # Update other fields normally
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
 
@@ -293,15 +311,35 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             invalidate_unread_count_cache(self.team_id)
 
         # Emit analytics events for workflow triggers
+        new_priority = instance.priority
+        status_changed = old_status != new_status
+        priority_changed = old_priority != new_priority
+        assignee_changed = assignee is not ...
+
         try:
-            if old_status != new_status:
+            if status_changed:
                 capture_ticket_status_changed(instance, old_status, new_status)
 
-            new_priority = instance.priority
-            if old_priority != new_priority:
+            if priority_changed:
                 capture_ticket_priority_changed(instance, old_priority, new_priority)
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
+
+        # Track internal analytics
+        if status_changed or priority_changed or assignee_changed:
+            try:
+                report_user_action(
+                    request.user,
+                    "support ticket updated",
+                    {
+                        "channel_source": instance.channel_source,
+                        "ticket_status": instance.status,
+                        "is_assigned": getattr(instance, "assignment", None) is not None,
+                    },
+                    self.team,
+                )
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(instance.id)})
 
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
@@ -351,6 +389,15 @@ def validate_assignee(assignee) -> None:
         raise serializers.ValidationError({"assignee": "must have 'type' and 'id'"})
     if assignee["type"] not in ("user", "role"):
         raise serializers.ValidationError({"assignee": "type must be 'user' or 'role'"})
+
+    if assignee["type"] == "user":
+        if not isinstance(assignee["id"], int):
+            raise serializers.ValidationError({"assignee": "user id must be an integer"})
+    elif assignee["type"] == "role":
+        try:
+            uuid.UUID(str(assignee["id"]))
+        except (ValueError, AttributeError):
+            raise serializers.ValidationError({"assignee": "role id must be a valid UUID"})
 
 
 def validate_assignee_membership(assignee, organization) -> None:

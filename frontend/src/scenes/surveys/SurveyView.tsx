@@ -18,29 +18,29 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
+import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
+import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
+import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { SurveyViewRedesign } from 'scenes/surveys/SurveyViewRedesign'
-import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
-import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
-import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { QueryContextColumn } from '~/queries/types'
 import {

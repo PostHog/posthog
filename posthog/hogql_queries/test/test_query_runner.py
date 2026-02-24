@@ -38,8 +38,19 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
-from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
+
+MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
+    "01977f7b-7f29-0000-a028-7275d1a767a4": {
+        "cost": "cost",
+        "date": "date",
+        "clicks": "clicks",
+        "source": "_metadata_launched_at",
+        "campaign": "campaignname",
+        "currency": "const:USD",
+        "impressions": "impressions",
+    },
+}
 
 
 class TheTestQuery(BaseModel):
@@ -153,7 +164,7 @@ class TestQueryRunner(BaseTest):
                             "clicks": "clicks",
                             "source": "_metadata_launched_at",
                             "campaign": "campaignname",
-                            "currency": "USD",
+                            "currency": "const:USD",
                             "impressions": "impressions",
                         },
                     },

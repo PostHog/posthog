@@ -1,5 +1,7 @@
 import React from 'react'
 
+import { StepDefinition } from '@posthog/shared-onboarding/steps'
+
 import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { SDKKey } from '~/types'
@@ -11,6 +13,7 @@ interface OnboardingDocsWrapperOptions {
     Installation: React.ComponentType<any>
     snippets?: Record<string, React.ComponentType<any>>
     wizardIntegrationName?: string
+    modifySteps?: (steps: StepDefinition[]) => StepDefinition[]
 }
 
 /**
@@ -18,13 +21,13 @@ interface OnboardingDocsWrapperOptions {
  * Used by product-analytics, feature-flags, experiments, and llm-analytics onboarding flows.
  */
 export function withOnboardingDocsWrapper(options: OnboardingDocsWrapperOptions): () => JSX.Element {
-    const { Installation, snippets, wizardIntegrationName } = options
+    const { Installation, snippets, wizardIntegrationName, modifySteps } = options
     return function WrappedInstallation() {
         return (
             <>
                 {wizardIntegrationName && <SetupWizardBanner integrationName={wizardIntegrationName} />}
                 <OnboardingDocsContentWrapper snippets={snippets}>
-                    <Installation />
+                    <Installation modifySteps={modifySteps} />
                 </OnboardingDocsContentWrapper>
             </>
         )

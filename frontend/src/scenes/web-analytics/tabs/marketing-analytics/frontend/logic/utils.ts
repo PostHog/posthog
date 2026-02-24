@@ -7,14 +7,14 @@ import {
     ExternalDataSourceType,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
     NativeMarketingSource,
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { ManualLinkSourceType, PropertyMathType } from '~/types'
+import { HogQLMathType, ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 
@@ -114,7 +114,7 @@ export function isDraftConversionGoalColumn(column: string, draftConversionGoal:
     }
     return (
         column === draftConversionGoal.conversion_goal_name ||
-        column === `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`
+        column === `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`
     )
 }
 
@@ -231,6 +231,14 @@ interface SourceTileConfig {
     ) => Partial<DataWarehouseNode> | null
 }
 
+export function safeFloat(field: string): string {
+    return `ifNull(toFloat(${field}), 0)`
+}
+
+export function sumSafeFloat(field: string): string {
+    return `SUM(${safeFloat(field)})`
+}
+
 function buildConversionExpr(
     fields: string | readonly string[],
     table: any,
@@ -239,12 +247,12 @@ function buildConversionExpr(
     const fieldList = typeof fields === 'string' ? [fields] : [...fields]
     const availableFields = fieldList.filter((field) => table.fields && field in table.fields)
     if (availableFields.length === 0) {
-        return { math: 'hogql' as any, math_hogql: '0' }
+        return { math: HogQLMathType.HogQL, math_hogql: '0' }
     }
     const mathHogql = buildExpr
         ? buildExpr(availableFields)
-        : `SUM(${availableFields.map((field) => `ifNull(toFloat(${field}), 0)`).join(' + ')})`
-    return { math: 'hogql' as any, math_hogql: mathHogql }
+        : `SUM(${availableFields.map((field) => safeFloat(field)).join(' + ')})`
+    return { math: HogQLMathType.HogQL, math_hogql: mathHogql }
 }
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
@@ -494,7 +502,7 @@ export function createMarketingTile(
             if (!hasConversionValueColumn) {
                 conversionValueExpr = '0'
             } else {
-                conversionValueExpr = `SUM(ifNull(toFloat(${conversionValueColumn}), 0))`
+                conversionValueExpr = sumSafeFloat(conversionValueColumn)
             }
         }
 
@@ -509,7 +517,7 @@ export function createMarketingTile(
             distinct_id_field: tileConfig.idField,
             timestamp_field: tileConfig.timestampField,
             table_name: table.name,
-            math: 'hogql' as any,
+            math: HogQLMathType.HogQL,
             math_hogql: mathHogql,
         }
     }
@@ -631,7 +639,7 @@ export function createMarketingTile(
             distinct_id_field: tileConfig.idField,
             timestamp_field: tileConfig.timestampField,
             table_name: table.name,
-            math: 'hogql' as any,
+            math: HogQLMathType.HogQL,
             math_hogql: mathHogql,
         }
     }
@@ -643,7 +651,7 @@ export function createMarketingTile(
         const fallbackCurrency = mappings.fallbackCurrency
         const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
 
-        const valueExpr = `ifNull(toFloat(${column.name}), 0)`
+        const valueExpr = safeFloat(column.name)
         let mathHogql: string
 
         if (hasCurrencyColumn) {
@@ -663,7 +671,7 @@ export function createMarketingTile(
             distinct_id_field: tileConfig.idField,
             timestamp_field: tileConfig.timestampField,
             table_name: table.name,
-            math: 'hogql' as any,
+            math: HogQLMathType.HogQL,
             math_hogql: mathHogql,
         }
     }
@@ -678,8 +686,8 @@ export function createMarketingTile(
         distinct_id_field: tileConfig.idField,
         timestamp_field: tileConfig.timestampField,
         table_name: table.name,
-        math: PropertyMathType.Sum,
-        math_property: column.name,
+        math: HogQLMathType.HogQL,
+        math_hogql: sumSafeFloat(column.name),
     }
 }
 

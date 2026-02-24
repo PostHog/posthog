@@ -116,7 +116,7 @@ class TestExports(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d")
+        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d-%H%M%S")
         assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
@@ -158,7 +158,7 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z")
         )
 
-        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d")
+        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d-%H%M%S")
         assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
@@ -214,7 +214,7 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
                 "export_format": "image/png",
-                "filename": "export-example-insight-2021-08-25.png",
+                "filename": "export-example-insight-2021-08-25-220914.png",
                 "has_content": False,
                 "dashboard": None,
                 "exception": None,

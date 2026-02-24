@@ -29,6 +29,7 @@ export const KAFKA_METRICS_TIME_TO_SEE_DATA = `${prefix}clickhouse_metrics_time_
 // read session recording snapshot items
 export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS = `${prefix}session_recording_snapshot_item_events${suffix}`
 export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW = `${prefix}session_recording_snapshot_item_overflow${suffix}`
+export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ = `${prefix}session_recording_snapshot_item_dlq${suffix}`
 
 // write session recording and replay events to ClickHouse
 export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_session_recording_events${suffix}`
@@ -64,3 +65,6 @@ export const KAFKA_LOGS_INGESTION = `${prefix}logs_ingestion${suffix}`
 export const KAFKA_LOGS_INGESTION_DLQ = `${prefix}logs_ingestion_dlq${suffix}`
 export const KAFKA_LOGS_INGESTION_OVERFLOW = `${prefix}logs_ingestion_overflow${suffix}`
 export const KAFKA_LOGS_CLICKHOUSE = `${prefix}clickhouse_logs${suffix}`
+
+// TopHog metrics
+export const KAFKA_CLICKHOUSE_TOPHOG = `${prefix}clickhouse_tophog${suffix}`

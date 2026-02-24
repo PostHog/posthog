@@ -200,7 +200,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             direction,
         }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
+        setDateInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
             dateFrom,
             dateTo,
@@ -366,7 +366,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         isIntervalManuallySet,
                     }
                 },
-                setInterval: ({ dateFrom, dateTo }, { interval }) => ({
+                setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
                     dateTo,
                     dateFrom,
                     interval,
@@ -2269,7 +2269,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             togglePropertyFilter: stateToUrl,
             setConversionGoal: stateToUrl,
             setDates: stateToUrl,
-            setInterval: stateToUrl,
+            setDateInterval: stateToUrl,
             setDeviceTab: stateToUrl,
             setSourceTab: stateToUrl,
             setGraphsTab: stateToUrl,

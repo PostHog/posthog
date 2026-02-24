@@ -73,6 +73,7 @@ yalc.lock
 .vscode/*
 !.vscode/launch.json
 !.vscode/settings.example.json
+!.vscode/extensions.json
 
 # Ignoring local Zed config
 # but commit shared `debug.json` file
@@ -173,3 +174,6 @@ services/mcp/ui-apps-dist
 
 # Product skills
 .claude/skills/error-tracking
+
+# Downloaded GitHub issues for signals
+products/signals/backend/github_issues/

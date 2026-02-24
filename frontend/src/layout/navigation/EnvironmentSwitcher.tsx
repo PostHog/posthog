@@ -9,8 +9,8 @@ import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall } from '@postho
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
