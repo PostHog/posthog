@@ -106,15 +106,17 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                     if (response.success) {
                         await billingLogic.asyncActions.loadBilling()
                         if (redirectPath) {
-                            window.location.pathname = redirectPath
+                            const url = new URL(redirectPath, window.location.origin)
+                            const searchParams = Object.fromEntries(url.searchParams.entries())
+                            router.actions.push(url.pathname, { ...searchParams, upgraded: 'true' })
                         } else {
                             router.actions.push(router.values.location.pathname, {
                                 ...router.values.searchParams,
                                 upgraded: 'true',
                             })
-                            actions.loadCurrentOrganization()
-                            actions.loadUser()
                         }
+                        actions.loadCurrentOrganization()
+                        actions.loadUser()
                     } else if (response.must_setup_payment) {
                         // Card invalid or missing — show modal (same as new customer flow)
                         actions.setRedirectPath(redirectPath || null)
@@ -178,16 +180,18 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         // Load before doing anything to reload in entitlements on the organization
                         await billingLogic.asyncActions.loadBilling()
                         if (values.redirectPath) {
-                            window.location.pathname = values.redirectPath
+                            const url = new URL(values.redirectPath, window.location.origin)
+                            const searchParams = Object.fromEntries(url.searchParams.entries())
+                            router.actions.push(url.pathname, { ...searchParams, success: 'true' })
                         } else {
                             router.actions.push(router.values.location.pathname, {
                                 ...router.values.searchParams,
                                 success: true,
                             })
-                            actions.loadCurrentOrganization()
-                            actions.loadUser()
-                            actions.hidePaymentEntryModal()
                         }
+                        actions.loadCurrentOrganization()
+                        actions.loadUser()
+                        actions.hidePaymentEntryModal()
                         return
                     } else if (status === 'failed') {
                         actions.setApiError(errorMessage)
