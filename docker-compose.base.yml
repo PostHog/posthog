@@ -29,6 +29,8 @@ services:
                         path /i/v0/ai
                         path /i/v0/ai/
                         path /i/v0/ai/*
+                        path /i/v0/llma_otel
+                        path /i/v0/llma_otel/
                     }
 
                     @capture {
@@ -119,8 +121,6 @@ services:
             test: ['CMD-SHELL', 'pg_isready -U posthog']
             interval: 5s
             timeout: 30s
-            retries: 30
-            start_period: 10s
         volumes:
             - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
 
