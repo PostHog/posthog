@@ -313,11 +313,7 @@ function SearchRoot({
         }
 
         return items
-        return [
-            ...normalizedSuggestedItems,
-            ...items
-        ]
-
+        return [...normalizedSuggestedItems, ...items]
     }, [allItems, searchValue, showAskAiLink, suggestedItems])
 
     useEffect(() => {
