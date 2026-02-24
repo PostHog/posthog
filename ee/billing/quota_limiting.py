@@ -598,7 +598,9 @@ def set_org_usage_summary(
 def _timed_query(name, fn, *args, **kwargs):
     start = time()
     result = fn(*args, **kwargs)
-    logger.info("quota_limiting_query", query=name, duration_ms=round((time() - start) * 1000, 1))
+    logger.info(
+        "quota_limiting_run", phase="query", status="done", query=name, duration_ms=round((time() - start) * 1000, 1)
+    )
     return result
 
 
@@ -612,8 +614,12 @@ def update_all_orgs_billing_quotas(
 
     # Start and end of the current day
     """
+    total_start = time()
     period = get_current_day()
     period_start, period_end = period
+
+    logger.info("quota_limiting_run", phase="queries", status="start")
+    queries_start = time()
 
     api_queries_usage = _timed_query(
         "api_queries_metrics", get_teams_with_api_queries_metrics, period_start, period_end
@@ -684,6 +690,14 @@ def update_all_orgs_billing_quotas(
         },
     }
 
+    logger.info(
+        "quota_limiting_run",
+        phase="queries",
+        status="done",
+        duration_ms=round((time() - queries_start) * 1000, 1),
+        query_count=len(all_data),
+    )
+
     teams: Sequence[Team] = list(
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
@@ -752,7 +766,13 @@ def update_all_orgs_billing_quotas(
     # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "exceptions": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"], "api_queries_read_bytes": ["phc_123", "phc_456"], "survey_responses": ["phc_123", "phc_456"]})
 
     # Find all orgs that should be rate limited
-    report_index = 1
+    total_orgs = len(todays_usage_report)
+    logger.info("quota_limiting_run", phase="org_loop", status="start", org_count=total_orgs)
+    org_loop_start = time()
+    orgs_processed = 0
+    orgs_limited_count = 0
+    orgs_suspended_count = 0
+
     for org_id, todays_report in todays_usage_report.items():
         # Check and refresh DB connections if needed on every iteration.
         # The database_sync_to_async wrapper only closes connections at start/end,
@@ -769,6 +789,8 @@ def update_all_orgs_billing_quotas(
                 if set_org_usage_summary(org, todays_usage=todays_report):
                     org.save(update_fields=["usage"])
 
+                org_is_limited = False
+                org_is_suspended = False
                 for resource in QuotaResource:
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
@@ -778,12 +800,38 @@ def update_all_orgs_billing_quotas(
                         limiting_suspended_until = result.get("quota_limiting_suspended_until")
                         if limiting_suspended_until:
                             quota_limiting_suspended_orgs[field][org_id] = limiting_suspended_until
+                            org_is_suspended = True
                         elif quota_limited_until:
                             quota_limited_orgs[field][org_id] = quota_limited_until
+                            org_is_limited = True
+                if org_is_suspended:
+                    orgs_suspended_count += 1
+                if org_is_limited:
+                    orgs_limited_count += 1
 
-            report_index += 1
+            orgs_processed += 1
+            if orgs_processed % 1000 == 0:
+                logger.info(
+                    "quota_limiting_run",
+                    phase="org_loop",
+                    status="progress",
+                    orgs_processed=orgs_processed,
+                    org_count=total_orgs,
+                    elapsed_ms=round((time() - org_loop_start) * 1000, 1),
+                )
         except Exception as e:
+            orgs_processed += 1
             capture_exception(e, {"organization_id": org_id})
+
+    logger.info(
+        "quota_limiting_run",
+        phase="org_loop",
+        status="done",
+        duration_ms=round((time() - org_loop_start) * 1000, 1),
+        orgs_processed=orgs_processed,
+        orgs_limited=orgs_limited_count,
+        orgs_suspended=orgs_suspended_count,
+    )
 
     # Now we have the teams that are currently under quota limits
     # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "survey_responses": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
@@ -835,6 +883,7 @@ def update_all_orgs_billing_quotas(
         )
 
     if not dry_run:
+        redis_start = time()
         for field in quota_limited_teams:
             replace_limited_team_tokens(
                 QuotaResource(field), quota_limited_teams[field], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
@@ -845,6 +894,19 @@ def update_all_orgs_billing_quotas(
                 quota_limiting_suspended_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
             )
+        logger.info(
+            "quota_limiting_run", phase="redis", status="done", duration_ms=round((time() - redis_start) * 1000, 1)
+        )
+
+    logger.info(
+        "quota_limiting_run",
+        phase="total",
+        status="done",
+        duration_ms=round((time() - total_start) * 1000, 1),
+        orgs_processed=orgs_processed,
+        orgs_limited=orgs_limited_count,
+        orgs_suspended=orgs_suspended_count,
+    )
 
     return quota_limited_orgs, quota_limiting_suspended_orgs
 

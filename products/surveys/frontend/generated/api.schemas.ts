@@ -172,7 +172,7 @@ export interface SurveyApi {
     linked_insight_id?: number | null
     readonly targeting_flag: MinimalFeatureFlagApi
     readonly internal_targeting_flag: MinimalFeatureFlagApi
-    /** 
+    /**
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
@@ -322,6 +322,7 @@ export interface SurveyApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    form_content?: unknown | null
 }
 
 export interface PaginatedSurveyListApi {
@@ -352,7 +353,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     targeting_flag_filters?: unknown | null
     /** @nullable */
     remove_targeting_flag?: boolean | null
-    /** 
+    /**
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
@@ -497,6 +498,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     /** @nullable */
     enable_iframe_embedding?: boolean | null
     _create_in_folder?: string
+    form_content?: unknown | null
 }
 
 export interface PatchedSurveySerializerCreateUpdateOnlyApi {
@@ -518,7 +520,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     targeting_flag_filters?: unknown | null
     /** @nullable */
     remove_targeting_flag?: boolean | null
-    /** 
+    /**
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
@@ -663,6 +665,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     /** @nullable */
     enable_iframe_embedding?: boolean | null
     _create_in_folder?: string
+    form_content?: unknown | null
 }
 
 export type SurveysListParams = {

@@ -5,6 +5,7 @@ import { useRef } from 'react'
 
 import { IconArrowLeft, IconInfo } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
@@ -22,12 +23,18 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMProvider, LLM_PROVIDER_LABELS } from '../settings/llmProviderKeysLogic'
+import {
+    providerKeyStateIssueDescription,
+    providerKeyStateSuffix,
+    providerLabel,
+} from '../settings/providerKeyStateUtils'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
@@ -49,7 +56,11 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         availableModels,
         availableModelsLoading,
         providerKeysLoading,
+        evaluationProviderKeyIssue,
+        signalEmissionEnabled,
+        signalEmissionLoading,
     } = useValues(llmEvaluationLogic)
+    const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const {
@@ -62,9 +73,11 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         setSelectedProvider,
         setSelectedKeyId,
         setSelectedModel,
+        setSignalEmission,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
+    const settingsUrl = combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url
 
     if (evaluationLoading) {
         return <LemonSkeleton className="w-full h-96" />
@@ -138,6 +151,21 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                 </div>
             </div>
 
+            {evaluationProviderKeyIssue && (
+                <LemonBanner type="warning">
+                    <div className="space-y-2">
+                        <p>
+                            This evaluation uses API key{' '}
+                            <span className="font-semibold">{evaluationProviderKeyIssue.name}</span> (
+                            {providerLabel(evaluationProviderKeyIssue.provider)}){' '}
+                            {providerKeyStateIssueDescription(evaluationProviderKeyIssue.state)}.
+                        </p>
+                        <p>Error: {evaluationProviderKeyIssue.error_message || 'Unknown error'}</p>
+                        <Link to={settingsUrl}>Go to settings to fix this key.</Link>
+                    </div>
+                </LemonBanner>
+            )}
+
             {/* Configuration Form */}
             <div className="max-w-4xl">
                 <Form logic={llmEvaluationLogic} formKey="evaluation" className="space-y-6">
@@ -200,6 +228,19 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                     </span>
                                 </div>
                             </Field>
+                            {!isNewEvaluation && user?.is_staff && (
+                                <div className="flex items-center gap-2">
+                                    <LemonSwitch
+                                        checked={signalEmissionEnabled}
+                                        onChange={setSignalEmission}
+                                        loading={signalEmissionLoading}
+                                    />
+                                    <span>Emit signals</span>
+                                    <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
+                                        <IconInfo className="text-muted text-base" />
+                                    </Tooltip>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -256,7 +297,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                                 : []),
                                             ...keysForSelectedProvider.map((key) => ({
                                                 value: key.id,
-                                                label: key.name,
+                                                label: `${key.name}${providerKeyStateSuffix(key.state)}`,
                                             })),
                                         ]}
                                         loading={providerKeysLoading}

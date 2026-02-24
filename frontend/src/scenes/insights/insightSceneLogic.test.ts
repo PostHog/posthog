@@ -6,6 +6,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -96,6 +97,50 @@ describe('insightSceneLogic', () => {
             insightId: Insight42,
             insightMode: ItemMode.Edit,
         })
+    })
+
+    it('resets insight state when navigating to /insights/new again after previous visit', async () => {
+        router.actions.push(urls.insightNew({ type: InsightType.TRENDS, dashboardId: 6 }))
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Simulate having saved the insight by setting the insight with an id
+        logic.values.insightLogicRef?.logic.actions.setInsight(
+            {
+                id: 99,
+                short_id: '12345678' as InsightShortId,
+                name: 'Saved insight',
+                dashboards: [6],
+                result: ['some result'],
+            },
+            { fromPersistentApi: true, overrideQuery: true }
+        )
+
+        expect(logic.values.insightLogicRef?.logic.values.insight.id).toEqual(99)
+
+        // Simulate the Insight scene being active so the early-return guard in urlToAction fires
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightNew',
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} }
+        )
+        sceneLogic.actions.setScene(
+            Scene.Insight,
+            'insightNew',
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} },
+            false
+        )
+
+        router.actions.push(urls.insightNew({ type: InsightType.RETENTION, dashboardId: 6 }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The insight should be reset - no id means it's a new unsaved insight
+        expect(logic.values.insightLogicRef?.logic.values.insight.id).toBeUndefined()
+        expect(logic.values.insightLogicRef?.logic.values.insight.dashboards).toEqual([6])
     })
 
     it('does not reload insight when only the URL hash changes', async () => {

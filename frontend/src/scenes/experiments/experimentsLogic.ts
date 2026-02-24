@@ -108,6 +108,19 @@ export function getShippedVariantKey(experiment: Experiment): string | null {
     )
 }
 
+export function isExperimentCreationIncomplete(experiment: Experiment): boolean {
+    const allPrimaryMetrics = [
+        ...(experiment.metrics || []),
+        ...(experiment.saved_metrics || []).filter((sm) => sm.metadata.type === 'primary'),
+    ]
+
+    return (
+        getExperimentStatus(experiment) === ExperimentProgressStatus.Draft &&
+        experiment.type === 'product' &&
+        allPrimaryMetrics.length === 0
+    )
+}
+
 export function getExperimentStatusColor(status: ExperimentProgressStatus): LemonTagType {
     switch (status) {
         case ExperimentProgressStatus.Draft:

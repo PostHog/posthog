@@ -1,7 +1,9 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { sidePanelHealthLogicType } from './sidePanelHealthLogicType'
 
@@ -27,6 +29,9 @@ export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 export const sidePanelHealthLogic = kea<sidePanelHealthLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelHealthLogic']),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
 
     actions({
         setPageVisibility: (visible: boolean) => ({ visible }),
@@ -43,11 +48,14 @@ export const sidePanelHealthLogic = kea<sidePanelHealthLogicType>([
         ],
     })),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         healthIssues: [
             null as DataHealthIssuesResponse | null,
             {
                 loadHealthIssues: async (): Promise<DataHealthIssuesResponse | null> => {
+                    if (!values.featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]) {
+                        return null
+                    }
                     try {
                         const response = await api.get<DataHealthIssuesResponse>(
                             'api/environments/@current/data_warehouse/data_health_issues/'
@@ -111,7 +119,10 @@ export const sidePanelHealthLogic = kea<sidePanelHealthLogicType>([
         },
     })),
 
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, values, cache }) => {
+        if (!values.featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]) {
+            return
+        }
         actions.loadHealthIssues()
         cache.disposables.add(() => {
             const onVisibilityChange = (): void => {

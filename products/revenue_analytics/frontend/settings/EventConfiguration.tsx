@@ -17,8 +17,8 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { EventConfigurationModal } from './EventConfigurationModal'
 import { deleteRevenueEventModalLogic } from './deleteRevenueEventModalLogic'
+import { EventConfigurationModal } from './EventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {

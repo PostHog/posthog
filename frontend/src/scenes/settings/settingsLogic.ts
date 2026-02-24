@@ -14,8 +14,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Realm } from '~/types'
 
-import { SETTINGS_MAP } from './SettingsMap'
 import type { settingsLogicType } from './settingsLogicType'
+import { SETTINGS_MAP } from './SettingsMap'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
 
 // Explicitly avoid "heat" matching "feature flags", but still allowing "heature" to match it

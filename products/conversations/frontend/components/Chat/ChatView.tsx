@@ -24,6 +24,14 @@ export interface ChatViewProps {
     unreadCustomerCount?: number
     /** Whether to show delivery status on team messages */
     showDeliveryStatus?: boolean
+    /** Draft content to restore (for tab persistence) */
+    draftContent?: JSONContent | null
+    /** Called when draft content changes */
+    onDraftChange?: (content: JSONContent | null) => void
+    /** Whether the private note checkbox is checked */
+    isPrivate?: boolean
+    /** Called when private checkbox changes */
+    onPrivateChange?: (isPrivate: boolean) => void
 }
 
 export function ChatView({
@@ -40,6 +48,10 @@ export function ChatView({
     showPrivateOption = false,
     unreadCustomerCount,
     showDeliveryStatus = false,
+    draftContent,
+    onDraftChange,
+    isPrivate,
+    onPrivateChange,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -64,6 +76,10 @@ export function ChatView({
                     onSendMessage={onSendMessage}
                     messageSending={messageSending}
                     showPrivateOption={showPrivateOption}
+                    draftContent={draftContent}
+                    onDraftChange={onDraftChange}
+                    isPrivate={isPrivate}
+                    onPrivateChange={onPrivateChange}
                 />
             </div>
         </LemonCard>
