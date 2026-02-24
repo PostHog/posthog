@@ -49,12 +49,17 @@ interface ColumnConfiguratorProps {
 export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps): JSX.Element {
     const { columnsInQuery } = useValues(dataTableLogic)
 
+    // users should not be able to edit the '*' column
+    const hasStarColumn = columnsInQuery.includes('*')
+    const configurableColumns = columnsInQuery.filter((c) => c !== '*')
+
     const [key] = useState(() => String(uniqueNode++))
     const columnConfiguratorLogicProps: ColumnConfiguratorLogicProps = {
         key,
         isPersistent: !!query.showPersistentColumnConfigurator,
-        columns: columnsInQuery,
+        columns: configurableColumns,
         setColumns: (columns: string[]) => {
+            const allColumns = hasStarColumn ? ['*', ...columns] : columns
             if (isEventsQuery(query.source) || isSessionsQuery(query.source)) {
                 let orderBy = query.source.orderBy
                 if (orderBy && orderBy.length > 0) {
@@ -71,7 +76,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                     source: {
                         ...query.source,
                         orderBy,
-                        select: columns,
+                        select: allColumns,
                     },
                 })
             } else if (isActorsQuery(query.source) || isGroupsQuery(query.source)) {
@@ -79,11 +84,11 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                     ...query,
                     source: {
                         ...query.source,
-                        select: columns,
+                        select: allColumns,
                     },
                 })
             } else {
-                setQuery?.({ ...query, columns })
+                setQuery?.({ ...query, columns: allColumns })
             }
         },
         context: query.context

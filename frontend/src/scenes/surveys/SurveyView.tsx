@@ -496,9 +496,10 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                                 return {}
                                             }
                                             return {
-                                                className: archivedResponseUuids.has(result[0].uuid)
-                                                    ? 'opacity-50'
-                                                    : undefined,
+                                                className:
+                                                    result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
+                                                        ? 'opacity-50'
+                                                        : undefined,
                                             }
                                         },
                                     }}
