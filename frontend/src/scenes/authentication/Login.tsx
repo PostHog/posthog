@@ -288,7 +288,7 @@ export function Login(): JSX.Element {
                 )}
                 {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
                     <SocialLoginButtons
-                        caption="Or log in with 🦔"
+                        caption="Or log in with"
                         topDivider
                         lastUsedProvider={lastLoginMethod}
                         showPasskey
