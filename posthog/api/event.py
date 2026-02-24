@@ -45,8 +45,6 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     EventValuesBurstThrottle,
-    EventValuesNoEventNameBurstThrottle,
-    EventValuesNoEventNameSustainedThrottle,
     EventValuesSustainedThrottle,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -171,17 +169,7 @@ class EventViewSet(
 
     def get_throttles(self):
         if self.action == "values":
-            request_obj = getattr(self, "request", None)
-            has_event_name = bool(
-                request_obj
-                and request_obj.GET.getlist("event_name", None)
-                and len(request_obj.GET.getlist("event_name", None)) > 0
-            )
-            if has_event_name:
-                throttle_classes = [EventValuesBurstThrottle, EventValuesSustainedThrottle]
-            else:
-                throttle_classes = [EventValuesNoEventNameBurstThrottle, EventValuesNoEventNameSustainedThrottle]
-            return [throttle_class() for throttle_class in throttle_classes]
+            return [EventValuesBurstThrottle(), EventValuesSustainedThrottle()]
         return super().get_throttles()
 
     def _build_next_url(
