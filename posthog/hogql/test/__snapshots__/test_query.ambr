@@ -78,7 +78,9 @@
 # name: TestQuery.test_hogql_proper_ifnull
   '''
   -- ClickHouse
-  WITH latest_events AS (
+  
+  SELECT * 
+  FROM (WITH latest_events AS (
   SELECT events.distinct_id AS distinct_id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, %(hogql_val_1)s)) AS latest_os_version 
   FROM events 
   WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), minus(now64(6, %(hogql_val_5)s), toIntervalDay(30)))) 
@@ -89,7 +91,7 @@
   FROM major_versions 
   WHERE in(major_versions.major_version, tuple(%(hogql_val_8)s, %(hogql_val_9)s, %(hogql_val_10)s)) 
   GROUP BY major_versions.major_version ORDER BY major_versions.major_version ASC 
-  LIMIT 100 
+  LIMIT 100) 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
@@ -1110,7 +1112,9 @@
 # name: TestQuery.test_with_pivot_table_1_level
   '''
   -- ClickHouse
-  WITH PIVOT_TABLE_COL_ABC AS (
+  
+  SELECT * 
+  FROM (WITH PIVOT_TABLE_COL_ABC AS (
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
   FROM events 
   WHERE equals(events.team_id, 99999) 
@@ -1123,7 +1127,7 @@
   GROUP BY PIVOT_FUNCTION_1.col_a) 
   SELECT PIVOT_FUNCTION_2.col_a AS col_a, PIVOT_FUNCTION_2.r AS r 
   FROM PIVOT_FUNCTION_2 ORDER BY PIVOT_FUNCTION_2.col_a ASC 
-  LIMIT 100 
+  LIMIT 100) 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
@@ -1145,7 +1149,9 @@
 # name: TestQuery.test_with_pivot_table_2_levels
   '''
   -- ClickHouse
-  WITH PIVOT_TABLE_COL_ABC AS (
+  
+  SELECT * 
+  FROM (WITH PIVOT_TABLE_COL_ABC AS (
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
   FROM events 
   WHERE equals(events.team_id, 99999) 
@@ -1160,7 +1166,7 @@
   FROM PIVOT_FUNCTION_2) 
   SELECT final.col_a AS col_a, final.r AS r 
   FROM final ORDER BY final.col_a ASC 
-  LIMIT 100 
+  LIMIT 100) 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
