@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
 
@@ -5,8 +7,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestTrafficTypeSnapshot(BaseTest):
-    """Snapshot tests for traffic type classification HogQL functions."""
+    snapshot: Any
 
     def _create_test_events(self):
         user_agents = [
@@ -33,7 +36,6 @@ class TestTrafficTypeSnapshot(BaseTest):
             ("__preview_getBotType", "bot_type"),
         ],
     )
-    @pytest.mark.usefixtures("unittest_snapshot")
     def test_traffic_type_functions_sql_query(self, function_name: str, alias: str):
         self._create_test_events()
         response = execute_hogql_query(
@@ -50,7 +52,6 @@ class TestTrafficTypeSnapshot(BaseTest):
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
-    @pytest.mark.usefixtures("unittest_snapshot")
     def test_filter_bots_sql_query(self):
         self._create_test_events()
         response = execute_hogql_query(
