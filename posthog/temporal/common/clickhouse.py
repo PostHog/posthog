@@ -3,6 +3,7 @@ import ssl
 import sys
 import enum
 import json
+import time
 import uuid
 import socket
 import typing
@@ -23,9 +24,28 @@ from temporalio import activity
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.limit import lua_script as _concurrency_lua_script
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 
 LOGGER = get_logger(__name__)
+
+_TEMPORAL_CH_LIMITS: dict[str, int] = {
+    "light": 10,
+    "full": 3,
+}
+_TEMPORAL_CH_REDIS_KEY = "temporal_ch_concurrency"
+_TEMPORAL_CH_TTL = 300  # 5 min safety net
+
+
+async def _acquire_temporal_ch_slot(redis_client: typing.Any, task_id: str, max_concurrent: int) -> bool:
+    result = await redis_client.eval(
+        _concurrency_lua_script, 1, _TEMPORAL_CH_REDIS_KEY, int(time.time()), task_id, max_concurrent, _TEMPORAL_CH_TTL
+    )
+    return result == 1
+
+
+async def _release_temporal_ch_slot(redis_client: typing.Any, task_id: str) -> None:
+    await redis_client.zrem(_TEMPORAL_CH_REDIS_KEY, task_id)
 
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
@@ -845,9 +865,17 @@ class ClickHouseClient:
         return False
 
 
+class TemporalCHConcurrencyLimitExceeded(Exception):
+    pass
+
+
 @contextlib.asynccontextmanager
 async def get_client(
-    *, team_id: typing.Optional[int] = None, clickhouse_url: str | None = None, **kwargs
+    *,
+    team_id: typing.Optional[int] = None,
+    clickhouse_url: str | None = None,
+    kill_switch_exempt: bool = False,
+    **kwargs,
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
@@ -894,19 +922,50 @@ async def get_client(
     else:
         url = clickhouse_url
 
-    async with ClickHouseClient(
-        url=url,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-        timeout=timeout,
-        ssl=False,
-        max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
-        max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
-        max_block_size=max_block_size,
-        cancel_http_readonly_queries_on_client_close=1,
-        output_format_arrow_string_as_string="true",
-        http_send_timeout=http_send_timeout,
-        **kwargs,
-    ) as client:
-        yield client
+    from posthog.clickhouse.client.execute import get_kill_switch_level
+
+    slot_task_id: str | None = None
+    async_redis: typing.Any = None
+
+    if not kill_switch_exempt and not settings.TEST:
+        level = get_kill_switch_level()
+        max_concurrent = _TEMPORAL_CH_LIMITS.get(level.value)
+
+        if max_concurrent is not None:
+            from posthog.redis import get_async_client
+
+            async_redis = get_async_client()
+            slot_task_id = str(uuid.uuid4())
+
+            acquired = False
+            for attempt in range(8):  # ~30s total with backoff
+                if await _acquire_temporal_ch_slot(async_redis, slot_task_id, max_concurrent):
+                    acquired = True
+                    break
+                await asyncio.sleep(min(0.5 * (1.5**attempt), 5.0))
+
+            if not acquired:
+                raise TemporalCHConcurrencyLimitExceeded(
+                    f"Temporal CH concurrency limit ({max_concurrent}) exceeded for kill switch level '{level.value}'"
+                )
+
+    try:
+        async with ClickHouseClient(
+            url=url,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            database=settings.CLICKHOUSE_DATABASE,
+            timeout=timeout,
+            ssl=False,
+            max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
+            max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
+            max_block_size=max_block_size,
+            cancel_http_readonly_queries_on_client_close=1,
+            output_format_arrow_string_as_string="true",
+            http_send_timeout=http_send_timeout,
+            **kwargs,
+        ) as client:
+            yield client
+    finally:
+        if async_redis is not None and slot_task_id is not None:
+            await _release_temporal_ch_slot(async_redis, slot_task_id)

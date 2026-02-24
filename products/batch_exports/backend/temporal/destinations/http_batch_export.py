@@ -187,7 +187,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         inputs.url,
     )
 
-    async with get_client(team_id=inputs.team_id) as client:
+    async with get_client(team_id=inputs.team_id, kill_switch_exempt=True) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 

@@ -478,7 +478,7 @@ class Producer:
         end_at = full_range[1]
         await wait_for_delta_past_data_interval_end(end_at, delta)
 
-        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url, kill_switch_exempt=True) as client:
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 

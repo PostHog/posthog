@@ -14,8 +14,10 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
+    TemporalCHConcurrencyLimitExceeded,
     add_log_comment_param,
     encode_clickhouse_data,
+    get_client,
 )
 
 
@@ -408,3 +410,95 @@ async def test_stream_query_as_jsonl_handles_whitespace_only_lines(clickhouse_cl
     assert results[0] == {"id": 1}
     assert results[1] == {"id": 2}
     assert results[2] == {"id": 3}
+
+
+class TestTemporalCHConcurrencyLimiter:
+    @pytest.fixture(autouse=True)
+    def _setup_redis(self):
+        import fakeredis
+
+        self.fake_redis = fakeredis.FakeAsyncRedis()
+
+    @pytest.mark.parametrize(
+        "level,max_concurrent",
+        [
+            ("full", 3),
+            ("light", 10),
+        ],
+    )
+    async def test_concurrency_limit_enforced(self, level, max_concurrent):
+        from posthog.clickhouse.client.execute import KillSwitchLevel
+
+        with (
+            patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel(level)),
+            patch("posthog.redis.get_async_client", return_value=self.fake_redis),
+            patch("django.conf.settings.TEST", False),
+        ):
+            active_contexts: list[contextlib.AsyncExitStack] = []
+            for _ in range(max_concurrent):
+                stack = contextlib.AsyncExitStack()
+                await stack.enter_async_context(get_client())
+                active_contexts.append(stack)
+
+            with (
+                patch("posthog.temporal.common.clickhouse.asyncio.sleep", return_value=None),
+                pytest.raises(TemporalCHConcurrencyLimitExceeded),
+            ):
+                async with get_client():
+                    pass
+
+            for stack in active_contexts:
+                await stack.aclose()
+
+    async def test_kill_switch_exempt_bypasses_limiter(self):
+        from posthog.clickhouse.client.execute import KillSwitchLevel
+
+        with (
+            patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.FULL),
+            patch("posthog.redis.get_async_client", return_value=self.fake_redis),
+            patch("django.conf.settings.TEST", False),
+        ):
+            active_contexts: list[contextlib.AsyncExitStack] = []
+            for _ in range(3):
+                stack = contextlib.AsyncExitStack()
+                await stack.enter_async_context(get_client())
+                active_contexts.append(stack)
+
+            # exempt call succeeds even though limit is reached
+            async with get_client(kill_switch_exempt=True):
+                pass
+
+            for stack in active_contexts:
+                await stack.aclose()
+
+    async def test_slot_released_after_context_exit(self):
+        from posthog.clickhouse.client.execute import KillSwitchLevel
+
+        with (
+            patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.FULL),
+            patch("posthog.redis.get_async_client", return_value=self.fake_redis),
+            patch("django.conf.settings.TEST", False),
+        ):
+            for _ in range(3):
+                async with get_client():
+                    pass
+
+            # all slots released, should succeed
+            async with get_client():
+                pass
+
+    async def test_no_limiting_when_kill_switch_off(self):
+        from posthog.clickhouse.client.execute import KillSwitchLevel
+
+        with (
+            patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.OFF),
+            patch("django.conf.settings.TEST", False),
+        ):
+            active_contexts: list[contextlib.AsyncExitStack] = []
+            for _ in range(20):
+                stack = contextlib.AsyncExitStack()
+                await stack.enter_async_context(get_client())
+                active_contexts.append(stack)
+
+            for stack in active_contexts:
+                await stack.aclose()

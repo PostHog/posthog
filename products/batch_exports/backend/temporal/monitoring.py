@@ -132,7 +132,7 @@ async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[Even
         "include_events": inputs.include_events,
         "exclude_events": inputs.exclude_events,
     }
-    async with Heartbeater(), get_client() as client:
+    async with Heartbeater(), get_client(kill_switch_exempt=True) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
