@@ -6,7 +6,7 @@ import { SessionBatchManager } from '../../session-recording/sessions/session-ba
 import { SessionBatchRecorder } from '../../session-recording/sessions/session-batch-recorder'
 import { TeamForReplay } from '../../session-recording/teams/types'
 import { PipelineResultType } from '../pipelines/results'
-import { RecordSessionStepInput, createRecordSessionStep } from './record-session-step'
+import { RecordSessionEventStepInput, createRecordSessionEventStep } from './record-session-event-step'
 
 jest.mock('../../session-recording/metrics', () => ({
     SessionRecordingIngesterMetrics: {
@@ -15,7 +15,7 @@ jest.mock('../../session-recording/metrics', () => ({
     },
 }))
 
-describe('createRecordSessionStep', () => {
+describe('createRecordSessionEventStep', () => {
     let mockSessionBatchManager: jest.Mocked<SessionBatchManager>
     let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
 
@@ -46,7 +46,7 @@ describe('createRecordSessionStep', () => {
     const createInput = (
         overrides: Partial<ParsedMessageData> = {},
         team: TeamForReplay = defaultTeam
-    ): RecordSessionStepInput => ({
+    ): RecordSessionEventStepInput => ({
         team,
         parsedMessage: createParsedMessage(overrides),
     })
@@ -64,7 +64,7 @@ describe('createRecordSessionStep', () => {
     })
 
     it('should record message to session batch', async () => {
-        const step = createRecordSessionStep({
+        const step = createRecordSessionEventStep({
             sessionBatchManager: mockSessionBatchManager,
             isDebugLoggingEnabled: () => false,
         })
@@ -81,7 +81,7 @@ describe('createRecordSessionStep', () => {
     })
 
     it('should return ok result with input preserved', async () => {
-        const step = createRecordSessionStep({
+        const step = createRecordSessionEventStep({
             sessionBatchManager: mockSessionBatchManager,
             isDebugLoggingEnabled: () => false,
         })
@@ -98,7 +98,7 @@ describe('createRecordSessionStep', () => {
     })
 
     it('should reset sessions revoked metric', async () => {
-        const step = createRecordSessionStep({
+        const step = createRecordSessionEventStep({
             sessionBatchManager: mockSessionBatchManager,
             isDebugLoggingEnabled: () => false,
         })
@@ -109,7 +109,7 @@ describe('createRecordSessionStep', () => {
     })
 
     it('should observe session info metric', async () => {
-        const step = createRecordSessionStep({
+        const step = createRecordSessionEventStep({
             sessionBatchManager: mockSessionBatchManager,
             isDebugLoggingEnabled: () => false,
         })
@@ -121,7 +121,7 @@ describe('createRecordSessionStep', () => {
     })
 
     it('should preserve additional input properties', async () => {
-        const step = createRecordSessionStep({
+        const step = createRecordSessionEventStep({
             sessionBatchManager: mockSessionBatchManager,
             isDebugLoggingEnabled: () => false,
         })

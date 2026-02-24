@@ -10,4 +10,8 @@ export { createParseMessageStep, ParseMessageStepInput, ParseMessageStepOutput }
 
 export { createTeamFilterStep, TeamFilterStepInput, TeamFilterStepOutput } from './team-filter-step'
 
-export { createRecordSessionStep, RecordSessionStepConfig, RecordSessionStepInput } from './record-session-step'
+export {
+    createRecordSessionEventStep,
+    RecordSessionEventStepConfig,
+    RecordSessionEventStepInput,
+} from './record-session-event-step'

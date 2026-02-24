@@ -7,30 +7,30 @@ import { logger } from '../../utils/logger'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-export interface RecordSessionStepInput {
+export interface RecordSessionEventStepInput {
     team: TeamForReplay
     parsedMessage: ParsedMessageData
 }
 
-export interface RecordSessionStepConfig {
+export interface RecordSessionEventStepConfig {
     sessionBatchManager: SessionBatchManager
     isDebugLoggingEnabled: ValueMatcher<number>
 }
 
 /**
- * Creates a step that records parsed session messages to the session batch.
+ * Creates a step that records parsed session event messages to the session batch.
  * This is a side-effect step that writes to the session batch recorder.
  *
  * Metrics (tracked via TopHog wrapper in the pipeline):
  * - message_size_by_session_id: Sum of raw message sizes per session
  * - consume_time_ms_by_session_id: Time spent recording each message
  */
-export function createRecordSessionStep<T extends RecordSessionStepInput>(
-    config: RecordSessionStepConfig
+export function createRecordSessionEventStep<T extends RecordSessionEventStepInput>(
+    config: RecordSessionEventStepConfig
 ): ProcessingStep<T, T> {
     const { sessionBatchManager, isDebugLoggingEnabled } = config
 
-    return async function recordSessionStep(input) {
+    return async function recordSessionEventStep(input) {
         const { team, parsedMessage } = input
 
         // Reset revoked sessions counter once we're consuming

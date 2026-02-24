@@ -16,7 +16,7 @@ import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { ParseMessageStepOutput, createParseMessageStep } from './parse-message-step'
-import { RecordSessionStepInput, createRecordSessionStep } from './record-session-step'
+import { RecordSessionEventStepInput, createRecordSessionEventStep } from './record-session-event-step'
 import { createTeamFilterStep } from './team-filter-step'
 
 export interface SessionReplayPipelineInput {
@@ -130,12 +130,12 @@ export function createSessionReplayPipeline(
                                             // Record to session batch
                                             .pipe(
                                                 topHogWrapper(
-                                                    createRecordSessionStep({
+                                                    createRecordSessionEventStep({
                                                         sessionBatchManager,
                                                         isDebugLoggingEnabled,
                                                     }),
                                                     [
-                                                        sum<RecordSessionStepInput, RecordSessionStepInput>(
+                                                        sum<RecordSessionEventStepInput, RecordSessionEventStepInput>(
                                                             'message_size_by_session_id',
                                                             (input) => ({
                                                                 token: input.parsedMessage.token ?? 'unknown',
@@ -143,7 +143,7 @@ export function createSessionReplayPipeline(
                                                             }),
                                                             (input) => input.parsedMessage.metadata.rawSize
                                                         ),
-                                                        timer<RecordSessionStepInput, RecordSessionStepInput>(
+                                                        timer<RecordSessionEventStepInput, RecordSessionEventStepInput>(
                                                             'consume_time_ms_by_session_id',
                                                             (input) => ({
                                                                 token: input.parsedMessage.token ?? 'unknown',
