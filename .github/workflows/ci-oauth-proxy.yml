@@ -1,4 +1,4 @@
-name: Auth Proxy CI
+name: OAuth Proxy CI
 
 on:
     push:
@@ -17,9 +17,9 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        name: Determine need to run auth-proxy checks
+        name: Determine need to run oauth-proxy checks
         outputs:
-            auth-proxy: ${{ steps.filter.outputs.auth-proxy || 'true' }}
+            oauth-proxy: ${{ steps.filter.outputs.oauth-proxy || 'true' }}
         steps:
             - uses: actions/checkout@v6
 
@@ -28,15 +28,15 @@ jobs:
               if: github.event_name != 'push'
               with:
                   filters: |
-                      auth-proxy:
-                        - 'services/auth-proxy/**'
-                        - '.github/workflows/ci-auth-proxy.yml'
+                      oauth-proxy:
+                        - 'services/oauth-proxy/**'
+                        - '.github/workflows/ci-oauth-proxy.yml'
 
     build-and-test:
         name: Build & Test
         runs-on: ubuntu-latest
         needs: changes
-        if: needs.changes.outputs.auth-proxy == 'true'
+        if: needs.changes.outputs.oauth-proxy == 'true'
         steps:
             - name: Checkout code
               uses: actions/checkout@v6
@@ -57,32 +57,32 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Type check
-              run: cd services/auth-proxy && pnpm typecheck
+              run: cd services/oauth-proxy && pnpm typecheck
 
             - name: Run tests
-              run: cd services/auth-proxy && pnpm test
+              run: cd services/oauth-proxy && pnpm test
 
-    auth_proxy_tests:
+    oauth_proxy_tests:
         needs: [changes, build-and-test]
-        name: Auth Proxy Tests Pass
+        name: OAuth Proxy Tests Pass
         runs-on: ubuntu-latest
         if: always()
         steps:
-            - name: Check all auth-proxy jobs
+            - name: Check all oauth-proxy jobs
               run: |
                   if [[ "${{ needs.changes.result }}" == "failure" ]]; then
                     echo "Change detection job failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.changes.outputs.auth-proxy }}" != "true" ]]; then
-                    echo "Auth proxy checks were skipped (no relevant changes)."
+                  if [[ "${{ needs.changes.outputs.oauth-proxy }}" != "true" ]]; then
+                    echo "OAuth proxy checks were skipped (no relevant changes)."
                     exit 0
                   fi
 
                   if [[ "${{ needs.build-and-test.result }}" != "success" && "${{ needs.build-and-test.result }}" != "skipped" ]]; then
-                    echo "Auth proxy build/test failed."
+                    echo "OAuth proxy build/test failed."
                     exit 1
                   fi
 
-                  echo "All auth-proxy checks passed."
+                  echo "All oauth-proxy checks passed."

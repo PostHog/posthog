@@ -12,7 +12,7 @@ packages:
     - nodejs/src/scripts
     - products/*
     - docs/onboarding
-    - services/auth-proxy
+    - services/oauth-proxy
     - services/mcp
     - rust/cyclotron-node
 
