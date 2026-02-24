@@ -203,7 +203,7 @@ class UpsertAlertTool(MaxTool):
             try:
                 unsaved_threshold.clean()
             except ValidationError as e:
-                return str(e), {"error": "validation_failed on alert threshold"}
+                return str(e), {"error": "validation_failed"}
 
             alert = await self._persist_alert(
                 team=team,
