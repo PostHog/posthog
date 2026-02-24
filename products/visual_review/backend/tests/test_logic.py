@@ -366,7 +366,7 @@ class TestCommitStatusChecks:
         )
 
     def test_create_run_posts_pending_status(self, github_repo, mock_github_api):
-        logic.create_run(
+        run, _ = logic.create_run(
             repo_id=github_repo.id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123",
@@ -377,8 +377,10 @@ class TestCommitStatusChecks:
         )
 
         assert len(mock_github_api.status_checks) == 1
-        assert mock_github_api.status_checks[0]["state"] == "pending"
-        assert mock_github_api.status_checks[0]["context"] == "PostHog Visual Review"
+        check = mock_github_api.status_checks[0]
+        assert check["state"] == "pending"
+        assert check["context"] == "PostHog Visual Review / storybook"
+        assert f"/visual_review/runs/{run.id}" in check["target_url"]
 
     def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api):
         run, _ = logic.create_run(

@@ -587,6 +587,8 @@ def _post_commit_status(
     if not repo.repo_full_name:
         return
 
+    from django.conf import settings
+
     import requests
 
     try:
@@ -598,6 +600,7 @@ def _post_commit_status(
         return
 
     access_token = github.integration.sensitive_config["access_token"]
+    target_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
 
     try:
         response = requests.post(
@@ -605,7 +608,8 @@ def _post_commit_status(
             json={
                 "state": state,
                 "description": description[:140],
-                "context": "PostHog Visual Review",
+                "context": f"PostHog Visual Review / {run.run_type}",
+                "target_url": target_url,
             },
             headers={
                 "Accept": "application/vnd.github+json",
