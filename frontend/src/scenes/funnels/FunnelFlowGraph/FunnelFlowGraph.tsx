@@ -18,8 +18,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { FunnelFlowEdge } from './FunnelFlowEdge'
-import { FunnelFlowNode } from './FunnelFlowNode'
 import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
+import { FunnelFlowNode } from './FunnelFlowNode'
 
 const NODE_TYPES = {
     mandatory: FunnelFlowNode,

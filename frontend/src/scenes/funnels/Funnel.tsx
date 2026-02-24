@@ -10,9 +10,9 @@ import { ChartParams, FunnelVizType } from '~/types'
 
 import { FunnelBarHorizontal } from './FunnelBarHorizontal/FunnelBarHorizontal'
 import { FunnelBarVertical } from './FunnelBarVertical/FunnelBarVertical'
+import { funnelDataLogic } from './funnelDataLogic'
 import { FunnelFlowGraph } from './FunnelFlowGraph/FunnelFlowGraph'
 import { FunnelHistogram } from './FunnelHistogram'
-import { funnelDataLogic } from './funnelDataLogic'
 
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)

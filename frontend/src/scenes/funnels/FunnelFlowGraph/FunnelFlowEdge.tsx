@@ -4,9 +4,9 @@ import { useActions, useValues } from 'kea'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { ValueInspectorButton } from '../ValueInspectorButton'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { formatConvertedCount, formatConvertedPercentage } from '../funnelUtils'
+import { ValueInspectorButton } from '../ValueInspectorButton'
 import { FunnelFlowEdgeData } from './funnelFlowGraphLogic'
 
 export function FunnelFlowEdge({

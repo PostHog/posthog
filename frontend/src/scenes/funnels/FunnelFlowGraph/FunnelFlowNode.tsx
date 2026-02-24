@@ -12,9 +12,8 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 
-import { FunnelStepMore } from '../FunnelStepMore'
-import { ValueInspectorButton } from '../ValueInspectorButton'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { FunnelStepMore } from '../FunnelStepMore'
 import {
     formatConvertedCount,
     formatConvertedPercentage,
@@ -22,6 +21,7 @@ import {
     formatDroppedOffPercentage,
     formatMedianConversionTime,
 } from '../funnelUtils'
+import { ValueInspectorButton } from '../ValueInspectorButton'
 import { FunnelFlowNodeData, NODE_HEIGHT, NODE_WIDTH } from './funnelFlowGraphLogic'
 
 function OptionalChip(): JSX.Element {
