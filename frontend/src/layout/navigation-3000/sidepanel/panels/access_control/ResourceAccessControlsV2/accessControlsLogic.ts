@@ -28,6 +28,7 @@ import {
     AccessControlRoleEntry,
     AccessControlSettingsEntry,
     AccessControlsTab,
+    EntryData,
     GroupedAccessControlRuleModalLogicProps,
     ScopeType,
 } from './types'
@@ -310,16 +311,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         saveGroupedRules: async ({ scopeType, scopeId, projectLevel, resourceLevels }) => {
             // If the selected level equals the inherited level, we save null (clear override)
             // If the selected level differs from inherited, we save it as an override
-
-            type AccessLevelState = {
-                access_level: AccessControlLevel | null
-                effective_access_level: AccessControlLevel | null
-                inherited_access_level: AccessControlLevel | null
-            }
-            type EntryData = {
-                project: AccessLevelState
-                resources: Record<string, AccessLevelState>
-            }
 
             let entryData: EntryData | null = null
 
