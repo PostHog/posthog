@@ -580,6 +580,15 @@ class TestRestoreAPI(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_restore_redeem_non_uuid_widget_session_id_rejected(self):
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore",
+            {"restore_token": "a" * 43, "widget_session_id": "not-a-uuid-string"},
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_restore_redeem_token_too_short_rejected(self):
         """Token shorter than 40 chars should be rejected at validation."""
         response = self.client.post(

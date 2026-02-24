@@ -13,7 +13,7 @@ export const template: HogFunctionTemplate = {
     code: `
 if (inputs.debug) {
     print('Incoming headers:', request.headers)
-    print('Incoming raw body (first 1k):', substring(request.stringBody, 0, 1000))
+    print('Incoming body:', request.body)
 }
 
 if (request.method != 'POST') {
@@ -49,6 +49,16 @@ fun pushLog(obj) {
     logs := arrayPushBack(logs, obj)
 }
 
+fun pushParsed(parsed) {
+    if (typeof(parsed) == 'array') {
+        for (let _, item in parsed) {
+            pushLog(item)
+        }
+    } else if (typeof(parsed) == 'object') {
+        pushLog(parsed)
+    }
+}
+
 // Check if body contains newlines (NDJSON format)
 let hasNewlines := position(body, '\n') > 0
 
@@ -64,15 +74,13 @@ if (hasNewlines) {
         pushLog(obj)
     }
 } else if (notEmpty(body)) {
-    // Parse as single JSON object or array
-    let parsed := jsonParse(body)
-    if (typeof(parsed) == 'array') {
-        for (let _, item in parsed) {
-            pushLog(item)
-        }
-    } else if (typeof(parsed) == 'object') {
-        pushLog(parsed)
-    }
+    pushParsed(jsonParse(body))
+}
+
+// Fallback: if stringBody was empty but the parsed body is available, use it directly.
+// This handles cases where the webhook infrastructure consumed the raw body for JSON parsing.
+if (empty(logs) and notEmpty(request.body)) {
+    pushParsed(request.body)
 }
 
 if (empty(logs)) {
@@ -134,7 +142,7 @@ for (let _, log in logs) {
         'spanId': log.spanId ?? log['span.id'],
         'vercel_timestamp_ms': log.timestamp,
         'message': truncateIfNeeded(log.message),
-        'message_truncated': typeof(log.message) == 'string' and length(log.message) > limit,
+        'message_truncated': typeof(log.message) == 'string' and length(log.message ?? '') > limit,
         'buildId': log.buildId,
         'destination': log.destination,
         'branch': log.branch,

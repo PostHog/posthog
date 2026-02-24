@@ -1519,7 +1519,7 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert member_data["organization_membership_id"] == str(self.user2_membership.id)
 
         # User object: identity fields
-        expected_user_keys = {"uuid", "first_name", "email"}
+        expected_user_keys = {"uuid", "first_name", "last_name", "email"}
         assert expected_user_keys <= set(member_data["user"].keys())
         assert member_data["user"]["email"] == "user2@example.com"
 
