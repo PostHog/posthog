@@ -16,9 +16,12 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
-    payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
+    payload::{
+        decompress_payload, extract_and_record_metadata, extract_payload_bytes,
+        types::{GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM, GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL},
+        EventQuery,
+    },
     router,
-    types::{GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM, GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL},
     v0_request::ProcessingContext,
 };
 

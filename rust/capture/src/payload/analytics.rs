@@ -16,9 +16,12 @@ use crate::{
     api::CaptureError,
     debug_or_info,
     extractors::extract_body_with_timeout,
-    payload::{extract_and_record_metadata, extract_payload_bytes, EventQuery},
+    payload::{
+        extract_and_record_metadata, extract_payload_bytes,
+        types::{GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM, GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL},
+        EventQuery,
+    },
     router,
-    types::{GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM, GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL},
     utils::extract_and_verify_token,
     v0_request::{ProcessingContext, RawRequest},
 };

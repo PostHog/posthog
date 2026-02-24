@@ -31,6 +31,7 @@ impl GlobalRateLimiter {
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: config.global_rate_limit_threshold,
             window_interval: Duration::from_secs(config.global_rate_limit_window_interval_secs),
+            bucket_interval: Duration::from_secs(config.global_rate_limit_bucket_interval_secs),
             redis_key_prefix: redis_prefix,
             custom_keys: Self::format_custom_keys(config.global_rate_limit_overrides_csv.as_ref()),
             ..Default::default()
