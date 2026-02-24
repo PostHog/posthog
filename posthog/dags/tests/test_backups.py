@@ -525,6 +525,82 @@ def test_cleanup_nothing_to_delete():
     mock_s3.get_client().get_paginator.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "s3_errors, s3_deleted, expect_failure",
+    [
+        (
+            [
+                {
+                    "Key": "posthog/test/noshard/full-20240101000000/.backup",
+                    "Code": "AccessDenied",
+                    "Message": "Access Denied",
+                }
+            ],
+            [],
+            True,
+        ),
+        (
+            [
+                {
+                    "Key": "posthog/test/noshard/full-20240101000000/data/part1",
+                    "Code": "AccessDenied",
+                    "Message": "Access Denied",
+                }
+            ],
+            [{"Key": "posthog/test/noshard/full-20240101000000/.backup"}],
+            True,
+        ),
+        (
+            [],
+            [
+                {"Key": "posthog/test/noshard/full-20240101000000/.backup"},
+                {"Key": "posthog/test/noshard/full-20240101000000/data/part1"},
+            ],
+            False,
+        ),
+    ],
+)
+def test_cleanup_delete_objects_response_handling(s3_errors, s3_deleted, expect_failure):
+    config = BackupConfig(database="posthog", table="test", incremental=False)
+    current_backup = Backup(database="posthog", table="test", date="20240202000000", incremental=False)
+    prior_backups = [
+        Backup(database="posthog", table="test", date="20240101000000", incremental=False),
+    ]
+
+    mock_s3 = MagicMock()
+    s3_client = mock_s3.get_client.return_value
+    s3_client.get_paginator.return_value.paginate.return_value = [
+        {
+            "Contents": [
+                {"Key": "posthog/test/noshard/full-20240101000000/.backup"},
+                {"Key": "posthog/test/noshard/full-20240101000000/data/part1"},
+            ]
+        }
+    ]
+    s3_client.delete_objects.return_value = {"Errors": s3_errors, "Deleted": s3_deleted}
+
+    if expect_failure:
+        with pytest.raises(dagster.Failure):
+            cleanup_old_backups(
+                context=dagster.build_op_context(),
+                config=config,
+                s3=mock_s3,
+                backup=current_backup,
+                all_backups=prior_backups,
+                cluster=MagicMock(),
+            )
+    else:
+        cleanup_old_backups(
+            context=dagster.build_op_context(),
+            config=config,
+            s3=mock_s3,
+            backup=current_backup,
+            all_backups=prior_backups,
+            cluster=MagicMock(),
+        )
+        s3_client.delete_objects.assert_called_once()
+
+
 def test_cleanup_deletes_failed_recent_backups():
     config = BackupConfig(database="posthog", table="test", incremental=True)
     current_backup = Backup(database="posthog", table="test", date="20240203000000", incremental=True)
