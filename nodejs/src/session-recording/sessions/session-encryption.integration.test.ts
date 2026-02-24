@@ -267,7 +267,7 @@ describe('session recording encryption integration', () => {
         const resultBefore = await decryptor.decryptBlock(sessionId, teamId, encryptedBlock)
         expect(resultBefore.data).toBeDefined()
 
-        const deleted = await keyStore.deleteKey(sessionId, teamId)
+        const deleted = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
         expect(deleted).toMatchObject({ deleted: true })
 
         await expect(decryptor.decryptBlock(sessionId, teamId, encryptedBlock)).rejects.toThrow(SessionKeyDeletedError)
