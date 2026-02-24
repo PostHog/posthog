@@ -1,8 +1,10 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from posthog.api.llm_prompt import LLMPromptSerializer
 from posthog.models.llm_prompt import LLMPrompt
 from posthog.storage.llm_prompt_cache import (
+    _serialize_prompt,
     get_prompt_by_name_from_cache,
     invalidate_team_prompt_cache,
     llm_prompts_hypercache,
@@ -36,6 +38,20 @@ class TestLLMPromptCache(BaseTest):
         self.assertEqual(cached_prompt["version"], prompt.version)
         self.assertEqual(cached_prompt["deleted"], prompt.deleted)
         self.assertNotIn("created_by", cached_prompt)
+
+    def test_serialize_prompt_matches_api_serializer_keys_except_created_by(self):
+        prompt = LLMPrompt.objects.create(
+            team=self.team,
+            name="serializer-shape",
+            prompt="Prompt content",
+            created_by=self.user,
+        )
+
+        serialized_prompt = _serialize_prompt(prompt)
+        serializer_keys = set(LLMPromptSerializer(prompt).data.keys())
+        expected_keys = serializer_keys - {"created_by"}
+
+        self.assertEqual(set(serialized_prompt.keys()), expected_keys)
 
     def test_get_prompt_by_name_from_cache_returns_none_for_missing_prompt_name(self):
         LLMPrompt.objects.create(
