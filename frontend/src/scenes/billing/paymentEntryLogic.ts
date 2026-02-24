@@ -179,7 +179,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                         if (values.redirectPath) {
                             const url = new URL(values.redirectPath, window.location.origin)
                             const searchParams = Object.fromEntries(url.searchParams.entries())
-                            router.actions.push(url.pathname, { ...searchParams, success: 'true' })
+                            router.actions.push(url.pathname, { ...searchParams, success: true })
                         } else {
                             router.actions.push(router.values.location.pathname, {
                                 ...router.values.searchParams,
