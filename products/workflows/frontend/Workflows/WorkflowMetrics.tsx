@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
@@ -10,7 +10,9 @@ import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
-import { workflowLogic } from './workflowLogic'
+import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+
+const OVERVIEW_OPTION_VALUE = '__workflow_overview__'
 
 export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
@@ -46,12 +48,8 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
     },
 }
 
-export type WorkflowMetricsProps = {
-    id: string
-}
-
-export function WorkflowMetrics({ id }: WorkflowMetricsProps): JSX.Element {
-    const logicKey = `hog-flow-metrics-${id}`
+export function WorkflowMetrics(props: WorkflowLogicProps): JSX.Element {
+    const logicKey = `hog-flow-metrics-${props.id}`
 
     const logic = appMetricsLogic({
         logicKey,
@@ -59,12 +57,12 @@ export function WorkflowMetrics({ id }: WorkflowMetricsProps): JSX.Element {
         loadOnMount: true,
         forceParams: {
             appSource: 'hog_flow',
-            appSourceId: id,
+            appSourceId: props.id,
             breakdownBy: 'metric_name',
         },
     })
 
-    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic({ id }))
+    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic(props))
 
     const { appMetricsTrendsLoading, getSingleTrendSeries, appMetricsTrends, params } = useValues(logic)
     const { setParams } = useActions(logic)
@@ -83,39 +81,38 @@ export function WorkflowMetrics({ id }: WorkflowMetricsProps): JSX.Element {
         [appMetricsTrends]
     )
 
+    const workflowStepOptions = useMemo(
+        () => [
+            {
+                label: 'Overview',
+                value: OVERVIEW_OPTION_VALUE,
+            },
+            ...workflow.actions.map((action) => {
+                const Step = getHogFlowStep(action, hogFunctionTemplatesById)
+                return {
+                    label: action.name,
+                    icon: Step?.icon,
+                    value: action.id,
+                }
+            }),
+        ],
+        [workflow.actions, hogFunctionTemplatesById]
+    )
+
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
                 <div>
-                    <LemonSelect
+                    <LemonSegmentedButton
                         size="small"
-                        options={[
-                            {
-                                title: 'Workflow',
-                                options: [
-                                    {
-                                        label: 'Overview',
-                                        value: null,
-                                    },
-                                ],
-                            },
-                            {
-                                title: 'Workflow steps',
-                                options: workflow.actions.map((action) => {
-                                    const Step = getHogFlowStep(action, hogFunctionTemplatesById)
-                                    return {
-                                        label: (
-                                            <span className="flex items-center gap-1">
-                                                {Step?.icon} {action.name}
-                                            </span>
-                                        ),
-                                        value: action.id,
-                                    }
-                                }),
-                            },
-                        ]}
-                        value={params.instanceId ?? null}
-                        onChange={(value) => setParams({ ...params, instanceId: value ?? undefined })}
+                        options={workflowStepOptions}
+                        value={params.instanceId ?? OVERVIEW_OPTION_VALUE}
+                        onChange={(value) =>
+                            setParams({
+                                ...params,
+                                instanceId: value === OVERVIEW_OPTION_VALUE ? undefined : value,
+                            })
+                        }
                     />
                 </div>
                 <AppMetricsFilters logicKey={logicKey} />

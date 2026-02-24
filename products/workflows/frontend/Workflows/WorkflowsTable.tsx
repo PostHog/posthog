@@ -104,7 +104,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
     useOnMountEffect(() => {
         // Tricky: unmount the new workflow logic when leaving the new workflow scene
         // We can't just reset state within the logic's unmount as that would trigger when switching tabs
-        const newWorkflowLogic = workflowLogic.findMounted({ id: 'new', tabId: props.tabId })
+        const newWorkflowLogic = workflowLogic.findMounted()
         newWorkflowLogic?.unmount()
 
         // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
@@ -326,8 +326,9 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
             <LemonTable
                 dataSource={filteredWorkflows}
                 loading={workflowsLoading}
+                rowKey="id"
                 columns={columns}
-                defaultSorting={{ columnKey: 'status', order: 1 }}
+                defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
             />
             {archivedWorkflows.length > 0 && (
                 <LemonCollapse
@@ -341,6 +342,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                                 <LemonTable
                                     dataSource={archivedWorkflows}
                                     loading={workflowsLoading}
+                                    rowKey="id"
                                     columns={columns}
                                     defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
                                 />

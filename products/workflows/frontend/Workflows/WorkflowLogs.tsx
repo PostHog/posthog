@@ -12,19 +12,15 @@ import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { HogFlowBatchJob } from './hogflows/types'
 import { renderWorkflowLogMessage } from './logs/log-utils'
-import { workflowLogic } from './workflowLogic'
+import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
-export type WorkflowLogsProps = {
-    id: string
-}
-
-function WorkflowRunLogs({ id }: WorkflowLogsProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic({ id }))
+function WorkflowRunLogs(props: WorkflowLogicProps): JSX.Element {
+    const { workflow } = useValues(workflowLogic(props))
 
     return (
         <LogsViewer
             sourceType="hog_flow"
-            sourceId={id}
+            sourceId={props.id!}
             instanceLabel="workflow run"
             renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
         />
@@ -101,8 +97,8 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
     )
 }
 
-function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
-    const { futureJobs, pastJobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic({ id }))
+function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
+    const { futureJobs, pastJobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic(props))
 
     if (batchWorkflowJobsLoading) {
         return (
@@ -158,8 +154,8 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
     )
 }
 
-export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic({ id }))
+export function WorkflowLogs(props: WorkflowLogicProps): JSX.Element {
+    const { workflow } = useValues(workflowLogic(props))
 
-    return workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />
+    return workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs {...props} /> : <WorkflowRunLogs {...props} />
 }
