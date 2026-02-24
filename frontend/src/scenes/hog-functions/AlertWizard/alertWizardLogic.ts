@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -405,6 +406,14 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 }
 
                 await api.hogFunctions.create(configuration)
+                posthog.capture('error_tracking_alert_created', {
+                    source: 'wizard',
+                    trigger_event: subTemplate.filters?.events?.[0]?.id ?? null,
+                    subtemplate_id: triggerKey,
+                    destination_key: destination.key,
+                    destination_template_id: destination.templateId,
+                    enabled: true,
+                })
                 lemonToast.success('Alert created successfully')
                 actions.createAlertSuccess()
             } catch (e: any) {
