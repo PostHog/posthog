@@ -1,6 +1,6 @@
-// AUTO-GENERATED — do not edit
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
+// AUTO-GENERATED — do not edit
 import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
 
