@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 72 ops
+ * PostHog API - MCP 74 ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1788,6 +1788,22 @@ export const ErrorTrackingReleasesDestroyParams = zod.object({
 
 export const ErrorTrackingReleasesHashRetrieveParams = zod.object({
     hash_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ErrorTrackingSpikeDetectionConfigRetrieveParams = zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateParams = zod.object({
     project_id: zod
         .string()
         .describe(
