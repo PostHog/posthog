@@ -62,13 +62,17 @@ class RecordingApiClient:
                 if response.status == 410:
                     data = await response.json()
                     deleted_at = data.get("deleted_at")
+                    deleted_by = data.get("deleted_by")
                     logger.info(
                         "recording_api_client.recording_deleted",
                         session_id=session_id,
                         team_id=team_id,
                         deleted_at=deleted_at,
+                        deleted_by=deleted_by,
                     )
-                    raise RecordingDeletedError("Recording has been deleted", deleted_at=deleted_at)
+                    raise RecordingDeletedError(
+                        "Recording has been deleted", deleted_at=deleted_at, deleted_by=deleted_by
+                    )
                 response.raise_for_status()
                 return await response.read()
         except (RecordingDeletedError, BlockFetchError):
@@ -110,53 +114,22 @@ class RecordingApiClient:
             )
             raise BlockFetchError(f"Failed to decompress block: {str(e)}")
 
-    async def delete_recording(self, session_id: str, team_id: int) -> bool:
+    async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str = "") -> list[str]:
         """
-        Delete a recording's encryption key via the Recording API.
-
-        Returns True if the key was deleted.
-
-        Raises:
-            RecordingDeletedError: If the recording has already been deleted.
-            BlockFetchError: If the recording key is not found or other errors occur.
-        """
-        url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}"
-
-        try:
-            async with self.session.delete(url) as response:
-                if response.status == 404:
-                    raise BlockFetchError("Recording key not found")
-                response.raise_for_status()
-                return True
-        except BlockFetchError:
-            raise
-        except aiohttp.ClientError as e:
-            logger.exception(
-                "recording_api_client.delete_recording_failed",
-                url=url,
-                session_id=session_id,
-                team_id=team_id,
-                error=str(e),
-                exc_info=False,
-            )
-            raise BlockFetchError(f"Failed to delete recording: {str(e)}")
-
-    async def bulk_delete_recordings(self, session_ids: list[str], team_id: int) -> list[str]:
-        """
-        Bulk delete recordings via the Recording API.
+        Delete recordings via the Recording API.
 
         Returns list of session IDs that failed to delete.
         """
-        url = f"{self.base_url}/api/projects/{team_id}/recordings/bulk_delete"
+        url = f"{self.base_url}/api/projects/{team_id}/recordings/delete"
 
         try:
-            async with self.session.post(url, json={"session_ids": session_ids}) as response:
+            async with self.session.post(url, json={"session_ids": session_ids, "deleted_by": deleted_by}) as response:
                 response.raise_for_status()
                 data = await response.json()
                 return [r["sessionId"] for r in data if not r.get("ok")]
         except aiohttp.ClientError as e:
             logger.exception(
-                "recording_api_client.bulk_delete_failed",
+                "recording_api_client.delete_recordings_failed",
                 url=url,
                 team_id=team_id,
                 session_count=len(session_ids),

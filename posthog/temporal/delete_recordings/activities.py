@@ -18,8 +18,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.delete_recordings.types import (
-    BulkDeleteInput,
-    BulkDeleteResult,
+    DeleteRecordingsInput,
+    DeleteRecordingsResult,
     LoadRecordingError,
     LoadRecordingsPage,
     PurgeDeletedMetadataInput,
@@ -186,15 +186,15 @@ async def purge_deleted_metadata(input: PurgeDeletedMetadataInput) -> PurgeDelet
     )
 
 
-@activity.defn(name="bulk-delete-recordings")
-async def bulk_delete_recordings(input: BulkDeleteInput) -> BulkDeleteResult:
-    """Bulk delete recordings via the recording API bulk-delete endpoint."""
+@activity.defn(name="delete-recordings")
+async def delete_recordings(input: DeleteRecordingsInput) -> DeleteRecordingsResult:
+    """Delete recordings via the recording API."""
     bind_contextvars(team_id=input.team_id, session_count=len(input.session_ids), dry_run=input.dry_run)
     logger = LOGGER.bind()
 
     if input.dry_run:
         logger.info("Dry run: skipping deletion")
-        return BulkDeleteResult(deleted=[])
+        return DeleteRecordingsResult(deleted=[])
 
     logger.info("Deleting recordings via recording API")
 
@@ -202,14 +202,14 @@ async def bulk_delete_recordings(input: BulkDeleteInput) -> BulkDeleteResult:
     if not recording_api_url:
         raise RuntimeError("RECORDING_API_URL is not configured")
 
-    url = f"{recording_api_url}/api/projects/{input.team_id}/recordings/bulk_delete"
+    url = f"{recording_api_url}/api/projects/{input.team_id}/recordings/delete"
 
     headers: dict[str, str] = {}
     if settings.INTERNAL_API_SECRET:
         headers["X-Internal-Api-Secret"] = settings.INTERNAL_API_SECRET
 
     async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
-        response = await client.post(url, json={"session_ids": input.session_ids})
+        response = await client.post(url, json={"session_ids": input.session_ids, "deleted_by": input.deleted_by})
         response.raise_for_status()
         data = response.json()
 
@@ -222,4 +222,4 @@ async def bulk_delete_recordings(input: BulkDeleteInput) -> BulkDeleteResult:
         failed_count=failed_count,
     )
 
-    return BulkDeleteResult(deleted=deleted, failed_count=failed_count)
+    return DeleteRecordingsResult(deleted=deleted, failed_count=failed_count)

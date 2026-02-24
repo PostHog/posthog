@@ -241,8 +241,12 @@ describe('Recording API encryption integration', () => {
                 expect(resultBefore.data.equals(blockData)).toBe(true)
 
                 // Delete the key
-                const deleteResult = await keyStore.deleteKey(sessionId, teamId)
-                expect(deleteResult).toEqual({ deleted: true, deletedAt: expect.any(Number) })
+                const deleteResult = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
+                expect(deleteResult).toEqual({
+                    deleted: true,
+                    deletedAt: expect.any(Number),
+                    deletedBy: 'test@example.com',
+                })
 
                 // Verify decryption fails after deletion
                 await expect(decryptor.decryptBlock(sessionId, teamId, encrypted)).rejects.toThrow(
@@ -261,7 +265,7 @@ describe('Recording API encryption integration', () => {
 
                 // Delete and capture time (timestamps are in seconds)
                 const beforeDelete = Math.floor(Date.now() / 1000)
-                await keyStore.deleteKey(sessionId, teamId)
+                await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
                 const afterDelete = Math.floor(Date.now() / 1000) + 1
 
                 // Get key should return deleted state with timestamp
@@ -281,7 +285,7 @@ describe('Recording API encryption integration', () => {
 
                 // Generate and delete key
                 await keyStore.generateKey(sessionId, teamId)
-                await keyStore.deleteKey(sessionId, teamId)
+                await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
 
                 // Encryption should fail
                 await expect(encryptor.encryptBlock(sessionId, teamId, blockData)).rejects.toThrow(
@@ -292,7 +296,7 @@ describe('Recording API encryption integration', () => {
             it('should create tombstone when deleting non-existent key', async () => {
                 const keyStore = getKeyStore()
 
-                const result = await keyStore.deleteKey(`non-existent-${Date.now()}`, 999)
+                const result = await keyStore.deleteKey(`non-existent-${Date.now()}`, 999, 'test@example.com')
                 expect(result.deleted).toBe(true)
                 expect(result.deletedAt).toBeDefined()
             })
@@ -320,8 +324,8 @@ describe('Recording API encryption integration', () => {
                 }
 
                 // Delete some sessions
-                await keyStore.deleteKey(`delete-1-${timestamp}`, teamId)
-                await keyStore.deleteKey(`delete-2-${timestamp}`, teamId)
+                await keyStore.deleteKey(`delete-1-${timestamp}`, teamId, 'test@example.com')
+                await keyStore.deleteKey(`delete-2-${timestamp}`, teamId, 'test@example.com')
 
                 // Verify kept sessions are still decryptable
                 for (const sessionId of [`keep-1-${timestamp}`, `keep-2-${timestamp}`]) {
@@ -600,9 +604,9 @@ describe('Recording API encryption integration', () => {
                 const teamId = 4
 
                 await keyStore.generateKey(sessionId, teamId)
-                await keyStore.deleteKey(sessionId, teamId)
+                await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
 
-                const result = await keyStore.deleteKey(sessionId, teamId)
+                const result = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
                 expect(result.deleted).toBe(false)
                 expect((result as any).reason).toBe('already_deleted')
                 expect((result as any).deletedAt).toBeDefined()
@@ -633,7 +637,7 @@ describe('Recording API encryption integration', () => {
                 await keyStore.generateKey(sessionId, team1)
                 await keyStore.generateKey(sessionId, team2)
 
-                await keyStore.deleteKey(sessionId, team1)
+                await keyStore.deleteKey(sessionId, team1, 'test@example.com')
 
                 const key1 = await keyStore.getKey(sessionId, team1)
                 expect(key1.sessionState).toBe('deleted')
@@ -724,7 +728,7 @@ describe('Recording API encryption integration', () => {
                 const s3Key = `${S3_PREFIX}/30d/1700000001-abcdef0123456789`
                 await s3Client.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: s3Key, Body: encrypted }))
 
-                await keyStore.deleteKey(sessionId, teamId)
+                await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
 
                 const result = await recordingService.getBlock({
                     sessionId,
@@ -819,7 +823,7 @@ describe('Recording API encryption integration', () => {
                 const blockData = await createBlockData([{ type: 2, data: { content: 'secret' } }])
                 const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
-                await keyStore.deleteKey(sessionId, teamId)
+                await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
 
                 mockS3Send.mockResolvedValue({
                     Body: { transformToByteArray: () => Promise.resolve(encrypted) },
@@ -834,8 +838,9 @@ describe('Recording API encryption integration', () => {
                     })
 
                 expect(res.status).toBe(410)
-                expect(res.body.error).toBe('Recording has been deleted')
+                expect(res.body.error).toBe('recording_deleted')
                 expect(res.body.deleted_at).toBeDefined()
+                expect(res.body.deleted_by).toBe('test@example.com')
             })
 
             it('should return 404 when S3 returns no body', async () => {
@@ -849,49 +854,6 @@ describe('Recording API encryption integration', () => {
 
                 expect(res.status).toBe(404)
                 expect(res.body.error).toBe('Block not found')
-            })
-        })
-
-        describe('DELETE /recording', () => {
-            it('should delete a recording and return success', async () => {
-                const sessionId = 'http-delete-session'
-                const teamId = 1
-                await keyStore.generateKey(sessionId, teamId)
-
-                const res = await supertest(app).delete(`/api/projects/${teamId}/recordings/${sessionId}`)
-
-                expect(res.status).toBe(200)
-                expect(res.body).toEqual({
-                    team_id: teamId,
-                    session_id: sessionId,
-                    status: 'deleted',
-                    deleted_at: expect.any(Number),
-                })
-            })
-
-            it('should create tombstone for non-existent key', async () => {
-                const res = await supertest(app).delete('/api/projects/1/recordings/non-existent')
-
-                expect(res.status).toBe(200)
-                expect(res.body.status).toBe('deleted')
-                expect(res.body.deleted_at).toBeDefined()
-            })
-
-            it('should return 200 for already deleted key (idempotent)', async () => {
-                const sessionId = 'http-already-deleted'
-                const teamId = 1
-                await keyStore.generateKey(sessionId, teamId)
-                await keyStore.deleteKey(sessionId, teamId)
-
-                const res = await supertest(app).delete(`/api/projects/${teamId}/recordings/${sessionId}`)
-
-                expect(res.status).toBe(200)
-                expect(res.body).toEqual({
-                    team_id: teamId,
-                    session_id: sessionId,
-                    status: 'already_deleted',
-                    deleted_at: expect.any(Number),
-                })
             })
         })
     })
@@ -913,7 +875,7 @@ describe('Recording API encryption integration', () => {
             expect(cachedKey.sessionState).toBe('ciphertext')
 
             // Delete through cache layer
-            await cachedKeyStore.deleteKey(sessionId, teamId)
+            await cachedKeyStore.deleteKey(sessionId, teamId, 'test@example.com')
 
             // Next read must return deleted, not stale cached ciphertext
             const afterDelete = await cachedKeyStore.getKey(sessionId, teamId)
@@ -944,7 +906,7 @@ describe('Recording API encryption integration', () => {
             expect(result.data.equals(blockData)).toBe(true)
 
             // Delete through cache
-            await cachedKeyStore.deleteKey(sessionId, teamId)
+            await cachedKeyStore.deleteKey(sessionId, teamId, 'test@example.com')
 
             // Decrypt must fail with SessionKeyDeletedError
             await expect(decryptor.decryptBlock(sessionId, teamId, encrypted)).rejects.toThrow(SessionKeyDeletedError)
@@ -968,7 +930,7 @@ describe('Recording API encryption integration', () => {
             expect(key.sessionState).toBe('ciphertext')
 
             // Delete through outer cache
-            await outerCache.deleteKey(sessionId, teamId)
+            await outerCache.deleteKey(sessionId, teamId, 'test@example.com')
 
             // All layers must return deleted
             const afterDelete = await outerCache.getKey(sessionId, teamId)

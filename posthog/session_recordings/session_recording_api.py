@@ -749,7 +749,9 @@ class SessionRecordingViewSet(
         recording.deleted = True
         recording.save()
 
-        if not self._delete_via_recording_api(recording.session_id):
+        deleted_by = cast(User, request.user).email
+        failed_ids = self._delete_via_recording_api([recording.session_id], deleted_by=deleted_by)
+        if failed_ids:
             logger.warning(
                 "recording_api_delete_failed_after_db_delete",
                 session_id=recording.session_id,
@@ -831,7 +833,8 @@ class SessionRecordingViewSet(
         deleted_count = len(created_records) + updated_count
 
         session_ids = [r.session_id for r in non_deleted_recordings]
-        failed_ids = self._bulk_delete_via_recording_api(session_ids)
+        deleted_by = cast(User, request.user).email
+        failed_ids = self._delete_via_recording_api(session_ids, deleted_by=deleted_by)
         if failed_ids:
             logger.warning(
                 "bulk_delete_recording_api_partial_failure",
@@ -1068,12 +1071,14 @@ class SessionRecordingViewSet(
                 session_id=str(recording.session_id),
                 team_id=self.team.id,
                 deleted_at=e.deleted_at,
+                deleted_by=e.deleted_by,
             )
             return Response(
                 {
                     "error": "recording_deleted",
                     "message": "This recording has been permanently deleted",
                     "deleted_at": e.deleted_at,
+                    "deleted_by": e.deleted_by,
                 },
                 status=status.HTTP_410_GONE,
             )
@@ -1354,52 +1359,26 @@ class SessionRecordingViewSet(
 
         return blocks
 
-    def _bulk_delete_via_recording_api(self, session_ids: builtins.list[str]) -> builtins.list[str]:
-        """Delete multiple recordings via recording-api bulk endpoint.
+    def _delete_via_recording_api(self, session_ids: builtins.list[str], deleted_by: str = "") -> builtins.list[str]:
+        """Delete recordings via recording-api.
 
         Returns list of session IDs that failed to delete.
         """
 
         async def _delete_all() -> list[str]:
             async with recording_api_client() as storage:
-                return await storage.bulk_delete_recordings(session_ids, self.team.id)
+                return await storage.delete_recordings(session_ids, self.team.id, deleted_by=deleted_by)
 
         try:
             return async_to_sync(_delete_all)()
         except Exception as e:
             logger.exception(
-                "recording_api_bulk_delete_error",
+                "recording_api_delete_error",
                 error=str(e),
                 team_id=self.team.id,
                 session_count=len(session_ids),
             )
             return session_ids
-
-    def _delete_via_recording_api(self, session_id: str) -> bool:
-        """Delete recording via recording-api. Returns True if deleted successfully."""
-
-        async def _delete() -> bool:
-            async with recording_api_client() as storage:
-                return await storage.delete_recording(session_id, self.team.id)
-
-        try:
-            return async_to_sync(_delete)()
-        except BlockFetchError as e:
-            logger.warning(
-                "recording_api_delete_failed",
-                error=str(e),
-                session_id=session_id,
-                team_id=self.team.id,
-            )
-            return False
-        except Exception as e:
-            logger.exception(
-                "recording_api_delete_error",
-                error=str(e),
-                session_id=session_id,
-                team_id=self.team.id,
-            )
-            return False
 
     async def _fetch_blocks_parallel(
         self,

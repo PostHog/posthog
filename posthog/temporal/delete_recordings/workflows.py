@@ -8,15 +8,15 @@ from temporalio import common, workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_recordings.activities import (
-    bulk_delete_recordings,
+    delete_recordings,
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,
     purge_deleted_metadata,
 )
 from posthog.temporal.delete_recordings.types import (
-    BulkDeleteInput,
-    BulkDeleteResult,
+    DeleteRecordingsInput,
+    DeleteRecordingsResult,
     DeletionCertificate,
     DeletionConfig,
     DeletionProgress,
@@ -42,9 +42,11 @@ async def _delete_page(
 
         for batch in batched(page.session_ids, config.batch_size):
             batch_start = workflow.now()
-            result: BulkDeleteResult = await workflow.execute_activity(
-                bulk_delete_recordings,
-                BulkDeleteInput(team_id=team_id, session_ids=list(batch), dry_run=config.dry_run),
+            result: DeleteRecordingsResult = await workflow.execute_activity(
+                delete_recordings,
+                DeleteRecordingsInput(
+                    team_id=team_id, session_ids=list(batch), dry_run=config.dry_run, deleted_by=config.deleted_by
+                ),
                 start_to_close_timeout=timedelta(minutes=2),
                 schedule_to_close_timeout=timedelta(minutes=30),
                 retry_policy=common.RetryPolicy(

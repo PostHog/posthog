@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-MAX_BULK_DELETE_BATCH_SIZE = 100
+MAX_DELETE_BATCH_SIZE = 100
 
 
 class DeletionProgress(BaseModel):
@@ -18,9 +18,10 @@ class DeletionProgress(BaseModel):
 
 class DeletionConfig(BaseModel):
     dry_run: bool = False
-    batch_size: Annotated[int, Field(ge=1, le=MAX_BULK_DELETE_BATCH_SIZE)] = MAX_BULK_DELETE_BATCH_SIZE
+    batch_size: Annotated[int, Field(ge=1, le=MAX_DELETE_BATCH_SIZE)] = MAX_DELETE_BATCH_SIZE
     max_deletions_per_second: float = 30
     reason: str = ""
+    deleted_by: str = ""
 
 
 class RecordingsWithPersonInput(BaseModel):
@@ -57,13 +58,14 @@ class RecordingsWithSessionIdsInput(BaseModel):
     progress: DeletionProgress | None = None
 
 
-class BulkDeleteInput(BaseModel):
+class DeleteRecordingsInput(BaseModel):
     team_id: int
     session_ids: list[str]
     dry_run: bool = False
+    deleted_by: str = ""
 
 
-class BulkDeleteResult(BaseModel):
+class DeleteRecordingsResult(BaseModel):
     deleted: list[str]
     failed_count: int = 0
 

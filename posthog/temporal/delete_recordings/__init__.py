@@ -1,5 +1,5 @@
 from posthog.temporal.delete_recordings.activities import (
-    bulk_delete_recordings,
+    delete_recordings,
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,
@@ -25,6 +25,6 @@ ACTIVITIES = [
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,
-    bulk_delete_recordings,
+    delete_recordings,
     purge_deleted_metadata,
 ]

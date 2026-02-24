@@ -7,10 +7,14 @@ import httpx
 
 from posthog.temporal.delete_recordings.activities import (
     _parse_session_recording_list_response,
-    bulk_delete_recordings,
+    delete_recordings,
     purge_deleted_metadata,
 )
-from posthog.temporal.delete_recordings.types import BulkDeleteInput, LoadRecordingError, PurgeDeletedMetadataInput
+from posthog.temporal.delete_recordings.types import (
+    DeleteRecordingsInput,
+    LoadRecordingError,
+    PurgeDeletedMetadataInput,
+)
 
 
 @pytest.mark.asyncio
@@ -43,7 +47,7 @@ from posthog.temporal.delete_recordings.types import BulkDeleteInput, LoadRecord
         ),
     ],
 )
-async def test_bulk_delete_recordings_parses_response(response_json, expected_deleted, expected_failed_count):
+async def test_delete_recordings_parses_response(response_json, expected_deleted, expected_failed_count):
     mock_response = httpx.Response(200, json=response_json, request=httpx.Request("POST", "http://test"))
 
     with (
@@ -59,14 +63,16 @@ async def test_bulk_delete_recordings_parses_response(response_json, expected_de
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        result = await bulk_delete_recordings(BulkDeleteInput(team_id=123, session_ids=["s1", "s2"]))
+        result = await delete_recordings(
+            DeleteRecordingsInput(team_id=123, session_ids=["s1", "s2"], deleted_by="test@example.com")
+        )
 
     assert result.deleted == expected_deleted
     assert result.failed_count == expected_failed_count
 
 
 @pytest.mark.asyncio
-async def test_bulk_delete_recordings_url_construction():
+async def test_delete_recordings_url_construction():
     mock_response = httpx.Response(
         200,
         json=[{"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000}],
@@ -86,16 +92,16 @@ async def test_bulk_delete_recordings_url_construction():
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        await bulk_delete_recordings(BulkDeleteInput(team_id=456, session_ids=["s1"]))
+        await delete_recordings(DeleteRecordingsInput(team_id=456, session_ids=["s1"]))
 
     mock_client.post.assert_called_once_with(
-        "http://recording-api:8000/api/projects/456/recordings/bulk_delete",
-        json={"session_ids": ["s1"]},
+        "http://recording-api:8000/api/projects/456/recordings/delete",
+        json={"session_ids": ["s1"], "deleted_by": ""},
     )
 
 
 @pytest.mark.asyncio
-async def test_bulk_delete_recordings_sends_auth_header():
+async def test_delete_recordings_sends_auth_header():
     mock_response = httpx.Response(
         200,
         json=[],
@@ -115,7 +121,7 @@ async def test_bulk_delete_recordings_sends_auth_header():
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        await bulk_delete_recordings(BulkDeleteInput(team_id=1, session_ids=["s1"]))
+        await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"]))
 
     mock_client_cls.assert_called_once_with(
         timeout=60.0,
@@ -124,7 +130,7 @@ async def test_bulk_delete_recordings_sends_auth_header():
 
 
 @pytest.mark.asyncio
-async def test_bulk_delete_recordings_no_auth_header_when_secret_empty():
+async def test_delete_recordings_no_auth_header_when_secret_empty():
     mock_response = httpx.Response(
         200,
         json=[],
@@ -144,22 +150,22 @@ async def test_bulk_delete_recordings_no_auth_header_when_secret_empty():
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        await bulk_delete_recordings(BulkDeleteInput(team_id=1, session_ids=["s1"]))
+        await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"]))
 
     mock_client_cls.assert_called_once_with(timeout=60.0, headers={})
 
 
 @pytest.mark.asyncio
-async def test_bulk_delete_recordings_raises_when_no_recording_api_url():
+async def test_delete_recordings_raises_when_no_recording_api_url():
     with patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings:
         mock_settings.RECORDING_API_URL = ""
 
         with pytest.raises(RuntimeError, match="RECORDING_API_URL is not configured"):
-            await bulk_delete_recordings(BulkDeleteInput(team_id=1, session_ids=["s1"]))
+            await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"]))
 
 
 @pytest.mark.asyncio
-async def test_bulk_delete_recordings_raises_on_http_error():
+async def test_delete_recordings_raises_on_http_error():
     mock_response = httpx.Response(500, request=httpx.Request("POST", "http://test"))
 
     with (
@@ -176,7 +182,7 @@ async def test_bulk_delete_recordings_raises_on_http_error():
         mock_client_cls.return_value = mock_client
 
         with pytest.raises(httpx.HTTPStatusError):
-            await bulk_delete_recordings(BulkDeleteInput(team_id=1, session_ids=["s1"]))
+            await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"]))
 
 
 @pytest.mark.asyncio

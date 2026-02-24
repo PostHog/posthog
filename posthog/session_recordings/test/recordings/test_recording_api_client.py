@@ -223,7 +223,7 @@ class TestFetchBlock:
         assert exc_info.value.deleted_at == deleted_at
 
 
-class TestDeleteRecording:
+class TestDeleteRecordings:
     @pytest.fixture
     def mock_session(self):
         return MagicMock(spec=aiohttp.ClientSession)
@@ -234,62 +234,6 @@ class TestDeleteRecording:
 
     @pytest.mark.asyncio
     async def test_successful_delete(self, client, mock_session):
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.raise_for_status = MagicMock()
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.delete = MagicMock(return_value=mock_response)
-
-        result = await client.delete_recording("session-123", 1)
-
-        assert result is True
-        mock_session.delete.assert_called_once_with("http://localhost:6740/api/projects/1/recordings/session-123")
-
-    @pytest.mark.asyncio
-    async def test_not_found_raises_error(self, client, mock_session):
-        mock_response = AsyncMock()
-        mock_response.status = 404
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.delete = MagicMock(return_value=mock_response)
-
-        with pytest.raises(BlockFetchError, match="Recording key not found"):
-            await client.delete_recording("session-123", 1)
-
-    @pytest.mark.asyncio
-    async def test_client_error_raises_error(self, client, mock_session):
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.raise_for_status = MagicMock(
-            side_effect=aiohttp.ClientResponseError(
-                request_info=MagicMock(),
-                history=(),
-                status=500,
-            )
-        )
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.delete = MagicMock(return_value=mock_response)
-
-        with pytest.raises(BlockFetchError, match="Failed to delete recording"):
-            await client.delete_recording("session-123", 1)
-
-
-class TestBulkDeleteRecordings:
-    @pytest.fixture
-    def mock_session(self):
-        return MagicMock(spec=aiohttp.ClientSession)
-
-    @pytest.fixture
-    def client(self, mock_session):
-        return RecordingApiClient(mock_session, "http://localhost:6740")
-
-    @pytest.mark.asyncio
-    async def test_successful_bulk_delete(self, client, mock_session):
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.raise_for_status = MagicMock()
@@ -304,12 +248,12 @@ class TestBulkDeleteRecordings:
 
         mock_session.post = MagicMock(return_value=mock_response)
 
-        result = await client.bulk_delete_recordings(["s1", "s2"], 1)
+        result = await client.delete_recordings(["s1", "s2"], 1)
 
         assert result == []
         mock_session.post.assert_called_once_with(
-            "http://localhost:6740/api/projects/1/recordings/bulk_delete",
-            json={"session_ids": ["s1", "s2"]},
+            "http://localhost:6740/api/projects/1/recordings/delete",
+            json={"session_ids": ["s1", "s2"], "deleted_by": ""},
         )
 
     @pytest.mark.asyncio
@@ -328,7 +272,7 @@ class TestBulkDeleteRecordings:
 
         mock_session.post = MagicMock(return_value=mock_response)
 
-        result = await client.bulk_delete_recordings(["s1", "s2"], 1)
+        result = await client.delete_recordings(["s1", "s2"], 1)
 
         assert result == ["s2"]
 
@@ -348,7 +292,7 @@ class TestBulkDeleteRecordings:
 
         mock_session.post = MagicMock(return_value=mock_response)
 
-        result = await client.bulk_delete_recordings(["s1", "s2"], 1)
+        result = await client.delete_recordings(["s1", "s2"], 1)
 
         assert result == ["s1", "s2"]
 
