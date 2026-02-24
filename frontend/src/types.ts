@@ -1478,7 +1478,15 @@ export interface GroupActorType extends CommonActorType {
     group_type_index: integer
 }
 
-export type ActorType = PersonActorType | GroupActorType
+export interface SessionActorType {
+    type: 'session'
+    /** Session ID */
+    id: string
+    matched_recordings: MatchedRecording[]
+    value_at_data_point: number | null
+}
+
+export type ActorType = PersonActorType | GroupActorType | SessionActorType
 
 export interface CohortGroupType {
     id: string

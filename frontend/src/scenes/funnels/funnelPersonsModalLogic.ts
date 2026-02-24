@@ -81,7 +81,11 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
         canOpenPersonModal: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean => {
-                return !funnelsFilter?.funnelAggregateByHogQL
+                // Allow modal for: no HogQL aggregation (default person), or session aggregation
+                return (
+                    !funnelsFilter?.funnelAggregateByHogQL ||
+                    funnelsFilter.funnelAggregateByHogQL === 'properties.$session_id'
+                )
             },
         ],
     }),

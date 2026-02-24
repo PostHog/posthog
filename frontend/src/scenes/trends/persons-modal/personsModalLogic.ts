@@ -19,6 +19,7 @@ import {
     DataTableNode,
     FunnelCorrelationActorsQuery,
     FunnelsActorsQuery,
+    FunnelsQuery,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
@@ -40,12 +41,28 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
+    SessionActorType,
     UniversalFilterValue,
 } from '~/types'
 
 import type { personsModalLogicType } from './personsModalLogicType'
 
 const RESULTS_PER_PAGE = 100
+
+/** Check if the query is aggregating by sessions */
+function isSessionAggregation(
+    query: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | null
+): boolean {
+    if (!query) {
+        return false
+    }
+    // For FunnelsActorsQuery, check the source query
+    if (query.kind === NodeKind.FunnelsActorsQuery) {
+        const source = query.source as FunnelsQuery
+        return source.funnelsFilter?.funnelAggregateByHogQL === 'properties.$session_id'
+    }
+    return false
+}
 
 export interface PersonModalLogicProps {
     query?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | null
@@ -126,11 +143,25 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         const additionalFieldIndices = Object.values(props.additionalSelect || {}).map((field) =>
                             assembledSelectFields.indexOf(field)
                         )
+                        const isSession = isSessionAggregation(props.query)
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
                                     count: response.results.length,
                                     people: response.results.map((result): ActorType => {
+                                        // Handle session aggregation - sessions only have an id
+                                        if (isSession) {
+                                            const session: SessionActorType = {
+                                                type: 'session',
+                                                id: result[0]?.id ?? result[0], // Handle both {id: ...} and raw id
+                                                matched_recordings: [],
+                                                value_at_data_point: null,
+                                            }
+                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                                ;(session as any)[field] = result[additionalFieldIndices[index]]
+                                            })
+                                            return session
+                                        }
                                         if (result[0].group_type_index !== undefined) {
                                             const group: GroupActorType = {
                                                 type: 'group',
@@ -307,6 +338,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 if (!firstResult) {
                     return { singular: 'result', plural: 'results' }
+                }
+                if (firstResult.type === 'session') {
+                    return { singular: 'session', plural: 'sessions' }
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
             },

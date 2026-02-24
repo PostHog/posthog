@@ -29,7 +29,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, isGroupType, isSessionType, midEllipsis, pluralize } from 'lib/utils'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -355,7 +355,12 @@ interface ActorRowProps {
 export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [tab, setTab] = useState('properties')
-    const name = isGroupType(actor) ? groupDisplayId(actor.group_key, actor.properties) : asDisplay(actor)
+    const isSession = isSessionType(actor)
+    const name = isGroupType(actor)
+        ? groupDisplayId(actor.group_key, actor.properties)
+        : isSession
+          ? `Session ${actor.id}`
+          : asDisplay(actor)
 
     const onOpenRecordingClick = (): void => {
         if (!actor.matched_recordings) {
@@ -368,18 +373,22 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
     }
 
     const matchedRecordings = actor.matched_recordings || []
+    // For sessions, the actor id IS the session id, so we can link directly to it
+    const sessionId = isSession ? String(actor.id) : matchedRecordings[0]?.session_id
 
     return (
         <div className="relative border rounded bg-surface-primary">
             <div className="flex items-center gap-2 p-2">
-                <LemonButton
-                    noPadding
-                    active={expanded}
-                    onClick={() => setExpanded(!expanded)}
-                    icon={expanded ? <IconCollapse /> : <IconExpand />}
-                    title={expanded ? 'Show less' : 'Show more'}
-                    data-attr={`persons-modal-expand-${actor.id}`}
-                />
+                {!isSession && (
+                    <LemonButton
+                        noPadding
+                        active={expanded}
+                        onClick={() => setExpanded(!expanded)}
+                        icon={expanded ? <IconCollapse /> : <IconExpand />}
+                        title={expanded ? 'Show less' : 'Show more'}
+                        data-attr={`persons-modal-expand-${actor.id}`}
+                    />
+                )}
 
                 <ProfilePicture name={name} size="md" />
 
@@ -387,6 +396,16 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                     {isGroupType(actor) ? (
                         <div className="font-bold">
                             <GroupActorDisplay actor={actor} />
+                        </div>
+                    ) : isSession ? (
+                        <div className="font-bold">
+                            <CopyToClipboardInline
+                                explicitValue={String(actor.id)}
+                                iconStyle={{ color: 'var(--color-accent)' }}
+                                iconPosition="end"
+                            >
+                                {midEllipsis(String(actor.id), 32)}
+                            </CopyToClipboardInline>
                         </div>
                     ) : (
                         <>
@@ -407,7 +426,28 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                     )}
                 </div>
 
-                {matchedRecordings.length > 1 ? (
+                {isSession ? (
+                    <ViewRecordingButton
+                        sessionId={sessionId}
+                        checkIfViewed={true}
+                        matchingEvents={
+                            matchedRecordings[0]
+                                ? [
+                                      {
+                                          events: matchedRecordings[0].events,
+                                          session_id: matchedRecordings[0].session_id || sessionId,
+                                      },
+                                  ]
+                                : sessionId
+                                  ? [{ events: [], session_id: sessionId }]
+                                  : undefined
+                        }
+                        type="secondary"
+                        size="small"
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        hasRecording={!!sessionId}
+                    />
+                ) : matchedRecordings.length > 1 ? (
                     <div className="shrink-0">
                         <LemonButton
                             onClick={onOpenRecordingClick}
