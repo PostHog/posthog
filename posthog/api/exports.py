@@ -299,9 +299,9 @@ class ExportedAssetViewSet(
     serializer_class = ExportedAssetSerializer
 
     def safely_get_queryset(self, queryset):
-        if self.action == "list":
-            queryset = queryset.filter(created_by=self.request.user)
+        queryset = queryset.filter(created_by=self.request.user)
 
+        if self.action == "list":
             context_path_filter = self.request.query_params.get("context_path")
             if context_path_filter:
                 queryset = queryset.filter(export_context__path__icontains=context_path_filter)
