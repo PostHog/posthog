@@ -251,6 +251,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const {
         setExperiment,
         setExposureCriteria,
+        updateExposureCriteria,
         updateExperimentMetrics,
         addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
@@ -406,7 +407,16 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                     closeSharedMetricModal()
                                 }}
                             />
-                            <ExposureCriteriaModal onSave={setExposureCriteria} />
+                            <ExposureCriteriaModal
+                                onSave={(exposureCriteria) => {
+                                    setExposureCriteria(exposureCriteria)
+                                    /**
+                                     * this will trigger a save of the experiment and
+                                     * a refresh of the results
+                                     */
+                                    updateExposureCriteria()
+                                }}
+                            />
                             <RunningTimeCalculatorModal />
                         </>
                     ) : (
