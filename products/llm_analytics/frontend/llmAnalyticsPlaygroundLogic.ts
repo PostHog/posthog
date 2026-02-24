@@ -332,6 +332,13 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 setActiveProviderKeyId: (_, { id }) => id,
             },
         ],
+        pendingTargetModel: [
+            null as string | null,
+            {
+                setupPlaygroundFromEvent: (_, { payload }) => payload.model ?? null,
+                loadByokModelsSuccess: () => null,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         modelOptions: {
@@ -367,7 +374,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
     listeners(({ actions, values }) => ({
         loadByokModelsSuccess: ({ byokModels }) => {
             if (byokModels.length > 0) {
-                const closestMatch = matchClosestModel(values.model, byokModels)
+                const targetModel = values.pendingTargetModel ?? values.model
+                const closestMatch = matchClosestModel(targetModel, byokModels)
                 if (values.model !== closestMatch) {
                     const matchedModel = byokModels.find((m) => m.id === closestMatch)
                     actions.setModel(closestMatch, matchedModel?.providerKeyId)

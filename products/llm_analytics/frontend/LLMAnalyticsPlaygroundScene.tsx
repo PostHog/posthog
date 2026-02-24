@@ -562,7 +562,7 @@ function ModelPicker(): JSX.Element {
                     className="w-full"
                     placeholder="Select model"
                     value={model}
-                    onChange={(value) => setModel(value)}
+                    onChange={(value) => value && setModel(value)}
                     options={groupedModelOptions}
                     searchPlaceholder="Search models..."
                     searchKeys={['label', 'value', 'tooltip']}

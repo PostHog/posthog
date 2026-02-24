@@ -2,8 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { byokModelPickerLogic } from './byokModelPickerLogic'
@@ -34,6 +33,10 @@ export function ByokModelPicker({
         if (!visible) {
             clearSearch()
         }
+    }
+
+    if (byokModelsLoading || providerKeysLoading) {
+        return <LemonSkeleton className="h-10" />
     }
 
     const menuItems: LemonMenuItems = [
@@ -75,10 +78,6 @@ export function ByokModelPicker({
             ),
         },
     ]
-
-    if (byokModelsLoading || providerKeysLoading) {
-        return <LemonSkeleton className="h-10" />
-    }
 
     return (
         <LemonMenu

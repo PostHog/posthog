@@ -97,8 +97,8 @@ class OpenRouterAdapter(OpenAIAdapter):
                 default_headers=OPENROUTER_HEADERS,
             )
             return [m.id for m in sorted(client.models.list(), key=lambda m: m.created, reverse=True)]
-        except Exception as e:
-            logger.exception(f"Error listing OpenRouter models: {e}")
+        except Exception:
+            logger.exception("Error listing OpenRouter models")
             return []
 
     @staticmethod
