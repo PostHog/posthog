@@ -20,8 +20,8 @@ export interface ItemAppStateProps {
 }
 
 export function ItemConsoleLog({ item, groupCount }: ItemConsoleLogProps): JSX.Element {
-    const effectiveCount = groupCount ?? item.data.count
-    const showBadge = effectiveCount && effectiveCount > 1
+    const count = groupCount ?? item.data.count
+    const showBadge = count && count > 1
 
     return (
         <div className="w-full font-light flex items-center" data-attr="item-console-log">
@@ -37,7 +37,7 @@ export function ItemConsoleLog({ item, groupCount }: ItemConsoleLogProps): JSX.E
                               : 'bg-secondary-3000-hover'
                     )}
                 >
-                    {effectiveCount}
+                    {count}
                 </span>
             ) : null}
         </div>
