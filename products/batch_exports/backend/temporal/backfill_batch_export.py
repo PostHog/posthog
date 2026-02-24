@@ -932,10 +932,12 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             else:
                 update_inputs.status = BatchExportBackfill.Status.FAILED
 
+            update_inputs.latest_error = str(e.cause)
             raise
 
         except Exception:
             update_inputs.status = BatchExportBackfill.Status.FAILED
+            update_inputs.latest_error = "An unexpected error has occurred"
             raise
 
         finally:
