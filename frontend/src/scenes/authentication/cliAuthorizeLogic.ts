@@ -212,7 +212,6 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                     actions.setAuthorizeValue('projectId', null)
                     return
                 }
-                actions.setAuthorizeValue('projectId', null)
                 actions.loadProjects(payload.value)
             }
 
@@ -235,8 +234,11 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             // Error handling is done in the form errors
         },
         loadUserSuccess: ({ user }) => {
-            const organizationId =
-                values.authorize.organizationId || user?.organization?.id || user?.organizations?.[0]?.id
+            if (values.authorize.organizationId) {
+                return
+            }
+
+            const organizationId = user?.organization?.id || user?.organizations?.[0]?.id
             if (organizationId) {
                 actions.setAuthorizeValue('organizationId', organizationId)
             }
@@ -284,7 +286,11 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        const currentOrganizationId = values.user?.organization?.id
+        if (values.authorize.organizationId) {
+            return
+        }
+
+        const currentOrganizationId = values.user?.organization?.id || values.user?.organizations?.[0]?.id
         if (currentOrganizationId) {
             actions.setAuthorizeValue('organizationId', currentOrganizationId)
         }
