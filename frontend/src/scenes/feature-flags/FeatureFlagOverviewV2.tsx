@@ -27,7 +27,10 @@ import { FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
-import { FeatureFlagReleaseConditionsReadonly } from './FeatureFlagReleaseConditionsReadonly'
+import {
+    FeatureFlagReleaseConditionsReadonly,
+    FeatureFlagSuperConditionsReadonly,
+} from './FeatureFlagReleaseConditionsReadonly'
 import { JSONEditorInput } from './JSONEditorInput'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -354,13 +357,26 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                     </div>
 
                     {!featureFlag.is_remote_configuration && (
-                        <div className="rounded border p-4 bg-bg-light">
-                            <FeatureFlagReleaseConditionsReadonly
-                                id={String(featureFlag.id)}
-                                filters={featureFlag.filters}
-                                isDisabled={!featureFlag.active}
-                            />
-                        </div>
+                        <>
+                            {featureFlag.filters.super_groups && featureFlag.filters.super_groups.length > 0 && (
+                                <div className="rounded border p-4 bg-bg-light">
+                                    <FeatureFlagSuperConditionsReadonly
+                                        id={String(featureFlag.id)}
+                                        flagKey={featureFlag.key}
+                                        filters={featureFlag.filters}
+                                        earlyAccessFeatures={featureFlag.features ?? undefined}
+                                        isDisabled={!featureFlag.active}
+                                    />
+                                </div>
+                            )}
+                            <div className="rounded border p-4 bg-bg-light">
+                                <FeatureFlagReleaseConditionsReadonly
+                                    id={String(featureFlag.id)}
+                                    filters={featureFlag.filters}
+                                    isDisabled={!featureFlag.active}
+                                />
+                            </div>
+                        </>
                     )}
                 </div>
             </div>

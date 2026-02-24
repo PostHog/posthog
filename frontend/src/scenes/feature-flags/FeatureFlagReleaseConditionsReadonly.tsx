@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonButton, LemonLabel, LemonSnack, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonLabel, LemonSnack, LemonTag } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
@@ -172,6 +172,114 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
                     All <b>{aggregationTargetName}</b> in this set will be in variant <b>{group.variant}</b>
                 </div>
             )}
+        </div>
+    )
+}
+
+interface FeatureFlagSuperConditionsReadonlyProps {
+    id: string
+    flagKey: string
+    filters: FeatureFlagFilters
+    // TODO: The actual type from featureFlag.features differs from EarlyAccessFeatureType
+    earlyAccessFeatures?: any[]
+    isDisabled?: boolean
+}
+
+export function FeatureFlagSuperConditionsReadonly({
+    id,
+    flagKey,
+    filters,
+    earlyAccessFeatures,
+    isDisabled,
+}: FeatureFlagSuperConditionsReadonlyProps): JSX.Element | null {
+    const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
+        id,
+        readOnly: true,
+        isSuper: true,
+        filters,
+    })
+
+    const { filterGroups, aggregationTargetName } = useValues(releaseConditionsLogic)
+    const matchingEarlyAccessFeature = earlyAccessFeatures?.find((f: any) => f.flagKey === flagKey)
+
+    if (filterGroups.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+                <LemonLabel>Super release conditions</LemonLabel>
+                {isDisabled && (
+                    <LemonTag type="muted" size="small">
+                        Flag disabled – returns false regardless of conditions
+                    </LemonTag>
+                )}
+            </div>
+
+            <div className={isDisabled ? 'opacity-60' : ''}>
+                {filterGroups.map((group, index) => (
+                    <div key={group.sort_key ?? index}>
+                        {index > 0 && (
+                            <div className="condition-set-separator my-2 py-0 text-center text-xs font-semibold text-muted">
+                                OR
+                            </div>
+                        )}
+                        <div className="border rounded p-4 bg-surface-primary">
+                            <div className="text-sm">
+                                {group.properties?.length ? (
+                                    <>
+                                        Match <b>{aggregationTargetName}</b> against value set on{' '}
+                                        <LemonSnack>{'$feature_enrollment/' + flagKey}</LemonSnack>
+                                    </>
+                                ) : (
+                                    <>
+                                        Condition set will match <b>all {aggregationTargetName}</b>
+                                    </>
+                                )}
+                            </div>
+
+                            {(group.properties?.length || 0) > 0 && (
+                                <>
+                                    <LemonDivider className="my-3" />
+                                    <div className="flex items-center gap-1.5 text-sm">
+                                        <LemonButton
+                                            icon={<IconSubArrowRight className="arrow-right" />}
+                                            size="small"
+                                            noPadding
+                                        />
+                                        <span>
+                                            If null, default to <b>Release conditions</b>
+                                        </span>
+                                    </div>
+                                </>
+                            )}
+
+                            <LemonDivider className="my-3" />
+
+                            <div className="flex justify-end">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={
+                                        matchingEarlyAccessFeature
+                                            ? urls.earlyAccessFeature(matchingEarlyAccessFeature.id)
+                                            : undefined
+                                    }
+                                    disabledReason={
+                                        !matchingEarlyAccessFeature
+                                            ? 'The matching early access feature was not found'
+                                            : undefined
+                                    }
+                                    sideIcon={matchingEarlyAccessFeature ? <IconOpenInNew /> : undefined}
+                                >
+                                    View Early Access Feature
+                                </LemonButton>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
         </div>
     )
 }
