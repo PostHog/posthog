@@ -49,7 +49,7 @@ export function DashboardItems(): JSX.Element {
         dataColorThemeId,
     } = useValues(dashboardLogic)
     const {
-        updateLayouts,
+        updateLayout,
         updateTileColor,
         removeTile,
         duplicateTile,
@@ -116,11 +116,10 @@ export function DashboardItems(): JSX.Element {
                     }}
                     layout={layouts[dashboardLayoutSize]}
                     className={className}
-                    onLayoutChange={(...rest) => {
-                        console.debug('newLayout', rest)
-                        // if (dashboardMode === DashboardMode.Edit) {
-                        //     updateLayouts(newLayouts)
-                        // }
+                    onLayoutChange={(layout) => {
+                        if (dashboardMode === DashboardMode.Edit) {
+                            updateLayout(layout)
+                        }
                     }}
                     onDragStart={() => {
                         scrollContainerRef.current = document.getElementById('main-content')

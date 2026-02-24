@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
-import { ResponsiveLayouts } from 'react-grid-layout'
+import { Layout } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -246,7 +246,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Dashboard layout & tiles.
          */
-        updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        updateLayout: (layout: Layout) => ({ layout }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
@@ -561,15 +561,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
-                updateLayouts: (state, { layouts }) => {
-                    const itemLayouts = layoutsByTile(layouts)
-
-                    // Only persist sm layouts; xs layouts are derived on the fly
+                updateLayout: (state, { layout }) => {
                     return {
                         ...state,
                         tiles: state?.tiles?.map((tile) => ({
                             ...tile,
-                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
+                            layouts: { sm: layout.find((item) => item.i === tile.id?.toString()) },
                         })),
                     } as DashboardType<QueryBasedInsightModel>
                 },

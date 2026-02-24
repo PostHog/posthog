@@ -204,7 +204,7 @@ export const calculateLayouts = (
         const realH = h || defaultH
 
         const layoutItem: LayoutItem = {
-            i: tile.id?.toString(),
+            i: tile.id.toString(),
             x: x != null && Number.isInteger(x) && x + realW - 1 < columnCount ? x : 0,
             y: y != null && Number.isInteger(y) ? y : Infinity,
             w: realW,
