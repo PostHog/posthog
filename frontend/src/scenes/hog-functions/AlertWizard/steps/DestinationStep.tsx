@@ -6,8 +6,20 @@ import { WizardDestination, alertWizardLogic } from '../alertWizardLogic'
 import { WizardCard } from './WizardCard'
 
 export function DestinationStep(): JSX.Element {
-    const { destinations, usedDestinationKeys, existingAlertsLoading } = useValues(alertWizardLogic)
+    const { destinations, allDestinations, usedDestinationKeys, existingAlertsLoading } = useValues(alertWizardLogic)
     const { setDestinationKey } = useActions(alertWizardLogic)
+    const selectedDestinationKeys = new Set(destinations.map((destination) => destination.key))
+    const destinationsByKey = new Map(allDestinations.map((destination) => [destination.key, destination]))
+    const preferredExtraDestinationKeys = ['gitlab', 'linear', 'microsoft-teams']
+    const preferredExtraDestinations = preferredExtraDestinationKeys
+        .map((key) => destinationsByKey.get(key))
+        .filter((destination): destination is WizardDestination => !!destination)
+        .filter((destination) => !selectedDestinationKeys.has(destination.key))
+    const remainingExtraDestinations = allDestinations.filter(
+        (destination) =>
+            !selectedDestinationKeys.has(destination.key) && !preferredExtraDestinationKeys.includes(destination.key)
+    )
+    const moreDestinations = [...preferredExtraDestinations, ...remainingExtraDestinations]
 
     if (existingAlertsLoading) {
         return (
@@ -64,6 +76,28 @@ export function DestinationStep(): JSX.Element {
                     />
                 ))}
             </div>
+            {moreDestinations.length > 0 && (
+                <details>
+                    <summary className="cursor-pointer text-sm text-secondary hover:text-primary select-none">
+                        More destinations
+                    </summary>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+                        {moreDestinations.map((destination) => (
+                            <button
+                                key={destination.key}
+                                type="button"
+                                onClick={() => setDestinationKey(destination.key)}
+                                className="group flex cursor-pointer items-center gap-2 rounded-md border border-border bg-bg-light px-3 py-2 text-left transition-all duration-150 hover:border-border-bold hover:shadow-sm active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                            >
+                                <HogFunctionIcon src={destination.icon} size="small" />
+                                <span className="text-sm font-medium truncate transition-colors group-hover:text-link">
+                                    {destination.name}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                </details>
+            )}
         </div>
     )
 }

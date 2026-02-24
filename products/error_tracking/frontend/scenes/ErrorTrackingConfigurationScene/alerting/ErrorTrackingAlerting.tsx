@@ -57,8 +57,15 @@ const ERROR_TRACKING_DESTINATIONS: WizardDestination[] = [
         templateId: 'template-github',
     },
     {
+        key: 'gitlab',
+        name: 'GitLab',
+        description: 'Create an issue in a project',
+        icon: '/static/services/gitlab.png',
+        templateId: 'template-gitlab',
+    },
+    {
         key: 'microsoft-teams',
-        name: 'Microsoft Teams',
+        name: 'Teams',
         description: 'Send a message to a channel',
         icon: '/static/services/microsoft-teams.png',
         templateId: 'template-microsoft-teams',
