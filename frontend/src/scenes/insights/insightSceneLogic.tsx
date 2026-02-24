@@ -466,10 +466,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const alertChanged = (alert_id ?? null) !== values.alertId
             const isExistingInsight = shortId !== 'new'
 
-            const normalizedItemId = normalizeItemId(itemId)
             const itemIdChanged =
                 (currentScene?.activeSceneLogic as BuiltLogic<insightSceneLogicType>)?.values.itemId !==
-                normalizedItemId
+                normalizeItemId(itemId)
 
             if (
                 isExistingInsight &&
