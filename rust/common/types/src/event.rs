@@ -4,6 +4,7 @@ use std::ops::Not;
 use crate::util::{empty_datetime_is_none, empty_string_uuid_is_none};
 use chrono::{DateTime, Utc};
 use rdkafka::message::{Header, Headers, OwnedHeaders};
+use metrics::counter;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -443,6 +444,16 @@ impl RawEvent {
         // Replace null characters with Unicode replacement character
         let distinct_id = distinct_id.replace('\0', "\u{FFFD}");
 
+        let trimmed = distinct_id.trim();
+
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        if trimmed.len() != distinct_id.len() {
+            counter!("capture_distinct_id_has_whitespace_total").increment(1);
+        }
+
         match distinct_id.len() {
             0 => None,
             1..=200 => Some(distinct_id),
@@ -487,6 +498,42 @@ impl CapturedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_distinct_id_whitespace_only_returns_none() {
+        for input in [" ", "\t\n", "   ", "\r\n\t "] {
+            let event = RawEvent {
+                distinct_id: Some(Value::String(input.to_string())),
+                ..Default::default()
+            };
+            assert_eq!(
+                event.extract_distinct_id(),
+                None,
+                "expected None for whitespace-only distinct_id: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_distinct_id_with_surrounding_whitespace_preserved() {
+        let event = RawEvent {
+            distinct_id: Some(Value::String("  hello  ".to_string())),
+            ..Default::default()
+        };
+        assert_eq!(
+            event.extract_distinct_id(),
+            Some("  hello  ".to_string()),
+        );
+    }
+
+    #[test]
+    fn test_extract_distinct_id_normal_value() {
+        let event = RawEvent {
+            distinct_id: Some(Value::String("hello".to_string())),
+            ..Default::default()
+        };
+        assert_eq!(event.extract_distinct_id(), Some("hello".to_string()));
+    }
 
     #[test]
     fn test_captured_event_serialization_with_historical_migration_true() {
