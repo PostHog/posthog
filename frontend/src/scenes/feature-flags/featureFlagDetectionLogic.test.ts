@@ -111,7 +111,7 @@ describe('featureFlagDetectionLogic', () => {
         flagLogic.unmount()
     })
 
-    it('detects is_not_set operator', async () => {
+    it('detects is_not_set operator as grouped local-eval finding', async () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/3/`]: () => [200, MOCK_FLAG_WITH_IS_NOT_SET],
@@ -127,7 +127,7 @@ describe('featureFlagDetectionLogic', () => {
         logic.mount()
 
         const findingIds = logic.values.findings.map((f: { id: string }) => f.id)
-        expect(findingIds).toContain('is-not-set-operator')
+        expect(findingIds).toContain('local-eval-warnings')
 
         logic.unmount()
         flagLogic.unmount()
@@ -207,7 +207,7 @@ describe('featureFlagDetectionLogic', () => {
         await expectLogic(cohortsModel).toFinishAllListeners()
 
         const findingIds = logic.values.findings.map((f: { id: string }) => f.id)
-        expect(findingIds).toContain('static-cohort')
+        expect(findingIds).toContain('local-eval-warnings')
 
         logic.unmount()
         flagLogic.unmount()

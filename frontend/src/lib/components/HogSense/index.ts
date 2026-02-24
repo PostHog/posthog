@@ -9,6 +9,7 @@ export type {
     DetectionEntry,
     DetectionResult,
     Finding,
+    GroupKnowledgeEntry,
     GuidanceDoc,
     HogSenseDisplay,
     HogSenseRenderEntry,

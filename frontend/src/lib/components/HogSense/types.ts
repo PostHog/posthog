@@ -28,6 +28,15 @@ export interface KnowledgeEntry {
     docs?: GuidanceDoc[]
 }
 
+/** Group knowledge: combines multiple triggered detections into a single finding. */
+export interface GroupKnowledgeEntry {
+    id: string
+    ids: readonly string[]
+    summary: string | ((labels: string[]) => string)
+    description: string | ((labels: string[]) => string)
+    docs?: GuidanceDoc[]
+}
+
 /** Resolved finding: detection result enriched with knowledge. Ready for rendering. */
 export interface Finding {
     id: string

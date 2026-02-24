@@ -5,7 +5,7 @@ import type { Finding } from '~/lib/components/HogSense'
 import { cohortsModel } from '~/models/cohortsModel'
 import { CohortType, FeatureFlagType } from '~/types'
 
-import { featureFlagKnowledge } from './featureFlagDetectionConfig'
+import { featureFlagGroupKnowledge, featureFlagKnowledge } from './featureFlagDetectionConfig'
 import type { featureFlagDetectionLogicType } from './featureFlagDetectionLogicType'
 import { featureFlagDetections } from './featureFlagDetections'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -35,7 +35,7 @@ export const featureFlagDetectionLogic = kea<featureFlagDetectionLogicType>([
                     entityType: 'feature_flag',
                     entityId: featureFlag.id ?? undefined,
                 })
-                return resolveFindings(results, featureFlagKnowledge)
+                return resolveFindings(results, featureFlagKnowledge, featureFlagGroupKnowledge)
             },
         ],
     }),

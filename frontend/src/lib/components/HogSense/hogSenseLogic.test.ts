@@ -1,5 +1,5 @@
 import { evaluateDetections, resolveFindings } from './hogSenseLogic'
-import type { DetectionEntry, KnowledgeEntry } from './types'
+import type { DetectionEntry, GroupKnowledgeEntry, KnowledgeEntry } from './types'
 
 describe('evaluateDetections', () => {
     it('returns empty results when no entries match', () => {
@@ -84,5 +84,100 @@ describe('resolveFindings', () => {
 
     it('returns empty for empty results', () => {
         expect(resolveFindings([], knowledge)).toEqual([])
+    })
+})
+
+describe('resolveFindings with groups', () => {
+    const knowledge: Record<string, KnowledgeEntry> = {
+        'det-a': { summary: 'label A', description: 'desc A' },
+        'det-b': { summary: 'label B', description: 'desc B' },
+        'det-c': { summary: 'label C', description: 'desc C', docs: [{ label: 'C docs', url: 'https://c.com' }] },
+        ungrouped: { summary: 'Ungrouped', description: 'Ungrouped desc' },
+    }
+
+    const group: GroupKnowledgeEntry = {
+        id: 'my-group',
+        ids: ['det-a', 'det-b', 'det-c'],
+        summary: 'Group summary',
+        description: (labels) => `Issues: ${labels.join(', ')}`,
+        docs: [{ label: 'Group docs', url: 'https://group.com' }],
+    }
+
+    it.each([
+        {
+            name: '0 triggered members produces no finding',
+            results: [],
+            expected: [],
+        },
+        {
+            name: '1 triggered member produces one grouped finding with single label',
+            results: [{ id: 'det-a', severity: 'warning' as const }],
+            expected: [
+                {
+                    id: 'my-group',
+                    summary: 'Group summary',
+                    description: 'Issues: label A',
+                    severity: 'warning',
+                    docs: [{ label: 'Group docs', url: 'https://group.com' }],
+                },
+            ],
+        },
+        {
+            name: 'multiple triggered members produces one finding with combined labels',
+            results: [
+                { id: 'det-a', severity: 'info' as const },
+                { id: 'det-b', severity: 'warning' as const },
+            ],
+            expected: [
+                {
+                    id: 'my-group',
+                    summary: 'Group summary',
+                    description: 'Issues: label A, label B',
+                    severity: 'warning',
+                    docs: [{ label: 'Group docs', url: 'https://group.com' }],
+                },
+            ],
+        },
+        {
+            name: 'severity takes the highest among grouped members',
+            results: [
+                { id: 'det-a', severity: 'info' as const },
+                { id: 'det-c', severity: 'error' as const },
+            ],
+            expected: [expect.objectContaining({ id: 'my-group', severity: 'error' })],
+        },
+        {
+            name: 'mixed grouped and ungrouped results both appear',
+            results: [
+                { id: 'det-a', severity: 'warning' as const },
+                { id: 'ungrouped', severity: 'info' as const },
+            ],
+            expected: [
+                expect.objectContaining({ id: 'my-group' }),
+                expect.objectContaining({ id: 'ungrouped', summary: 'Ungrouped' }),
+            ],
+        },
+    ])('$name', ({ results, expected }) => {
+        expect(resolveFindings(results, knowledge, [group])).toEqual(expected)
+    })
+
+    it('static string summary and description work without function calls', () => {
+        const staticGroup: GroupKnowledgeEntry = {
+            id: 'static-group',
+            ids: ['det-a'],
+            summary: 'Static summary',
+            description: 'Static description',
+        }
+        const results = [{ id: 'det-a', severity: 'info' as const }]
+        const findings = resolveFindings(results, knowledge, [staticGroup])
+        expect(findings).toEqual([
+            {
+                id: 'static-group',
+                summary: 'Static summary',
+                description: 'Static description',
+                severity: 'info',
+                docs: undefined,
+            },
+        ])
     })
 })

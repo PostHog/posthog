@@ -1,4 +1,4 @@
-import type { HogSenseRenderMap, KnowledgeEntry } from '~/lib/components/HogSense'
+import type { GroupKnowledgeEntry, HogSenseRenderMap, KnowledgeEntry } from '~/lib/components/HogSense'
 
 export const FF_DETECTION = {
     NON_INSTANT_PROPERTIES: 'non-instant-properties',
@@ -20,21 +20,25 @@ export const FF_DETECTION_GROUPS = {
     ],
 } as const
 
+export const FF_GROUP = {
+    LOCAL_EVAL_WARNINGS: 'local-eval-warnings',
+} as const
+
 export const v1FormRenderMap: HogSenseRenderMap = {
     'above-filters': [
         { ids: FF_DETECTION_GROUPS.PROPERTY_HINTS, display: 'banner', className: 'mt-3 mb-3' },
-        { ids: FF_DETECTION_GROUPS.LOCAL_EVAL_WARNINGS, display: 'banner', className: 'mt-3 mb-3' },
+        { ids: [FF_GROUP.LOCAL_EVAL_WARNINGS], display: 'banner', className: 'mt-3 mb-3' },
     ],
 }
 
 export const v1ReadOnlyRenderMap: HogSenseRenderMap = {
-    'top-warnings': [{ ids: FF_DETECTION_GROUPS.LOCAL_EVAL_WARNINGS, display: 'banner' }],
+    'top-warnings': [{ ids: [FF_GROUP.LOCAL_EVAL_WARNINGS], display: 'banner' }],
 }
 
 export const v2FormRenderMap: HogSenseRenderMap = {
     'above-filters': [
         { ids: FF_DETECTION_GROUPS.PROPERTY_HINTS, display: 'hint' },
-        { ids: FF_DETECTION_GROUPS.LOCAL_EVAL_WARNINGS, display: 'hint' },
+        { ids: [FF_GROUP.LOCAL_EVAL_WARNINGS], display: 'hint' },
     ],
 }
 
@@ -66,34 +70,23 @@ export const featureFlagKnowledge: Record<string, KnowledgeEntry> = {
             },
         ],
     },
-    [FF_DETECTION.IS_NOT_SET_OPERATOR]: {
-        summary: 'is_not_set operator',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: is_not_set operator. The flag will still evaluate correctly when not using local evaluation.',
-        docs: LOCAL_EVAL_DOCS,
-    },
-    [FF_DETECTION.STATIC_COHORT]: {
-        summary: 'Static cohorts',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: static cohorts. The flag will still evaluate correctly when not using local evaluation.',
-        docs: LOCAL_EVAL_DOCS,
-    },
-    [FF_DETECTION.REGEX_LOOKAHEAD]: {
-        summary: 'Lookahead in regex',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: lookahead in regex. The flag will still evaluate correctly when not using local evaluation.',
-        docs: LOCAL_EVAL_DOCS,
-    },
-    [FF_DETECTION.REGEX_LOOKBEHIND]: {
-        summary: 'Lookbehind in regex',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: lookbehind in regex. The flag will still evaluate correctly when not using local evaluation.',
-        docs: LOCAL_EVAL_DOCS,
-    },
+    [FF_DETECTION.IS_NOT_SET_OPERATOR]: { summary: 'is_not_set operator', description: 'is_not_set operator' },
+    [FF_DETECTION.STATIC_COHORT]: { summary: 'static cohorts', description: 'static cohorts' },
+    [FF_DETECTION.REGEX_LOOKAHEAD]: { summary: 'lookahead in regex', description: 'lookahead in regex' },
+    [FF_DETECTION.REGEX_LOOKBEHIND]: { summary: 'lookbehind in regex', description: 'lookbehind in regex' },
     [FF_DETECTION.REGEX_BACKREFERENCES]: {
-        summary: 'Backreferences in regex',
-        description:
-            'This flag cannot be locally evaluated by server-side SDKs due to unsupported features: backreferences in regex. The flag will still evaluate correctly when not using local evaluation.',
-        docs: LOCAL_EVAL_DOCS,
+        summary: 'backreferences in regex',
+        description: 'backreferences in regex',
     },
 }
+
+export const featureFlagGroupKnowledge: GroupKnowledgeEntry[] = [
+    {
+        id: FF_GROUP.LOCAL_EVAL_WARNINGS,
+        ids: FF_DETECTION_GROUPS.LOCAL_EVAL_WARNINGS,
+        summary: 'Local evaluation not supported',
+        description: (labels) =>
+            `This flag cannot be locally evaluated by server-side SDKs due to unsupported features: ${labels.join(', ')}. The flag will still evaluate correctly when not using local evaluation.`,
+        docs: LOCAL_EVAL_DOCS,
+    },
+]
