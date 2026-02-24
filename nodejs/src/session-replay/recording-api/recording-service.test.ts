@@ -325,6 +325,63 @@ describe('RecordingService', () => {
             ])
         })
 
+        it('inserts activity log entries for newly deleted sessions', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                deleted: true,
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
+            })
+
+            await service.deleteRecordings(['session-1', 'session-2'], 1, 'test@example.com')
+
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_activitylog'),
+                [1, ['session-1', 'session-2'], expect.stringContaining('recording_shredded')],
+                'logRecordingDeletion'
+            )
+        })
+
+        it('does not insert activity log when all sessions were already deleted', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                deleted: false,
+                reason: 'already_deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'original@example.com',
+            })
+
+            await service.deleteRecordings(['session-1'], 1, 'test@example.com')
+
+            expect(mockPostgres.query).not.toHaveBeenCalled()
+        })
+
+        it('returns cleanup_failed when logActivity fails', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                deleted: true,
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
+            })
+            let callCount = 0
+            mockPostgres.query.mockImplementation((() => {
+                if (++callCount === 4) {
+                    return Promise.reject(new Error('Activity log insert failed'))
+                }
+                return Promise.resolve({ rows: [] })
+            }) as any)
+
+            const result = await service.deleteRecordings(['session-1'], 1, 'test@example.com')
+
+            expect(result).toEqual([
+                {
+                    sessionId: 'session-1',
+                    ok: false,
+                    error: 'cleanup_failed',
+                    deletedAt: 1700000000,
+                    deletedBy: 'test@example.com',
+                },
+            ])
+        })
+
         it('skips postgres when all shreds fail', async () => {
             mockKeyStore.deleteKey.mockRejectedValue(new Error('DynamoDB error'))
 

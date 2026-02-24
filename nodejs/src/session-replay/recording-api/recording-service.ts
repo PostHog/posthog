@@ -163,6 +163,7 @@ export class RecordingService {
             try {
                 await this.logActivity(newlyDeletedIds, teamId, deletedBy)
             } catch (error) {
+                cleanupOk = false
                 logger.error('[RecordingService] Failed to log activity', { teamId, error: serializeError(error) })
             }
         }
