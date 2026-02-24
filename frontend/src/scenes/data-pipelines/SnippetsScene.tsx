@@ -15,8 +15,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { snippetsSceneLogic } from './snippetsSceneLogic'
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
+import { snippetsSceneLogic } from './snippetsSceneLogic'
 
 export const scene: SceneExport = {
     component: SnippetsScene,
