@@ -4,7 +4,6 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { ParsedMessageData } from '../../session-recording/kafka/types'
 import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
 import { TeamForReplay } from '../../session-recording/teams/types'
-import { TopTracker } from '../../session-recording/top-tracker'
 import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { ValueMatcher } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
@@ -12,11 +11,12 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
+import { TopHogRegistry, createTopHogWrapper, sum, timer, timerResult } from '../pipelines/extensions/tophog'
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
-import { createParseMessageStep } from './parse-message-step'
-import { createRecordSessionStep } from './record-session-step'
+import { ParseMessageStepOutput, createParseMessageStep } from './parse-message-step'
+import { RecordSessionStepInput, createRecordSessionStep } from './record-session-step'
 import { createTeamFilterStep } from './team-filter-step'
 
 export interface SessionReplayPipelineInput {
@@ -36,7 +36,8 @@ export interface SessionReplayPipelineConfig {
     dlqTopic: string
     promiseScheduler: PromiseScheduler
     teamService: TeamService
-    topTracker: TopTracker
+    /** TopHog registry for tracking metrics. */
+    topHog: TopHogRegistry
     /** Producer for ingestion warnings. */
     ingestionWarningProducer: KafkaProducerWrapper
     /** Session batch manager for recording sessions. */
@@ -66,7 +67,7 @@ export function createSessionReplayPipeline(
         dlqTopic,
         promiseScheduler,
         teamService,
-        topTracker,
+        topHog,
         ingestionWarningProducer,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -77,6 +78,8 @@ export function createSessionReplayPipeline(
         dlqTopic,
         promiseScheduler,
     }
+
+    const topHogWrapper = createTopHogWrapper(topHog)
 
     const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, { message: Message }>()
         .messageAware((b) =>
@@ -111,16 +114,44 @@ export function createSessionReplayPipeline(
                                     .sequentially((b) =>
                                         b
                                             // Parse message content
-                                            .pipe(createParseMessageStep({ topTracker }))
+                                            .pipe(
+                                                topHogWrapper(createParseMessageStep(), [
+                                                    timerResult(
+                                                        'parse_time_ms_by_session_id',
+                                                        (output: ParseMessageStepOutput) => ({
+                                                            token: output.parsedMessage.token ?? 'unknown',
+                                                            session_id: output.parsedMessage.session_id,
+                                                        })
+                                                    ),
+                                                ])
+                                            )
                                             // Monitor library version and emit warnings for old versions
                                             .pipe(createLibVersionMonitorStep())
                                             // Record to session batch
                                             .pipe(
-                                                createRecordSessionStep({
-                                                    sessionBatchManager,
-                                                    topTracker,
-                                                    isDebugLoggingEnabled,
-                                                })
+                                                topHogWrapper(
+                                                    createRecordSessionStep({
+                                                        sessionBatchManager,
+                                                        isDebugLoggingEnabled,
+                                                    }),
+                                                    [
+                                                        sum<RecordSessionStepInput, RecordSessionStepInput>(
+                                                            'message_size_by_session_id',
+                                                            (input) => ({
+                                                                token: input.parsedMessage.token ?? 'unknown',
+                                                                session_id: input.parsedMessage.session_id,
+                                                            }),
+                                                            (input) => input.parsedMessage.metadata.rawSize
+                                                        ),
+                                                        timer<RecordSessionStepInput, RecordSessionStepInput>(
+                                                            'consume_time_ms_by_session_id',
+                                                            (input) => ({
+                                                                token: input.parsedMessage.token ?? 'unknown',
+                                                                session_id: input.parsedMessage.session_id,
+                                                            })
+                                                        ),
+                                                    ]
+                                                )
                                             )
                                     )
                                     .gather()

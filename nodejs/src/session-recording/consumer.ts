@@ -4,6 +4,7 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
+import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,
@@ -11,6 +12,7 @@ import {
     createSessionReplayPipeline,
     runSessionReplayPipeline,
 } from '../ingestion/session_replay'
+import { TopHog } from '../ingestion/tophog/tophog'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { getBlockDecryptor, getBlockEncryptor } from '../session-replay/shared/crypto'
@@ -44,7 +46,6 @@ import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
-import { TopTracker } from './top-tracker'
 
 /** Narrowed Hub type for SessionRecordingIngester */
 export type SessionRecordingIngesterHub = SessionRecordingConfig &
@@ -65,6 +66,9 @@ export type SessionRecordingIngesterHub = SessionRecordingConfig &
         // For encryption key management
         | 'SESSION_RECORDING_KMS_ENDPOINT'
         | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
+        // For TopHog metrics
+        | 'INGESTION_PIPELINE'
+        | 'INGESTION_LANE'
     >
 
 export class SessionRecordingIngester {
@@ -90,8 +94,7 @@ export class SessionRecordingIngester {
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
     private readonly kafkaMessageProducer: KafkaProducerWrapper
     private readonly overflowTopic: string
-    private readonly topTracker: TopTracker
-    private topTrackerLogInterval?: NodeJS.Timeout
+    private readonly topHog: TopHog
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
 
@@ -143,7 +146,12 @@ export class SessionRecordingIngester {
             s3Client = new S3Client(s3Config)
         }
 
-        this.topTracker = new TopTracker()
+        this.topHog = new TopHog({
+            kafkaProducer: kafkaMetadataProducer,
+            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            pipeline: hub.INGESTION_PIPELINE ?? 'unknown',
+            lane: hub.INGESTION_LANE ?? 'unknown',
+        })
 
         // Session recording uses its own Redis instance with fallback to default
         this.redisPool = createRedisPoolFromConfig({
@@ -251,7 +259,7 @@ export class SessionRecordingIngester {
             dlqTopic: this.hub.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
             promiseScheduler: this.promiseScheduler,
             teamService: this.teamService,
-            topTracker: this.topTracker,
+            topHog: this.topHog,
             ingestionWarningProducer: this.kafkaMetadataProducer,
             sessionBatchManager: this.sessionBatchManager,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
@@ -356,21 +364,16 @@ export class SessionRecordingIngester {
             logger.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })
         })
 
-        // Start periodic logging of top tracked metrics (every 60 seconds)
-        this.topTrackerLogInterval = setInterval(() => {
-            this.topTracker.logAndReset(10)
-        }, 60000)
+        // Start periodic flushing of TopHog metrics
+        this.topHog.start()
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
         logger.info('🔁', 'blob_ingester_consumer_v2 - stopping')
         this.isStopping = true
 
-        // Stop the top tracker interval and log final results
-        if (this.topTrackerLogInterval) {
-            clearInterval(this.topTrackerLogInterval)
-            this.topTracker.logAndReset(10)
-        }
+        // Stop TopHog and flush final metrics
+        await this.topHog.stop()
 
         const assignedPartitions = this.assignedTopicPartitions
         await this.kafkaConsumer.disconnect()

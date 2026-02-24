@@ -95,6 +95,14 @@ export function timer<TInput, TOutput>(
     return (registry) => new TimingMetric(registry.registerSum(name, opts), key)
 }
 
+export function timerResult<TInput, TOutput>(
+    name: string,
+    key: (output: TOutput, input: TInput) => Record<string, string>,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new OutputTimingMetric(registry.registerSum(name, opts), key)
+}
+
 export type TopHogWrapper = <TInput, TOutput>(
     step: ProcessingStep<TInput, TOutput>,
     factories: TopHogMetricFactory<TInput, TOutput>[]
@@ -158,6 +166,22 @@ class TimingMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
         const startTime = performance.now()
         return () => {
             this.tracker.record(k, performance.now() - startTime)
+        }
+    }
+}
+
+class OutputTimingMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
+    constructor(
+        private readonly tracker: Recorder,
+        private readonly key: (output: TOutput, input: TInput) => Record<string, string>
+    ) {}
+
+    start(input: TInput): (result: PipelineResult<TOutput>) => void {
+        const startTime = performance.now()
+        return (result) => {
+            if (isOkResult(result)) {
+                this.tracker.record(this.key(result.value, input), performance.now() - startTime)
+            }
         }
     }
 }

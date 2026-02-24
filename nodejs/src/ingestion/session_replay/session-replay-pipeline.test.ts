@@ -5,12 +5,12 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '../../session-recording/sessions/session-batch-recorder'
 import { TeamForReplay } from '../../session-recording/teams/types'
-import { TopTracker } from '../../session-recording/top-tracker'
 import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { parseJSON } from '../../utils/json-parse'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
+import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { drop, ok, redirect } from '../pipelines/results'
 import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'
 
@@ -45,6 +45,43 @@ function createMockKafkaProducer(): jest.Mocked<KafkaProducerWrapper> {
     } as unknown as jest.Mocked<KafkaProducerWrapper>
 }
 
+interface MockRecorder {
+    record: jest.Mock
+}
+
+interface MockTopHogRegistry extends TopHogRegistry {
+    sumRecorders: Map<string, MockRecorder>
+    maxRecorders: Map<string, MockRecorder>
+    averageRecorders: Map<string, MockRecorder>
+}
+
+function createMockTopHog(): MockTopHogRegistry {
+    const sumRecorders = new Map<string, MockRecorder>()
+    const maxRecorders = new Map<string, MockRecorder>()
+    const averageRecorders = new Map<string, MockRecorder>()
+
+    return {
+        sumRecorders,
+        maxRecorders,
+        averageRecorders,
+        registerSum: jest.fn().mockImplementation((name: string) => {
+            const recorder = { record: jest.fn() }
+            sumRecorders.set(name, recorder)
+            return recorder
+        }),
+        registerMax: jest.fn().mockImplementation((name: string) => {
+            const recorder = { record: jest.fn() }
+            maxRecorders.set(name, recorder)
+            return recorder
+        }),
+        registerAverage: jest.fn().mockImplementation((name: string) => {
+            const recorder = { record: jest.fn() }
+            averageRecorders.set(name, recorder)
+            return recorder
+        }),
+    }
+}
+
 describe('session-replay-pipeline', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
     let mockIngestionWarningProducer: jest.Mocked<KafkaProducerWrapper>
@@ -52,7 +89,7 @@ describe('session-replay-pipeline', () => {
     let mockTeamService: TeamService
     let mockSessionBatchManager: jest.Mocked<SessionBatchManager>
     let promiseScheduler: PromiseScheduler
-    let topTracker: TopTracker
+    let topHog: MockTopHogRegistry
 
     // Debug logging disabled by default in tests
     const isDebugLoggingEnabled = () => false
@@ -119,7 +156,7 @@ describe('session-replay-pipeline', () => {
         } as unknown as TeamService
 
         mockSessionBatchManager = createMockSessionBatchManager()
-        topTracker = new TopTracker()
+        topHog = createMockTopHog()
 
         promiseScheduler = new PromiseScheduler()
 
@@ -207,7 +244,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -242,7 +279,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -270,7 +307,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -306,7 +343,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -358,7 +395,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -396,7 +433,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -426,7 +463,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -473,7 +510,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -502,7 +539,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -543,7 +580,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: teamServiceThatDropsSecond,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -571,7 +608,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -595,7 +632,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -629,7 +666,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -652,7 +689,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -675,7 +712,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -707,7 +744,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -739,7 +776,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -769,7 +806,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -797,7 +834,7 @@ describe('session-replay-pipeline', () => {
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: teamServiceThatReturnsNull,
-                topTracker,
+                topHog,
                 ingestionWarningProducer: mockIngestionWarningProducer,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -810,6 +847,226 @@ describe('session-replay-pipeline', () => {
             expect(result).toHaveLength(0)
             const mockBatch = mockSessionBatchManager.getCurrentBatch()
             expect(mockBatch.record).not.toHaveBeenCalled()
+        })
+
+        it('records parse time metric via TopHog', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                topHog,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1', { token: 'test-token' })]
+
+            await runSessionReplayPipeline(pipeline, messages)
+
+            // Verify parse time metric was registered and recorded
+            const parseTimeRecorder = topHog.sumRecorders.get('parse_time_ms_by_session_id')
+            expect(parseTimeRecorder).toBeDefined()
+            expect(parseTimeRecorder!.record).toHaveBeenCalledTimes(1)
+            expect(parseTimeRecorder!.record).toHaveBeenCalledWith(
+                { token: 'test-token', session_id: 'session-1' },
+                expect.any(Number)
+            )
+        })
+
+        it('records message size metric via TopHog', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                topHog,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1', { token: 'test-token' })]
+
+            await runSessionReplayPipeline(pipeline, messages)
+
+            // Verify message size metric was registered and recorded
+            const messageSizeRecorder = topHog.sumRecorders.get('message_size_by_session_id')
+            expect(messageSizeRecorder).toBeDefined()
+            expect(messageSizeRecorder!.record).toHaveBeenCalledTimes(1)
+            expect(messageSizeRecorder!.record).toHaveBeenCalledWith(
+                { token: 'test-token', session_id: 'session-1' },
+                expect.any(Number) // message size
+            )
+        })
+
+        it('records consume time metric via TopHog', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                topHog,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1', { token: 'test-token' })]
+
+            await runSessionReplayPipeline(pipeline, messages)
+
+            // Verify consume time metric was registered and recorded
+            const consumeTimeRecorder = topHog.sumRecorders.get('consume_time_ms_by_session_id')
+            expect(consumeTimeRecorder).toBeDefined()
+            expect(consumeTimeRecorder!.record).toHaveBeenCalledTimes(1)
+            expect(consumeTimeRecorder!.record).toHaveBeenCalledWith(
+                { token: 'test-token', session_id: 'session-1' },
+                expect.any(Number) // timing in ms
+            )
+        })
+
+        it('records TopHog metrics for multiple messages', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                topHog,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [
+                createMessage(0, 1, 'session-1', { token: 'token-1' }),
+                createMessage(0, 2, 'session-2', { token: 'token-2' }),
+                createMessage(0, 3, 'session-3', { token: 'token-1' }),
+            ]
+
+            await runSessionReplayPipeline(pipeline, messages)
+
+            // Verify all three messages were recorded for each metric
+            const parseTimeRecorder = topHog.sumRecorders.get('parse_time_ms_by_session_id')
+            expect(parseTimeRecorder!.record).toHaveBeenCalledTimes(3)
+
+            const messageSizeRecorder = topHog.sumRecorders.get('message_size_by_session_id')
+            expect(messageSizeRecorder!.record).toHaveBeenCalledTimes(3)
+
+            const consumeTimeRecorder = topHog.sumRecorders.get('consume_time_ms_by_session_id')
+            expect(consumeTimeRecorder!.record).toHaveBeenCalledTimes(3)
+
+            // Verify different session_ids and tokens are recorded
+            expect(parseTimeRecorder!.record).toHaveBeenCalledWith(
+                { token: 'token-1', session_id: 'session-1' },
+                expect.any(Number)
+            )
+            expect(parseTimeRecorder!.record).toHaveBeenCalledWith(
+                { token: 'token-2', session_id: 'session-2' },
+                expect.any(Number)
+            )
+            expect(parseTimeRecorder!.record).toHaveBeenCalledWith(
+                { token: 'token-1', session_id: 'session-3' },
+                expect.any(Number)
+            )
+        })
+
+        it('does not record TopHog metrics for dropped messages', async () => {
+            mockCreateApplyEventRestrictionsStep.mockReturnValue(() => Promise.resolve(drop('dropped')))
+
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                topHog,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1')]
+
+            await runSessionReplayPipeline(pipeline, messages)
+
+            // Metrics should not be recorded for dropped messages since they never reach the steps
+            const parseTimeRecorder = topHog.sumRecorders.get('parse_time_ms_by_session_id')
+            const messageSizeRecorder = topHog.sumRecorders.get('message_size_by_session_id')
+            const consumeTimeRecorder = topHog.sumRecorders.get('consume_time_ms_by_session_id')
+
+            // Recorders might not even be created if no messages reach the step
+            if (parseTimeRecorder) {
+                expect(parseTimeRecorder.record).not.toHaveBeenCalled()
+            }
+            if (messageSizeRecorder) {
+                expect(messageSizeRecorder.record).not.toHaveBeenCalled()
+            }
+            if (consumeTimeRecorder) {
+                expect(consumeTimeRecorder.record).not.toHaveBeenCalled()
+            }
+        })
+
+        it('uses "unknown" token in TopHog metrics when token header is missing', async () => {
+            // Override parse headers to not include token in parsed headers, but still have it in message headers
+            mockCreateParseHeadersStep.mockReturnValue(
+                (input: { message: Message; headers?: Record<string, string> }) => {
+                    // Return empty headers (no token)
+                    return Promise.resolve(ok({ ...input, headers: { token: 'test-token' } }))
+                }
+            )
+
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+                topHog,
+                ingestionWarningProducer: mockIngestionWarningProducer,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            // Create message without token in Kafka headers (the token parsed from headers is used for team lookup,
+            // but the token in the parsed message comes from Kafka headers)
+            const messageWithoutToken: Message = {
+                partition: 0,
+                offset: 1,
+                topic: 'test-topic',
+                value: Buffer.from(createValidSnapshotPayload('session-1')),
+                key: Buffer.from('test-key'),
+                timestamp: Date.now(),
+                headers: [{ token: Buffer.from('test-token') }], // Token for team lookup
+                size: 100,
+            }
+
+            await runSessionReplayPipeline(pipeline, [messageWithoutToken])
+
+            // The parsed message should have token from Kafka headers
+            const messageSizeRecorder = topHog.sumRecorders.get('message_size_by_session_id')
+            expect(messageSizeRecorder).toBeDefined()
+            expect(messageSizeRecorder!.record).toHaveBeenCalledWith(
+                { token: 'test-token', session_id: 'session-1' },
+                expect.any(Number)
+            )
         })
     })
 })

@@ -5,7 +5,6 @@ import { SessionRecordingIngesterMetrics } from '../../session-recording/metrics
 import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '../../session-recording/sessions/session-batch-recorder'
 import { TeamForReplay } from '../../session-recording/teams/types'
-import { TopTracker } from '../../session-recording/top-tracker'
 import { PipelineResultType } from '../pipelines/results'
 import { RecordSessionStepInput, createRecordSessionStep } from './record-session-step'
 
@@ -19,7 +18,6 @@ jest.mock('../../session-recording/metrics', () => ({
 describe('createRecordSessionStep', () => {
     let mockSessionBatchManager: jest.Mocked<SessionBatchManager>
     let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
-    let topTracker: TopTracker
 
     const defaultTeam: TeamForReplay = {
         teamId: 1,
@@ -63,14 +61,11 @@ describe('createRecordSessionStep', () => {
         mockSessionBatchManager = {
             getCurrentBatch: jest.fn().mockReturnValue(mockBatchRecorder),
         } as unknown as jest.Mocked<SessionBatchManager>
-
-        topTracker = new TopTracker()
     })
 
     it('should record message to session batch', async () => {
         const step = createRecordSessionStep({
             sessionBatchManager: mockSessionBatchManager,
-            topTracker,
             isDebugLoggingEnabled: () => false,
         })
 
@@ -88,7 +83,6 @@ describe('createRecordSessionStep', () => {
     it('should return ok result with input preserved', async () => {
         const step = createRecordSessionStep({
             sessionBatchManager: mockSessionBatchManager,
-            topTracker,
             isDebugLoggingEnabled: () => false,
         })
 
@@ -103,69 +97,9 @@ describe('createRecordSessionStep', () => {
         }
     })
 
-    it('should track message size in topTracker', async () => {
-        const incrementSpy = jest.spyOn(topTracker, 'increment')
-
-        const step = createRecordSessionStep({
-            sessionBatchManager: mockSessionBatchManager,
-            topTracker,
-            isDebugLoggingEnabled: () => false,
-        })
-
-        const input = createInput({ token: 'my-token', session_id: 'my-session' })
-        await step(input)
-
-        expect(incrementSpy).toHaveBeenCalledWith(
-            'message_size_by_session_id',
-            'token:my-token:session_id:my-session',
-            100 // rawSize from metadata
-        )
-    })
-
-    it('should track consume time in topTracker', async () => {
-        const incrementSpy = jest.spyOn(topTracker, 'increment')
-
-        const step = createRecordSessionStep({
-            sessionBatchManager: mockSessionBatchManager,
-            topTracker,
-            isDebugLoggingEnabled: () => false,
-        })
-
-        const input = createInput({ token: 'my-token', session_id: 'my-session' })
-        await step(input)
-
-        // Should have two increment calls: message_size and consume_time
-        expect(incrementSpy).toHaveBeenCalledTimes(2)
-        expect(incrementSpy).toHaveBeenCalledWith(
-            'consume_time_ms_by_session_id',
-            'token:my-token:session_id:my-session',
-            expect.any(Number)
-        )
-    })
-
-    it('should use "unknown" token when token is null', async () => {
-        const incrementSpy = jest.spyOn(topTracker, 'increment')
-
-        const step = createRecordSessionStep({
-            sessionBatchManager: mockSessionBatchManager,
-            topTracker,
-            isDebugLoggingEnabled: () => false,
-        })
-
-        const input = createInput({ token: null, session_id: 'my-session' })
-        await step(input)
-
-        expect(incrementSpy).toHaveBeenCalledWith(
-            'message_size_by_session_id',
-            'token:unknown:session_id:my-session',
-            expect.any(Number)
-        )
-    })
-
     it('should reset sessions revoked metric', async () => {
         const step = createRecordSessionStep({
             sessionBatchManager: mockSessionBatchManager,
-            topTracker,
             isDebugLoggingEnabled: () => false,
         })
 
@@ -177,7 +111,6 @@ describe('createRecordSessionStep', () => {
     it('should observe session info metric', async () => {
         const step = createRecordSessionStep({
             sessionBatchManager: mockSessionBatchManager,
-            topTracker,
             isDebugLoggingEnabled: () => false,
         })
 
@@ -190,7 +123,6 @@ describe('createRecordSessionStep', () => {
     it('should preserve additional input properties', async () => {
         const step = createRecordSessionStep({
             sessionBatchManager: mockSessionBatchManager,
-            topTracker,
             isDebugLoggingEnabled: () => false,
         })
 

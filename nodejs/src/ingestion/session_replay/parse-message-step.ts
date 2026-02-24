@@ -9,7 +9,6 @@ import {
     SnapshotEvent,
     SnapshotEventSchema,
 } from '../../session-recording/kafka/types'
-import { TopTracker } from '../../session-recording/top-tracker'
 import { parseJSON } from '../../utils/json-parse'
 import { dlq, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -70,10 +69,6 @@ function getValidEvents(events: unknown[]): {
     }
 }
 
-export interface ParseMessageStepConfig {
-    topTracker?: TopTracker
-}
-
 /**
  * Creates a step that parses raw Kafka messages into ParsedMessageData.
  * This step is additive - it preserves all input properties and adds parsedMessage.
@@ -81,13 +76,11 @@ export interface ParseMessageStepConfig {
  * This step processes one message at a time since there are no batch-level optimizations.
  * Gzip decompression is done synchronously since the pipeline already runs steps concurrently.
  */
-export function createParseMessageStep<T extends ParseMessageStepInput>(
-    config?: ParseMessageStepConfig
-): ProcessingStep<T, T & ParseMessageStepOutput> {
-    const topTracker = config?.topTracker
-
+export function createParseMessageStep<T extends ParseMessageStepInput>(): ProcessingStep<
+    T,
+    T & ParseMessageStepOutput
+> {
     return async function parseMessageStep(input) {
-        const parseStartTime = performance.now()
         const { message } = input
 
         if (!message.value || !message.timestamp) {
@@ -190,14 +183,6 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(
             },
             snapshot_source: $snapshot_source ?? null,
             snapshot_library: $lib ?? null,
-        }
-
-        // Track parsing time per session_id
-        if (topTracker) {
-            const parseEndTime = performance.now()
-            const parseDurationMs = parseEndTime - parseStartTime
-            const trackingKey = `token:${parsedMessage.token ?? 'unknown'}:session_id:${$session_id}`
-            topTracker.increment('parse_time_ms_by_session_id', trackingKey, parseDurationMs)
         }
 
         return Promise.resolve(ok({ ...input, parsedMessage }))
