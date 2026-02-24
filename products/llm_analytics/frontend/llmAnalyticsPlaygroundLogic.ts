@@ -22,7 +22,6 @@ export interface ModelOption {
     provider: string
     description: string
     providerKeyId?: string
-    tier?: 'supported' | 'other'
 }
 
 export interface ProviderModelGroup {

@@ -213,10 +213,6 @@ class GeminiAdapter:
             return (LLMProviderKey.State.INVALID, "Invalid API key")
 
     @staticmethod
-    def supported_model_ids() -> set[str]:
-        return set(GeminiConfig.SUPPORTED_MODELS)
-
-    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
         """List available Gemini models.
 

@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -14,6 +14,15 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
         actions: [llmProviderKeysLogic, ['loadProviderKeysSuccess']],
     })),
+
+    actions({
+        setSearch: (search: string) => ({ search }),
+        clearSearch: true,
+    }),
+
+    reducers({
+        search: ['' as string, { setSearch: (_, { search }) => search, clearSearch: () => '' }],
+    }),
 
     loaders(({ values }) => ({
         byokModels: {
@@ -99,6 +108,23 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                 }
 
                 return groups.sort((a, b) => a.label.localeCompare(b.label))
+            },
+        ],
+        filteredProviderModelGroups: [
+            (s) => [s.providerModelGroups, s.search],
+            (groups: ProviderModelGroup[], search: string): ProviderModelGroup[] => {
+                if (!search) {
+                    return groups
+                }
+                const lower = search.toLowerCase()
+                return groups
+                    .map((group) => ({
+                        ...group,
+                        models: group.models.filter(
+                            (m) => m.name.toLowerCase().includes(lower) || m.id.toLowerCase().includes(lower)
+                        ),
+                    }))
+                    .filter((group) => group.models.length > 0)
             },
         ],
     }),

@@ -308,10 +308,6 @@ class AnthropicAdapter:
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
-    def supported_model_ids() -> set[str]:
-        return set(AnthropicConfig.SUPPORTED_MODELS)
-
-    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
         """List available Anthropic models."""
         return AnthropicConfig.SUPPORTED_MODELS

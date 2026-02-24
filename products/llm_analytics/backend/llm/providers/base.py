@@ -43,11 +43,6 @@ class Provider(Protocol):
         ...
 
     @staticmethod
-    def supported_model_ids() -> set[str]:
-        """Return the set of curated/supported model IDs for this provider."""
-        ...
-
-    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
         """List available models for this provider"""
         ...
