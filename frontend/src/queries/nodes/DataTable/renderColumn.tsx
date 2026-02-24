@@ -407,7 +407,7 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
-        if (typeof value === 'object' && value !== null && 'display_name' in value && 'key' in value) {
+        if (typeof value === 'object' && 'display_name' in value && 'key' in value) {
             return (
                 <div className="min-w-40">
                     <Link to={urls.group(query.source.group_type_index, value.key, true)}>{value.display_name}</Link>
