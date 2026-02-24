@@ -27,75 +27,45 @@ export function EntityFilterInfo({
     isOptional = false,
     showIcon = false,
 }: EntityFilterInfoProps): JSX.Element {
-    const icon = showIcon ? (
-        <span className="inline-flex shrink-0 text-base">
-            {getEventDefinitionIcon({
-                id: String(filter.id ?? ''),
-                name: filter.name || String(filter.id ?? ''),
-                is_action: filter.type === EntityTypes.ACTIONS,
-            })}
-        </span>
-    ) : null
-
+    let name: string | undefined
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
-        return (
-            <span className={!allowWrap ? 'flex truncate items-center gap-1' : ''}>
-                {icon}
-                <span
-                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
-                    title="All events"
-                >
-                    All events
-                </span>
-                {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
-            </span>
-        )
+        name = 'All events'
+    } else {
+        const raw = getDisplayNameFromEntityFilter(filter, false)
+        name =
+            (filterGroupType ? getCoreFilterDefinition(raw, filterGroupType)?.label?.trim() : null) ?? raw ?? undefined
     }
 
-    const title = getDisplayNameFromEntityFilter(filter, false)
-    const titleToDisplay =
-        (filterGroupType ? getCoreFilterDefinition(title, filterGroupType)?.label?.trim() : null) ?? title ?? undefined
+    const customName = filter?.custom_name ? (getDisplayNameFromEntityFilter(filter, true) ?? undefined) : undefined
 
-    // No custom name
-    if (!filter?.custom_name) {
-        return (
-            // eslint-disable-next-line react/forbid-dom-props
-            <span className={!allowWrap ? 'flex truncate items-center gap-1' : ''} style={style}>
-                {icon}
-                <span
-                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
-                    title={titleToDisplay}
-                >
-                    {titleToDisplay}
-                </span>
-                {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
-            </span>
-        )
-    }
-
-    // Display custom name first and action title as secondary
-    const customTitle = getDisplayNameFromEntityFilter(filter, true)
+    const icon = showIcon
+        ? getEventDefinitionIcon({
+              id: String(filter.id ?? ''),
+              name: filter.name || String(filter.id ?? ''),
+              is_action: filter.type === EntityTypes.ACTIONS,
+          })
+        : null
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <span className={!allowWrap ? 'flex items-center gap-1' : ''} style={style}>
+        <span className={!allowWrap ? 'flex truncate items-center gap-1' : ''} style={style}>
             {icon}
             <span
                 className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
-                title={customTitle ?? undefined}
+                title={customName ?? name}
             >
-                {customTitle}
+                {customName ?? name}
             </span>
             {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
-            {!showSingleName && (
+            {customName && !showSingleName && (
                 <span
                     className={clsx(
                         'EntityFilterInfo max-w-100 ml-1 text-secondary text-xs',
                         !allowWrap && 'whitespace-nowrap truncate'
                     )}
-                    title={titleToDisplay}
+                    title={name}
                 >
-                    {titleToDisplay}
+                    {name}
                 </span>
             )}
         </span>
