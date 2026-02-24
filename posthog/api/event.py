@@ -183,9 +183,6 @@ class EventViewSet(
                 throttle_classes = [EventValuesNoEventNameBurstThrottle, EventValuesNoEventNameSustainedThrottle]
             return [throttle_class() for throttle_class in throttle_classes]
         return super().get_throttles()
-        
-        if durations:
-            self.throttled(request_to_check, max(durations) or 0.0)
 
     def _build_next_url(
         self,
