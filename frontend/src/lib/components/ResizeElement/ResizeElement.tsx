@@ -36,6 +36,7 @@ export function ResizableElement({
 }: ResizableElementProps): JSX.Element {
     const [width, setWidth] = useState(defaultWidth)
     const containerRef = useRef<HTMLDivElement>(null)
+    const handleRef = useRef<HTMLDivElement>(null)
     const startXRef = useRef<number>(0)
     const startWidthRef = useRef<number>(0)
     const isResizing = useRef(false)
@@ -96,9 +97,11 @@ export function ResizableElement({
 
                 // Apply the delta to the starting width
                 let newWidth = Math.min(Math.max(startWidthRef.current + deltaX, minWidth), maxWidth)
-                if (snapToDefault && Math.abs(newWidth - defaultWidth) <= SNAP_TO_DEFAULT_THRESHOLD) {
+                const isSnapping = snapToDefault && Math.abs(newWidth - defaultWidth) <= SNAP_TO_DEFAULT_THRESHOLD
+                if (isSnapping) {
                     newWidth = defaultWidth
                 }
+                handleRef.current?.classList.toggle('is-snapping', isSnapping)
 
                 // Apply width directly to DOM for smoother animation
                 applyWidth(newWidth)
@@ -136,6 +139,7 @@ export function ResizableElement({
             setWidth(finalWidth)
             currentWidthRef.current = finalWidth
             isResizing.current = false
+            handleRef.current?.classList.remove('is-snapping')
 
             // Clean up any pending animation frame
             if (rafRef.current !== null) {
@@ -176,10 +180,11 @@ export function ResizableElement({
         >
             {children}
             <div
+                ref={handleRef}
                 onMouseDown={handleMouseDown}
                 onTouchStart={handleMouseDown}
                 className={cn(
-                    'absolute top-0 right-0 w-1 h-full cursor-ew-resize w-[var(--resizer-thickness)] touch-none overflow-hidden hover:bg-accent-highlight-primary after:content-[""] after:absolute after:top-0 after:w-[1px] after:h-full after:bg-border-primary after:-translate-x-1/2 after:left-1/2',
+                    'absolute top-0 right-0 w-1 h-full cursor-ew-resize w-[var(--resizer-thickness)] touch-none overflow-hidden hover:bg-accent-highlight-primary [&.is-snapping]:bg-accent-primary after:content-[""] after:absolute after:top-0 after:w-[1px] after:h-full after:bg-border-primary after:-translate-x-1/2 after:left-1/2',
                     {
                         'bg-accent-highlight-primary': isResizing.current,
                         'after:left-0': borderPosition === 'left',
