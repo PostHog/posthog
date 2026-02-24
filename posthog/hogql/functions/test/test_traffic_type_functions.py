@@ -23,8 +23,8 @@ class TestTrafficTypeFunctions:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
 
-        # Extract all constant values
         return_values = [arg.value for arg in result.args if isinstance(arg, ast.Constant)]
 
         assert "AI Agent" in return_values
@@ -48,8 +48,8 @@ class TestTrafficTypeFunctions:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_category(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
 
-        # Extract all constant values
         return_values = [arg.value for arg in result.args if isinstance(arg, ast.Constant)]
 
         assert "llm_crawler" in return_values
@@ -76,6 +76,7 @@ class TestIsBotFunction:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Or)
 
         for expr in result.exprs:
             assert isinstance(expr, ast.Call)
@@ -101,8 +102,8 @@ class TestGetBotTypeFunction:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_type(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
 
-        # Extract all constant values
         return_values = [arg.value for arg in result.args if isinstance(arg, ast.Constant)]
 
         assert "llm_crawler" in return_values
@@ -147,9 +148,8 @@ class TestTrafficTypeFunctionPatterns:
         user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-
         assert isinstance(result, ast.Or)
-        # All match calls should use our custom user agent field
+
         for expr in result.exprs:
             assert isinstance(expr, ast.Call)
             assert expr.args[0] == user_agent_arg
