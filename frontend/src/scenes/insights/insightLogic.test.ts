@@ -477,7 +477,7 @@ describe('insightLogic', () => {
         })
 
         await expectLogic(logic, () => {
-            logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
+            logic.actions.setInsightMetadataLocal({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
         }).toMatchValues({
             insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             savedInsight: partial({ name: '', description: '', tags: [] }),
@@ -566,6 +566,24 @@ describe('insightLogic', () => {
 
         logic.actions.updateInsight({ name: 'updated name' })
         await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
+    })
+
+    test('updateInsight resolves id from short_id when id is missing', async () => {
+        // Simulates the race condition where updateInsight fires before loadInsight
+        // completes: the insight has a short_id but no numeric id yet (e.g. when
+        // adding to a dashboard immediately after saving a new insight).
+        logic = insightLogic({
+            dashboardItemId: Insight42,
+            cachedInsight: {
+                short_id: Insight42,
+                // no `id` field — mirrors createEmptyInsight output
+            },
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.updateInsight({ dashboards: [MOCK_DASHBOARD_ID] })
+        }).toDispatchActions(['updateInsightSuccess'])
     })
 
     test('save as new insight', async () => {

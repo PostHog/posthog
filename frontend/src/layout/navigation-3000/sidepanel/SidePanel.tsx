@@ -3,16 +3,7 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import {
-    IconBook,
-    IconEllipsis,
-    IconGear,
-    IconInfo,
-    IconLock,
-    IconLogomark,
-    IconNotebook,
-    IconSupport,
-} from '@posthog/icons'
+import { IconBook, IconEllipsis, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -31,6 +22,8 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
+
+import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
 
 import { SidePanelNavigation } from './SidePanelNavigation'
 import { SidePanelChangelog } from './panels/SidePanelChangelog'
@@ -70,7 +63,7 @@ export const SIDE_PANEL_TABS: Record<
     },
     [SidePanelTab.Support]: {
         label: 'Help',
-        Icon: IconSupport,
+        Icon: SidePanelSupportIcon,
         Content: SidePanelSupport,
     },
     [SidePanelTab.Docs]: {
@@ -129,7 +122,7 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelHealth,
     },
     [SidePanelTab.Info]: {
-        label: 'Info & actions',
+        label: 'Actions',
         Icon: SidePanelInfoIcon,
         Content: SidePanelInfo,
     },
@@ -138,6 +131,7 @@ export const SIDE_PANEL_TABS: Record<
 const DEFAULT_WIDTH = 512
 const SIDE_PANEL_BAR_WIDTH = 40
 const SIDE_PANEL_MIN_WIDTH = 448 // Match --side-panel-min-width (28rem)
+const SIDE_PANEL_MIN_WIDTH_COMPACT = 330
 
 export function SidePanel({
     className,
@@ -197,8 +191,13 @@ export function SidePanel({
     const sidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable
-          ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH)
-          : SIDE_PANEL_BAR_WIDTH
+          ? Math.max(
+                desiredSize ?? DEFAULT_WIDTH,
+                isRemovingSidePanelFlag ? SIDE_PANEL_MIN_WIDTH_COMPACT : SIDE_PANEL_MIN_WIDTH
+            )
+          : isRemovingSidePanelFlag
+            ? 0
+            : SIDE_PANEL_BAR_WIDTH
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
@@ -259,6 +258,9 @@ export function SidePanel({
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: isRemovingSidePanelFlag ? (sidePanelOpenAndAvailable ? sidePanelWidth : '0px') : sidePanelWidth,
+                ...(isRemovingSidePanelFlag
+                    ? ({ '--side-panel-min-width': `${SIDE_PANEL_MIN_WIDTH_COMPACT}px` } as React.CSSProperties)
+                    : {}),
                 ...theme?.sidebarStyle,
             }}
             id="side-panel"
@@ -343,7 +345,7 @@ export function SidePanel({
             )}
             {PanelContent && (
                 <>
-                    {PanelContent && !isRemovingSidePanelFlag ? (
+                    {!isRemovingSidePanelFlag ? (
                         <div
                             className={cn('SidePanel3000__content', contentClassName, {
                                 'border-l-0 h-full': isRemovingSidePanelFlag,
@@ -358,7 +360,9 @@ export function SidePanel({
                             activeTab={activeTab as SidePanelTab}
                             onTabChange={(tab) => openSidePanel(tab)}
                         >
-                            <PanelContent />
+                            <ErrorBoundary>
+                                <PanelContent />
+                            </ErrorBoundary>
                         </SidePanelNavigation>
                     )}
                 </>

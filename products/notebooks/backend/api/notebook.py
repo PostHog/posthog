@@ -18,6 +18,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -206,6 +208,10 @@ class NotebookKernelExecuteSerializer(serializers.Serializer):
     timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
 
 
+class NotebookHogQLExecuteSerializer(serializers.Serializer):
+    query = serializers.CharField(allow_blank=True)
+
+
 class NotebookKernelDataframeSerializer(serializers.Serializer):
     variable_name = serializers.CharField()
     offset = serializers.IntegerField(default=0, min_value=0)
@@ -247,6 +253,16 @@ class NotebookKernelConfigSerializer(serializers.Serializer):
         if not attrs:
             raise serializers.ValidationError("Provide at least one kernel configuration option.")
         return attrs
+
+
+def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
+    if hasattr(response, "model_dump"):
+        response_payload = response.model_dump(exclude_none=True)
+    else:
+        response_payload = response.dict(exclude_none=True)
+    for key in ("clickhouse", "hogql", "timings", "modifiers"):
+        response_payload.pop(key, None)
+    return response_payload
 
 
 @extend_schema(
@@ -316,13 +332,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":
-            return Notebook(
+            notebook = Notebook(
                 short_id="scratchpad",
                 team=self.team,
                 created_by=self.request.user,
                 last_modified_by=self.request.user,
                 visibility=Notebook.Visibility.INTERNAL,
             )
+            self.check_object_permissions(self.request, notebook)
+            return notebook
 
         return self.get_object()
 
@@ -585,6 +603,20 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to execute notebook code."}, status=503)
 
         return Response(execution.as_dict())
+
+    @action(methods=["POST"], url_path="hogql/execute", detail=True)
+    def hogql_execute(self, request: Request, **kwargs):
+        serializer = NotebookHogQLExecuteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        try:
+            response = execute_hogql_query(query=serializer.validated_data["query"], team=self.team)
+        except Exception as err:
+            logger.exception("notebook_hogql_execute_failed", notebook_short_id=notebook.short_id)
+            return Response({"error": str(err)}, status=400)
+
+        return Response(_format_hogql_response_payload(response))
 
     @action(
         methods=["POST"],

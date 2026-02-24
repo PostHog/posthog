@@ -25,11 +25,10 @@ runs:
           if: steps.pr-info.outputs.data
           id: extract-pr
           continue-on-error: true
+          env:
+              PR_DATA: ${{ toJSON(fromJSON(steps.pr-info.outputs.data)) }}
           run: |
-              echo "PR_NUMBER=$(cat | jq -r '.[-1].number' <<EOF
-                ${{ toJSON(fromJSON(steps.pr-info.outputs.data)) }}
-              EOF
-              )" >> $GITHUB_OUTPUT
+              echo "PR_NUMBER=$(echo "$PR_DATA" | jq -r '.[-1].number')" >> $GITHUB_OUTPUT
 
         - name: Fetch PR Labels
           shell: bash

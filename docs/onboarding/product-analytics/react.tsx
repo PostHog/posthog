@@ -13,28 +13,28 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Install the PostHog JavaScript library using your package manager:</Markdown>
+                    <Markdown>Install [`posthog-js`](https://github.com/posthog/posthog-js) and `@posthog/react` using your package manager:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install posthog-js
+                                    npm install posthog-js @posthog/react
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-js
+                                    yarn add posthog-js @posthog/react
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add posthog-js
+                                    pnpm add posthog-js @posthog/react
                                 `,
                             },
                         ]}
@@ -85,11 +85,11 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                     import { createRoot } from 'react-dom/client'
                                     import './index.css'
                                     import App from './App.jsx'
-                                    import { PostHogProvider } from 'posthog-js/react'
+                                    import { PostHogProvider } from '@posthog/react'
 
                                     const options = {
                                       api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
-                                      defaults: '2025-11-30',
+                                      defaults: '2026-01-30',
                                     } as const
 
                                     createRoot(document.getElementById('root')).render(
@@ -128,7 +128,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 language: 'tsx',
                                 file: 'MyComponent.tsx',
                                 code: dedent`
-                                    import { usePostHog } from 'posthog-js/react'
+                                    import { usePostHog } from '@posthog/react'
 
                                     function MyComponent() {
                                         const posthog = usePostHog()

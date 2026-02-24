@@ -1,7 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { PersonProfiles } from './_snippets/person-profiles'
 
 export const getElixirSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
@@ -21,7 +20,7 @@ export const getElixirSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 code: dedent`
                                 def deps do
                                     [
-                                        {:posthog, "~> 1.1.0"}
+                                        {:posthog, "~> 2.2.0"}
                                     ]
                                 end
                             `,
@@ -65,14 +64,15 @@ export const getElixirSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'elixir',
                                 file: 'Elixir',
                                 code: dedent`
-                                Posthog.capture("user_123", "button_clicked", %{
-                                    button_name: "signup"
+                                PostHog.capture("user_signed_up", %{
+                                    distinct_id: "distinct_id_of_the_user",
+                                    login_type: "email",
+                                    is_free_trial: true
                                 })
                             `,
                             },
                         ]}
                     />
-                    <PersonProfiles language="elixir" />
                 </>
             ),
         },

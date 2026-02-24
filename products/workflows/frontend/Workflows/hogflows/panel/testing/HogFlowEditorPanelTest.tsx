@@ -185,15 +185,13 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                         panels={[
                             {
                                 key: 'event',
-                                header: {
-                                    children: sampleGlobalsLoading ? (
-                                        <>
-                                            Loading test event... <Spinner />
-                                        </>
-                                    ) : (
-                                        <>Test event: {sampleGlobals?.event?.event} </>
-                                    ),
-                                },
+                                header: sampleGlobalsLoading ? (
+                                    <>
+                                        Loading test event... <Spinner />
+                                    </>
+                                ) : (
+                                    <>Test event: {sampleGlobals?.event?.event} </>
+                                ),
                                 className: 'bg-surface-secondary',
                                 content: (
                                     <div>

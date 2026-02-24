@@ -89,7 +89,7 @@ describe('experimentsTabLogic', () => {
         theToolbarLogic = toolbarLogic()
         theToolbarLogic.mount()
 
-        theToolbarConfigLogic = toolbarConfigLogic({ apiURL: 'http://localhost' })
+        theToolbarConfigLogic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
         theToolbarConfigLogic.mount()
     })
 

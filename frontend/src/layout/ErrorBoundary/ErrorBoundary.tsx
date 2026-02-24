@@ -5,8 +5,20 @@ import { useActions, useValues } from 'kea'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'posthog-js/react'
 
 import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Support/supportLogic'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
+
+const DOM_MUTATION_PATTERNS = [
+    "Failed to execute 'removeChild' on 'Node'",
+    "Failed to execute 'insertBefore' on 'Node'",
+    "Failed to execute 'appendChild' on 'Node'",
+]
+
+function isDOMModificationError(error: Error): boolean {
+    const message = error.message || ''
+    return DOM_MUTATION_PATTERNS.some((pattern) => message.includes(pattern))
+}
 
 interface ErrorBoundaryProps {
     children?: React.ReactNode
@@ -37,9 +49,31 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
                 const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
 
+                const isBrowserExtensionError = isDOMModificationError(normalizedError)
+
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
                         <h2>An error has occurred</h2>
+                        {isBrowserExtensionError && (
+                            <LemonBanner
+                                type="warning"
+                                className="mb-2"
+                                action={{
+                                    children: 'Email an engineer',
+                                    onClick: () => {
+                                        openSupportForm({
+                                            kind: 'bug',
+                                            isEmailFormOpen: true,
+                                            exception_event: exceptionEvent ?? null,
+                                        })
+                                    },
+                                }}
+                            >
+                                This error is commonly caused by browser extensions (such as translation or ad-blocking
+                                extensions) that modify the page. Try disabling your browser extension(s) and reloading
+                                the page to avoid this error in the future.
+                            </LemonBanner>
+                        )}
                         <pre>
                             <code>
                                 {stack || (
@@ -54,23 +88,27 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         {exceptionEvent?.uuid && (
                             <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
                         )}
-                        Please help us resolve the issue by sending a screenshot of this message.
-                        <LemonButton
-                            type="primary"
-                            fullWidth
-                            center
-                            onClick={() => {
-                                openSupportForm({
-                                    kind: 'bug',
-                                    isEmailFormOpen: true,
-                                    exception_event: exceptionEvent ?? null,
-                                })
-                            }}
-                            targetBlank
-                            className="mt-2"
-                        >
-                            Email an engineer
-                        </LemonButton>
+                        {!isBrowserExtensionError && (
+                            <>
+                                Please help us resolve the issue by sending a screenshot of this message.
+                                <LemonButton
+                                    type="primary"
+                                    fullWidth
+                                    center
+                                    onClick={() => {
+                                        openSupportForm({
+                                            kind: 'bug',
+                                            isEmailFormOpen: true,
+                                            exception_event: exceptionEvent ?? null,
+                                        })
+                                    }}
+                                    targetBlank
+                                    className="mt-2"
+                                >
+                                    Email an engineer
+                                </LemonButton>
+                            </>
+                        )}
                     </div>
                 )
             }}

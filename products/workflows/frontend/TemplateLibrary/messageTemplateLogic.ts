@@ -96,6 +96,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
+        submitTemplateFailure: () => {
+            const errors = values.templateAllErrors
+            if (errors?.content?.email?.subject) {
+                lemonToast.error('Subject is required')
+            }
+        },
         saveTemplateSuccess: async ({ template }) => {
             lemonToast.success('Template saved')
             template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))

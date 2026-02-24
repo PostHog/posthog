@@ -8,7 +8,7 @@ import {
     DataTableNode,
     DatabaseSchemaDataWarehouseTable,
     MarketingAnalyticsBaseColumns,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
     SourceMap,
@@ -65,7 +65,7 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                     ...conversionGoals
                         .map((goal) => [
                             goal.conversion_goal_name,
-                            `${MarketingAnalyticsHelperForColumnNames.CostPer} ${goal.conversion_goal_name}`,
+                            `${MarketingAnalyticsConstants.CostPer} ${goal.conversion_goal_name}`,
                         ])
                         .flat(),
                 ].filter(isNotNil)

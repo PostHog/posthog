@@ -50,9 +50,9 @@ export type RegistrationStep = 'idle' | 'registering' | 'verifying' | 'complete'
 
 export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
     path(['scenes', 'settings', 'user', 'passkeySettingsLogic']),
-    connect({
+    connect(() => ({
         actions: [userLogic, ['loadUser'], twoFactorLogic, ['loadStatus']],
-    }),
+    })),
     actions({
         beginRegistration: (label: string) => ({ label }),
         setRegistrationStep: (step: RegistrationStep) => ({ step }),

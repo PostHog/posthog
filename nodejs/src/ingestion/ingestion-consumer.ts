@@ -2,10 +2,9 @@ import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
@@ -17,12 +16,12 @@ import {
     PluginsServerConfig,
 } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
+import { PersonsStore } from '../worker/ingestion/persons/persons-store'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
@@ -33,6 +32,7 @@ import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
 import { ok } from './pipelines/results'
+import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
@@ -65,6 +65,10 @@ export type IngestionConsumerHub = HogTransformerHub &
         | 'personRepository'
         // GroupTypeManager
         | 'groupTypeManager'
+        // EventSchemaEnforcementManager
+        | 'postgres'
+        // Prometheus / TopHog labels
+        | 'INGESTION_PIPELINE'
     >
 
 const latestOffsetTimestampGauge = new Gauge({
@@ -93,7 +97,9 @@ export class IngestionConsumer {
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
+    private topHog?: TopHog
 
     private joinedPipeline!: BatchPipeline<
         JoinedIngestionPipelineInput,
@@ -132,6 +138,7 @@ export class IngestionConsumer {
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
+        this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(hub.postgres)
 
         this.name = `ingestion-consumer-${this.topic}`
 
@@ -202,13 +209,24 @@ export class IngestionConsumer {
             }),
         ])
 
+        this.topHog = new TopHog({
+            kafkaProducer: this.kafkaProducer!,
+            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            pipeline: this.hub.INGESTION_PIPELINE ?? 'unknown',
+            lane: this.hub.INGESTION_LANE ?? 'unknown',
+        })
+        this.topHog.start()
+
         // Initialize pipeline
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             hub: this.hub,
             kafkaProducer: this.kafkaProducer!,
             personsStore: this.personsStore,
+            groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,
+            eventSchemaEnforcementEnabled: this.hub.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic || '',
             dlqTopic: this.dlqTopic,
@@ -231,6 +249,7 @@ export class IngestionConsumer {
             teamManager: this.hub.teamManager,
             groupTypeManager: this.hub.groupTypeManager,
             groupId: this.groupId,
+            topHog: this.topHog,
         }
         this.joinedPipeline = createJoinedIngestionPipeline(
             newBatchPipelineBuilder<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>(),
@@ -255,6 +274,8 @@ export class IngestionConsumer {
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         logger.info('🔁', `${this.name} - stopping batch consumer`)
         await this.kafkaConsumer?.disconnect()
+        logger.info('🔁', `${this.name} - stopping tophog`)
+        await this.topHog?.stop()
         logger.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
@@ -308,19 +329,7 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const groupStoreForBatch = this.groupStore.forBatch()
-
-        await this.runIngestionPipeline(messages, groupStoreForBatch)
-
-        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), this.personsStore.flush()])
-
-        if (this.kafkaProducer) {
-            await this.producePersonsStoreMessages(personsStoreMessages)
-        }
-
-        this.personsStore.reportBatch()
-        this.personsStore.reset()
-        groupStoreForBatch.reportBatch()
+        await this.runIngestionPipeline(messages)
 
         for (const message of messages) {
             if (message.timestamp) {
@@ -337,8 +346,8 @@ export class IngestionConsumer {
         }
     }
 
-    private async runIngestionPipeline(messages: Message[], groupStoreForBatch: GroupStoreForBatch): Promise<void> {
-        const batch = messages.map((message) => createContext(ok({ message, groupStoreForBatch }), { message }))
+    private async runIngestionPipeline(messages: Message[]): Promise<void> {
+        const batch = messages.map((message) => createContext(ok({ message }), { message }))
 
         this.joinedPipeline.feed(batch)
 
@@ -346,45 +355,6 @@ export class IngestionConsumer {
         while ((await this.joinedPipeline.next()) !== null) {
             // Continue until all results are processed
         }
-    }
-
-    private async producePersonsStoreMessages(personsStoreMessages: FlushResult[]): Promise<void> {
-        await Promise.all(
-            personsStoreMessages.map((record) => {
-                return Promise.all(
-                    record.topicMessage.messages.map(async (message) => {
-                        try {
-                            return await this.kafkaProducer!.produce({
-                                topic: record.topicMessage.topic,
-                                key: message.key ? Buffer.from(message.key) : null,
-                                value: message.value ? Buffer.from(message.value) : null,
-                                headers: message.headers,
-                            })
-                        } catch (error) {
-                            if (error instanceof MessageSizeTooLarge) {
-                                await captureIngestionWarning(
-                                    this.kafkaProducer!,
-                                    record.teamId,
-                                    'message_size_too_large',
-                                    {
-                                        eventUuid: record.uuid,
-                                        distinctId: record.distinctId,
-                                    }
-                                )
-                                logger.warn('🪣', `Message size too large`, {
-                                    topic: record.topicMessage.topic,
-                                    key: message.key,
-                                    headers: message.headers,
-                                })
-                            } else {
-                                throw error
-                            }
-                        }
-                    })
-                )
-            })
-        )
-        await this.kafkaProducer!.flush()
     }
 
     private overflowEnabled(): boolean {

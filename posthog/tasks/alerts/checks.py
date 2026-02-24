@@ -73,7 +73,8 @@ def alerts_backlog_task() -> None:
             enabled=True,
             calculation_interval=AlertCalculationInterval.HOURLY,
             last_checked_at__lte=now - relativedelta(hours=1, minutes=5),
-        )
+        ),
+        insight__deleted=False,
     ).count()
 
     now = datetime.now(UTC)
@@ -83,7 +84,8 @@ def alerts_backlog_task() -> None:
             enabled=True,
             calculation_interval=AlertCalculationInterval.HOURLY,
             last_checked_at__lte=now - relativedelta(days=1, minutes=15),
-        )
+        ),
+        insight__deleted=False,
     ).count()
 
     with ph_scoped_capture() as capture_ph_event:
@@ -123,7 +125,8 @@ def reset_stuck_alerts_task() -> None:
             is_calculating=True,
             last_checked_at__isnull=True,
             created_at__lte=now - relativedelta(minutes=45),
-        )
+        ),
+        insight__deleted=False,
     )
 
     for alert in stuck_alerts:
@@ -153,6 +156,7 @@ def check_alerts_task() -> None:
             | Q(enabled=True, is_calculating=False, next_check_at__isnull=True)
         )
         .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+        .filter(insight__deleted=False)
         .order_by(F("next_check_at").asc(nulls_first=True))
         .only("id", "team", "calculation_interval")
     )
@@ -190,9 +194,13 @@ def check_alert_task(alert_id: str) -> None:
 
 def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwargs: None) -> None:
     try:
-        alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
+        alert = AlertConfiguration.objects.select_related("insight").get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
+        return
+
+    if alert.insight.deleted:
+        logger.info("Skipping alert for deleted insight", alert_id=alert_id, insight_id=alert.insight_id)
         return
 
     now = datetime.now(UTC)
@@ -253,6 +261,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
                 "alert_id": alert.id,
                 "error": f"AlertCheckError: {err}",
                 "traceback": traceback.format_exc(),
+                "insight_id": alert.insight_id,
+                "team_id": alert.team_id,
             },
         )
 
@@ -261,6 +271,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             AlertCheckException(err),
             additional_properties={
                 "alert_configuration_id": alert_id,
+                "insight_id": alert.insight_id,
+                "team_id": alert.team_id,
             },
         )
 
@@ -295,6 +307,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         properties={
             "alert_id": alert.id,
             "calculation_interval": alert.calculation_interval,
+            "insight_id": alert.insight_id,
+            "team_id": alert.team_id,
         },
     )
 
@@ -319,6 +333,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
                 "alert_id": alert.id,
                 "error": error_message,
                 "traceback": traceback.format_exc(),
+                "insight_id": alert.insight_id,
+                "team_id": alert.team_id,
             },
         )
 
@@ -404,7 +420,7 @@ def add_alert_check(
 
     if notify:
         alert.last_notified_at = now
-        targets_notified = {"users": list(alert.subscribed_users.all().values_list("email", flat=True))}
+        targets_notified = {"users": alert.get_subscribed_users_emails()}
 
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,

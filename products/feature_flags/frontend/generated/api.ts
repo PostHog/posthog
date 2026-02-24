@@ -325,28 +325,6 @@ export const featureFlagsEnrichUsageDashboardCreate = async (
 }
 
 /**
- * Deprecated: Use GET /dependent_flags instead.
-Safe to delete after usage falls to zero, expected by Jan 22, 2026.
- */
-export const getFeatureFlagsHasActiveDependentsCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/feature_flags/${id}/has_active_dependents/`
-}
-
-export const featureFlagsHasActiveDependentsCreate = async (
-    projectId: string,
-    id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsHasActiveDependentsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
-    })
-}
-
-/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
@@ -415,6 +393,35 @@ export const featureFlagsActivityRetrieve = async (
     return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Bulk delete feature flags by filter criteria or explicit IDs.
+
+Accepts either:
+- {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
+- {"ids": [...]} - Explicit list of flag IDs (no limit)
+
+Returns same format as bulk_delete for UI compatibility.
+
+Uses bulk operations for efficiency: database updates are batched and cache
+invalidation happens once at the end rather than per-flag.
+ */
+export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/bulk_delete/`
+}
+
+export const featureFlagsBulkDeleteCreate = async (
+    projectId: string,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagApi),
     })
 }
 
@@ -504,6 +511,22 @@ export const featureFlagsLocalEvaluationRetrieve = async (
     options?: RequestInit
 ): Promise<LocalEvaluationResponseApi> => {
     return apiMutator<LocalEvaluationResponseApi>(getFeatureFlagsLocalEvaluationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Get IDs of all feature flags matching the current filters.
+Uses the same filtering logic as the list endpoint.
+Returns only IDs that the user has permission to edit.
+ */
+export const getFeatureFlagsMatchingIdsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/matching_ids/`
+}
+
+export const featureFlagsMatchingIdsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsMatchingIdsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

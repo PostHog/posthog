@@ -48,7 +48,7 @@ async def anode(ateam, asaved_query):
     node = await database_sync_to_async(Node.objects.create)(
         team=ateam,
         saved_query=asaved_query,
-        dag_id="test-dag",
+        dag_id_text="test-dag",
         name="test_model",
         type=NodeType.MAT_VIEW,
     )
@@ -119,6 +119,18 @@ class TestFailMaterializationActivity:
         assert system_props["last_run_job_id"] == str(ajob.id)
         assert system_props["last_run_error"] == "Query failed: timeout"
         assert "last_run_at" in system_props
+
+    async def test_sends_failure_notification_email(self, activity_environment, ateam, anode, ajob, asaved_query):
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id="test-dag",
+            job_id=str(ajob.id),
+            error="Test error message",
+        )
+        with unittest.mock.patch("posthog.tasks.email.send_saved_query_materialization_failure") as mock_send_email:
+            await activity_environment.run(fail_materialization_activity, inputs)
+            mock_send_email.assert_called_once_with(str(asaved_query.id))
 
 
 class TestSucceedMaterializationActivity:
@@ -241,7 +253,7 @@ class TestMaterializeViewActivity:
     async def test_rejects_table_node_type(self, activity_environment, ateam, ajob):
         table_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
-            dag_id="test-dag",
+            dag_id_text="test-dag",
             name="source_table",
             type=NodeType.TABLE,
         )

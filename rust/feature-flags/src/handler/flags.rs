@@ -261,6 +261,8 @@ pub async fn evaluate_for_request(
             .config
             .optimize_experience_continuity_lookups
             .0,
+        parallel_eval_threshold: state.config.parallel_eval_threshold,
+        rayon_dispatcher: state.rayon_dispatcher.clone(),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

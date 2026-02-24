@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { NativeMarketingSource } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { getEnabledNativeMarketingSources } from '../../logic/utils'
 import {
     MappingTypes,
     extractStringValue,
@@ -31,6 +33,8 @@ export function NonIntegratedConversionsRowActions({
     const { marketingAnalyticsConfig, integrationCampaignTables, integrationCampaigns } = useValues(
         marketingAnalyticsSettingsLogic
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const enabledSources = getEnabledNativeMarketingSources(featureFlags)
     const { updateCustomSourceMappings, updateCampaignNameMappings, openIntegrationSettingsModal } = useActions(
         marketingAnalyticsSettingsLogic
     )
@@ -52,9 +56,11 @@ export function NonIntegratedConversionsRowActions({
 
     // Get source mapping info
     const sourceMappingStatus = getSourceMappingStatus(sourceValue, marketingAnalyticsConfig)
-    const availableSourceIntegrations = getAvailableIntegrationsForSource(sourceValue, marketingAnalyticsConfig).filter(
-        (integration) => !!integrationCampaignTables[integration]
-    )
+    const availableSourceIntegrations = getAvailableIntegrationsForSource(
+        sourceValue,
+        marketingAnalyticsConfig,
+        enabledSources
+    ).filter((integration) => !!integrationCampaignTables[integration])
 
     // Get campaign mapping info
     const globalCampaignMapping = getGlobalCampaignMapping(campaignValue, marketingAnalyticsConfig)
@@ -63,7 +69,8 @@ export function NonIntegratedConversionsRowActions({
     const existingCampaignMappings = getCampaignMappings(campaignValue, marketingAnalyticsConfig)
     const availableCampaignIntegrations = getAvailableIntegrationsForCampaign(
         campaignValue,
-        marketingAnalyticsConfig
+        marketingAnalyticsConfig,
+        enabledSources
     ).filter((integration) => !!integrationCampaignTables[integration] && !autoMatchedIntegrations.has(integration))
 
     const menuItems = buildRowMappingMenuItems({

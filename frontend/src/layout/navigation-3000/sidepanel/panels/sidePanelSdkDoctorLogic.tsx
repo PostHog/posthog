@@ -110,9 +110,9 @@ const DEVICE_CONTEXT_CONFIG = {
 export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSdkDoctorLogic']),
 
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['isCloudOrDev']],
-    }),
+    })),
 
     actions({
         snoozeSdkDoctor: true,

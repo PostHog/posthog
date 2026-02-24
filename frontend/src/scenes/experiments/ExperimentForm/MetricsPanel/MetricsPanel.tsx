@@ -1,8 +1,5 @@
 import { useActions } from 'kea'
 
-import { LemonDivider } from '@posthog/lemon-ui'
-
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
@@ -27,8 +24,6 @@ export type MetricsPanelProps = {
     onSaveMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onDeleteMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onSaveSharedMetrics: (metrics: ExperimentMetric[], context: MetricContext) => void
-    onPrevious: () => void
-    showNewExperimentFormLayout?: boolean
 }
 
 const convertSharedMetricToExperimentMetric = ({ id, query, name }: SharedMetric): ExperimentMetric =>
@@ -45,8 +40,6 @@ export const MetricsPanel = ({
     onSaveMetric,
     onDeleteMetric,
     onSaveSharedMetrics,
-    onPrevious,
-    showNewExperimentFormLayout = false,
 }: MetricsPanelProps): JSX.Element => {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
@@ -62,48 +55,26 @@ export const MetricsPanel = ({
 
     return (
         <div>
-            {showNewExperimentFormLayout && (
-                <>
-                    <div className="font-semibold mb-2">Metrics</div>
-                    <div className="text-muted mb-4">
-                        Add at least one primary metric to launch an experiment. You can always add or remove metrics
-                        later.
-                    </div>
-                </>
-            )}
+            <div className="font-semibold mb-2">Metrics</div>
+            <div className="text-muted mb-4">Add metrics to measure your experiment's impact.</div>
 
-            {primaryMetrics.length > 0 ? (
-                <MetricList
-                    metrics={primaryMetrics}
-                    metricContext={METRIC_CONTEXTS.primary}
-                    onDelete={onDeleteMetric}
-                    filterTestAccounts={filterTestAccounts}
-                />
+            {primaryMetrics.length === 0 && secondaryMetrics.length === 0 ? (
+                <EmptyMetricsPanel />
             ) : (
-                <EmptyMetricsPanel metricContext={METRIC_CONTEXTS.primary} />
-            )}
-
-            {secondaryMetrics.length > 0 ? (
-                <MetricList
-                    metrics={secondaryMetrics}
-                    metricContext={METRIC_CONTEXTS.secondary}
-                    onDelete={onDeleteMetric}
-                    filterTestAccounts={filterTestAccounts}
-                    className="mt-6"
-                />
-            ) : (
-                <EmptyMetricsPanel className="mt-6" metricContext={METRIC_CONTEXTS.secondary} />
-            )}
-
-            {!showNewExperimentFormLayout && (
-                <>
-                    <LemonDivider className="mt-4" />
-                    <div className="flex justify-end pt-4">
-                        <LemonButton type="primary" size="small" onClick={onPrevious}>
-                            Previous
-                        </LemonButton>
-                    </div>
-                </>
+                <div className="space-y-6">
+                    <MetricList
+                        metrics={primaryMetrics}
+                        metricContext={METRIC_CONTEXTS.primary}
+                        onDelete={onDeleteMetric}
+                        filterTestAccounts={filterTestAccounts}
+                    />
+                    <MetricList
+                        metrics={secondaryMetrics}
+                        metricContext={METRIC_CONTEXTS.secondary}
+                        onDelete={onDeleteMetric}
+                        filterTestAccounts={filterTestAccounts}
+                    />
+                </div>
             )}
 
             <MetricSourceModal />

@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -24,7 +23,6 @@ from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_instance_region, get_previous_day
 
 logger = structlog.get_logger(__name__)
-logger.setLevel(logging.INFO)
 
 
 @cached(cache={})
@@ -35,6 +33,11 @@ def get_ph_client() -> PostHogClient:
 
 # AI events dynamically generated from AIEventType enum
 AI_EVENTS = [event.value for event in AIEventType]
+LLM_PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
+
+# Events that should make a team eligible for an LLM analytics usage report.
+# Keep this list broader than AI_EVENTS when a non-AI event should still trigger reporting.
+LLM_ANALYTICS_REPORT_TRIGGER_EVENTS = [*AI_EVENTS, LLM_PROMPT_FETCHED_EVENT]
 
 # ClickHouse query settings for LLM Analytics queries
 CH_LLM_ANALYTICS_SETTINGS = {
@@ -205,7 +208,7 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
     """
-    Get all team_ids that have at least one AI event in the period.
+    Get all team_ids that have at least one LLM analytics report trigger event in the period.
 
     This is a fast query that returns only distinct team_ids, allowing subsequent
     queries to filter by team_id and use the primary key index efficiently.
@@ -213,7 +216,7 @@ def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
     query = """
         SELECT DISTINCT team_id
         FROM events
-        WHERE event IN %(ai_events)s
+        WHERE event IN %(llm_analytics_report_trigger_events)s
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
     """
@@ -222,12 +225,16 @@ def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
         product=Product.LLM_ANALYTICS,
         kind="celery",
         id=CELERY_TASK_ID,
-        name="Get teams with AI events",
+        name="Get teams with LLM analytics trigger events",
         workload=Workload.OFFLINE.value,
     ):
         results = sync_execute(
             query,
-            {"ai_events": AI_EVENTS, "begin": begin, "end": end},
+            {
+                "llm_analytics_report_trigger_events": LLM_ANALYTICS_REPORT_TRIGGER_EVENTS,
+                "begin": begin,
+                "end": end,
+            },
             workload=Workload.OFFLINE,
             settings=CH_LLM_ANALYTICS_SETTINGS,
         )
@@ -342,6 +349,44 @@ def get_all_ai_metrics(
         team_ids=team_ids,
         query_name="Get all AI metrics",
     )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_llm_prompt_fetched_counts(
+    begin: datetime,
+    end: datetime,
+    team_ids: list[int],
+) -> dict[int, int]:
+    """
+    Get LLM prompt fetched event counts per team.
+
+    Returns:
+        dict mapping team_id to prompt fetched count
+    """
+    query_template = """
+        SELECT
+            team_id,
+            count() as llm_prompt_fetched_count
+        FROM events
+        WHERE team_id IN %(team_ids)s
+          AND event = %(llm_prompt_fetched_event)s
+          AND timestamp >= %(begin)s
+          AND timestamp < %(end)s
+        GROUP BY team_id
+    """
+
+    results = _execute_split_query(
+        begin,
+        end,
+        query_template,
+        {"llm_prompt_fetched_event": LLM_PROMPT_FETCHED_EVENT},
+        num_splits=2,
+        team_ids=team_ids,
+        query_name="Get LLM prompt fetched counts",
+    )
+
+    return dict(results)
 
 
 def _merge_map_breakdowns(existing: dict[str, int], new_map: dict[str, int]) -> None:
@@ -461,6 +506,88 @@ def get_all_ai_dimension_breakdowns(
     )
 
 
+@dataclass
+class TeamLLMSurveyMetrics:
+    """Survey metrics for a single team linked to LLM traces."""
+
+    active_survey_count: int = 0
+    response_count: int = 0
+
+
+def _combine_llm_survey_results(results_list: list) -> dict[int, TeamLLMSurveyMetrics]:
+    """
+    Combine results from split queries that return (team_id, survey_id, response_count) rows.
+
+    Deduplicates survey IDs across splits and sums response counts.
+    """
+    team_survey_responses: dict[int, dict[str, int]] = {}
+
+    for results in results_list:
+        for team_id, survey_id, response_count in results:
+            if team_id not in team_survey_responses:
+                team_survey_responses[team_id] = {}
+            surveys = team_survey_responses[team_id]
+            surveys[survey_id] = surveys.get(survey_id, 0) + (response_count or 0)
+
+    return {
+        team_id: TeamLLMSurveyMetrics(
+            active_survey_count=len(surveys),
+            response_count=sum(surveys.values()),
+        )
+        for team_id, surveys in team_survey_responses.items()
+    }
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_llm_feedback_survey_metrics(
+    begin: datetime,
+    end: datetime,
+    team_ids: list[int],
+) -> dict[int, TeamLLMSurveyMetrics]:
+    """
+    Get LLM feedback survey metrics per team.
+
+    Finds 'survey sent'/'survey shown' events with a $ai_trace_id property
+    during the period and computes:
+    - active_survey_count: distinct survey IDs seen (active surveys attached to traces)
+    - response_count: number of 'survey sent' events (submitted responses)
+
+    Groups by (team_id, survey_id) so the split query combiner can properly
+    deduplicate survey IDs across time splits.
+
+    Returns:
+        dict mapping team_id to TeamLLMSurveyMetrics
+    """
+    ai_trace_id_expr, _ = get_property_string_expr("events", "$ai_trace_id", "'$ai_trace_id'", "properties")
+
+    query_template = f"""
+        SELECT
+            team_id,
+            JSONExtractString(properties, '$survey_id') as survey_id,
+            countIf(event = 'survey sent') as response_count
+        FROM events
+        WHERE team_id IN %(team_ids)s
+          AND event IN ('survey sent', 'survey shown')
+          AND {ai_trace_id_expr} != ''
+          AND JSONExtractString(properties, '$survey_id') != ''
+          AND timestamp >= %(begin)s
+          AND timestamp < %(end)s
+        GROUP BY team_id, survey_id
+    """
+
+    return _execute_split_query(
+        begin,
+        end,
+        query_template,
+        {},
+        num_splits=2,
+        combine_results_func=_combine_llm_survey_results,
+        team_ids=team_ids,
+        query_name="Get LLM feedback survey metrics",
+    )
+
+
 # Celery task configuration
 LLM_ANALYTICS_USAGE_REPORT_TASK_KWARGS = {
     "queue": CeleryQueue.USAGE_REPORTS.value,
@@ -481,9 +608,10 @@ def _get_all_llm_analytics_reports(
     """
     Gather all LLM Analytics usage data for all organizations.
 
-    This function has been optimized to use only 2 queries instead of 44+:
-    - 1 query to get team_ids with AI events
+    This function has been optimized to use a small number of queries instead of 44+:
+    - 1 query to get team_ids with LLM analytics trigger events
     - 1 combined query for all metrics (event counts, costs, tokens)
+    - 1 query for LLM prompt fetched counts
     - 1 combined query for all dimension breakdowns (using Maps)
 
     Returns:
@@ -491,24 +619,39 @@ def _get_all_llm_analytics_reports(
     """
     logger.info("Querying LLM Analytics usage data")
 
-    # Phase 1: Get all team_ids with AI events (fast query)
+    # Phase 1: Get all team_ids with report trigger events (fast query)
     team_ids = get_teams_with_ai_events(period_start, period_end)
 
     if not team_ids:
-        logger.info("No teams with AI events found")
+        logger.info("No teams with LLM analytics trigger events found")
         return {}
 
-    logger.info(f"Found {len(team_ids)} teams with AI events")
+    logger.info(f"Found {len(team_ids)} teams with LLM analytics trigger events")
 
     # Phase 2: Get all metrics in a single combined query
     logger.info("Querying all AI metrics")
     all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
     logger.info(f"Retrieved metrics for {len(all_metrics)} teams")
 
-    # Phase 3: Get all dimension breakdowns in a single combined query
+    # Phase 3: Get LLM prompt fetched counts (best effort)
+    llm_prompt_fetched_counts: dict[int, int] = {}
+    try:
+        logger.info("Querying LLM prompt fetched counts")
+        llm_prompt_fetched_counts = get_llm_prompt_fetched_counts(period_start, period_end, team_ids)
+        logger.info(f"Retrieved prompt fetched counts for {len(llm_prompt_fetched_counts)} teams")
+    except Exception as err:
+        logger.exception("Failed to query LLM prompt fetched counts, continuing without prompt fetch metrics")
+        capture_exception(err)
+
+    # Phase 4: Get all dimension breakdowns in a single combined query
     logger.info("Querying all AI dimension breakdowns")
     all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
+
+    # Phase 5: Get LLM feedback survey metrics
+    logger.info("Querying LLM feedback survey metrics")
+    survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+    logger.info(f"Retrieved survey metrics for {len(survey_metrics)} teams")
 
     # Get team to organization mapping
     teams = Team.objects.filter(id__in=team_ids).select_related("organization")
@@ -532,6 +675,9 @@ def _get_all_llm_analytics_reports(
                 "ai_metric_count": 0,
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
+                "llm_prompt_fetched_count": 0,
+                "active_llm_feedback_survey_count": 0,
+                "llm_feedback_survey_response_count": 0,
                 "total_ai_cost_usd": 0.0,
                 "input_cost_usd": 0.0,
                 "output_cost_usd": 0.0,
@@ -578,6 +724,14 @@ def _get_all_llm_analytics_reports(
             report["total_reasoning_tokens"] += metrics.reasoning_tokens
             report["total_cache_read_tokens"] += metrics.cache_read_tokens
             report["total_cache_creation_tokens"] += metrics.cache_creation_tokens
+
+        report["llm_prompt_fetched_count"] += llm_prompt_fetched_counts.get(team_id, 0)
+
+        # Add LLM feedback survey metrics
+        team_survey = survey_metrics.get(team_id)
+        if team_survey:
+            report["active_llm_feedback_survey_count"] += team_survey.active_survey_count
+            report["llm_feedback_survey_response_count"] += team_survey.response_count
 
         # Add dimension breakdowns from TeamDimensionBreakdowns dataclass
         breakdowns = all_breakdowns.get(team_id)

@@ -16,7 +16,11 @@ use property_defs_rs::{
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_simple_batch_write(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
-    let cache: Arc<Cache> = Arc::new(Cache::new(config.cache_capacity));
+    let cache: Arc<Cache> = Arc::new(Cache::new(
+        config.eventdefs_cache_capacity,
+        config.eventprops_cache_capacity,
+        config.propdefs_cache_capacity,
+    ));
     let updates = gen_test_event_updates("$pageview", 100, None);
     // should decompose into 1 event def, 100 event props, 100 prop defs (of event type)
     assert_eq!(updates.len(), 201);
@@ -29,6 +33,13 @@ async fn test_simple_batch_write(db: PgPool) {
         .await
         .unwrap();
     assert_eq!(String::from("$pageview"), event_def_name);
+
+    let enforcement_mode: String =
+        sqlx::query_scalar!(r#"SELECT enforcement_mode from posthog_eventdefinition"#)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(String::from("allow"), enforcement_mode);
 
     let prop_defs_count: Option<i64> =
         sqlx::query_scalar!(r#"SELECT count(*) from posthog_propertydefinition"#)
@@ -57,7 +68,11 @@ async fn test_group_batch_write(db: PgPool) {
     .await;
 
     let config = Config::init_with_defaults().unwrap();
-    let cache: Arc<Cache> = Arc::new(Cache::new(config.cache_capacity));
+    let cache: Arc<Cache> = Arc::new(Cache::new(
+        config.eventdefs_cache_capacity,
+        config.eventprops_cache_capacity,
+        config.propdefs_cache_capacity,
+    ));
     let mut updates =
         gen_test_event_updates("$groupidentify", 100, Some(PropertyParentType::Group));
     // should decompose into 1 group event def, 100 prop defs (of group type), 100 event props
@@ -105,7 +120,11 @@ async fn test_group_batch_write(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_person_batch_write(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
-    let cache: Arc<Cache> = Arc::new(Cache::new(config.cache_capacity));
+    let cache: Arc<Cache> = Arc::new(Cache::new(
+        config.eventdefs_cache_capacity,
+        config.eventprops_cache_capacity,
+        config.propdefs_cache_capacity,
+    ));
     let updates =
         gen_test_event_updates("event_with_person", 100, Some(PropertyParentType::Person));
     // should decompose into 1 event def, 100 event props, 100 prop defs (50 $set, 50 $set_once props)
@@ -230,7 +249,11 @@ fn gen_test_prop_key_value(ndx: usize) -> (String, Value) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_property_definitions_conflict_update(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
-    let cache: Arc<Cache> = Arc::new(Cache::new(config.cache_capacity));
+    let cache: Arc<Cache> = Arc::new(Cache::new(
+        config.eventdefs_cache_capacity,
+        config.eventprops_cache_capacity,
+        config.propdefs_cache_capacity,
+    ));
 
     // First, insert a property definition with null type and is_numerical false
     let initial_prop = property_defs_rs::types::PropertyDefinition {

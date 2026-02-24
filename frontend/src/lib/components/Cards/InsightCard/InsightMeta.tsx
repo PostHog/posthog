@@ -266,7 +266,7 @@ export function InsightMeta({
                                 to={
                                     isDataVisualizationNode(insight.query)
                                         ? urls.sqlEditor({ insightShortId: short_id })
-                                        : urls.insightEdit(short_id)
+                                        : urls.insightEdit(short_id, dashboardId)
                                 }
                                 fullWidth
                                 {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}

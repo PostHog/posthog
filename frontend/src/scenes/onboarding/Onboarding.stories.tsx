@@ -259,6 +259,27 @@ export const Alerts = (): JSX.Element => {
 }
 
 // ==========================================
+// Workflows
+// ==========================================
+
+export const WorkflowsCustomInstallationInstructions = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.WORKFLOWS])
+        router.actions.push(
+            urls.onboarding({
+                productKey: ProductKey.WORKFLOWS,
+                stepKey: OnboardingStepKey.INSTALL,
+            })
+        )
+    })
+
+    return <App />
+}
+
+// ==========================================
 // Shared Steps
 // ==========================================
 

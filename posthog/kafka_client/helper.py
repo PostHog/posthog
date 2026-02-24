@@ -1,20 +1,22 @@
 """
-Helper methods for creating the kafka-python KafkaProducer and KafkaConsumer objects.
+Helper methods for creating Kafka producer and consumer objects with SSL authentication.
+Originally for Heroku-style base64-encoded certificates.
 https://github.com/heroku/kafka-helper
 """
 
 import os
 import ssl
 import json
+import atexit
 import base64
-from base64 import standard_b64encode
 from tempfile import NamedTemporaryFile
 
 from django.conf import settings
 
+from confluent_kafka import Producer as ConfluentProducer
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import KafkaConsumer
 
 
 def get_kafka_ssl_context():
@@ -48,7 +50,7 @@ def get_kafka_ssl_context():
 
         # setup cryptography to password encrypt/protect the client key so it's not in the clear on
         # the filesystem.  Use the generated password in the call to load_cert_chain
-        passwd = standard_b64encode(os.urandom(33))
+        passwd = base64.standard_b64encode(os.urandom(33))
         private_key = serialization.load_pem_private_key(
             base64.b64decode(os.environ["KAFKA_CLIENT_CERT_KEY_B64"].encode("utf-8")),
             password=None,
@@ -80,25 +82,110 @@ def get_kafka_ssl_context():
     return ssl_context
 
 
-def get_kafka_producer(acks="all", value_serializer=lambda v: json.dumps(v).encode("utf-8"), **kwargs):
-    """
-    Return a KafkaProducer that uses the SSLContext created with create_ssl_context.
-    """
+def _cleanup_ssl_files():
+    """Clean up SSL files on process exit."""
+    global _ssl_files
+    if _ssl_files is not None:
+        cert_file, key_file, ca_file = _ssl_files
+        for f in (cert_file, key_file, ca_file):
+            try:
+                f.close()
+                os.unlink(f.name)
+            except (OSError, FileNotFoundError):
+                pass
+        _ssl_files = None
 
-    producer = KafkaProducer(
-        bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol="SSL",
-        ssl_context=get_kafka_ssl_context(),
-        value_serializer=value_serializer,
-        acks=acks,
-        # Proactively recycle idle connections before NAT Gateway/NLB kills them (350s timeout)
-        connections_max_idle_ms=60000,  # 1 minute
-        reconnect_backoff_ms=50,
-        reconnect_backoff_max_ms=1000,
-        **kwargs,
+
+def _write_ssl_files_for_confluent():
+    """
+    Write SSL certificate files for confluent-kafka and return the file paths.
+    confluent-kafka requires file paths rather than SSL contexts.
+
+    Returns a tuple of (cert_path, key_path, ca_path) as temporary file paths.
+    Files are created with delete=False but cleaned up via atexit handler.
+    """
+    cert_file = NamedTemporaryFile(suffix=".crt", delete=False, mode="wb")
+    key_file = NamedTemporaryFile(suffix=".key", delete=False, mode="wb")
+    ca_file = NamedTemporaryFile(suffix=".crt", delete=False, mode="wb")
+
+    # Set restrictive permissions on the key file (owner read/write only)
+    os.chmod(key_file.name, 0o600)
+
+    cert_file.write(base64.b64decode(os.environ["KAFKA_CLIENT_CERT_B64"].encode("utf-8")))
+    cert_file.flush()
+
+    # Write the private key (unencrypted for confluent-kafka)
+    private_key = serialization.load_pem_private_key(
+        base64.b64decode(os.environ["KAFKA_CLIENT_CERT_KEY_B64"].encode("utf-8")),
+        password=None,
+        backend=default_backend(),
     )
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    key_file.write(pem)
+    key_file.flush()
 
-    return producer
+    ca_file.write(base64.b64decode(os.environ["KAFKA_TRUSTED_CERT_B64"].encode("utf-8")))
+    ca_file.flush()
+
+    # Register cleanup handler
+    atexit.register(_cleanup_ssl_files)
+
+    return cert_file, key_file, ca_file
+
+
+# Module-level storage for SSL files to keep them alive
+_ssl_files: tuple | None = None
+
+
+def get_kafka_producer(retries: int = 5) -> ConfluentProducer:
+    """
+    Return a confluent-kafka Producer that uses SSL certificates from environment variables.
+    """
+    global _ssl_files
+
+    # Write SSL files once and keep them around
+    if _ssl_files is None:
+        _ssl_files = _write_ssl_files_for_confluent()
+
+    cert_file, key_file, ca_file = _ssl_files
+
+    hosts = settings.KAFKA_HOSTS
+    bootstrap_servers = ",".join(hosts) if isinstance(hosts, list) else hosts
+
+    config = {
+        "bootstrap.servers": bootstrap_servers,
+        "security.protocol": "SSL",
+        "ssl.certificate.location": cert_file.name,
+        "ssl.key.location": key_file.name,
+        "ssl.ca.location": ca_file.name,
+        # Disable hostname verification (same as original)
+        "ssl.endpoint.identification.algorithm": "none",
+        # Wait for leader to acknowledge (matches kafka-python default)
+        "acks": 1,
+        # Retry configuration
+        "message.send.max.retries": retries,
+        "retry.backoff.ms": 100,
+        # Connection management
+        "connections.max.idle.ms": 60000,
+        "reconnect.backoff.ms": 50,
+        "reconnect.backoff.max.ms": 1000,
+        # Timeouts
+        "socket.timeout.ms": 60000,
+        "request.timeout.ms": 30000,
+        # Explicit API version to avoid slow auto-detection
+        "api.version.request": True,
+        "broker.version.fallback": "2.8.0",
+        # Enable TCP keepalive
+        "socket.keepalive.enable": True,
+        # Delivery report callback will be called for all messages
+        "delivery.report.only.error": False,
+    }
+
+    return ConfluentProducer(config)
 
 
 def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.decode("utf-8")), **kwargs):

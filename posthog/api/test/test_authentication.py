@@ -17,6 +17,7 @@ from django.utils import timezone
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.parsers import JSONParser
@@ -1465,6 +1466,8 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertFalse(self.user.check_password("a12345678"))
 
     def test_e2e_test_special_handlers(self):
+        self.ensure_url_patterns_loaded()
+
         with self.settings(E2E_TESTING=True):
             response = self.client.get("/api/reset/e2e_test_user/?token=e2e_test_token")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1622,7 +1625,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }
@@ -1645,7 +1648,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }
@@ -1686,6 +1689,42 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.patch(
                 "/api/users/@me",
                 {"set_current_organization": str(self.organization.id)},
+            )
+            assert res.status_code == 200
+
+    @parameterized.expand(
+        [
+            ("set_current_team", {"set_current_team": "1"}),
+            ("events_column_config", {"events_column_config": {"active": "type"}}),
+            ("role_at_organization", {"role_at_organization": "engineering"}),
+        ]
+    )
+    def test_user_can_update_non_sensitive_fields_without_recent_authentication(self, _name, payload):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/users/@me", payload, format="json")
+            assert res.status_code != 403, f"Field update should not require re-authentication, got: {res.json()}"
+
+    def test_user_can_update_hedgehog_config_without_recent_authentication(self):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch(
+                "/api/users/@me/hedgehog_config",
+                {"enabled": True, "color": "red"},
+                format="json",
+            )
+            assert res.status_code == 200
+
+    def test_user_can_update_scene_personalisation_without_recent_authentication(self):
+        from posthog.models.dashboard import Dashboard
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test")
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.post(
+                "/api/users/@me/scene_personalisation",
+                {"scene": "Person", "dashboard": dashboard.id},
+                format="json",
             )
             assert res.status_code == 200
 

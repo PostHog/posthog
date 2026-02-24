@@ -43,9 +43,7 @@ export function ClickToInspectActors({
             )}
             {showShiftKeyHint && (
                 <>
-                    <div>
-                        Hold Shift (<kbd className="KeyboardShortcut__key">⇧</kbd>) to highlight individual bars
-                    </div>
+                    <div>Hold Shift (⇧) to highlight individual bars</div>
                     <br />
                 </>
             )}

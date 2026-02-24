@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -20,7 +18,6 @@ export const scene: SceneExport = {
 
 export function TaskTracker(): JSX.Element {
     const isEnabled = useFeatureFlag('TASKS')
-    useValues(taskTrackerSceneLogic) // Mount the logic
 
     if (!isEnabled) {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />

@@ -15,14 +15,6 @@ export {
 } from './per-distinct-id-pipeline'
 
 export {
-    createPreprocessingPipeline,
-    PreprocessingHub,
-    PreprocessingPipelineConfig,
-    PreprocessingPipelineContext,
-    PreprocessingPipelineInput,
-} from './preprocessing-pipeline'
-
-export {
     createPostTeamPreprocessingSubpipeline,
     PostTeamPreprocessingSubpipelineConfig,
     PostTeamPreprocessingSubpipelineInput,
@@ -38,4 +30,5 @@ export {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineInput,
+    PreprocessingHub,
 } from './joined-ingestion-pipeline'

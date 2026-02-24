@@ -21,7 +21,7 @@ use tracing::{debug, error, info, warn};
 use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
-use crate::event_restrictions::EventRestrictionService;
+use crate::event_restrictions::{EventRestrictionService, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
@@ -76,10 +76,7 @@ fn spawn_connection_handler(
             "stage" => stage,
         )
         .increment(1);
-        warn!(
-            "Hyper accept loop ({}): error setting TCP_NODELAY: {}",
-            stage, e
-        );
+        warn!("Hyper accept loop ({stage}): error setting TCP_NODELAY: {e:#}");
     }
 
     let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
@@ -376,11 +373,9 @@ where
         Option<JoinHandle<()>>,
     ) = if config.event_restrictions_enabled {
         if let Some(ref redis_url) = config.event_restrictions_redis_url {
-            let restrictions_redis = Arc::new(
-                RedisClient::with_config(
+            let repository = Arc::new(
+                RedisRestrictionsRepository::new(
                     redis_url.clone(),
-                    common_redis::CompressionConfig::disabled(),
-                    common_redis::RedisValueFormat::default(),
                     if config.redis_response_timeout_ms == 0 {
                         None
                     } else {
@@ -393,7 +388,7 @@ where
                     },
                 )
                 .await
-                .expect("failed to create event restrictions redis client"),
+                .expect("failed to create event restrictions repository"),
             );
 
             let service = EventRestrictionService::new(
@@ -411,7 +406,7 @@ where
             let task_cancel_token = cancel_token.clone();
             let handle = tokio::spawn(async move {
                 service_clone
-                    .start_refresh_task(restrictions_redis, refresh_interval, task_cancel_token)
+                    .start_refresh_task(repository, refresh_interval, task_cancel_token)
                     .await;
             });
 
@@ -497,13 +492,13 @@ where
                                 "err_type" => "connection",
                                 "stage" => "accept",
                             ).increment(1);
-                            error!("Hyper accept loop: connection error: {}", e);
+                            error!("Hyper accept loop: connection error: {e:#}");
                         } else {
                             metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
                                 "err_type" => "resources",
                                 "stage" => "accept",
                             ).increment(1);
-                            error!("Hyper accept loop: resource error: {}", e);
+                            error!("Hyper accept loop: resource error: {e:#}");
                             tokio::time::sleep(Duration::from_secs(1)).await;
                         }
                         continue;
@@ -566,8 +561,7 @@ where
                     error!(
                         error_type = "connection",
                         pause = "none",
-                        "Hyper accept loop (draining): {}",
-                        e
+                        "Hyper accept loop (draining): {e:#}"
                     );
                 } else {
                     metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
@@ -578,8 +572,7 @@ where
                     error!(
                         error_type = "resources",
                         pause = "none",
-                        "Hyper accept loop (draining): {}",
-                        e
+                        "Hyper accept loop (draining): {e:#}"
                     );
                 }
             }
@@ -606,7 +599,7 @@ where
         info!("Shutting down event restrictions refresh task...");
         cancel_token.cancel();
         if let Err(e) = handle.await {
-            warn!("Event restrictions refresh task failed: {}", e);
+            warn!("Event restrictions refresh task failed: {e:#}");
         }
         info!("Event restrictions refresh task stopped");
     }

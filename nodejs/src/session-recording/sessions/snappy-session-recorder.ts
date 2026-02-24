@@ -120,8 +120,8 @@ export class SnappySessionRecorder {
         let rawBytesWritten = 0
 
         // Note: We don't need to check for zero timestamps here because:
-        // 1. KafkaMessageParser filters out events with zero timestamps
-        // 2. KafkaMessageParser drops messages with no events
+        // 1. The parse step filters out events with zero timestamps
+        // 2. The parse step drops messages with no valid events
         // Therefore, eventsRange.start and eventsRange.end will always be present and non-zero
         if (!this.startDateTime || message.eventsRange.start < this.startDateTime) {
             this.startDateTime = message.eventsRange.start

@@ -3910,6 +3910,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         [
             ("ExposedCHQueryError", "posthog.errors.ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse"),
             ("ExposedHogQLError", "posthog.hogql.errors.ExposedHogQLError", "Invalid HogQL syntax"),
+            ("HogVMException", "common.hogvm.python.utils.HogVMException", "Global variable not found: variables"),
         ]
     )
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
@@ -3920,8 +3921,14 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         from posthog.errors import ExposedCHQueryError
 
-        error_class = ExposedCHQueryError if "ExposedCHQueryError" in error_class_path else ExposedHogQLError
-        mock_calculate.side_effect = error_class(error_message)
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+        }
+        mock_calculate.side_effect = error_classes[_name](error_message)
 
         insight = Insight.objects.create(
             team=self.team,
@@ -3940,6 +3947,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         [
             ("ExposedCHQueryError", "ClickHouse trend error"),
             ("ExposedHogQLError", "HogQL trend error"),
+            ("HogVMException", "Global variable not found: variables"),
         ]
     )
     @patch("posthog.api.insight.InsightViewSet.calculate_trends_hogql")
@@ -3951,8 +3959,14 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         from posthog.errors import ExposedCHQueryError
 
-        error_class = ExposedCHQueryError if error_type == "ExposedCHQueryError" else ExposedHogQLError
-        mock_calculate.side_effect = error_class(error_message)
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+        }
+        mock_calculate.side_effect = error_classes[error_type](error_message)
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/trend/",
@@ -3966,6 +3980,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         [
             ("ExposedCHQueryError", "ClickHouse funnel error"),
             ("ExposedHogQLError", "HogQL funnel error"),
+            ("HogVMException", "Global variable not found: variables"),
         ]
     )
     @patch("posthog.api.insight.InsightViewSet.calculate_funnel_hogql")
@@ -3977,8 +3992,14 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         from posthog.errors import ExposedCHQueryError
 
-        error_class = ExposedCHQueryError if error_type == "ExposedCHQueryError" else ExposedHogQLError
-        mock_calculate.side_effect = error_class(error_message)
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+        }
+        mock_calculate.side_effect = error_classes[error_type](error_message)
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/funnel/",

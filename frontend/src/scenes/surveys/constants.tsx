@@ -200,6 +200,7 @@ export interface NewSurvey
         | 'user_access_level'
         | 'headline_summary'
         | 'headline_response_count'
+        | 'form_content'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -235,6 +236,7 @@ export const NEW_SURVEY: NewSurvey = {
     iteration_frequency_days: null,
     enable_partial_responses: true,
     user_access_level: AccessControlLevel.Editor,
+    form_content: null,
 }
 
 export enum SurveyTemplateType {
@@ -694,6 +696,7 @@ export enum SURVEY_CREATED_SOURCE {
     CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
     ERROR_TRACKING = 'error_tracking',
     WEB_ANALYTICS = 'web_analytics',
+    LLM_ANALYTICS = 'llm_analytics',
 }
 
 export enum SURVEY_FORM_INPUT_IDS {

@@ -1,0 +1,22 @@
+name: Inkeep Agent
+
+on:
+    pull_request:
+        types: [closed]
+
+permissions:
+    contents: read
+    pull-requests: read
+    id-token: write
+
+jobs:
+    trigger-agent:
+        if: github.event.pull_request.merged == true
+        runs-on: ubuntu-latest
+        steps:
+            - name: Trigger Inkeep Agent
+              uses: inkeep/inkeep-agents-action@v0
+              with:
+                  trigger-url: ${{ secrets.INKEEP_TRIGGER_URL }}
+                  # Filters out PRs that dont match the given regex. Update regex as desired or remove entirely
+                  pr-title-regex: '^(feat|fix|docs|chore)(\(.+\))?:'

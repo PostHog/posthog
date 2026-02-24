@@ -91,7 +91,7 @@ def _run_cache_verification(cache_type: CacheType, chunk_size: int) -> None:
 
 @shared_task(
     ignore_result=True,
-    queue=CeleryQueue.DEFAULT.value,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     soft_time_limit=20 * 60,  # 20 min soft limit
     time_limit=25 * 60,  # 25 min hard limit (matches LOCK_TIMEOUT_SECONDS)
 )

@@ -88,10 +88,6 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
         merged_request.resource_logs.extend(request.resource_logs);
     }
 
-    if merged_request.resource_logs.is_empty() {
-        return Err(anyhow::anyhow!("No valid log data found in request"));
-    }
-
     Ok(merged_request)
 }
 

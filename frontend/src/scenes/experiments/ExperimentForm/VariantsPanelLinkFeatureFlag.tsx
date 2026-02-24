@@ -1,7 +1,5 @@
 import { useState } from 'react'
 
-import { IconToggle } from '@posthog/icons'
-
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -84,10 +82,7 @@ export const VariantsPanelLinkFeatureFlag = ({
             <div>
                 <label className="text-sm font-semibold">Selected Feature Flag</label>
                 <div className="mt-2 p-8 border border-dashed rounded-lg bg-bg-light flex flex-col items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <IconToggle className="text-muted text-2xl" />
-                        <div className="text-base font-semibold">No feature flag selected</div>
-                    </div>
+                    <div className="text-base font-semibold">No feature flag selected</div>
                     <div className="text-sm text-muted-alt text-center">
                         Select an existing multivariate feature flag to use with this experiment
                     </div>
@@ -108,8 +103,8 @@ export const VariantsPanelLinkFeatureFlag = ({
                 {/* Header: Flag key + link + change button */}
                 <div className="flex flex-row gap-4">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <IconToggle className="text-lg flex-shrink-0" />
                         <div className="font-semibold text-base truncate">{linkedFeatureFlag.key}</div>
+                        {!linkedFeatureFlag.active && <LemonTag type="default">Inactive</LemonTag>}
                         <Link
                             to={urls.featureFlag(linkedFeatureFlag.id as number)}
                             target="_blank"
@@ -133,32 +128,29 @@ export const VariantsPanelLinkFeatureFlag = ({
                     </LemonButton>
                 </div>
 
-                {/* Status */}
-                <div className="flex items-center gap-2">
-                    <div
-                        className={`w-2 h-2 rounded-full ${linkedFeatureFlag.active ? 'bg-success' : 'bg-muted'}`}
-                        title={linkedFeatureFlag.active ? 'Active' : 'Inactive'}
-                    />
-                    <span className="text-sm font-medium">{linkedFeatureFlag.active ? 'Active' : 'Inactive'}</span>
-                </div>
-
                 {/* Description */}
-                {linkedFeatureFlag.name && <div className="text-sm text-muted-alt">{linkedFeatureFlag.name}</div>}
+                {linkedFeatureFlag.name && (
+                    <div className="text-sm text-muted-alt -mt-2 mb-3">{linkedFeatureFlag.name}</div>
+                )}
 
-                {/* Variants */}
-                <div className="space-y-2">
-                    <div className="text-xs uppercase tracking-wide font-semibold text-muted">Variants</div>
-                    <div className="flex flex-wrap gap-1.5">
-                        {variants.map(({ key }) => (
-                            <LemonTag key={key} type={key === 'control' ? 'primary' : 'default'}>
-                                {key}
-                            </LemonTag>
-                        ))}
+                <div className="flex gap-10">
+                    {/* Variants */}
+                    <div className="space-y-2">
+                        <div className="text-xs uppercase tracking-wide font-semibold text-muted">Variants</div>
+                        <div className="flex flex-wrap gap-1.5">
+                            {variants.map(({ key }) => (
+                                <LemonTag key={key} type={key === 'control' ? 'primary' : 'default'}>
+                                    {key}
+                                </LemonTag>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Targeting */}
+                    <div className="flex-1">
+                        <TargetingSummary flag={linkedFeatureFlag} />
                     </div>
                 </div>
-
-                {/* Targeting */}
-                <TargetingSummary flag={linkedFeatureFlag} />
             </div>
         </div>
     )

@@ -2,9 +2,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = ctx
-    const JSEventCapture = snippets?.JSEventCapture
+export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, Tab, dedent } = ctx
 
     return [
         {
@@ -95,7 +94,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                                                 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
                                                     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                    defaults: '2025-11-30'
+                                                    defaults: '2026-01-30'
                                                 })
                                             `,
                                         },
@@ -126,7 +125,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                   useEffect(() => {
                                                     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
                                                       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                      defaults: '2025-11-30'
+                                                      defaults: '2026-01-30'
                                                     })
                                                   }, [])
 
@@ -190,7 +189,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                   useEffect(() => {
                                                     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
                                                       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                      defaults: '2025-11-30',
+                                                      defaults: '2026-01-30',
                                                       loaded: (posthog) => {
                                                         if (process.env.NODE_ENV === 'development') posthog.debug()
                                                       }
@@ -290,6 +289,13 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
+    ]
+}
+
+export const getNextJSServerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, Tab, dedent } = ctx
+
+    return [
         {
             title: 'Server-side setup',
             badge: 'optional',
@@ -436,6 +442,16 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
+    ]
+}
+
+export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { snippets } = ctx
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return [
+        ...getNextJSClientSteps(ctx),
+        ...getNextJSServerSteps(ctx),
         {
             title: 'Send events',
             badge: 'recommended',

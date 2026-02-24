@@ -162,14 +162,16 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                             editingKey.access_type === 'teams'
                                                         return (
                                                             <Fragment key={key}>
-                                                                <div className="flex items-center justify-between gap-2 min-h-8">
+                                                                <div className="flex items-center justify-between gap-2 min-h-8 group">
                                                                     <div
                                                                         className={clsx(
                                                                             'flex items-center gap-1',
                                                                             disabledDueToProjectScope && 'text-muted'
                                                                         )}
                                                                     >
-                                                                        <b>{objectName}</b>
+                                                                        <b className="transition-colors group-hover:text-highlight">
+                                                                            {objectName}
+                                                                        </b>
 
                                                                         {info ? (
                                                                             <Tooltip title={info}>
@@ -588,18 +590,6 @@ export function PersonalAPIKeys(): JSX.Element {
 
     return (
         <>
-            <p>
-                These keys allow full access to your personal account through the API, as if you were logged in. You can
-                also use them in integrations, such as{' '}
-                <Link to="https://zapier.com/apps/posthog/">our premium Zapier one</Link>.
-                <br />
-                Try not to keep disused keys around. If you have any suspicion that one of these may be compromised,
-                delete it and use a new one.
-                <br />
-                <Link to="https://posthog.com/docs/api/overview#authentication">
-                    More about API authentication in PostHog Docs.
-                </Link>
-            </p>
             <LemonButton
                 type="primary"
                 icon={<IconPlus />}

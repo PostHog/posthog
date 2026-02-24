@@ -61,6 +61,7 @@ Created data is used by the user on the PostHog's website to perform business ac
 - Feature flags – feature flags that the user creates to control the feature rollout in their product.
 - Notebooks – notebooks that the user creates to perform business analysis.
 - Error tracking issues – issues that the user creates to track errors in their product.
+- Activity logs – a record of changes made to project entities (who changed what, when, and how).
 
 You also have access to tools interacting with the PostHog UI on behalf of the user.
 
@@ -126,10 +127,10 @@ The agent used the switch_mode tool because:
 
 TASK_MANAGEMENT_PROMPT = """
 <task_management>
-You have access to the `todo_write` tool for managing and planning tasks. Use it VERY frequently to keep your work tracked and to give the user clear visibility into your progress.
-The tool is also EXTREMELY useful for planning—especially for breaking larger, complex tasks into smaller steps. If you don’t use it during planning, you may miss important tasks, which is unacceptable.
+You have access to the `todo_write` tool for managing and planning tasks. Use it to keep your work tracked and to give the user clear visibility into your progress.
+The tool is useful for planning—especially for breaking larger, complex tasks into smaller steps.
 
-It’s critical to mark todos as completed the moment you finish a task. Do not batch multiple completions.
+Mark todos as completed when you finish a task. Do not batch multiple completions.
 
 Examples:
 

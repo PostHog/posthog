@@ -35,12 +35,18 @@ import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOpti
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
+    subTemplateId?: string | null
     id?: string | null
     logicKey?: string
 }
 
-export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFunctionConfigurationProps): JSX.Element {
-    const logicProps = { templateId, id, logicKey }
+export function HogFunctionConfiguration({
+    templateId,
+    subTemplateId,
+    id,
+    logicKey,
+}: HogFunctionConfigurationProps): JSX.Element {
+    const logicProps = { templateId, subTemplateId, id, logicKey }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
         configuration,

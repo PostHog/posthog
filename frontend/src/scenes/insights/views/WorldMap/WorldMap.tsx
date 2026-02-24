@@ -72,7 +72,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                             showHeader={false}
                             hideColorCol
                             hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
-                            groupTypeLabel={aggregationLabel(series?.[0].math_group_type_index).plural}
+                            groupTypeLabel={aggregationLabel(series?.[0]?.math_group_type_index).plural}
                         />
                     )}
                 </>

@@ -20,6 +20,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
@@ -35,6 +36,7 @@ import {
     ItemMode,
     ProjectTreeRef,
     QueryBasedInsightModel,
+    SidePanelTab,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -279,12 +281,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                           path: urls.llmAnalyticsDashboard(),
                                           iconType: 'llm_analytics' as FileSystemIconType,
                                       }
-                                    : {
-                                          key: Scene.SavedInsights,
-                                          name: 'Product analytics',
-                                          path: urls.savedInsights(),
-                                          iconType: 'product_analytics' as FileSystemIconType,
-                                      },
+                                    : sceneSource === 'endpoints'
+                                      ? {
+                                            key: Scene.Endpoints,
+                                            name: 'endpoints',
+                                            path: urls.endpoints(),
+                                            iconType: 'endpoints' as FileSystemIconType,
+                                        }
+                                      : {
+                                            key: Scene.SavedInsights,
+                                            name: 'Product analytics',
+                                            path: urls.savedInsights(),
+                                            iconType: 'product_analytics' as FileSystemIconType,
+                                        },
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
@@ -388,7 +397,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     })),
     listeners(({ sharedListeners, values }) => ({
         setInsightMode: sharedListeners.reloadInsightLogic,
-        setSceneState: sharedListeners.reloadInsightLogic,
+        setSceneState: [
+            sharedListeners.reloadInsightLogic,
+            ({ sceneSource }) => {
+                if (sceneSource === 'endpoints') {
+                    sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Info)
+                }
+            },
+        ],
         upgradeQuery: async ({ query }) => {
             let upgradedQuery: Node | null = null
 
@@ -399,17 +415,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 upgradedQuery = query
             }
 
-            values.insightLogicRef?.logic.actions.setInsight(
-                {
-                    ...createEmptyInsight(`new-${values.tabId}`),
-                    ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
-                    query: upgradedQuery,
-                },
-                {
-                    fromPersistentApi: false,
-                    overrideQuery: true,
-                }
-            )
+            if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
+                values.insightLogicRef?.logic.actions.setInsight(
+                    {
+                        ...createEmptyInsight(`new-${values.tabId}`),
+                        ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
+                        query: upgradedQuery,
+                    },
+                    {
+                        fromPersistentApi: false,
+                        overrideQuery: true,
+                    }
+                )
+            } else {
+                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery)
+            }
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
@@ -437,9 +457,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const currentScene = sceneLogic.findMounted()?.values
 
-            const alertChanged = alert_id !== values.alertId
+            const alertChanged = (alert_id ?? null) !== values.alertId
+            const isExistingInsight = shortId !== 'new'
 
             if (
+                isExistingInsight &&
                 currentScene?.activeSceneId === Scene.Insight &&
                 currentScene.activeSceneLogic &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
@@ -447,7 +469,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     insightMode &&
                 !alertChanged
             ) {
-                // If nothing about the scene has changed, don't do anything
+                // Nothing about the scene has changed, skip re-processing.
+                // New insights (/insights/new) are excluded because the insight type
+                // or dashboard in hash/search params may have changed.
                 return
             }
 
@@ -464,14 +488,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
-                itemId !== values.itemId ||
+                (itemId ?? null) !== values.itemId ||
                 (sceneSource ?? null) !== values.sceneSource ||
                 alertChanged ||
-                !objectsEqual(variablesOverride, values.variablesOverride) ||
-                !objectsEqual(filtersOverride, values.filtersOverride) ||
-                !objectsEqual(tileFiltersOverride, values.tileFiltersOverride) ||
-                dashboard !== values.dashboardId ||
-                dashboardName !== values.dashboardName
+                !objectsEqual(variablesOverride ?? null, values.variablesOverride) ||
+                !objectsEqual(filtersOverride ?? null, values.filtersOverride) ||
+                !objectsEqual(tileFiltersOverride ?? null, values.tileFiltersOverride) ||
+                (dashboard ?? null) !== values.dashboardId ||
+                (dashboardName ?? null) !== values.dashboardName
             ) {
                 actions.setSceneState(
                     insightId,

@@ -3,13 +3,13 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
-import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
+import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
-import { MinimalHedgehogConfig, UserBasicType } from '~/types'
+import { HedgehogConfig, MinimalHedgehogConfig, UserBasicType } from '~/types'
 
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { IconRobot } from '../icons'
@@ -17,7 +17,7 @@ import { IconRobot } from '../icons'
 export interface ProfilePictureProps {
     user?:
         | (Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name'> & {
-              hedgehog_config?: Partial<MinimalHedgehogConfig>
+              hedgehog_config?: MinimalHedgehogConfig | HedgehogConfig
           })
         | null
     name?: string
@@ -35,6 +35,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
 ) {
     const { user: currentUser } = useValues(userLogic)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
+    const imgRef = useRef<HTMLImageElement>(null)
 
     let email = user?.email
 
@@ -59,37 +60,56 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         }
     }, [email, hedgehogProfile, name])
 
+    useEffect(() => {
+        const controller = new AbortController()
+        const img = imgRef.current
+        if (img) {
+            // Check if already loaded before attaching listeners
+            if (img.complete) {
+                if (img.naturalHeight !== 0) {
+                    setGravatarLoaded(true)
+                } else {
+                    setGravatarLoaded(false)
+                }
+            }
+            const onLoad = (): void => setGravatarLoaded(true)
+            const onError = (): void => setGravatarLoaded(false)
+            img.addEventListener('load', onLoad, { signal: controller.signal })
+            img.addEventListener('error', onError, { signal: controller.signal })
+        }
+        return () => {
+            controller.abort()
+        }
+    }, [gravatarUrl])
+
     const pictureComponent = (
         <span className={clsx('ProfilePicture ph-no-capture', size, className)} ref={ref}>
-            {hedgehogProfile ? (
-                <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
+            {hedgehogProfile && user.hedgehog_config ? (
+                <HedgehogModeProfile config={user.hedgehog_config} size="100%" />
             ) : (
                 gravatarLoaded !== true && (
                     <>
                         {type === 'bot' ? (
                             <IconRobot className="p-0.5" />
-                        ) : !hedgehogProfile ? (
+                        ) : (
                             <Lettermark
                                 name={combinedNameAndEmail}
                                 index={index}
                                 rounded
                                 color={type === 'system' ? LettermarkColor.Gray : undefined}
                             />
-                        ) : (
-                            <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
                         )}
                     </>
                 )
             )}
             {gravatarUrl && gravatarLoaded !== false ? (
                 <img
+                    ref={imgRef}
                     className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
                     loading="lazy"
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                     alt=""
-                    onError={() => setGravatarLoaded(false)}
-                    onLoad={() => setGravatarLoaded(true)}
                 />
             ) : null}
         </span>

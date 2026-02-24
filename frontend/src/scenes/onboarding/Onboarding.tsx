@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
 import { productSelectionLogic } from 'scenes/onboarding/productSelection/productSelectionLogic'
+import { useWizardCommand } from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,6 +23,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
+import { OnboardingMax } from './OnboardingMax'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
@@ -33,10 +37,17 @@ import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
-import { LLMAnalyticsSDKInstructions } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
-import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import {
+    LLMAnalyticsSDKInstructions,
+    LLMAnalyticsSDKTagOverrides,
+} from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
+import {
+    ProductAnalyticsSDKInstructions,
+    ProductAnalyticsSDKTagOverrides,
+} from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
+import { WorkflowsSDKInstructions, WorkflowsSDKTagOverrides } from './sdks/workflows/WorkflowsSDKInstructions'
 import { OnboardingWebAnalyticsAuthorizedDomainsStep } from './web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
 
 export const scene: SceneExport = {
@@ -53,16 +64,16 @@ const OnboardingWrapper = ({
 }: { children: React.ReactNode } & OnboardingLogicProps): JSX.Element => {
     const logic = onboardingLogic(logicProps)
     const {
-        productKey,
         currentOnboardingStep,
         shouldShowBillingStep,
         shouldShowReverseProxyStep,
         shouldShowDataWarehouseStep,
         product,
+        billingProduct,
         waitForBilling,
     } = useValues(logic)
     const { setAllOnboardingSteps } = useActions(logic)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billingLoading } = useValues(billingLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const minAdminRestrictionReason = useRestrictedArea({
@@ -92,14 +103,13 @@ const OnboardingWrapper = ({
             steps = [...steps, ReverseProxyStep]
         }
 
-        const billingProduct = billing?.products.find((p) => p.type === productKey)
         if (shouldShowBillingStep && billingProduct) {
             const BillingStep = <OnboardingUpgradeStep product={billingProduct} />
 
             steps = [...steps, BillingStep]
         }
 
-        const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
+        const userCannotInvite = Boolean(minAdminRestrictionReason) && !currentOrganization?.members_can_invite
         if (!userCannotInvite) {
             const inviteTeammatesStep = <OnboardingInviteTeammates />
             steps = [...steps, inviteTeammatesStep]
@@ -204,7 +214,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={ProductAnalyticsSDKInstructions} />
+            <OnboardingInstallStep
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
+            />
             <OnboardingProductConfiguration options={filteredOptions} />
 
             <OnboardingSessionReplayConfiguration />
@@ -391,8 +404,70 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
 const LLMAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={LLMAnalyticsSDKInstructions} listeningForName="LLM generation" />
+            <OnboardingInstallStep
+                sdkInstructionMap={LLMAnalyticsSDKInstructions}
+                sdkTagOverrides={LLMAnalyticsSDKTagOverrides}
+                listeningForName="LLM generation"
+            />
         </OnboardingWrapper>
+    )
+}
+
+const WorkflowsOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <OnboardingInstallStep
+                sdkInstructionMap={WorkflowsSDKInstructions}
+                sdkTagOverrides={WorkflowsSDKTagOverrides}
+                header={<WorkflowsInstallHeader />}
+            />
+        </OnboardingWrapper>
+    )
+}
+
+const WorkflowsInstallHeader = (): JSX.Element => {
+    const { wizardCommand, isCloudOrDev } = useWizardCommand()
+
+    return (
+        <div className="mt-2 space-y-4">
+            <p className="text-sm">
+                Workflows is a no-code product - installing an SDK is optional. However, with an SDK installed, any
+                captured or custom event can be used as a{' '}
+                <Link
+                    to="https://posthog.com/docs/workflows/workflow-builder#triggers"
+                    target="_blank"
+                    targetBlankIcon={false}
+                >
+                    workflow trigger
+                </Link>
+                . Without an SDK, you're limited to webhook and manual triggers.
+            </p>
+            {isCloudOrDev && (
+                <>
+                    <LemonBanner type="info" hideIcon>
+                        <h3 className="flex items-center gap-2 pb-1">
+                            <LemonTag type="warning">BETA</LemonTag> AI setup wizard
+                        </h3>
+                        <div className="flex flex-col p-2">
+                            <p className="font-normal pb-1">
+                                The fastest way to get started. Run this command from your project root — it
+                                automatically detects your framework, installs PostHog, and sets up event capture.
+                            </p>
+                            <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
+                        </div>
+                    </LemonBanner>
+                    <p className="text-sm">
+                        After the wizard finishes, <Link to="/workflows/channels">configure a channel</Link> then head
+                        to the <Link to="/workflows">workflow builder</Link> to create your first automation.
+                    </p>
+                    <div className="flex items-center gap-3">
+                        <div className="flex-1 border-t border-border" />
+                        <span className="text-muted font-semibold text-xs uppercase">Or, set up manually</span>
+                        <div className="flex-1 border-t border-border" />
+                    </div>
+                </>
+            )}
+        </div>
     )
 }
 
@@ -406,13 +481,19 @@ export const onboardingViews = {
     [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
     [ProductKey.ERROR_TRACKING]: ErrorTrackingOnboarding,
     [ProductKey.LLM_ANALYTICS]: LLMAnalyticsOnboarding,
+    [ProductKey.WORKFLOWS]: WorkflowsOnboarding,
 }
 
 export function Onboarding(): JSX.Element | null {
     const { product, productKey } = useValues(onboardingLogic)
+    const isAIChatOnboarding = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'chat')
 
-    // Show product selection when no product is selected
+    // Show AI chat for product discovery if 'chat' variant is enabled and no product selected yet
+    // Once a product is selected, fall through to the normal onboarding steps
     if (!productKey) {
+        if (isAIChatOnboarding) {
+            return <OnboardingMax />
+        }
         return <ProductSelection />
     }
 

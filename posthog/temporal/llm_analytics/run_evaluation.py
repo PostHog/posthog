@@ -17,7 +17,7 @@ from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.llm_analytics.emit_eval_signal import emit_eval_signal_activity
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.metrics import (
     increment_errors,
@@ -27,12 +27,14 @@ from posthog.temporal.llm_analytics.metrics import (
 )
 
 from products.llm_analytics.backend.llm import Client, CompletionRequest
+from products.llm_analytics.backend.llm.config import get_eval_config
 from products.llm_analytics.backend.llm.errors import (
     AuthenticationError,
     ModelNotFoundError,
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
+    StructuredOutputParseError,
 )
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
@@ -206,13 +208,29 @@ async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
     await database_sync_to_async(_disable)()
 
 
+@dataclass
+class ExecuteLLMJudgeInputs:
+    evaluation: dict[str, Any]
+    event_data: dict[str, Any]
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.evaluation.get("team_id"),
+            "evaluation_id": self.evaluation.get("id"),
+        }
+
+
 @temporalio.activity.defn
-async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event.
 
     Fetches API key configuration internally to avoid passing sensitive data between activities.
     """
     from django.utils import timezone
+
+    evaluation = inputs.evaluation
+    event_data = inputs.event_data
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
@@ -353,30 +371,32 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
 
 Output: {output_data}"""
 
+    # Get eval-specific config when using PostHog defaults (no provider_key)
+    config = get_eval_config(provider) if provider_key is None else None
+
     # Create unified Client with analytics disabled to prevent eval loops
     client = Client(
         provider_key=provider_key,
+        config=config,
         capture_analytics=False,
     )
 
     try:
-        # HeartbeaterSync sends periodic heartbeats during the potentially long-running LLM call
-        with HeartbeaterSync(details=("llm_judge", evaluation["id"])):
-            response = client.complete(
-                CompletionRequest(
-                    model=model,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_prompt}],
-                    provider=provider,
-                    response_format=response_format,
-                )
+        response = client.complete(
+            CompletionRequest(
+                model=model,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+                provider=provider,
+                response_format=response_format,
             )
+        )
     except AuthenticationError:
         increment_errors("auth_error")
         if is_byok:
             raise ApplicationError(
                 "API key is invalid or has been deleted.",
-                {"error_type": "auth_error", "key_id": key_id},
+                {"error_type": "auth_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
@@ -385,7 +405,7 @@ Output: {output_data}"""
         if is_byok:
             raise ApplicationError(
                 "API key doesn't have access to this model.",
-                {"error_type": "permission_error", "key_id": key_id},
+                {"error_type": "permission_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
@@ -394,12 +414,18 @@ Output: {output_data}"""
         if is_byok:
             raise ApplicationError(
                 "API key has exceeded its quota.",
-                {"error_type": "quota_error", "key_id": key_id},
+                {"error_type": "quota_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
     except RateLimitError:
         increment_errors("rate_limit")
+        if is_byok:
+            raise ApplicationError(
+                "API key is being rate limited.",
+                {"error_type": "rate_limit", "key_id": key_id, "provider": provider},
+                non_retryable=True,
+            )
         raise
     except ModelNotFoundError:
         increment_errors("model_not_found")
@@ -407,6 +433,14 @@ Output: {output_data}"""
             f"Model '{model}' not found.",
             non_retryable=True,
         )
+    except StructuredOutputParseError as e:
+        increment_errors("parse_error")
+        raise ApplicationError(
+            str(e),
+            {"error_type": "parse_error"},
+            non_retryable=True,
+        ) from e
+
     except Exception:
         increment_errors("unknown_error")
         raise
@@ -457,14 +491,28 @@ Output: {output_data}"""
     return result_dict
 
 
+@dataclass
+class EmitEvaluationEventInputs:
+    evaluation: dict[str, Any]
+    event_data: dict[str, Any]
+    result: dict[str, Any]
+    start_time: datetime
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.event_data.get("team_id"),
+            "evaluation_id": self.evaluation.get("id"),
+        }
+
+
 @temporalio.activity.defn
-async def emit_evaluation_event_activity(
-    evaluation: dict[str, Any],
-    event_data: dict[str, Any],
-    result: dict[str, Any],
-    start_time: datetime,
-) -> None:
+async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
     """Emit $ai_evaluation event to ClickHouse"""
+    evaluation = inputs.evaluation
+    event_data = inputs.event_data
+    result = inputs.result
+    start_time = inputs.start_time
 
     def _emit():
         try:
@@ -525,14 +573,28 @@ async def emit_evaluation_event_activity(
     await database_sync_to_async(_emit, thread_sensitive=False)()
 
 
+@dataclass
+class EmitInternalTelemetryInputs:
+    evaluation: dict[str, Any]
+    team_id: int
+    result: dict[str, Any]
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "evaluation_id": self.evaluation.get("id"),
+        }
+
+
 @temporalio.activity.defn
-async def emit_internal_telemetry_activity(
-    evaluation: dict[str, Any],
-    team_id: int,
-    result: dict[str, Any],
-) -> None:
+async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) -> None:
     """Emit telemetry event to PostHog org for internal tracking"""
     from posthog.tasks.usage_report import get_ph_client
+
+    evaluation = inputs.evaluation
+    team_id = inputs.team_id
+    result = inputs.result
 
     def _emit_telemetry():
         team = Team.objects.get(id=team_id)
@@ -582,9 +644,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         try:
             result = await temporalio.workflow.execute_activity(
                 execute_llm_judge_activity,
-                args=[evaluation, inputs.event_data],
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=inputs.event_data),
                 schedule_to_close_timeout=timedelta(minutes=6),  # > SDK timeout (300s) to allow graceful handling
-                heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=LLM_JUDGE_RETRY_POLICY,
             )
         except temporalio.exceptions.ActivityError as e:
@@ -593,7 +654,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 error_type = details.get("error_type")
 
                 # Handle skippable errors - return success with skip info
-                if error_type in ("trial_limit_reached", "key_invalid"):
+                if error_type in ("trial_limit_reached", "key_invalid", "parse_error"):
                     if error_type == "trial_limit_reached":
                         await temporalio.workflow.execute_activity(
                             disable_evaluation_activity,
@@ -611,7 +672,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
                 # Update key state for API-related errors
                 key_id = details.get("key_id")
-                if key_id and error_type in ("auth_error", "permission_error", "quota_error"):
+                if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
                     new_state = (
                         LLMProviderKey.State.INVALID if error_type == "auth_error" else LLMProviderKey.State.ERROR
                     )
@@ -636,7 +697,12 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # Activity 4: Emit evaluation event
         await temporalio.workflow.execute_activity(
             emit_evaluation_event_activity,
-            args=[evaluation, inputs.event_data, result, start_time],
+            EmitEvaluationEventInputs(
+                evaluation=evaluation,
+                event_data=inputs.event_data,
+                result=result,
+                start_time=start_time,
+            ),
             schedule_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -644,9 +710,34 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # Activity 5: Emit internal telemetry (fire-and-forget)
         await temporalio.workflow.execute_activity(
             emit_internal_telemetry_activity,
-            args=[evaluation, evaluation["team_id"], result],
+            EmitInternalTelemetryInputs(
+                evaluation=evaluation,
+                team_id=evaluation["team_id"],
+                result=result,
+            ),
             schedule_to_close_timeout=timedelta(seconds=30),
         )
+
+        # Activity 6: Emit signal when eval judge verdict is true (fire-and-forget)
+        if (
+            temporalio.workflow.patched("emit-eval-signal-v1")
+            and result.get("verdict") is True
+            and result.get("reasoning")
+        ):
+            try:
+                await temporalio.workflow.execute_activity(
+                    emit_eval_signal_activity,
+                    args=[evaluation["team_id"], evaluation, inputs.event_data, result],
+                    schedule_to_close_timeout=timedelta(seconds=120),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except Exception:
+                # Don't fail the workflow if signal emission fails
+                temporalio.workflow.logger.exception(
+                    "Failed to emit eval signal",
+                    evaluation_id=evaluation["id"],
+                    team_id=evaluation["team_id"],
+                )
 
         return {
             "verdict": result["verdict"],

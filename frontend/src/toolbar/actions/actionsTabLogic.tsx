@@ -11,7 +11,12 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
-import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
+import {
+    actionStepToActionStepFormItem,
+    elementToActionStep,
+    joinWithUiHost,
+    stepToDatabaseFormat,
+} from '~/toolbar/utils'
 import { AccessControlLevel, ActionType, ElementType } from '~/types'
 
 import { ActionStepPropertyKey } from './ActionStep'
@@ -242,7 +247,8 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     lemonToast.success('Action saved', {
                         button: {
                             label: 'Open in PostHog',
-                            action: () => window.open(`${values.uiHost}${urls.action(response.id)}`, '_blank'),
+                            action: () =>
+                                window.open(joinWithUiHost(values.uiHost, urls.action(response.id)), '_blank'),
                         },
                     })
                 }

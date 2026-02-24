@@ -8,6 +8,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { LogsOrderBy } from 'products/logs/frontend/types'
 
+import { LogsExportMenu } from './LogsExportMenu'
 import { TimezoneSelect } from './TimezoneSelect'
 import { logsViewerLogic } from './logsViewerLogic'
 
@@ -52,6 +53,7 @@ export const LogsViewerToolbar = ({
                     size="small"
                 />
                 <TimezoneSelect value={timezone} onChange={setTimezone} size="small" />
+                <LogsExportMenu totalLogsCount={totalLogsCount} />
             </div>
             <div className="flex items-center gap-4 flex-wrap">
                 {totalLogsCount !== undefined && totalLogsCount > 0 && (

@@ -25,7 +25,7 @@ class FailMaterializationInputs:
 
 @database_sync_to_async
 def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
-    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id)
     update_node_system_properties(
         node,
         status="failed",
@@ -38,6 +38,15 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     job.status = DataModelingJob.Status.FAILED
     job.error = inputs.error
     job.save()
+
+    if job.saved_query_id:
+        try:
+            from posthog.tasks.email import send_saved_query_materialization_failure
+
+            send_saved_query_materialization_failure(str(job.saved_query_id))
+        except Exception:
+            LOGGER.exception("Failed to send materialization failure notification email")
+
     return node, job
 
 

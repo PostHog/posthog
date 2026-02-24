@@ -165,7 +165,6 @@ impl DatabasePools {
 
         let non_persons_reader = Arc::new(
             get_pool_with_config(&config.read_database_url, non_persons_reader_pool_config)
-                .await
                 .map_err(|e| {
                     FlagError::DatabaseError(
                         e,
@@ -176,7 +175,6 @@ impl DatabasePools {
 
         let non_persons_writer = Arc::new(
             get_pool_with_config(&config.write_database_url, non_persons_writer_pool_config)
-                .await
                 .map_err(|e| {
                     FlagError::DatabaseError(
                         e,
@@ -192,7 +190,6 @@ impl DatabasePools {
                     &config.get_persons_read_database_url(),
                     persons_reader_pool_config,
                 )
-                .await
                 .map_err(|e| {
                     FlagError::DatabaseError(
                         e,
@@ -210,7 +207,6 @@ impl DatabasePools {
                     &config.get_persons_write_database_url(),
                     persons_writer_pool_config,
                 )
-                .await
                 .map_err(|e| {
                     FlagError::DatabaseError(
                         e,
@@ -294,95 +290,5 @@ mod tests {
             config.get_persons_write_database_url(),
             "postgres://posthog:posthog@localhost:5432/posthog_persons"
         );
-    }
-
-    #[tokio::test]
-    async fn test_min_connections_clamped_to_max() {
-        // Create a config with min_connections > max_connections for all pools
-        let config = Config {
-            max_pg_connections: 5,
-            min_non_persons_reader_connections: 10,
-            min_non_persons_writer_connections: 15,
-            min_persons_reader_connections: 20,
-            min_persons_writer_connections: 25,
-            ..Config::default_test_config()
-        };
-
-        // Create pools - this should clamp all min_connections to max_connections
-        let pools = super::DatabasePools::from_config(&config).await.unwrap();
-
-        // Verify that the pools were created successfully (no panic/error)
-        // Pool size() returns the current number of connections, which starts at min_connections
-        // Since we clamped to max_pg_connections (5), all pools should have 5 connections
-        assert_eq!(pools.non_persons_reader.size(), 5);
-        assert_eq!(pools.non_persons_writer.size(), 5);
-        assert_eq!(pools.persons_reader.size(), 5);
-        assert_eq!(pools.persons_writer.size(), 5);
-    }
-
-    #[tokio::test]
-    async fn test_min_connections_within_max() {
-        // Create a config with min_connections < max_connections
-        let config = Config {
-            max_pg_connections: 10,
-            min_non_persons_reader_connections: 2,
-            min_non_persons_writer_connections: 3,
-            min_persons_reader_connections: 4,
-            min_persons_writer_connections: 5,
-            ..Config::default_test_config()
-        };
-
-        // Create pools - should work without warnings
-        let pools = super::DatabasePools::from_config(&config).await.unwrap();
-
-        // Pool size() returns the current number of connections, which starts at min_connections
-        assert_eq!(pools.non_persons_reader.size(), 2);
-        assert_eq!(pools.non_persons_writer.size(), 3);
-        assert_eq!(pools.persons_reader.size(), 4);
-        assert_eq!(pools.persons_writer.size(), 5);
-    }
-
-    #[tokio::test]
-    async fn test_zero_max_connections_uses_default() {
-        // Create a config with max_pg_connections = 0
-        let config = Config {
-            max_pg_connections: 0,
-            min_non_persons_reader_connections: 5,
-            min_non_persons_writer_connections: 5,
-            min_persons_reader_connections: 5,
-            min_persons_writer_connections: 5,
-            ..Config::default_test_config()
-        };
-
-        // Create pools - should use default max_connections (10) and clamp min to that
-        let pools = super::DatabasePools::from_config(&config).await.unwrap();
-
-        // All pools should have 5 connections (min clamped to default max of 10)
-        assert_eq!(pools.non_persons_reader.size(), 5);
-        assert_eq!(pools.non_persons_writer.size(), 5);
-        assert_eq!(pools.persons_reader.size(), 5);
-        assert_eq!(pools.persons_writer.size(), 5);
-    }
-
-    #[tokio::test]
-    async fn test_zero_max_with_higher_min_clamps_to_default() {
-        // Create a config with max_pg_connections = 0 and min > default max (10)
-        let config = Config {
-            max_pg_connections: 0,
-            min_non_persons_reader_connections: 15,
-            min_non_persons_writer_connections: 20,
-            min_persons_reader_connections: 25,
-            min_persons_writer_connections: 30,
-            ..Config::default_test_config()
-        };
-
-        // Create pools - should use default max_connections (10) and clamp all min to 10
-        let pools = super::DatabasePools::from_config(&config).await.unwrap();
-
-        // All pools should have 10 connections (default max)
-        assert_eq!(pools.non_persons_reader.size(), 10);
-        assert_eq!(pools.non_persons_writer.size(), 10);
-        assert_eq!(pools.persons_reader.size(), 10);
-        assert_eq!(pools.persons_writer.size(), 10);
     }
 }

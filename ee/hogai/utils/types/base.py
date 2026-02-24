@@ -361,8 +361,10 @@ class BaseStateWithMessages(BaseState):
     @property
     def agent_mode_or_default(self) -> AgentMode:
         # EXECUTION is a fictitious transition mode - treat as default
-        if self.agent_mode is None or self.agent_mode == AgentMode.EXECUTION:
+        if self.agent_mode is None or (self.agent_mode in [AgentMode.EXECUTION, AgentMode.RESEARCH]):
             return AgentMode.PRODUCT_ANALYTICS
+        if self.agent_mode == AgentMode.PLAN:
+            return AgentMode.SQL
         return self.agent_mode
 
 

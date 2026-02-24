@@ -75,7 +75,7 @@ class MaterializeViewWorkflowResult:
     duration_seconds: float
 
 
-@temporalio.workflow.defn(name="materialize-view")
+@temporalio.workflow.defn(name="data-modeling-materialize-view")
 class MaterializeViewWorkflow(PostHogWorkflow):
     """Temporal workflow to materialize a single view.
 

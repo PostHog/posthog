@@ -10,6 +10,9 @@ import { UUIDT } from '~/utils/utils'
 import { HogFlowAction } from '../../../schema/hogflow'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from './recipient-preferences.service'
+import { RecipientTokensService } from './recipient-tokens.service'
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 describe('RecipientPreferencesService', () => {
     let hub: Hub
@@ -434,6 +437,31 @@ describe('RecipientPreferencesService', () => {
                 expect(result).toBe(false)
                 expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
+        })
+    })
+
+    describe('recipient token URLs', () => {
+        let tokensService: RecipientTokensService
+
+        beforeEach(() => {
+            tokensService = new RecipientTokensService(hub)
+        })
+
+        it('should generate a preferences URL with a trailing slash', () => {
+            const url = tokensService.generatePreferencesUrl({ team_id: team.id, identifier: 'test@example.com' })
+
+            expect(url).toMatch(new RegExp(`^${escapeRegExp(hub.SITE_URL)}/messaging-preferences/[^/]+/$`))
+        })
+
+        it('should generate a one-click unsubscribe URL with the query param', () => {
+            const url = tokensService.generateOneClickUnsubscribeUrl({
+                team_id: team.id,
+                identifier: 'test@example.com',
+            })
+
+            expect(url).toMatch(
+                new RegExp(`^${escapeRegExp(hub.SITE_URL)}/messaging-preferences/[^/]+/\\?one_click_unsubscribe=1$`)
+            )
         })
     })
 })

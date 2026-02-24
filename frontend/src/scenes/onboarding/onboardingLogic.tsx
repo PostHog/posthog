@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { QUICK_START_PARAM } from 'lib/components/ProductSetup/globalSetupLogic'
+import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -55,35 +55,26 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type OnboardingStepType = OnboardingStepElement
 
 export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string => {
-    let baseUrl: string
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            baseUrl = urls.insightOptions()
-            break
+            return urls.insightOptions()
         case ProductKey.WEB_ANALYTICS:
-            baseUrl = urls.webAnalytics()
-            break
+            return urls.webAnalytics()
         case ProductKey.SESSION_REPLAY:
-            baseUrl = urls.replay()
-            break
+            return urls.replay()
         case ProductKey.FEATURE_FLAGS:
-            baseUrl = urls.featureFlag('new')
-            break
+            return urls.featureFlags()
         case ProductKey.SURVEYS:
-            baseUrl = urls.surveyTemplates()
-            break
+            return urls.surveyTemplates()
         case ProductKey.ERROR_TRACKING:
-            baseUrl = urls.errorTracking()
-            break
+            return urls.errorTracking()
         case ProductKey.LLM_ANALYTICS:
-            baseUrl = urls.llmAnalyticsDashboard()
-            break
+            return urls.llmAnalyticsDashboard()
+        case ProductKey.WORKFLOWS:
+            return urls.workflows()
         default:
-            baseUrl = urls.default()
+            return urls.default()
     }
-
-    // Append quickstart param to open the quick start popover after onboarding
-    return `${baseUrl}?${QUICK_START_PARAM}=true`
 }
 
 export const onboardingLogic = kea<onboardingLogicType>([
@@ -110,6 +101,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
             sidePanelStateLogic,
             ['openSidePanel'],
+            globalSetupLogic,
+            ['openGlobalSetup'],
         ],
     })),
     actions({
@@ -336,7 +329,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         skipOnboarding: () => {
+            actions.openGlobalSetup()
             router.actions.push(values.onCompleteOnboardingRedirectUrl)
+        },
+        updateCurrentTeamSuccess: () => {
+            actions.openGlobalSetup()
         },
         setAllOnboardingSteps: () => {
             if (values.isStepKeyInvalid) {
@@ -387,6 +384,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
                 const redirectUrl = values.onCompleteOnboardingRedirectUrl
                 actions.setOnCompleteOnboardingRedirectUrl(null)
+
                 return [redirectUrl]
             }
         },

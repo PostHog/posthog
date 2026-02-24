@@ -1,11 +1,8 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -24,7 +21,7 @@ import type { sessionsSceneLogicType } from './sessionsSceneLogicType'
 export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
     path(['scenes', 'sessions', 'sessionsSceneLogic']),
     tabAwareScene(),
-    connect(() => ({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] })),
+    connect(() => ({ values: [teamLogic, ['currentTeam']] })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
@@ -84,12 +81,6 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
 
         return {
             [urls.activity(ActivityTab.ExploreSessions)]: sessionsQueryHandler,
-        }
-    }),
-
-    afterMount(({ values }) => {
-        if (!values.featureFlags[FEATURE_FLAGS.SESSIONS_EXPLORER]) {
-            router.actions.push(urls.activity(ActivityTab.ExploreEvents))
         }
     }),
 ])

@@ -16,7 +16,7 @@ class EvaluationPattern(BaseModel):
     example_reasoning: str = Field(
         description="An example reasoning from the evaluated runs that demonstrates this pattern"
     )
-    example_generation_ids: list[str] = Field(description="List of 1-3 generation IDs that exemplify this pattern")
+    example_generation_ids: list[str] = Field(description="List of 1-5 generation IDs that exemplify this pattern")
 
 
 class EvaluationSummaryStatistics(BaseModel):

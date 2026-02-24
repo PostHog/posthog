@@ -31,7 +31,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional } = useValues(
         funnelDataLogic(insightProps)
     )
-    const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSortOrder } = useActions(
+    const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSorting } = useActions(
         funnelDataLogic(insightProps)
     )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -64,20 +64,23 @@ export function FunnelStepsTable(): JSX.Element | null {
                     title: isOnlySeries ? (
                         'Breakdown'
                     ) : (
-                        <LemonCheckbox
-                            checked={allChecked ? true : someChecked ? 'indeterminate' : false}
-                            onChange={() => {
-                                // Either toggle all breakdowns on or off
-                                setHiddenLegendBreakdowns(
-                                    allChecked
-                                        ? flattenedBreakdowns.map((b) => getVisibilityKey(b.breakdown_value))
-                                        : []
-                                )
-                            }}
-                            label={<span className="font-bold">Breakdown</span>}
-                            size="small"
-                            disabledReason={editingDisabledReason}
-                        />
+                        <span className="inline-flex items-center gap-2">
+                            <LemonCheckbox
+                                checked={allChecked ? true : someChecked ? 'indeterminate' : false}
+                                onChange={() => {
+                                    // Either toggle all breakdowns on or off
+                                    setHiddenLegendBreakdowns(
+                                        allChecked
+                                            ? flattenedBreakdowns.map((b) => getVisibilityKey(b.breakdown_value))
+                                            : []
+                                    )
+                                }}
+                                size="small"
+                                aria-label="Toggle all breakdowns"
+                                disabledReason={editingDisabledReason}
+                            />
+                            <span className="font-bold">Breakdown</span>
+                        </span>
                     ),
                     dataIndex: 'breakdown_value',
                     sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) => {
@@ -382,35 +385,12 @@ export function FunnelStepsTable(): JSX.Element | null {
             useURLForSorting
             onSort={(newSorting) => {
                 if (!newSorting) {
+                    setBreakdownSorting(undefined)
                     return
                 }
-                // Find the column definition by key
-                const findColumnByKey = (
-                    columns: LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[],
-                    key: string
-                ): LemonTableColumn<
-                    FlattenedFunnelStepByBreakdown,
-                    keyof FlattenedFunnelStepByBreakdown | undefined
-                > | null => {
-                    for (const group of columns) {
-                        for (const col of group.children) {
-                            if (col.key === key || col.dataIndex === key) {
-                                return col
-                            }
-                        }
-                    }
-                    return null
-                }
-                const column = findColumnByKey(columnsGrouped, newSorting.columnKey)
-                const sorter = column?.sorter
-                if (typeof sorter === 'function') {
-                    const sorted = [...flattenedBreakdowns].sort((a, b) => newSorting.order * sorter(a, b))
-                    setBreakdownSortOrder(
-                        sorted
-                            .flatMap((b) => b.breakdown_value ?? [])
-                            .filter((v): v is string | number => v !== undefined)
-                    )
-                }
+                // Format: 'column_key' or '-column_key' for descending
+                const sortString = newSorting.order === -1 ? `-${newSorting.columnKey}` : String(newSorting.columnKey)
+                setBreakdownSorting(sortString)
             }}
         />
     )

@@ -28,7 +28,8 @@ fn setup_tracing() {
         EnvFilter::builder()
             .with_default_directive(LevelFilter::INFO.into())
             .from_env_lossy()
-            .add_directive("pyroscope=warn".parse().unwrap()),
+            .add_directive("pyroscope=warn".parse().unwrap())
+            .add_directive("rdkafka=warn".parse().unwrap()),
     );
     tracing_subscriber::registry().with(log_layer).init();
 }
@@ -81,12 +82,10 @@ pub async fn main() -> Result<(), Error> {
 
     while context.is_running() {
         liveness.report_healthy().await;
-        info!("Looking for next job");
         let Some(mut model) = JobModel::claim_next_job(context.clone()).await? else {
             if !context.is_running() {
                 break;
             }
-            info!("No available job found, sleeping");
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         };

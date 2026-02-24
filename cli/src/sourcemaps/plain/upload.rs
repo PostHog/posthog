@@ -82,7 +82,7 @@ pub fn upload(args: &Args) -> Result<()> {
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
 
-    symbol_sets::upload(&uploads, args.batch_size)?;
+    symbol_sets::upload_with_retry(uploads, args.batch_size, args.release.skip_release_on_fail)?;
 
     if args.delete_after {
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;

@@ -424,7 +424,7 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
     ):
-        super().__init__()
+        super().__init__(model=batch_export_model.name if batch_export_model else "events")
 
         if (isinstance(aws_access_key_id, str) and aws_access_key_id.strip() == "") or (
             isinstance(aws_secret_access_key, str) and aws_secret_access_key.strip() == ""

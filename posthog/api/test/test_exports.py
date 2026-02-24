@@ -116,13 +116,14 @@ class TestExports(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
+        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d")
         assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
             "exception": None,
             "export_format": "image/png",
-            "filename": "export-example-dashboard.png",
+            "filename": f"export-example-dashboard-{created_date}.png",
             "has_content": False,
             "insight": None,
             "export_context": None,
@@ -157,13 +158,14 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z")
         )
 
+        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d")
         assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
             "exception": None,
             "export_format": "image/png",
-            "filename": "export-example-dashboard.png",
+            "filename": f"export-example-dashboard-{created_date}.png",
             "has_content": False,
             "insight": None,
             "export_context": None,
@@ -212,7 +214,7 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
                 "export_format": "image/png",
-                "filename": "export-example-insight.png",
+                "filename": "export-example-insight-2021-08-25.png",
                 "has_content": False,
                 "dashboard": None,
                 "exception": None,
@@ -411,7 +413,7 @@ class TestExports(APIBaseTest):
 
     @patch("posthog.tasks.exports.csv_exporter.requests.request")
     def test_can_download_a_csv(self, patched_request) -> None:
-        with self.settings(SITE_URL="http://testserver"):
+        with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
             _create_event(
                 event="event_name",
                 team=self.team,
@@ -475,8 +477,7 @@ class TestExports(APIBaseTest):
             instance = response.json()
 
             # limit the query to force it to page against the API
-            with self.settings(OBJECT_STORAGE_ENABLED=False):
-                exporter.export_asset(instance["id"], limit=1)
+            exporter.export_asset(instance["id"], limit=1)
 
             download_response: Optional[HttpResponse] = None
             attempt_count = 0

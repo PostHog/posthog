@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconDatabase, IconPiggyBank, IconTrending } from '@posthog/icons'
+import { IconTrending } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -9,6 +9,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { groupLogic } from 'scenes/groups/groupLogic'
@@ -22,31 +23,17 @@ import { CurrencyCode, NodeKind } from '~/queries/schema/schema-general'
 import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { DataSourceIcon } from './components/DataSourceIcon'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { calculateMRRData, getPaidProducts } from './utils'
 
-export function DataSourceIcon({ source }: { source: 'revenue-analytics' | 'properties' | null }): JSX.Element | null {
-    if (!source) {
-        return null
-    }
-
-    if (source === 'revenue-analytics') {
-        return (
-            <Tooltip title="From Revenue analytics">
-                <IconPiggyBank className="w-3 h-3 text-muted" data-attr="piggybank-icon" />
-            </Tooltip>
-        )
-    }
-
-    return (
-        <Tooltip title="From group properties">
-            <IconDatabase className="w-3 h-3 text-muted" data-attr="database-icon" />
-        </Tooltip>
-    )
-}
-
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex, tabId, title } = attributes
+    const mountedGroupLogic = groupLogic({
+        groupKey: id,
+        groupTypeIndex,
+        tabId,
+    })
     const {
         groupData,
         groupDataLoading,
@@ -54,14 +41,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
         groupRevenueAnalyticsDataLoading,
         effectiveMRR,
         effectiveLifetimeValue,
-    } = useValues(
-        groupLogic({
-            groupKey: id,
-            groupTypeIndex,
-            tabId,
-        })
-    )
+    } = useValues(mountedGroupLogic)
     const { setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { notebookLogic } = useValues(notebookNodeLogic)
+    useAttachedLogic(mountedGroupLogic, notebookLogic)
 
     const groupDisplay = groupData ? groupDisplayId(groupData.group_key, groupData.group_properties) : 'Group'
     const inGroupFeed = title === 'Info'

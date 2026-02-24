@@ -1,5 +1,5 @@
 import pytest
-from posthog.test.base import _create_person
+from posthog.test.base import _create_person, cleanup_materialized_columns
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.cohort import Cohort
@@ -46,6 +46,8 @@ def testdata(db, team):
             "$browser": "mozilla",
         },
     )
+    yield
+    cleanup_materialized_columns()
 
 
 def test_person_query(testdata, team, snapshot):

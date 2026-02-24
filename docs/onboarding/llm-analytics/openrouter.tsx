@@ -99,14 +99,14 @@ export const getOpenRouterSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     )
 
                                     client = OpenAI(
-                                        baseURL="https://openrouter.ai/api/v1",
+                                        base_url="https://openrouter.ai/api/v1",
                                         api_key="<openrouter_api_key>",
-                                        posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
+                                        posthog_client=posthog  # This is an optional parameter. If it is not provided, a default client will be used.
                                     )
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { OpenAI } from '@posthog/ai'
@@ -180,7 +180,7 @@ export const getOpenRouterSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const completion = await openai.responses.create({

@@ -295,11 +295,14 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     // Create a simple approach: just two datasets with segmented colors
                     const datasets: ChartDataset[] = []
 
+                    // We use the same color for upper and lower bound lines for clear association with the variant line
+                    const boundLineColor = variantColor
+
                     // Upper bounds dataset
                     datasets.push({
                         label: 'Upper bound',
                         data: upperBounds,
-                        borderColor: COLORS.BAR_DEFAULT,
+                        borderColor: boundLineColor,
                         borderWidth: 1,
                         fill: false,
                         tension: 0,
@@ -310,7 +313,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     datasets.push({
                         label: 'Lower bound',
                         data: lowerBounds,
-                        borderColor: COLORS.BAR_DEFAULT,
+                        borderColor: boundLineColor,
                         borderWidth: 1,
                         fill: '-1',
                         backgroundColor: (context: any) => {

@@ -324,12 +324,17 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                         />
                     )}
                 </div>
+                {conditions.urlMatchType === SurveyMatchType.Exact && (
+                    <span className="text-xs text-muted">Trailing slashes are stripped when matching exact URLs.</span>
+                )}
             </div>
 
             <div>
                 <h5 className="font-semibold mb-2">
                     When to show&nbsp;
-                    <Tooltip title={`Choose when to show the ${entityKeyword} to matching users.`}>
+                    <Tooltip
+                        title={`By default, ${entityKeyword}s will show on page load when a user matches your conditions. Alternatively, you can wait to show this tour until the user performs an event or action.`}
+                    >
                         <IconInfo />
                     </Tooltip>
                 </h5>
@@ -392,9 +397,7 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                         }}
                         className="w-12"
                     />
-                    <span className="text-sm">
-                        seconds before showing the {entityKeyword} after the conditions are met
-                    </span>
+                    <span className="text-sm">seconds before showing the {entityKeyword}</span>
                 </div>
             </div>
 
@@ -414,8 +417,7 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                     />
                 ) : (
                     <p>
-                        <IconInfo /> Product tours display once per user, until they interact (complete any steps, or
-                        dismiss the tour).
+                        <IconInfo /> Product tours display once per user, until they interact
                     </p>
                 )}
             </div>

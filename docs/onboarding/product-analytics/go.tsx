@@ -1,7 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { PersonProfiles } from './_snippets/person-profiles'
 
 export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
@@ -78,7 +77,6 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                             },
                         ]}
                     />
-                    <PersonProfiles language="go" />
                 </>
             ),
         },

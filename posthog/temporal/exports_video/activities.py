@@ -1,6 +1,5 @@
 import os
 import uuid
-import shutil
 import datetime as dt
 import tempfile
 from typing import Any
@@ -8,13 +7,31 @@ from typing import Any
 from django.db import close_old_connections
 
 import structlog
+import posthoganalytics
 from temporalio import activity
 
-from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
+from posthog.schema import ReplayInactivityPeriod
+
+from posthog.event_usage import groups
+from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content_from_file
 from posthog.tasks.exports.video_exporter import RecordReplayToFileOptions
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
+
+
+def _validate_period(period: ReplayInactivityPeriod, index: int, inactivity_periods_count: int) -> bool:
+    """Check if an activity period is usable for later processing. Returns True if usable."""
+    if not period.active:
+        return False
+    if period.recording_ts_from_s is None:
+        return False
+    if period.ts_to_s is None and index != inactivity_periods_count - 1:
+        return False
+    if period.recording_ts_to_s is None:
+        logger.warning("Inactivity period has no recording_ts_to_s")
+        return False
+    return True
 
 
 @activity.defn
@@ -80,6 +97,7 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     fmt = asset.export_format
     tmp_ext = "mp4" if fmt == "video/mp4" else "gif" if fmt == "image/gif" else "webm"
     return {
+        "exported_asset_id": exported_asset_id,
         "url_to_render": url,
         "css_selector": css,
         "width": width,
@@ -91,58 +109,98 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     }
 
 
+def _track_video_export_started(asset: ExportedAsset, build: dict[str, Any]) -> None:
+    try:
+        posthoganalytics.capture(
+            distinct_id=asset.created_by.distinct_id if asset.created_by else str(asset.team.uuid),
+            event="video export started",
+            properties={
+                **asset.get_analytics_metadata(),
+                "recording_duration_s": build["duration"],
+                "playback_speed": build.get("playback_speed", 1),
+                # Crucial to separate summaries from regular exports
+                "use_puppeteer": build.get("use_puppeteer", False),
+            },
+            groups=groups(asset.team.organization, asset.team),
+        )
+    except Exception:
+        logger.exception("Failed to capture video export started event")
+        # Not failing, as failed tracking should not block the export
+
+
+def _track_video_export_completed(asset: ExportedAsset, build: dict[str, Any], video_path: str, file_size: int) -> None:
+    try:
+        from ee.hogai.videos.utils import get_video_duration_from_path_s
+
+        video_duration_s = get_video_duration_from_path_s(video_path)
+        recording_duration_s = build["duration"]
+        # How much of the session was skipped in the video as inactivity
+        inactivity_skip_ratio = (
+            round(1 - (video_duration_s / recording_duration_s), 2) if recording_duration_s > 0 else 0
+        )
+        posthoganalytics.capture(
+            distinct_id=asset.created_by.distinct_id if asset.created_by else str(asset.team.uuid),
+            event="video export completed",
+            properties={
+                **asset.get_analytics_metadata(),
+                "recording_duration_s": recording_duration_s,
+                "video_duration_s": video_duration_s,
+                "inactivity_skip_ratio": inactivity_skip_ratio,
+                "playback_speed": build.get("playback_speed", 1),
+                "file_size_bytes": file_size,
+                # Crucial to separate summaries from regular exports
+                "use_puppeteer": build.get("use_puppeteer", False),
+            },
+            groups=groups(asset.team.organization, asset.team),
+        )
+    except Exception:
+        logger.exception("Failed to capture video export completed event")
+        # Not failing, as failed tracking should not block the export
+
+
 @activity.defn
-def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
+def record_and_persist_video_activity(build: dict[str, Any]) -> None:
+    """Record replay to file and persist in a single activity. Must run on same worker
+    so the temp file exists—passing paths between activities fails when they run on
+    different workers (different /tmp filesystems)."""
     from posthog.tasks.exports.video_exporter import record_replay_to_file
 
-    tmp_dir = tempfile.mkdtemp(prefix="ph-video-export-")
-    tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
-    try:
-        record_replay_to_file(
+    close_old_connections()
+    asset = ExportedAsset.objects.select_related("team", "team__organization", "created_by").get(
+        pk=build["exported_asset_id"]
+    )
+    _track_video_export_started(asset, build)
+    with tempfile.TemporaryDirectory(prefix="ph-video-export-") as tmp_dir:
+        tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
+        inactivity_periods = record_replay_to_file(
             RecordReplayToFileOptions(
                 image_path=tmp_path,
                 url_to_render=build["url_to_render"],
-                screenshot_width=build.get("width"),  # None if not provided
+                screenshot_width=build.get("width"),
                 wait_for_css_selector=build["css_selector"],
-                screenshot_height=build.get("height"),  # None if not provided
+                screenshot_height=build.get("height"),
                 recording_duration=build["duration"],
-                playback_speed=build.get("playback_speed", 1),  # default to 1 if not provided
+                playback_speed=build.get("playback_speed", 1),
+                use_puppeteer=build.get("use_puppeteer", False),
+            ),
+        )
+        if inactivity_periods:
+            if asset.export_context is None:
+                asset.export_context = {}
+            asset.export_context["inactivity_periods"] = [x.model_dump() for x in inactivity_periods]
+            # Validate inactivity periods - ensure at least one valid period exists
+            valid_period_count = sum(
+                1 for i, period in enumerate(inactivity_periods) if _validate_period(period, i, len(inactivity_periods))
             )
-        )
-        return {"tmp_path": tmp_path}
-    except Exception:
-        # Clean up temp directory on failure
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise
-
-
-@activity.defn
-def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
-    close_old_connections()
-    asset = ExportedAsset.objects.select_related("team").get(pk=inputs["exported_asset_id"])
-    tmp_path = inputs["tmp_path"]
-
-    # Check file size first to prevent OOM
-    file_size = os.path.getsize(tmp_path)
-    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
-    if file_size > MAX_FILE_SIZE:
-        raise RuntimeError(
-            f"Video file too large: {file_size / (1024 * 1024):.1f}MB exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
-        )
-
-    # Read in chunks to avoid loading entire file into memory at once
-    chunk_size = 64 * 1024  # 64KB chunks for better I/O performance
-    chunks = []
-    with open(tmp_path, "rb") as f:
-        while chunk := f.read(chunk_size):
-            chunks.append(chunk)
-
-    data = b"".join(chunks)
-    save_content(asset, data)
-
-    # Cleanup
-    try:
-        os.remove(tmp_path)
-        shutil.rmtree(os.path.dirname(tmp_path), ignore_errors=True)
-    except Exception:
-        pass
+            if valid_period_count == 0 and build.get("use_puppeteer", False):
+                raise ValueError("No valid inactivity periods detected in the recording")
+            asset.save(update_fields=["export_context"])
+        # Check file size first to prevent OOM
+        file_size = os.path.getsize(tmp_path)
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
+        if file_size > MAX_FILE_SIZE:
+            raise RuntimeError(
+                f"Video file too large: {file_size / (1024 * 1024):.1f}MB exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
+            )
+        _track_video_export_completed(asset, build, tmp_path, file_size)
+        save_content_from_file(asset, tmp_path)

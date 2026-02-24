@@ -1,18 +1,31 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb } from '~/types'
 
 import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
+import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
-import { EvaluationConditionSet, EvaluationConfig, EvaluationRun, ModelConfiguration } from './types'
+import {
+    EvaluationConditionSet,
+    EvaluationConfig,
+    EvaluationRun,
+    EvaluationSummary,
+    EvaluationSummaryFilter,
+    ModelConfiguration,
+} from './types'
 
 export interface AvailableModel {
     id: string
@@ -22,17 +35,21 @@ export interface AvailableModel {
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
+    tabId?: string
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
+    key(
+        (props) =>
+            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}::${props.tabId ?? 'default'}`
+    ),
 
-    connect({
+    connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
-    }),
+    })),
 
     actions({
         // Evaluation configuration actions
@@ -43,6 +60,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
+
+        // Signal emission
+        loadSignalConfig: true,
+        loadSignalConfigSuccess: (enabled: boolean) => ({ enabled }),
+        setSignalEmission: (enabled: boolean) => ({ enabled }),
+        setSignalEmissionSuccess: (enabled: boolean) => ({ enabled }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -58,6 +81,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setSelectedProvider: (provider: LLMProvider) => ({ provider }),
         setSelectedKeyId: (keyId: string | null) => ({ keyId }),
         setSelectedModel: (model: string) => ({ model }),
+
+        // Evaluation summary actions
+        setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
+            filter,
+            previousFilter,
+        }),
+        toggleSummaryExpanded: true,
+        regenerateEvaluationSummary: true,
+        trackSummarizeClicked: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -98,6 +130,34 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         `/api/environments/${teamId}/llm_analytics/models/?${params.toString()}`
                     )
                     return response.models
+                },
+            },
+        ],
+        evaluationSummary: [
+            null as EvaluationSummary | null,
+            {
+                generateEvaluationSummary: async ({ forceRefresh }: { forceRefresh?: boolean }) => {
+                    const shouldRefresh = forceRefresh ?? false
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !props.evaluationId || props.evaluationId === 'new') {
+                        return null
+                    }
+
+                    const requestFilter = values.evaluationSummaryFilter
+
+                    // Backend fetches data server-side by ID - we just pass the filter
+                    const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
+                        evaluation_id: props.evaluationId,
+                        filter: requestFilter,
+                        force_refresh: shouldRefresh,
+                    })
+
+                    // Discard if the user changed the filter while the request was in flight
+                    if (values.evaluationSummaryFilter !== requestFilter) {
+                        return null
+                    }
+
+                    return response as EvaluationSummary
                 },
             },
         ],
@@ -171,6 +231,22 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationSuccess: () => false,
             },
         ],
+        signalEmissionEnabled: [
+            false,
+            {
+                loadSignalConfigSuccess: (_, { enabled }) => enabled,
+                setSignalEmissionSuccess: (_, { enabled }) => enabled,
+            },
+        ],
+        signalEmissionLoading: [
+            false,
+            {
+                loadSignalConfig: () => true,
+                loadSignalConfigSuccess: () => false,
+                setSignalEmission: () => true,
+                setSignalEmissionSuccess: () => false,
+            },
+        ],
         hasUnsavedChanges: [
             false,
             {
@@ -184,6 +260,32 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
                 resetEvaluation: () => false,
+            },
+        ],
+        evaluationSummaryFilter: [
+            'all' as EvaluationSummaryFilter,
+            {
+                setEvaluationSummaryFilter: (_, { filter }) => filter,
+            },
+        ],
+        // Clear summary when filter changes so stale summary doesn't mismatch current filter
+        evaluationSummary: {
+            setEvaluationSummaryFilter: () => null,
+        },
+        evaluationSummaryError: [
+            false,
+            {
+                generateEvaluationSummary: () => false,
+                generateEvaluationSummarySuccess: () => false,
+                generateEvaluationSummaryFailure: () => true,
+                setEvaluationSummaryFilter: () => false,
+            },
+        ],
+        summaryExpanded: [
+            true,
+            {
+                toggleSummaryExpanded: (state) => !state,
+                generateEvaluationSummarySuccess: () => true,
             },
         ],
     }),
@@ -243,8 +345,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const provider = evaluation.model_configuration?.provider || 'openai'
                 let keyId = evaluation.model_configuration?.provider_key_id || null
 
-                // For new evals without a key, auto-select user's first key if available
-                if (!keyId && !evaluation.id) {
+                // Auto-select user's first key if none set (for new OR existing evals)
+                if (!keyId) {
                     const keysForProvider = values.providerKeysByProvider[provider] || []
                     if (keysForProvider.length > 0) {
                         keyId = keysForProvider[0].id
@@ -253,12 +355,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 actions.loadAvailableModels({ provider, keyId })
+
+                // Load signal emission config for existing evals (staff only)
+                if (props.evaluationId !== 'new' && userLogic.values.user?.is_staff) {
+                    actions.loadSignalConfig()
+                }
             }
         },
 
         loadProviderKeysSuccess: () => {
-            // When provider keys finish loading after evaluation, auto-select key for new evals
             const evaluation = values.evaluation
+
+            // For new evals without a key, auto-select first key
             if (evaluation && !evaluation.id && !values.selectedKeyId) {
                 const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
                 if (keysForProvider.length > 0) {
@@ -267,10 +375,48 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     actions.loadAvailableModels({ provider: values.selectedProvider, keyId })
                 }
             }
+
+            // For existing evals, if selected key no longer exists, reload evaluation to get fresh data
+            if (evaluation && evaluation.id && values.selectedKeyId) {
+                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
+                const keyExists = keysForProvider.some((key) => key.id === values.selectedKeyId)
+                if (!keyExists) {
+                    actions.loadEvaluation()
+                }
+            }
         },
 
         refreshEvaluationRuns: () => {
             actions.loadEvaluationRuns()
+        },
+
+        regenerateEvaluationSummary: () => {
+            posthog.capture('llma evaluation regenerate clicked', {
+                filter: values.evaluationSummaryFilter,
+                runs_to_summarize: values.runsToSummarizeCount,
+            })
+            actions.generateEvaluationSummary({ forceRefresh: true })
+        },
+
+        trackSummarizeClicked: () => {
+            posthog.capture('llma evaluation summarize clicked', {
+                filter: values.evaluationSummaryFilter,
+                runs_to_summarize: values.runsToSummarizeCount,
+            })
+        },
+
+        setEvaluationSummaryFilter: ({ filter, previousFilter }) => {
+            posthog.capture('llma evaluation summary filter changed', {
+                filter,
+                previous_filter: previousFilter,
+            })
+        },
+
+        toggleSummaryExpanded: () => {
+            posthog.capture('llma evaluation summary toggled', {
+                expanded: values.summaryExpanded,
+                filter: values.evaluationSummaryFilter,
+            })
         },
 
         resetEvaluation: () => {
@@ -304,6 +450,62 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
+        loadSignalConfig: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await api.get(`api/projects/${teamId}/signal_source_configs/`)
+                const configs = response.results ?? response
+                const llmEvalConfig = configs.find(
+                    (c: any) => c.source_product === 'llm_analytics' && c.source_type === 'evaluation'
+                )
+                const ids: string[] = llmEvalConfig?.config?.evaluation_ids ?? []
+                actions.loadSignalConfigSuccess(!!llmEvalConfig?.enabled && ids.includes(props.evaluationId))
+            } catch {
+                actions.loadSignalConfigSuccess(false)
+            }
+        },
+
+        setSignalEmission: async ({ enabled }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await api.get(`api/projects/${teamId}/signal_source_configs/`)
+                const configs = response.results ?? response
+                const existing = configs.find(
+                    (c: any) => c.source_product === 'llm_analytics' && c.source_type === 'evaluation'
+                )
+
+                if (existing) {
+                    const currentIds: string[] = existing.config?.evaluation_ids ?? []
+                    const newIds = enabled
+                        ? [...new Set([...currentIds, props.evaluationId])]
+                        : currentIds.filter((id: string) => id !== props.evaluationId)
+                    await api.update(`api/projects/${teamId}/signal_source_configs/${existing.id}/`, {
+                        enabled: true,
+                        config: { ...existing.config, evaluation_ids: newIds },
+                    })
+                    actions.setSignalEmissionSuccess(enabled)
+                } else if (enabled) {
+                    await api.create(`api/projects/${teamId}/signal_source_configs/`, {
+                        source_product: 'llm_analytics',
+                        source_type: 'evaluation',
+                        enabled: true,
+                        config: { evaluation_ids: [props.evaluationId] },
+                    })
+                    actions.setSignalEmissionSuccess(true)
+                }
+            } catch (error) {
+                // Revert to previous state on failure
+                actions.setSignalEmissionSuccess(!enabled)
+                throw error
+            }
+        },
+
         saveEvaluation: async () => {
             try {
                 const teamId = teamLogic.values.currentTeamId
@@ -314,6 +516,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
+                    llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
@@ -321,7 +524,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     )
                     actions.saveEvaluationSuccess(response)
                 }
-                router.actions.push(urls.llmAnalyticsEvaluations())
+                router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
                 console.error('Failed to save evaluation:', error)
             }
@@ -402,6 +605,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     openai: [],
                     anthropic: [],
                     gemini: [],
+                    openrouter: [],
+                    fireworks: [],
                 }
                 for (const key of providerKeys) {
                     if (key.provider in byProvider) {
@@ -416,6 +621,34 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.providerKeysByProvider, s.selectedProvider],
             (providerKeysByProvider: Record<LLMProvider, LLMProviderKey[]>, selectedProvider: LLMProvider) =>
                 providerKeysByProvider[selectedProvider] || [],
+        ],
+
+        evaluationProviderKeyIssue: [
+            (s) => [s.evaluation, s.providerKeys],
+            (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
+                const providerKeyId = evaluation?.model_configuration?.provider_key_id
+                if (!providerKeyId) {
+                    return null
+                }
+
+                const providerKey = providerKeys.find((key) => key.id === providerKeyId)
+                if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                    return null
+                }
+
+                return providerKey
+            },
+        ],
+
+        runsLookup: [
+            (s) => [s.evaluationRuns],
+            (runs): Record<string, EvaluationRun> => {
+                const lookup: Record<string, EvaluationRun> = {}
+                for (const run of runs) {
+                    lookup[run.generation_id] = run
+                }
+                return lookup
+            },
         ],
 
         runsSummary: [
@@ -443,30 +676,54 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
+        filteredEvaluationRuns: [
+            (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
+            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] => {
+                if (filter === 'all') {
+                    return runs
+                }
+                // Only consider completed runs for filtering
+                const completedRuns = runs.filter((r) => r.status === 'completed')
+                if (filter === 'pass') {
+                    return completedRuns.filter((r) => r.result === true)
+                }
+                if (filter === 'fail') {
+                    return completedRuns.filter((r) => r.result === false)
+                }
+                // na
+                return completedRuns.filter((r) => r.result === null)
+            },
+        ],
+
+        runsToSummarizeCount: [
+            (s) => [s.filteredEvaluationRuns, s.evaluationSummaryFilter],
+            (filteredRuns: EvaluationRun[], filter: EvaluationSummaryFilter): number => {
+                // When 'all', filteredEvaluationRuns includes non-completed runs, but summarization only uses completed
+                const count =
+                    filter === 'all' ? filteredRuns.filter((r) => r.status === 'completed').length : filteredRuns.length
+                return Math.min(count, EVALUATION_SUMMARY_MAX_RUNS)
+            },
+        ],
+
         breadcrumbs: [
-            (s) => [s.evaluation],
-            (evaluation): Breadcrumb[] => [
-                {
-                    name: 'LLM Analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                    key: 'LLMAnalytics',
-                    iconType: 'llm_analytics',
-                },
+            (s) => [s.evaluation, router.selectors.searchParams],
+            (evaluation: EvaluationConfig | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Evaluations',
-                    path: urls.llmAnalyticsEvaluations(),
+                    path: combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url,
                     key: 'LLMAnalyticsEvaluations',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_evaluations',
                 },
                 {
                     name: evaluation?.name || 'New Evaluation',
                     key: 'LLMAnalyticsEvaluationEdit',
+                    iconType: 'llm_evaluations',
                 },
             ],
         ],
     }),
 
-    urlToAction(({ actions, props }) => ({
+    tabAwareUrlToAction(({ actions, props }) => ({
         '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'

@@ -12,19 +12,21 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 
 export const PEOPLE_LIST_CONTEXT_KEY = 'people-list'
-
+const DEFAULT_COLUMNS = [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete']
 export const PEOPLE_LIST_DEFAULT_QUERY = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.ActorsQuery,
-        select: [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete'],
+        tags: { productKey: ProductKey.CUSTOMER_ANALYTICS },
+        select: DEFAULT_COLUMNS,
     },
+    defaultColumns: DEFAULT_COLUMNS,
     full: true,
     propertiesViaUrl: true,
     contextKey: PEOPLE_LIST_CONTEXT_KEY,
@@ -42,7 +44,16 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     }),
 
     reducers({
-        query: [PEOPLE_LIST_DEFAULT_QUERY, { setQuery: (_, { query }) => query }],
+        query: [
+            PEOPLE_LIST_DEFAULT_QUERY,
+            {
+                setQuery: (_, { query }) => ({
+                    ...query,
+                    // Need this so that clicking "reset to defaults" in column configurator also bring back the delete button
+                    defaultColumns: DEFAULT_COLUMNS,
+                }),
+            },
+        ],
         showDisplayNameNudge: [
             false,
             {

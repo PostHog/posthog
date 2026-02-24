@@ -456,7 +456,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 },
             ],
             (context: MaxContextItem[]): MaxContextItem[] => context,
-            { equalityCheck: objectsEqual },
+            { resultEqualityCheck: objectsEqual },
         ],
         sceneContext: [
             (s: any) => [s.rawSceneContext],

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useMemo } from 'react'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesColorPalette } from 'lib/colors'
 
@@ -19,6 +19,7 @@ interface BreakdownLiveCardProps<T extends BreakdownItem> {
     emptyMessage: string
     statLabel: string
     totalCount?: number
+    isLoading?: boolean
 }
 
 export const BreakdownLiveCard = <T extends BreakdownItem>({
@@ -30,6 +31,7 @@ export const BreakdownLiveCard = <T extends BreakdownItem>({
     emptyMessage,
     statLabel,
     totalCount,
+    isLoading,
 }: BreakdownLiveCardProps<T>): JSX.Element => {
     const colors = useMemo(() => getSeriesColorPalette(), [])
 
@@ -69,7 +71,11 @@ export const BreakdownLiveCard = <T extends BreakdownItem>({
                 <h3 className="text-sm font-semibold text-default">{title}</h3>
             </div>
 
-            {!hasData ? (
+            {isLoading ? (
+                <div className="flex-1 flex items-center justify-center">
+                    <Spinner className="text-2xl" />
+                </div>
+            ) : !hasData ? (
                 <div className="flex-1 flex items-center justify-center text-muted text-sm">{emptyMessage}</div>
             ) : (
                 <>
