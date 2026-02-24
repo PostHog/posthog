@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
@@ -24,11 +23,6 @@ ALERT_STATE_CHOICES = [
     (AlertState.ERRORED, AlertState.ERRORED),
     (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
-
-
-class AlertCreationSource(StrEnum):
-    WEB = "web"
-    POSTHOG_AI = "posthog_ai"
 
 
 # TODO: Enable `@deprecated` once we move to Python 3.13
@@ -145,24 +139,26 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
         super().save(*args, **kwargs)
 
-    def _get_event_properties(self, source: AlertCreationSource) -> dict:
-        return {
+    def _get_event_properties(self, additional_properties: dict | None = None) -> dict:
+        properties = {
             "alert_id": self.id,
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
             "calculation_interval": self.calculation_interval,
-            "creation_source": str(source),
         }
+        if additional_properties:
+            properties.update(additional_properties)
+        return properties
 
-    def report_created(self, user: User, source: AlertCreationSource) -> None:
+    def report_created(self, user: User, additional_properties: dict | None = None) -> None:
         from posthog.event_usage import report_user_action
 
-        report_user_action(user, "alert created", self._get_event_properties(source))
+        report_user_action(user, "alert created", self._get_event_properties(additional_properties))
 
-    def report_updated(self, user: User, source: AlertCreationSource) -> None:
+    def report_updated(self, user: User, additional_properties: dict | None = None) -> None:
         from posthog.event_usage import report_user_action
 
-        report_user_action(user, "alert updated", self._get_event_properties(source))
+        report_user_action(user, "alert updated", self._get_event_properties(additional_properties))
 
     @classmethod
     def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
