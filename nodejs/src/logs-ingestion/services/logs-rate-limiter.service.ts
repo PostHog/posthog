@@ -1,6 +1,6 @@
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
-import { LogsIngestionConsumerConfig } from '~/types'
 
+import { LogsIngestionConsumerConfig } from '../config'
 import { LogsIngestionMessage } from '../types'
 
 /** Convert milliseconds to seconds */

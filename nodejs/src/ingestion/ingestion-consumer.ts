@@ -9,7 +9,6 @@ import { KafkaProducerWrapper } from '../kafka/producer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
-    IngestionConsumerConfig,
     PluginServerService,
     PluginsServerConfig,
     RedisPool,
@@ -34,6 +33,7 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
+import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
