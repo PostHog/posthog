@@ -674,7 +674,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             logger.exception("Could not fetch schemas from source", exc_info=e)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": str(e)},
+                data={"message": "Could not fetch schemas from source."},
             )
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
