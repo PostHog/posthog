@@ -1,3 +1,17 @@
+"""
+Traffic type classification helper functions for web analytics.
+
+EXPERIMENTAL: These functions use __preview_ prefixed HogQL functions to indicate
+they are experimental and may change without notice. The patterns and return values
+may be adjusted as we gather more data on real-world traffic classification accuracy.
+
+The underlying HogQL functions provide maximum flexibility during development:
+- SQL editor: Direct usage for ad-hoc analysis (e.g., SELECT __preview_isBot(properties.$raw_user_agent))
+- HogQLQuery: Custom dashboards and insights with traffic type filtering
+- Trends: Group or filter by traffic type when analyzing patterns
+- Web analytics: These helper functions wrap the HogQL functions for use in query runners
+"""
+
 from posthog.hogql import ast
 
 # Re-export patterns from the HogQL functions module (single source of truth)
@@ -9,8 +23,10 @@ from posthog.hogql.functions.traffic_type import (
     SEARCH_BOT_PATTERNS,
     SEO_BOT_PATTERNS,
     SOCIAL_BOT_PATTERNS,
+    get_bot_type as _get_bot_type,
     get_traffic_category as _get_traffic_category,
     get_traffic_type as _get_traffic_type,
+    is_bot as _is_bot,
 )
 
 __all__ = [
@@ -23,6 +39,8 @@ __all__ = [
     "HEADLESS_PATTERNS",
     "get_traffic_type_expr",
     "get_traffic_category_expr",
+    "is_bot_expr",
+    "get_bot_type_expr",
 ]
 
 
@@ -30,19 +48,23 @@ def get_traffic_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
     """
     Classifies user agent into traffic type using multiIf() with match().
 
+    EXPERIMENTAL: This function may change without notice.
+
     Returns an expression that evaluates to one of:
     - "AI Agent" - LLM crawlers (GPTBot, ClaudeBot, etc.)
     - "Bot" - Search engines, SEO tools, social crawlers, monitoring
     - "Automation" - HTTP clients, headless browsers, empty UA
-    - "Human" - Default for unmatched user agents
+    - "Regular" - Default for unmatched user agents
     """
-    node = ast.Call(name="getTrafficType", args=[user_agent_expr])
+    node = ast.Call(name="__preview_getTrafficType", args=[user_agent_expr])
     return _get_traffic_type(node=node, args=[user_agent_expr])
 
 
 def get_traffic_category_expr(user_agent_expr: ast.Expr) -> ast.Expr:
     """
     Returns subcategory expression for more granular classification.
+
+    EXPERIMENTAL: This function may change without notice.
 
     Categories:
     - llm_crawler: AI training/assistant bots
@@ -53,7 +75,38 @@ def get_traffic_category_expr(user_agent_expr: ast.Expr) -> ast.Expr:
     - http_client: CLI tools and libraries
     - headless_browser: Automation frameworks
     - no_user_agent: Empty or missing UA
-    - human: Default for real users
+    - regular: Default for real users
     """
-    node = ast.Call(name="getTrafficCategory", args=[user_agent_expr])
+    node = ast.Call(name="__preview_getTrafficCategory", args=[user_agent_expr])
     return _get_traffic_category(node=node, args=[user_agent_expr])
+
+
+def is_bot_expr(user_agent_expr: ast.Expr) -> ast.Expr:
+    """
+    Returns a boolean expression: true if bot/automation, false for regular traffic.
+
+    EXPERIMENTAL: This function may change without notice.
+    """
+    node = ast.Call(name="__preview_isBot", args=[user_agent_expr])
+    return _is_bot(node=node, args=[user_agent_expr])
+
+
+def get_bot_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
+    """
+    Returns the bot category or empty string for regular traffic.
+
+    EXPERIMENTAL: This function may change without notice.
+
+    Categories:
+    - llm_crawler: AI training/assistant bots
+    - search_crawler: Search engine bots
+    - seo_crawler: SEO tool bots
+    - social_crawler: Social media crawlers
+    - monitoring: Uptime/monitoring bots
+    - http_client: CLI tools and libraries
+    - headless_browser: Automation frameworks
+    - no_user_agent: Empty or missing UA
+    - "": Regular traffic (empty string)
+    """
+    node = ast.Call(name="__preview_getBotType", args=[user_agent_expr])
+    return _get_bot_type(node=node, args=[user_agent_expr])

@@ -10,8 +10,10 @@ from posthog.hogql_queries.web_analytics.traffic_type import (
     SEARCH_BOT_PATTERNS,
     SEO_BOT_PATTERNS,
     SOCIAL_BOT_PATTERNS,
+    get_bot_type_expr,
     get_traffic_category_expr,
     get_traffic_type_expr,
+    is_bot_expr,
 )
 
 
@@ -84,6 +86,24 @@ class TestTrafficTypeExpressions:
     def test_traffic_category_expr_structure(self):
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_traffic_category_expr(user_agent_expr)
+
+        assert isinstance(expr, ast.Call)
+        assert expr.name == "multiIf"
+        # Should have pairs of (condition, value) + default
+        # 8 categories * 2 + 1 default = 17 args
+        assert len(expr.args) == 17
+
+    def test_is_bot_expr_structure(self):
+        user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
+        expr = is_bot_expr(user_agent_expr)
+
+        assert isinstance(expr, ast.Or)
+        # Should have 8 match conditions (all bot patterns + empty UA)
+        assert len(expr.exprs) == 8
+
+    def test_get_bot_type_expr_structure(self):
+        user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
+        expr = get_bot_type_expr(user_agent_expr)
 
         assert isinstance(expr, ast.Call)
         assert expr.name == "multiIf"
