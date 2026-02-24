@@ -16,6 +16,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.models import SlackUserRepoPreference
+
 
 def _sign_request(body: bytes, secret: str) -> tuple[str, str]:
     ts = str(int(time.time()))
@@ -418,6 +420,79 @@ class TestHandleTwigAppMention(TestCase):
         handle_twig_app_mention(self._make_event(ts="6.006"), self.twig_integration)
 
         mock_logger.exception.assert_any_call("twig_app_mention_failed", error="unexpected")
+
+    @patch("products.slack_app.backend.api._get_full_repo_names")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.WebClient")
+    def test_default_repo_set_without_repo_posts_search_picker(
+        self, mock_webclient_class, mock_resolve, mock_get_repos
+    ):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js"]
+
+        from products.slack_app.backend.api import SlackUserContext, handle_twig_app_mention
+
+        mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
+        event = self._make_event(text="<@UBOT> default repo set", ts="7.006")
+        handle_twig_app_mention(event, self.twig_integration)
+
+        mock_client.chat_postMessage.assert_called_once()
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert blocks[0]["accessory"]["action_id"] == "twig_default_repo_select"
+        assert "Search GitHub repositories" in blocks[0]["accessory"]["placeholder"]["text"]
+
+    @patch("products.slack_app.backend.api._get_full_repo_names")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.WebClient")
+    def test_default_repo_set_command_saves_preference(self, mock_webclient_class, mock_resolve, mock_get_repos):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js"]
+
+        from products.slack_app.backend.api import SlackUserContext, handle_twig_app_mention
+
+        mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
+        event = self._make_event(text="<@UBOT> default repo set posthog/posthog-js", ts="7.007")
+        handle_twig_app_mention(event, self.twig_integration)
+
+        preference = SlackUserRepoPreference.objects.get(team=self.team, user=self.user)
+        assert preference.repository == "posthog/posthog-js"
+        mock_client.chat_postMessage.assert_called_once()
+        assert "Set your default repository" in mock_client.chat_postMessage.call_args.kwargs["text"]
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.WebClient")
+    def test_default_repo_show_command_posts_current_value(self, mock_webclient_class, mock_resolve):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        SlackUserRepoPreference.objects.create(team=self.team, user=self.user, repository="posthog/posthog")
+
+        from products.slack_app.backend.api import SlackUserContext, handle_twig_app_mention
+
+        mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
+        event = self._make_event(text="<@UBOT> default repo show", ts="8.008")
+        handle_twig_app_mention(event, self.twig_integration)
+
+        mock_client.chat_postMessage.assert_called_once()
+        assert "posthog/posthog" in mock_client.chat_postMessage.call_args.kwargs["text"]
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.WebClient")
+    def test_default_repo_clear_command_deletes_value(self, mock_webclient_class, mock_resolve):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        SlackUserRepoPreference.objects.create(team=self.team, user=self.user, repository="posthog/posthog")
+
+        from products.slack_app.backend.api import SlackUserContext, handle_twig_app_mention
+
+        mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
+        event = self._make_event(text="<@UBOT> default repo clear", ts="9.009")
+        handle_twig_app_mention(event, self.twig_integration)
+
+        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user).count() == 0
+        mock_client.chat_postMessage.assert_called_once()
+        assert "Cleared your default repository" in mock_client.chat_postMessage.call_args.kwargs["text"]
 
 
 class TestRouteTwigEventToRelevantRegion(TestCase):

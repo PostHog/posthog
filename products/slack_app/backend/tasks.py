@@ -243,6 +243,25 @@ def process_twig_task_termination(payload: dict) -> None:
         logger.warning("twig_terminate_run_not_found", run_id=run_id)
         return
 
+    if task_run.team_id != integration.team_id:
+        logger.warning(
+            "twig_terminate_team_mismatch",
+            run_id=run_id,
+            task_team_id=task_run.team_id,
+            integration_team_id=integration.team_id,
+        )
+        if channel and thread_ts:
+            try:
+                slack_client = SlackIntegration(integration).client
+                slack_client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text="This run belongs to a different project context and cannot be terminated from here.",
+                )
+            except Exception:
+                logger.warning("twig_terminate_team_mismatch_feedback_failed", run_id=run_id)
+        return
+
     if str(task_run.status) in {
         TaskRun.Status.COMPLETED,
         TaskRun.Status.FAILED,
