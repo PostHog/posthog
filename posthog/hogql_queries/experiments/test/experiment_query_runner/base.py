@@ -6,9 +6,12 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 from django.test import override_settings
 from django.utils import timezone
 
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.preaggregation.experiment_exposures_sql import TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 
+from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
@@ -24,6 +27,10 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
             self.clean_up_data_warehouse_subscriptions_data()
         if getattr(self, "clean_up_data_warehouse_customers_data", None):
             self.clean_up_data_warehouse_customers_data()
+
+    def _clean_preaggregation_data(self):
+        sync_execute(TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL())
+        PreaggregationJob.objects.all().delete()
 
     def create_feature_flag(self, key="test-experiment"):
         return FeatureFlag.objects.create(
