@@ -19,12 +19,12 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         list: true
-        mcp_version: 1
         title: Get all actions
         description: >
             Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger
             conditions (page views, clicks, form submissions) into a single trackable event for use in insights and
             funnels.
+        mcp_version: 1
     action-create:
         operation: actions_create
         enabled: true
@@ -58,11 +58,11 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}'
-        mcp_version: 1
         title: Get action
         description: >
             Get a specific action by ID. Returns the action configuration including all steps and their trigger
             conditions.
+        mcp_version: 1
     actions-update:
         operation: actions_update
         enabled: false

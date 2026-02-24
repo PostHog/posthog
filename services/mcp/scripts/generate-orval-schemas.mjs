@@ -250,7 +250,7 @@ for (const def of definitions) {
 if (outputDirs.length > 0) {
     const globs = outputDirs.map((d) => `"${d}/**/*.ts"`).join(' ')
     try {
-        execSync(`pnpm exec prettier --write ${globs}`, { stdio: 'pipe', cwd: repoRoot })
+        execSync(`pnpm exec oxfmt --no-error-on-unmatched-pattern ${globs}`, { stdio: 'pipe', cwd: repoRoot })
     } catch {
         // Not critical
     }

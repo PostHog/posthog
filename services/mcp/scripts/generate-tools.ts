@@ -15,6 +15,7 @@
  * - src/tools/generated/index.ts — barrel merging all categories
  * - schema/generated-tool-definitions.json — tool metadata
  */
+import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml } from 'yaml'
@@ -537,6 +538,22 @@ function discoverDefinitions(): DefinitionSource[] {
 }
 
 // ------------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------------
+
+function formatWithPrettier(filePaths: string[]): void {
+    if (filePaths.length === 0) {
+        return
+    }
+    const quoted = filePaths.map((f) => `"${f}"`).join(' ')
+    try {
+        execSync(`pnpm exec oxfmt --no-error-on-unmatched-pattern ${quoted}`, { stdio: 'pipe', cwd: REPO_ROOT })
+    } catch {
+        // Not critical — oxfmt may not be available in all environments
+    }
+}
+
+// ------------------------------------------------------------------
 // Main
 // ------------------------------------------------------------------
 
@@ -597,6 +614,13 @@ ${spreads}
     // Tool definitions JSON
     const definitions = generateDefinitionsJson(allCategories)
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
+
+    // Format all generated TS files so output matches what lint-staged/oxfmt produces
+    const generatedTsFiles = [
+        ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
+        path.join(GENERATED_DIR, 'index.ts'),
+    ]
+    formatWithPrettier(generatedTsFiles)
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
     process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)

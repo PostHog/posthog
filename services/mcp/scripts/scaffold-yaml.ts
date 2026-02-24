@@ -67,9 +67,9 @@ function formatWithPrettier(filePaths: string[]): void {
     }
     const quoted = filePaths.map((f) => `"${f}"`).join(' ')
     try {
-        execSync(`pnpm exec prettier --write ${quoted}`, { stdio: 'pipe', cwd: REPO_ROOT })
+        execSync(`pnpm exec oxfmt --no-error-on-unmatched-pattern ${quoted}`, { stdio: 'pipe', cwd: REPO_ROOT })
     } catch {
-        // Not critical — prettier may not be available in all environments
+        // Not critical — oxfmt may not be available in all environments
     }
 }
 
@@ -263,7 +263,7 @@ function mergeWithExisting(
  * Re-scaffold all existing YAML definitions. Derives the product name
  * from the file/directory structure, finds matching OpenAPI operations
  * by URL path, and merges new/removed operations. Idempotent and
- * non-destructive. Runs prettier on written files so output matches
+ * non-destructive. Runs oxfmt on written files so output matches
  * what lint-staged produces.
  */
 function syncAll(spec: OpenApiSpec): void {
