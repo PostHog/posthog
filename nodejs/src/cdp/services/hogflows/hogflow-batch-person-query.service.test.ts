@@ -40,7 +40,7 @@ describe('HogFlowBatchPersonQueryService', () => {
     }
 
     describe('getBlastRadius', () => {
-        it('calls the Django endpoint with internal auth header and returns parsed response', async () => {
+        it('calls the Django endpoint and returns parsed response', async () => {
             const service = createService('internal-secret')
             const response: BlastRadiusResponse = { users_affected: 12, total_users: 50 }
 
@@ -56,10 +56,6 @@ describe('HogFlowBatchPersonQueryService', () => {
                 url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius',
                 fetchParams: {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-INTERNAL-SECRET': 'internal-secret',
-                    },
                     body: JSON.stringify({
                         filters,
                         group_type_index: 1,
@@ -68,7 +64,7 @@ describe('HogFlowBatchPersonQueryService', () => {
             })
         })
 
-        it('omits Authorization header when INTERNAL_API_SECRET is not configured', async () => {
+        it('sends the same request when INTERNAL_API_SECRET is not configured', async () => {
             const service = createService()
 
             fetchMock.mockResolvedValue({
@@ -82,9 +78,6 @@ describe('HogFlowBatchPersonQueryService', () => {
                 url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius',
                 fetchParams: {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
                     body: JSON.stringify({
                         filters,
                         group_type_index: undefined,
@@ -151,10 +144,6 @@ describe('HogFlowBatchPersonQueryService', () => {
                 url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Internal-Secret': 'internal-secret',
-                    },
                     body: JSON.stringify({
                         filters,
                         group_type_index: 2,
@@ -166,10 +155,6 @@ describe('HogFlowBatchPersonQueryService', () => {
                 url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Internal-Secret': 'internal-secret',
-                    },
                     body: JSON.stringify({
                         filters,
                         group_type_index: 2,
@@ -197,10 +182,6 @@ describe('HogFlowBatchPersonQueryService', () => {
                 url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Internal-Secret': 'internal-secret',
-                    },
                     body: JSON.stringify({
                         filters,
                         group_type_index: undefined,

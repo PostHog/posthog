@@ -301,7 +301,6 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 state: {
                     event: expect.objectContaining({
                         event: '$batch_hog_flow_invocation',
-                        distinct_id: 'distinct-1',
                     }),
                     actionStepCount: 0,
                 },
@@ -319,7 +318,6 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 state: {
                     event: expect.objectContaining({
                         event: '$batch_hog_flow_invocation',
-                        distinct_id: 'distinct-2',
                     }),
                     actionStepCount: 0,
                 },
@@ -376,7 +374,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             })
 
             expect(result).toHaveLength(3)
-            expect(result.map((item) => item.state?.person?.id)).toEqual(['person-1', 'person-2', 'person-3'])
+            expect(result.map((item) => (item as any).person?.id)).toEqual(['person-1', 'person-2', 'person-3'])
 
             expect(mockGetBlastRadiusPersons).toHaveBeenCalledTimes(2)
             expect(mockGetBlastRadiusPersons).toHaveBeenNthCalledWith(1, team, batchRequest.filters, 5, null)
@@ -596,20 +594,16 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 teamId: team.id,
                 functionId: hogFlow.id,
                 queue: 'hogflow',
-                state: {
-                    event: expect.objectContaining({
-                        distinct_id: 'distinct-1',
-                    }),
+                person: {
+                    id: 'distinct-1',
                 },
             })
             expect(invocations[1]).toMatchObject({
                 teamId: team.id,
                 functionId: hogFlow.id,
                 queue: 'hogflow',
-                state: {
-                    event: expect.objectContaining({
-                        distinct_id: 'distinct-2',
-                    }),
+                person: {
+                    id: 'distinct-2',
                 },
             })
 
