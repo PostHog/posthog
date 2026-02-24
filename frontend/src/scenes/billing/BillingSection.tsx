@@ -9,9 +9,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Billing } from './Billing'
+import { billingLogic } from './billingLogic'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
-import { billingLogic } from './billingLogic'
 import { BillingSectionId } from './types'
 
 export const scene: SceneExport = {

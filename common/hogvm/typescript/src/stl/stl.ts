@@ -17,8 +17,8 @@ import {
     toUnixTimestamp,
     toUnixTimestampMilli,
 } from './date'
-import { printHogStringOutput } from './print'
 import { isIPAddressInRange } from './ip'
+import { printHogStringOutput } from './print'
 
 // TODO: this file should be generated from or mergred with posthog/hogql/compiler/javascript_stl.py
 

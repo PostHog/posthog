@@ -18,16 +18,16 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
+import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Dataset, DatasetItem } from '~/types'
@@ -36,8 +36,8 @@ import { truncateValue } from '../utils'
 import { DatasetItemModal } from './DatasetItemModal'
 import { EditDatasetForm } from './EditDatasetForm'
 import { JSONColumn } from './JSONColumn'
-import { RefreshButton } from './RefreshButton'
 import { DatasetLogicProps, DatasetTab, isDataset, llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
+import { RefreshButton } from './RefreshButton'
 
 const RESOURCE_TYPE = 'dataset'
 

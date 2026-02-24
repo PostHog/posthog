@@ -5,8 +5,11 @@ use std::time::Duration;
 use etcd_client::EventType;
 use tokio_util::sync::CancellationToken;
 
+use assignment_coordination::store::parse_watch_value;
+use assignment_coordination::util::compute_required_handoffs;
+
 use crate::error::{Error, Result};
-use crate::store::{self, EtcdStore};
+use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
 use crate::types::{
     AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment, PodStatus, RegisteredPod,
@@ -37,14 +40,14 @@ impl Default for CoordinatorConfig {
 }
 
 pub struct Coordinator {
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     config: CoordinatorConfig,
     strategy: Arc<dyn AssignmentStrategy>,
 }
 
 impl Coordinator {
     pub fn new(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         config: CoordinatorConfig,
         strategy: Arc<dyn AssignmentStrategy>,
     ) -> Self {
@@ -149,7 +152,7 @@ impl Coordinator {
         let result = tokio::select! {
             _ = cancel.cancelled() => Ok(()),
             Some(result) = tasks.join_next() => {
-                result.map_err(|e| Error::InvalidState(format!("task panicked: {e}")))?
+                result.map_err(|e| Error::invalid_state(format!("task panicked: {e}")))?
             }
         };
 
@@ -160,7 +163,7 @@ impl Coordinator {
     }
 
     async fn watch_pods_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         strategy: Arc<dyn AssignmentStrategy>,
         debounce_interval: Duration,
         cancel: CancellationToken,
@@ -172,7 +175,7 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("pod watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
                     Self::log_pod_events(&resp);
                 }
             }
@@ -184,7 +187,7 @@ impl Coordinator {
                     _ = cancel.cancelled() => return Ok(()),
                     _ = tokio::time::sleep_until(deadline) => break,
                     msg = stream.message() => {
-                        let resp = msg?.ok_or_else(|| Error::InvalidState("pod watch stream ended".to_string()))?;
+                        let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
                         Self::log_pod_events(&resp);
                     }
                 }
@@ -204,7 +207,7 @@ impl Coordinator {
     }
 
     async fn watch_handoffs_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         strategy: Arc<dyn AssignmentStrategy>,
         cancel: CancellationToken,
     ) -> Result<()> {
@@ -214,10 +217,10 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("handoff watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
-                            match store::parse_watch_value::<HandoffState>(event) {
+                            match parse_watch_value::<HandoffState>(event) {
                                 Ok(handoff) => {
                                     Self::handle_handoff_update_static(&store, &handoff).await?;
                                 }
@@ -242,7 +245,7 @@ impl Coordinator {
     /// Watch for router cutover acks. When all registered routers have acked
     /// a partition's handoff, complete the handoff (update assignment + phase).
     async fn watch_handoff_acks_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_handoff_acks().await?;
@@ -251,7 +254,7 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("ack watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("ack watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             // Extract partition from the ack key
@@ -272,7 +275,7 @@ impl Coordinator {
 
     /// Check if all routers have acked a partition handoff.
     /// If so, atomically complete the handoff.
-    async fn check_ack_completion(store: &EtcdStore, partition: u32) -> Result<()> {
+    async fn check_ack_completion(store: &PersonhogStore, partition: u32) -> Result<()> {
         let routers = store.list_routers().await?;
         if routers.is_empty() {
             tracing::warn!(partition, "no routers registered, cannot complete handoff");
@@ -309,7 +312,7 @@ impl Coordinator {
     }
 
     async fn handle_pod_change_static(
-        store: &EtcdStore,
+        store: &PersonhogStore,
         strategy: &dyn AssignmentStrategy,
     ) -> Result<()> {
         let pods = store.list_pods().await?;
@@ -413,7 +416,7 @@ impl Coordinator {
     }
 
     /// Delete handoffs whose `new_owner` is no longer an active pod.
-    async fn cleanup_stale_handoffs(store: &EtcdStore, active_pods: &[String]) -> Result<()> {
+    async fn cleanup_stale_handoffs(store: &PersonhogStore, active_pods: &[String]) -> Result<()> {
         let handoffs = store.list_handoffs().await?;
         let active_set: std::collections::HashSet<&str> =
             active_pods.iter().map(|s| s.as_str()).collect();
@@ -434,7 +437,10 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn handle_handoff_update_static(store: &EtcdStore, handoff: &HandoffState) -> Result<()> {
+    async fn handle_handoff_update_static(
+        store: &PersonhogStore,
+        handoff: &HandoffState,
+    ) -> Result<()> {
         if handoff.phase == HandoffPhase::Complete {
             tracing::info!(
                 partition = handoff.partition,
@@ -459,27 +465,6 @@ fn active_pod_names(pods: &[RegisteredPod]) -> Vec<String> {
     active.iter().map(|p| p.pod_name.clone()).collect()
 }
 
-/// Compare current and desired assignments to find needed handoffs.
-///
-/// Returns `(partition, old_owner, new_owner)` for each partition that needs
-/// to move.
-pub fn compute_required_handoffs(
-    current: &HashMap<u32, String>,
-    new: &HashMap<u32, String>,
-) -> Vec<(u32, String, String)> {
-    let mut handoffs = Vec::new();
-
-    for (partition, new_owner) in new {
-        if let Some(old_owner) = current.get(partition) {
-            if old_owner != new_owner {
-                handoffs.push((*partition, old_owner.clone(), new_owner.clone()));
-            }
-        }
-    }
-
-    handoffs
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,37 +486,5 @@ mod tests {
         let pods = vec![make_pod("pod-2"), draining, make_pod("pod-1")];
         let names = active_pod_names(&pods);
         assert_eq!(names, vec!["pod-1", "pod-2"]);
-    }
-
-    #[test]
-    fn compute_required_handoffs_no_change() {
-        let mut current = HashMap::new();
-        current.insert(0, "pod-0".to_string());
-        current.insert(1, "pod-1".to_string());
-        let new = current.clone();
-        assert!(compute_required_handoffs(&current, &new).is_empty());
-    }
-
-    #[test]
-    fn compute_required_handoffs_detects_moves() {
-        let mut current = HashMap::new();
-        current.insert(0, "pod-0".to_string());
-        current.insert(1, "pod-0".to_string());
-
-        let mut new = HashMap::new();
-        new.insert(0, "pod-0".to_string());
-        new.insert(1, "pod-1".to_string());
-
-        let handoffs = compute_required_handoffs(&current, &new);
-        assert_eq!(handoffs.len(), 1);
-        assert_eq!(handoffs[0], (1, "pod-0".to_string(), "pod-1".to_string()));
-    }
-
-    #[test]
-    fn compute_required_handoffs_new_partitions_ignored() {
-        let current = HashMap::new();
-        let mut new = HashMap::new();
-        new.insert(0, "pod-0".to_string());
-        assert!(compute_required_handoffs(&current, &new).is_empty());
     }
 }
