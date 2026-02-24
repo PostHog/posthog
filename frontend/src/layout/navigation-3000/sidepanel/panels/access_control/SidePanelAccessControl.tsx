@@ -6,8 +6,8 @@ import { cn } from 'lib/utils/css-classes'
 
 import { AccessControlResourceType } from '~/types'
 
-import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import { AccessControlObject } from './AccessControlObject'
 

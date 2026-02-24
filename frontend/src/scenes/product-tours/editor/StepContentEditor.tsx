@@ -19,11 +19,11 @@ import { LemonButton, LemonDivider, LemonInput, LemonMenu, LemonModal } from '@p
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 
 import { DEFAULT_APPEARANCE } from '../constants'
 import { productTourLogic } from '../productTourLogic'
@@ -32,9 +32,9 @@ import { getWidthValue } from '../stepUtils'
 import { CodeBlockExtension } from './CodeBlockExtension'
 import { EmbedExtension } from './EmbedExtension'
 import { FooterPreview } from './FooterPreview'
-import { SlashCommandExtension } from './SlashCommandMenu'
 import { IconAlignCenter, IconAlignLeft, IconAlignRight, IconListNumbers, IconUnderline } from './icons'
 import { addProductTourCSSVariablesToElement } from './productTourCSSUtils'
+import { SlashCommandExtension } from './SlashCommandMenu'
 
 export interface StepContentEditorProps {
     tourId: string

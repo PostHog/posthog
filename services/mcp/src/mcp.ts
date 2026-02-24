@@ -5,8 +5,6 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
-import { SessionManager } from '@/lib/SessionManager'
-import { StateManager } from '@/lib/StateManager'
 import { AnalyticsEvent, getPostHogClient } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
@@ -18,6 +16,8 @@ import {
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
 import { formatResponse } from '@/lib/response'
+import { SessionManager } from '@/lib/SessionManager'
+import { StateManager } from '@/lib/StateManager'
 import { formatPrompt } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
@@ -28,7 +28,9 @@ import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-const INSTRUCTIONS_V2 = formatPrompt(INSTRUCTIONS_TEMPLATE_V2, { guidelines: guidelines.trim() })
+const INSTRUCTIONS_V2 = formatPrompt(INSTRUCTIONS_TEMPLATE_V2, {
+    guidelines: guidelines.trim(),
+})
 
 export type RequestProperties = {
     userHash: string
@@ -207,7 +209,9 @@ export class MCP extends McpAgent<Env> {
 
             try {
                 const result = await handler(params)
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, { tool: tool.name })
+                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, {
+                    tool: tool.name,
+                })
 
                 // For tools with UI resources, include structuredContent for better UI rendering
                 // structuredContent is not added to model context, only used by UI apps
@@ -315,7 +319,11 @@ export class MCP extends McpAgent<Env> {
         await registerUiAppResources(this.server, context)
 
         // Register tools
-        const allTools = await getToolsFromContext(context, { features, version, excludeTools })
+        const allTools = await getToolsFromContext(context, {
+            features,
+            version,
+            excludeTools,
+        })
 
         for (const tool of allTools) {
             this.registerTool(tool, async (params) => tool.handler(context, params))
