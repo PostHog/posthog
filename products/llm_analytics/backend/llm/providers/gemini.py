@@ -234,7 +234,7 @@ class GeminiAdapter:
             other = sorted(
                 m.name.removeprefix("models/")
                 for m in api_models
-                if m.name.removeprefix("models/") not in supported and m.name.startswith("models/gemini-")
+                if m.name and m.name.removeprefix("models/") not in supported and m.name.startswith("models/gemini-")
             )
             return list(GeminiConfig.SUPPORTED_MODELS) + other
         except Exception:
