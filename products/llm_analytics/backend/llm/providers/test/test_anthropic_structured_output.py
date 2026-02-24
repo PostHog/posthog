@@ -19,6 +19,11 @@ class ScoreEvalResult(BaseModel):
     tags: list[str]
 
 
+class ModelWithDefault(BaseModel):
+    name: str
+    verdict: bool | None = None
+
+
 class TestBuildOutputSchema:
     def test_schema_contains_properties(self):
         schema = AnthropicAdapter._build_output_schema(BooleanEvalResult)
@@ -26,11 +31,6 @@ class TestBuildOutputSchema:
         assert schema["type"] == "object"
         assert "result" in schema["properties"]
         assert "reason" in schema["properties"]
-
-    def test_schema_strips_title(self):
-        schema = AnthropicAdapter._build_output_schema(BooleanEvalResult)
-
-        assert "title" not in schema
 
     def test_schema_sets_additional_properties_false(self):
         schema = AnthropicAdapter._build_output_schema(BooleanEvalResult)
@@ -43,6 +43,12 @@ class TestBuildOutputSchema:
         assert schema["properties"]["score"]["type"] == "number"
         assert schema["properties"]["explanation"]["type"] == "string"
         assert schema["properties"]["tags"]["type"] == "array"
+
+    def test_schema_strips_default_keyword(self):
+        schema = AnthropicAdapter._build_output_schema(ModelWithDefault)
+
+        verdict_schema = schema["properties"]["verdict"]
+        assert "default" not in verdict_schema
 
 
 class TestStructuredOutputComplete:

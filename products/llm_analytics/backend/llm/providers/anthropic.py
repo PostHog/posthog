@@ -9,6 +9,7 @@ from django.conf import settings
 
 import anthropic
 import posthoganalytics
+from anthropic.lib._parse._transform import transform_schema
 from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledParam
 from posthoganalytics.ai.anthropic import Anthropic
 from pydantic import BaseModel
@@ -324,10 +325,7 @@ class AnthropicAdapter:
 
     @staticmethod
     def _build_output_schema(response_format: type[BaseModel]) -> dict[str, Any]:
-        schema = response_format.model_json_schema()
-        schema.pop("title", None)
-        schema.setdefault("additionalProperties", False)
-        return schema
+        return transform_schema(response_format)
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
         """Build PostHog analytics kwargs if using instrumented client."""
