@@ -407,10 +407,19 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
-        const keyIndex = query.source.select?.indexOf('key') ?? -1
-        const groupKey = keyIndex >= 0 ? String((record as any[])[keyIndex]) : undefined
-        if (groupKey) {
-            return <Link to={urls.group(query.source.group_type_index, groupKey, true)}>{value}</Link>
+        if (typeof value === 'object' && value !== null && 'display_name' in value && 'key' in value) {
+            return (
+                <div className="min-w-40">
+                    <Link to={urls.group(query.source.group_type_index, value.key, true)}>{value.display_name}</Link>
+                    <CopyToClipboardInline
+                        explicitValue={value.key}
+                        iconStyle={{ color: 'var(--color-accent)' }}
+                        description="group id"
+                    >
+                        {value.key}
+                    </CopyToClipboardInline>
+                </div>
+            )
         }
         return String(value)
     } else if (trimQuotes(key).endsWith('$virt_mrr') || trimQuotes(key).endsWith('$virt_revenue')) {

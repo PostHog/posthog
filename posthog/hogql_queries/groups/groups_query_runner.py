@@ -36,7 +36,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                     seen.add(col)
                     self.columns.append(col)
         else:
-            self.columns = ["group_name", "key"]
+            self.columns = ["group_name"]
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
@@ -126,7 +126,13 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
 
     def _column_to_expr(self, col: str) -> ast.Expr:
         if col == "group_name":
-            return ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])])
+            return ast.Call(
+                name="tuple",
+                args=[
+                    ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
+                    ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
+                ],
+            )
         return parse_expr(col)
 
     def _calculate(self) -> GroupsQueryResponse:
@@ -140,6 +146,20 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
             context=HogQLContext(team_id=self.team.pk, globals={"group_id": self.query.group_type_index}),
         )
         results = response.results[: self.paginator.limit] if self.paginator.limit is not None else response.results
+
+        # Convert group_name tuples to dicts for frontend
+        for column_index, col in enumerate(self.columns):
+            if col == "group_name":
+                results = [
+                    [
+                        {"display_name": row[column_index][0], "key": str(row[column_index][1])}
+                        if idx == column_index
+                        else val
+                        for idx, val in enumerate(row)
+                    ]
+                    for row in results
+                ]
+
         return GroupsQueryResponse(
             kind="GroupsQuery",
             types=[t for _, t in response.types] if response.types else None,

@@ -7,32 +7,30 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { QueryContext } from '~/queries/types'
-import { isGroupsQuery } from '~/queries/utils'
 
 export function getCRMColumns(groupTypeName: string, groupTypeIndex: number): QueryContext['columns'] {
     return {
         group_name: {
             title: groupTypeName,
-            render: function renderGroupName({ record, value, query }) {
-                const keyIndex = isGroupsQuery(query.source) ? (query.source.select?.indexOf('key') ?? -1) : -1
-                const groupKey = keyIndex >= 0 ? String((record as string[])[keyIndex]) : undefined
-                return (
-                    <div className="min-w-40">
-                        <LemonTableLink
-                            to={groupKey ? urls.group(groupTypeIndex, groupKey) : undefined}
-                            title={value as string}
-                        />
-                        {groupKey && (
+            render: function renderGroupName({ value }) {
+                if (typeof value === 'object' && value !== null && 'display_name' in value && 'key' in value) {
+                    return (
+                        <div className="min-w-40">
+                            <LemonTableLink
+                                to={urls.group(groupTypeIndex, value.key as string)}
+                                title={value.display_name as string}
+                            />
                             <CopyToClipboardInline
-                                explicitValue={groupKey}
+                                explicitValue={value.key as string}
                                 iconStyle={{ color: 'var(--color-accent)' }}
                                 description="group id"
                             >
-                                {stringWithWBR(groupKey, 100)}
+                                {stringWithWBR(value.key as string, 100)}
                             </CopyToClipboardInline>
-                        )}
-                    </div>
-                )
+                        </div>
+                    )
+                }
+                return <>{String(value)}</>
             },
         },
         arr: {
