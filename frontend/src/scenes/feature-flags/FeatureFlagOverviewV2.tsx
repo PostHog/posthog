@@ -358,6 +358,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <FeatureFlagReleaseConditionsReadonly
                                 id={String(featureFlag.id)}
                                 filters={featureFlag.filters}
+                                isDisabled={!featureFlag.active}
                             />
                         </div>
                     )}

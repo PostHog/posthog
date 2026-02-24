@@ -447,6 +447,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         evaluationRuntime={featureFlag.evaluation_runtime}
+                                        isDisabled={!featureFlag.active}
                                     />
                                     <SceneDivider />
                                 </>

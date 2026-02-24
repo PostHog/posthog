@@ -16,6 +16,7 @@ import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseCondition
 interface FeatureFlagReleaseConditionsReadonlyProps {
     id: string
     filters: FeatureFlagFilters
+    isDisabled?: boolean
 }
 
 function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JSX.Element {
@@ -69,6 +70,7 @@ function PropertyFilterRow({ property, isFirst }: { property: AnyPropertyFilter;
 export function FeatureFlagReleaseConditionsReadonly({
     id,
     filters,
+    isDisabled,
 }: FeatureFlagReleaseConditionsReadonlyProps): JSX.Element {
     // Use readOnly: true to prevent the logic from triggering blast radius API calls.
     // In readonly mode, we don't need live blast radius calculations - the display is static.
@@ -82,24 +84,35 @@ export function FeatureFlagReleaseConditionsReadonly({
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonLabel>Release conditions</LemonLabel>
+            <div className="flex items-center gap-2">
+                <LemonLabel>Release conditions</LemonLabel>
+                {isDisabled && (
+                    <LemonTag type="muted" size="small">
+                        Flag disabled – returns false regardless of conditions
+                    </LemonTag>
+                )}
+            </div>
 
             <p className="text-xs text-muted mb-2">
                 Condition sets are evaluated top to bottom — the first match wins.
             </p>
 
-            {filterGroups.map((group, index) => (
-                <div key={group.sort_key ?? index}>
-                    {index > 0 && (
-                        <div className="condition-set-separator my-2 py-0 text-center text-xs font-semibold text-muted">
-                            OR
-                        </div>
-                    )}
-                    <ConditionSetCard group={group} index={index} aggregationTargetName={aggregationTargetName} />
-                </div>
-            ))}
+            <div className={isDisabled ? 'opacity-60' : ''}>
+                {filterGroups.map((group, index) => (
+                    <div key={group.sort_key ?? index}>
+                        {index > 0 && (
+                            <div className="condition-set-separator my-2 py-0 text-center text-xs font-semibold text-muted">
+                                OR
+                            </div>
+                        )}
+                        <ConditionSetCard group={group} index={index} aggregationTargetName={aggregationTargetName} />
+                    </div>
+                ))}
 
-            {filterGroups.length === 0 && <div className="text-sm text-muted">No release conditions configured</div>}
+                {filterGroups.length === 0 && (
+                    <div className="text-sm text-muted">No release conditions configured</div>
+                )}
+            </div>
         </div>
     )
 }
