@@ -48,8 +48,20 @@ export class CyclotronJobQueueKafka {
         })
 
         if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
-            this.fetchTester = new WarpstreamFetchTester(this.config)
-            this.fetchTester.start()
+
+            if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
+                try {
+                    this.fetchTester = new WarpstreamFetchTester(this.config)
+                    this.fetchTester.start()
+                    logger.info('🔄', 'WarpStream fetch tester initialized')
+                } catch (error) {
+                    logger.warn('🔄', 'Failed to initialize WarpStream fetch tester', {
+                        error: String(error),
+                    })
+                    this.fetchTester = undefined
+                }
+            }
+
             logger.info('🔄', 'WarpStream fetch tester initialized')
         }
     }
