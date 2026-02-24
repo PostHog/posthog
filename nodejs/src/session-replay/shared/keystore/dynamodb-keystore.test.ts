@@ -263,7 +263,7 @@ describe('DynamoDBKeyStore', () => {
                 })
                 .mockResolvedValueOnce({})
 
-            const result = await keyStore.deleteKey('session-123', 1)
+            const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
             expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(2)
 
@@ -277,18 +277,19 @@ describe('DynamoDBKeyStore', () => {
             expect(updateCall.input.Key.session_id).toEqual({ S: 'session-123' })
             expect(updateCall.input.Key.team_id).toEqual({ N: '1' })
             expect(updateCall.input.UpdateExpression).toBe(
-                'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key'
+                'SET session_state = :deleted, deleted_at = :deleted_at, deleted_by = :deleted_by REMOVE encrypted_key'
             )
             expect(result).toEqual({
                 deleted: true,
                 deletedAt: Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000),
+                deletedBy: 'test@example.com',
             })
         })
 
         it('should create tombstone if key did not exist', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValueOnce({ Item: undefined }).mockResolvedValueOnce({})
 
-            const result = await keyStore.deleteKey('session-123', 1)
+            const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
             expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(2)
 
@@ -299,7 +300,7 @@ describe('DynamoDBKeyStore', () => {
             const deletedAt = Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000)
             const expiresAt = parseInt(putCall.input.Item.expires_at.N, 10)
             expect(expiresAt).toBe(deletedAt + 30 * 24 * 60 * 60)
-            expect(result).toEqual({ deleted: true, deletedAt })
+            expect(result).toEqual({ deleted: true, deletedAt, deletedBy: 'test@example.com' })
         })
 
         it('should return already_deleted with deletedAt if key is already deleted', async () => {
@@ -313,9 +314,9 @@ describe('DynamoDBKeyStore', () => {
                 },
             })
 
-            const result = await keyStore.deleteKey('session-123', 1)
+            const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
-            expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: 1700000000 })
+            expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: 1700000000, deletedBy: '' })
         })
 
         it('should throw if deleted key has no deleted_at timestamp', async () => {
@@ -327,13 +328,15 @@ describe('DynamoDBKeyStore', () => {
                 },
             })
 
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('no deleted_at timestamp')
+            await expect(keyStore.deleteKey('session-123', 1, 'test@example.com')).rejects.toThrow(
+                'no deleted_at timestamp'
+            )
         })
 
         it('should throw error if DynamoDB get fails', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockRejectedValue(new Error('DynamoDB get error'))
 
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('DynamoDB get error')
+            await expect(keyStore.deleteKey('session-123', 1, 'test@example.com')).rejects.toThrow('DynamoDB get error')
         })
 
         it('should throw error if DynamoDB update fails', async () => {
@@ -346,7 +349,9 @@ describe('DynamoDBKeyStore', () => {
                 })
                 .mockRejectedValueOnce(new Error('DynamoDB update error'))
 
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('DynamoDB update error')
+            await expect(keyStore.deleteKey('session-123', 1, 'test@example.com')).rejects.toThrow(
+                'DynamoDB update error'
+            )
         })
 
         it('should throw error if returned team_id does not match requested team_id', async () => {
@@ -358,7 +363,9 @@ describe('DynamoDBKeyStore', () => {
                 },
             })
 
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('Team ID mismatch: requested 1, got 999')
+            await expect(keyStore.deleteKey('session-123', 1, 'test@example.com')).rejects.toThrow(
+                'Team ID mismatch: requested 1, got 999'
+            )
         })
     })
 

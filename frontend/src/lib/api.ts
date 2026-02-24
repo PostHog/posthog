@@ -339,7 +339,10 @@ export class RateLimitError extends Error {
 }
 
 export class RecordingDeletedError extends Error {
-    constructor(public deletedAt: number | null) {
+    constructor(
+        public deletedAt: number | null,
+        public deletedBy: string | null
+    ) {
         super('Recording has been permanently deleted')
         this.name = 'RecordingDeletedError'
     }
@@ -3810,7 +3813,7 @@ const api = {
                     .getResponse({ headers })
             } catch (e) {
                 if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
-                    throw new RecordingDeletedError(e.data?.deleted_at ?? null)
+                    throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
                 }
                 throw e
             }

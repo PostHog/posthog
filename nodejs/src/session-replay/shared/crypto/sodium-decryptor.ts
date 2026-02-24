@@ -16,7 +16,7 @@ export class SodiumRecordingDecryptor implements RecordingDecryptor {
 
     decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): DecryptResult {
         if (sessionKey.sessionState === 'deleted') {
-            throw new SessionKeyDeletedError(sessionId, teamId, sessionKey.deletedAt)
+            throw new SessionKeyDeletedError(sessionId, teamId, sessionKey.deletedAt, sessionKey.deletedBy)
         }
 
         if (sessionKey.sessionState === 'cleartext') {

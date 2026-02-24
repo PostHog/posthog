@@ -640,7 +640,7 @@ class TeamAdmin(admin.ModelAdmin):
         try:
             temporal = sync_connect()
             workflow_id = f"delete-recordings-{team.id}-{uuid.uuid4()}"
-            config = DeletionConfig(reason=reason, dry_run=dry_run)
+            config = DeletionConfig(reason=reason, dry_run=dry_run, deleted_by=request.user.email)
 
             if workflow_type == "person":
                 distinct_ids_raw = request.POST.get("distinct_ids", "").strip()

@@ -114,11 +114,13 @@ export class DynamoDBKeyStore implements KeyStore {
                 throw new Error(`Key for session ${sessionId} is deleted but has no deleted_at timestamp`)
             }
             const deletedAt = parseInt(result.Item.deleted_at.N, 10)
+            const deletedBy = result.Item.deleted_by?.S ?? ''
             return {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 sessionState: 'deleted',
                 deletedAt,
+                deletedBy,
             }
         } else if (sessionState === 'cleartext') {
             // Recording predates encryption rollout
@@ -138,7 +140,7 @@ export class DynamoDBKeyStore implements KeyStore {
         return item.session_state.S as 'ciphertext' | 'cleartext' | 'deleted'
     }
 
-    async deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
+    async deleteKey(sessionId: string, teamId: number, deletedBy: string): Promise<DeleteKeyResult> {
         const existingItem = await this.dynamoDBClient.send(
             new GetItemCommand({
                 TableName: KEYS_TABLE_NAME,
@@ -165,6 +167,7 @@ export class DynamoDBKeyStore implements KeyStore {
                     deleted: false,
                     reason: 'already_deleted',
                     deletedAt: parseInt(existingItem.Item.deleted_at.N, 10),
+                    deletedBy: existingItem.Item.deleted_by?.S ?? '',
                 }
             }
 
@@ -176,10 +179,12 @@ export class DynamoDBKeyStore implements KeyStore {
                         session_id: { S: sessionId },
                         team_id: { N: String(teamId) },
                     },
-                    UpdateExpression: 'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key',
+                    UpdateExpression:
+                        'SET session_state = :deleted, deleted_at = :deleted_at, deleted_by = :deleted_by REMOVE encrypted_key',
                     ExpressionAttributeValues: {
                         ':deleted': { S: 'deleted' },
                         ':deleted_at': { N: String(deletedAt) },
+                        ':deleted_by': { S: deletedBy },
                     },
                 })
             )
@@ -193,13 +198,14 @@ export class DynamoDBKeyStore implements KeyStore {
                         team_id: { N: String(teamId) },
                         session_state: { S: 'deleted' },
                         deleted_at: { N: String(deletedAt) },
+                        deleted_by: { S: deletedBy },
                         expires_at: { N: String(deletedAt + TOMBSTONE_TTL_SECONDS) },
                     },
                 })
             )
         }
 
-        return { deleted: true, deletedAt }
+        return { deleted: true, deletedAt, deletedBy }
     }
 
     stop(): void {
