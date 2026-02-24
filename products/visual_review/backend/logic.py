@@ -10,9 +10,13 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+import structlog
+
 from .facade.enums import ReviewState, RunStatus, SnapshotResult
 from .models import Artifact, Repo, Run, RunSnapshot
 from .storage import ArtifactStorage
+
+logger = structlog.get_logger(__name__)
 
 
 class RepoNotFoundError(Exception):
@@ -288,6 +292,9 @@ def create_run(
                 }
             )
 
+    # Post pending status after transaction commits
+    transaction.on_commit(lambda: _post_commit_status(run, repo, "pending", "Visual review in progress"))
+
     return run, uploads
 
 
@@ -401,6 +408,21 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
     run.removed_count = removed_count
     run.save(update_fields=["status", "error_message", "completed_at", "changed_count", "new_count", "removed_count"])
 
+    repo = run.repo
+    if error_message:
+        _post_commit_status(run, repo, "error", f"Visual review failed: {error_message[:100]}")
+    elif changed_count > 0 or new_count > 0 or removed_count > 0:
+        parts = []
+        if changed_count:
+            parts.append(f"{changed_count} changed")
+        if new_count:
+            parts.append(f"{new_count} new")
+        if removed_count:
+            parts.append(f"{removed_count} removed")
+        _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
+    else:
+        _post_commit_status(run, repo, "success", "No visual changes")
+
     return run
 
 
@@ -501,6 +523,62 @@ def _build_snapshots_yaml(current_baselines: dict[str, str], updates: list[dict]
     }
 
     return yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+
+def _post_commit_status(
+    run: Run,
+    repo: Repo,
+    state: str,
+    description: str,
+) -> None:
+    """
+    Post a commit status to GitHub (best-effort, never raises).
+
+    Uses the GitHub Commit Statuses API:
+    POST /repos/{owner}/{repo}/statuses/{sha}
+
+    state: "pending", "success", "failure", "error"
+    """
+    if not repo.repo_full_name:
+        return
+
+    import requests
+
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+    except Exception:
+        logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
+        return
+
+    access_token = github.integration.sensitive_config["access_token"]
+
+    try:
+        response = requests.post(
+            f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
+            json={
+                "state": state,
+                "description": description[:140],
+                "context": "PostHog Visual Review",
+            },
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10,
+        )
+
+        if response.status_code != 201:
+            logger.warning(
+                "visual_review.status_check_failed",
+                run_id=str(run.id),
+                status_code=response.status_code,
+                response=response.text[:200],
+            )
+    except Exception:
+        logger.warning("visual_review.status_check_error", run_id=str(run.id), exc_info=True)
 
 
 def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[dict]) -> dict:
@@ -605,6 +683,8 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     run.approved_at = timezone.now()
     run.approved_by_id = user_id
     run.save(update_fields=["approved", "approved_at", "approved_by_id"])
+
+    _post_commit_status(run, repo, "success", "Visual changes approved")
 
     return run
 

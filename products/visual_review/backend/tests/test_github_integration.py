@@ -199,6 +199,10 @@ def mock_github_api(local_git_repo):
                 ),
             )
 
+        def status_callback(request):
+            data = json.loads(request.body)
+            return (201, {}, json.dumps({"id": 1, "state": data["state"]}))
+
         # Register callbacks
         rsps.add_callback(
             responses.GET,
@@ -214,6 +218,11 @@ def mock_github_api(local_git_repo):
             responses.PUT,
             re.compile(r"https://api\.github\.com/repos/.+/contents/.+"),
             callback=put_file_callback,
+        )
+        rsps.add_callback(
+            responses.POST,
+            re.compile(r"https://api\.github\.com/repos/.+/statuses/.+"),
+            callback=status_callback,
         )
 
         yield rsps

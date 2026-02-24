@@ -4,6 +4,7 @@ import pytest
 
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.models import Repo
 
 
 @pytest.mark.django_db
@@ -349,3 +350,149 @@ class TestGetRunSnapshots:
         assert len(snapshots) == 3
         # Should be ordered by identifier
         assert [s.identifier for s in snapshots] == ["A-component", "B-component", "C-component"]
+
+
+@pytest.mark.django_db
+class TestCommitStatusChecks:
+    """Test that GitHub commit status checks are posted at state transitions."""
+
+    @pytest.fixture
+    def github_repo(self, team, mock_github_integration):
+        return Repo.objects.create(
+            team=team,
+            name="test-repo",
+            repo_full_name="test-org/test-repo",
+            baseline_file_paths={"storybook": ".snapshots.yml"},
+        )
+
+    def test_create_run_posts_pending_status(self, github_repo, mock_github_api):
+        logic.create_run(
+            repo_id=github_repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "snap", "content_hash": "h1"}],
+            baseline_hashes={},
+        )
+
+        assert len(mock_github_api.status_checks) == 1
+        assert mock_github_api.status_checks[0]["state"] == "pending"
+        assert mock_github_api.status_checks[0]["context"] == "PostHog Visual Review"
+
+    def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "snap", "content_hash": "same"}],
+            baseline_hashes={"snap": "same"},
+        )
+
+        logic.mark_run_completed(run.id)
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert "No visual changes" in statuses[-1]["description"]
+
+    def test_complete_run_posts_failure_when_changes_detected(self, github_repo, mock_github_api):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[
+                {"identifier": "changed", "content_hash": "new_h"},
+                {"identifier": "added", "content_hash": "brand_new"},
+            ],
+            baseline_hashes={"changed": "old_h"},
+        )
+
+        logic.mark_run_completed(run.id)
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "failure"
+        assert "1 changed" in statuses[-1]["description"]
+        assert "1 new" in statuses[-1]["description"]
+
+    def test_complete_run_posts_error_on_failure(self, github_repo, mock_github_api):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[],
+            baseline_hashes={},
+        )
+
+        logic.mark_run_completed(run.id, error_message="Diff processing failed")
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "error"
+        assert "failed" in statuses[-1]["description"].lower()
+
+    def test_approve_run_posts_success(self, github_repo, mock_github_api, user):
+        logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "snap", "content_hash": "new_h"}],
+            baseline_hashes={"snap": "old_h"},
+        )
+
+        logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "snap", "new_hash": "new_h"}],
+            commit_to_github=False,
+        )
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert "approved" in statuses[-1]["description"].lower()
+
+    def test_no_status_without_github_integration(self, team):
+        """Status checks are silently skipped when no GitHub integration exists."""
+        repo = logic.create_repo(team_id=team.id, name="No GitHub")
+
+        # No mock_github_api/mock_github_integration — should not raise
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "snap", "content_hash": "h1"}],
+            baseline_hashes={},
+        )
+
+        logic.mark_run_completed(run.id)
+
+    def test_no_status_without_repo_full_name(self, team, mock_github_integration, mock_github_api):
+        """Status checks are silently skipped when repo has no repo_full_name."""
+        repo = Repo.objects.create(
+            team=team,
+            name="no-github",
+            repo_full_name="",
+        )
+
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            pr_number=1,
+            snapshots=[{"identifier": "snap", "content_hash": "h1"}],
+            baseline_hashes={},
+        )
+
+        logic.mark_run_completed(run.id)
+
+        assert len(mock_github_api.status_checks) == 0

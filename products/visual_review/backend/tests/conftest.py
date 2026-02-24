@@ -173,6 +173,14 @@ def mock_github_api(local_git_repo):
                 ),
             )
 
+        # Track status check calls for assertions
+        status_checks = []
+
+        def status_callback(request):
+            data = json.loads(request.body)
+            status_checks.append(data)
+            return (201, {}, json.dumps({"id": 1, "state": data["state"]}))
+
         rsps.add_callback(
             responses.GET,
             re.compile(r"https://api\.github\.com/repos/.+/pulls/\d+"),
@@ -188,7 +196,13 @@ def mock_github_api(local_git_repo):
             re.compile(r"https://api\.github\.com/repos/.+/contents/.+"),
             callback=put_file_callback,
         )
+        rsps.add_callback(
+            responses.POST,
+            re.compile(r"https://api\.github\.com/repos/.+/statuses/.+"),
+            callback=status_callback,
+        )
 
+        rsps.status_checks = status_checks
         yield rsps
 
 
