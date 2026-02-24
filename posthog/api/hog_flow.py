@@ -495,8 +495,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": "Method not allowed"}, status=405)
 
         try:
-            from posthog.models import Team
-
             team = Team.objects.get(id=int(team_id))
         except (Team.DoesNotExist, ValueError):
             return Response({"error": "Team not found"}, status=404)
