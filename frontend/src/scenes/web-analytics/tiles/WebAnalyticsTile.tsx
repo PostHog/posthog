@@ -740,6 +740,7 @@ export const MarketingAnalyticsTrendTile = ({
             label: 'Reported conversion value',
         },
         { value: 'roas', label: 'Reported ROAS' },
+        { value: 'cost_per_reported_conversion', label: 'Cost per reported conversion' },
     ]
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">

@@ -40,6 +40,32 @@ export const externalAdsCostTile = (
         }
     }
 
+    // Handle Cost per Reported Conversion - calculated as cost / reported_conversions
+    if (tileColumnSelection === 'cost_per_reported_conversion') {
+        const costColumn = table.source_map.cost
+        const conversionColumn = table.source_map.reported_conversion
+
+        if (!conversionColumn) {
+            return null
+        }
+
+        const mathHogql = `SUM(toFloat(${costColumn})) / nullIf(SUM(ifNull(toFloat(${conversionColumn}), 0)), 0)`
+
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: table.id,
+            name: table.schema_name,
+            custom_name: `${table.schema_name} cost_per_reported_conversion`,
+            id_field: 'id',
+            distinct_id_field: 'id',
+            timestamp_field: table.source_map.date,
+            table_name: table.name,
+            dw_source_type: table.dw_source_type,
+            math: 'hogql' as any,
+            math_hogql: mathHogql,
+        }
+    }
+
     const column = table.source_map[tileColumnSelection]
     if (!column) {
         return null

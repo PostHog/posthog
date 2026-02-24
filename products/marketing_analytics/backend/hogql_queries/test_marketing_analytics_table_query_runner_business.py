@@ -707,7 +707,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
 
-        expected_columns = 13
+        expected_columns = 14
         actual_columns = len(response.columns) if response.columns else 0
         assert actual_columns == expected_columns, (
             f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
@@ -761,8 +761,8 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
-        assert len(response.columns) == 15, (
-            "Should have 15 columns including ID, Reported Conversion Value, and multiple conversion goal columns"
+        assert len(response.columns) == 16, (
+            "Should have 16 columns including ID, Reported Conversion Value, and multiple conversion goal columns"
         )
 
     @pytest.mark.usefixtures("unittest_snapshot")
