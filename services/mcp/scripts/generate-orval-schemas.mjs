@@ -246,18 +246,10 @@ for (const def of definitions) {
     }
 }
 
-// Format all generated files
-if (outputDirs.length > 0) {
-    const globs = outputDirs.map((d) => `${d}/**/*.ts`)
-    try {
-        spawnSync('pnpm', ['exec', 'oxfmt', '--no-error-on-unmatched-pattern', ...globs], {
-            stdio: 'pipe',
-            cwd: repoRoot,
-        })
-    } catch {
-        // Not critical
-    }
-}
-
 fs.rmSync(tmpDir, { recursive: true, force: true })
 console.log(`MCP Orval: ${outputDirs.length} module(s), ${totalOps} operations total`)
+
+if (outputDirs.length > 0) {
+    const generatedFiles = outputDirs.map((d) => path.join(d, 'api.ts'))
+    spawnSync(path.join(repoRoot, 'bin/hogli'), ['format:js', ...generatedFiles], { stdio: 'pipe', cwd: repoRoot })
+}

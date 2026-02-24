@@ -538,24 +538,6 @@ function discoverDefinitions(): DefinitionSource[] {
 }
 
 // ------------------------------------------------------------------
-// Helpers
-// ------------------------------------------------------------------
-
-function formatWithPrettier(filePaths: string[]): void {
-    if (filePaths.length === 0) {
-        return
-    }
-    try {
-        spawnSync('pnpm', ['exec', 'oxfmt', '--no-error-on-unmatched-pattern', ...filePaths], {
-            stdio: 'pipe',
-            cwd: REPO_ROOT,
-        })
-    } catch {
-        // Not critical — oxfmt may not be available in all environments
-    }
-}
-
-// ------------------------------------------------------------------
 // Main
 // ------------------------------------------------------------------
 
@@ -617,15 +599,14 @@ ${spreads}
     const definitions = generateDefinitionsJson(allCategories)
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
-    // Format all generated TS files so output matches what lint-staged/oxfmt produces
+    const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
+    process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)
+
     const generatedTsFiles = [
         ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
         path.join(GENERATED_DIR, 'index.ts'),
     ]
-    formatWithPrettier(generatedTsFiles)
-
-    const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
-    process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)
+    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], { stdio: 'pipe', cwd: REPO_ROOT })
 }
 
 main()
