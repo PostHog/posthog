@@ -28,11 +28,13 @@ export function useDelayedHover({
 
     const show = useCallback(() => {
         clearTimeout(hideRef.current)
+        clearTimeout(showRef.current)
         showRef.current = setTimeout(() => setVisible(true), showDelay)
     }, [showDelay])
 
     const hide = useCallback(() => {
         clearTimeout(showRef.current)
+        clearTimeout(hideRef.current)
         hideRef.current = setTimeout(() => setVisible(false), hideDelay)
     }, [hideDelay])
 
