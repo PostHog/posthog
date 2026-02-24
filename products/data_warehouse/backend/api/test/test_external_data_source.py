@@ -620,16 +620,15 @@ class TestExternalDataSource(APIBaseTest):
         assert DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists()
         assert mock_capture_exception.call_count == 2  # one for source, one for schema
 
-    # TODO: update this test
-    @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
-    def test_reload_external_data_source(self, mock_trigger):
+    @patch.object(ExternalDataSource, "reload_schemas")
+    def test_reload_external_data_source(self, mock_reload_schemas):
         source = self._create_external_data_source()
 
         response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/reload/")
 
         source.refresh_from_db()
 
-        self.assertEqual(mock_trigger.call_count, 1)
+        mock_reload_schemas.assert_called_once_with(skip_running_and_queued=True)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
 

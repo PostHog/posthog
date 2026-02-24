@@ -6,7 +6,6 @@ from django.db import transaction
 from django.db.models import Prefetch, Q
 
 import structlog
-import temporalio
 from dateutil import parser
 from drf_spectacular.utils import extend_schema
 from rest_framework import filters, serializers, status, viewsets
@@ -43,7 +42,6 @@ from products.data_warehouse.backend.data_load.service import (
     delete_external_data_schedule,
     is_any_external_data_schema_paused,
     sync_external_data_job_workflow,
-    trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.models import (
     DataWarehouseManagedViewSet,
@@ -623,12 +621,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         try:
-            trigger_external_data_source_workflow(instance)
-
-        except temporalio.service.RPCError:
-            # if the source schedule has been removed - trigger the schema schedules
-            instance.reload_schemas()
-
+            instance.reload_schemas(skip_running_and_queued=True)
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
             raise

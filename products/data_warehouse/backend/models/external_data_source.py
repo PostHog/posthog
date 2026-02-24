@@ -88,18 +88,26 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.deleted_at = datetime.now()
         self.save()
 
-    def reload_schemas(self):
+    def reload_schemas(self, *, skip_running_and_queued: bool = False):
+        from django.db.models import Exists, OuterRef, Q
+
         from products.data_warehouse.backend.data_load.service import (
             sync_external_data_job_workflow,
             trigger_external_data_workflow,
         )
+        from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
         from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
-        for schema in (
-            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=self.id, should_sync=True)
-            .exclude(deleted=True)
-            .all()
-        ):
+        queryset = ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=self.id, should_sync=True).exclude(
+            deleted=True
+        )
+        if skip_running_and_queued:
+            running_job = ExternalDataJob.objects.filter(
+                schema_id=OuterRef("pk"),
+                status=ExternalDataJob.Status.RUNNING,
+            )
+            queryset = queryset.exclude(Q(status=ExternalDataSchema.Status.RUNNING) | Exists(running_job))
+        for schema in queryset.all():
             try:
                 trigger_external_data_workflow(schema)
             except temporalio.service.RPCError as e:

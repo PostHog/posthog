@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonModal,
     LemonSelect,
@@ -74,20 +75,49 @@ const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     const logicProps = { id, availableSources: {} }
     const logic = dataWarehouseSourceSettingsLogic(logicProps)
-    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly } = useValues(logic)
-    const { setShowEnabledSchemasOnly } = useActions(logic)
+    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly, syncingNow } = useValues(logic)
+    const { setShowEnabledSchemasOnly, syncNow } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <BindLogic logic={dataWarehouseSourceSettingsLogic} props={logicProps}>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center justify-between gap-2 mb-2">
                 <LemonSwitch
                     checked={showEnabledSchemasOnly}
                     onChange={setShowEnabledSchemasOnly}
                     label="Show enabled only"
                 />
+                <SourceEditorAction source={source}>
+                    <LemonButton
+                        type="secondary"
+                        loading={syncingNow}
+                        onClick={() => {
+                            LemonDialog.open({
+                                title: 'Sync all enabled schemas?',
+                                content: (
+                                    <div className="text-sm text-secondary">
+                                        This will trigger a sync for all schemas you have enabled. New sync jobs will
+                                        appear in the Syncs tab.
+                                    </div>
+                                ),
+                                primaryButton: {
+                                    children: 'Sync now',
+                                    type: 'primary',
+                                    onClick: () => syncNow(),
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                    type: 'tertiary',
+                                },
+                            })
+                        }}
+                        disabled={sourceLoading}
+                    >
+                        Sync now
+                    </LemonButton>
+                </SourceEditorAction>
             </div>
             <SchemaTable schemas={filteredSchemas} isLoading={sourceLoading} />
             {source?.source_type &&
