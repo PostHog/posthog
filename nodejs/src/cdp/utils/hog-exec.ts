@@ -96,7 +96,7 @@ function execHogImmediate(
                     match: (regex, str) => createTrackedRE2(regex, undefined, 'hog-exec:regex.match').test(str),
                     extract: (regex, str) => {
                         const match = createTrackedRE2(regex, undefined, 'hog-exec:regex.extract').exec(str)
-                        return match ? match[1] || match[0] || '' : ''
+                        return match ? ((match[1] !== undefined ? match[1] : match[0]) ?? '') : ''
                     },
                 },
                 crypto,

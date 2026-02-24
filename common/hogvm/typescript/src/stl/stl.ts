@@ -499,6 +499,7 @@ export const STL: Record<string, STLFunction> = {
             if (args[0] == null || args[1] == null) {
                 return ''
             }
+            // Hog: extractRegex(haystack, pattern) → External: extract(regex, value)
             return options.external.regex.extract(String(args[1]), String(args[0]))
         },
         description: 'Extracts substring matching regex pattern (first capture group or whole match)',
