@@ -1,9 +1,10 @@
 import clsx from 'clsx'
 
+import { getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { ActionFilter, EntityFilter } from '~/types'
+import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
@@ -14,6 +15,7 @@ interface EntityFilterInfoProps {
     style?: React.CSSProperties
     filterGroupType?: TaxonomicFilterGroupType
     isOptional?: boolean
+    showIcon?: boolean
 }
 
 export function EntityFilterInfo({
@@ -23,14 +25,28 @@ export function EntityFilterInfo({
     style,
     filterGroupType,
     isOptional = false,
+    showIcon = false,
 }: EntityFilterInfoProps): JSX.Element {
+    const icon = showIcon ? (
+        <span className="inline-flex shrink-0 text-base">
+            {getEventDefinitionIcon({
+                id: String(filter.id ?? ''),
+                name: filter.name || String(filter.id ?? ''),
+                is_action: filter.type === EntityTypes.ACTIONS,
+            })}
+        </span>
+    ) : null
+
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
         return (
-            <span
-                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
-                title="All events"
-            >
-                All events
+            <span className={!allowWrap ? 'flex truncate items-center gap-1' : ''}>
+                {icon}
+                <span
+                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                    title="All events"
+                >
+                    All events
+                </span>
                 {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
             </span>
         )
@@ -44,7 +60,8 @@ export function EntityFilterInfo({
     if (!filter?.custom_name) {
         return (
             // eslint-disable-next-line react/forbid-dom-props
-            <span className={!allowWrap ? 'flex truncate  items-center' : ''} style={style}>
+            <span className={!allowWrap ? 'flex truncate items-center gap-1' : ''} style={style}>
+                {icon}
                 <span
                     className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                     title={titleToDisplay}
@@ -61,7 +78,8 @@ export function EntityFilterInfo({
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <span className={!allowWrap ? 'flex items-baseline' : ''} style={style}>
+        <span className={!allowWrap ? 'flex items-center gap-1' : ''} style={style}>
+            {icon}
             <span
                 className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                 title={customTitle ?? undefined}
