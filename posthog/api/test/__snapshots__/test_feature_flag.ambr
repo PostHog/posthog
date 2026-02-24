@@ -641,7 +641,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -781,7 +781,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -879,7 +879,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -1120,7 +1120,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -1501,7 +1501,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -1869,7 +1869,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -2014,7 +2014,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -2360,7 +2360,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -2457,7 +2457,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -2673,7 +2673,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -3052,7 +3052,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -3393,7 +3393,7 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
+
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
