@@ -403,11 +403,7 @@ def _build_server_headers(installations: list[dict]) -> dict[str, dict[str, str]
         sensitive = inst.get("sensitive_configuration") or {}
 
         if auth_type == "api_key":
-            api_key = sensitive.get("api_key")
-            if not api_key:
-                config = inst.get("configuration") or {}
-                api_key = config.get("api_key")
-            if api_key:
+            if api_key := sensitive.get("api_key"):
                 headers[url] = {"Authorization": f"Bearer {api_key}"}
         elif auth_type == "oauth":
             if access_token := sensitive.get("access_token"):
