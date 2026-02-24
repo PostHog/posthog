@@ -1,3 +1,5 @@
+from typing import TypedDict
+
 from products.llm_analytics.backend.llm.client import Client
 from products.llm_analytics.backend.llm.errors import LLMError, ProviderMismatchError, UnsupportedProviderError
 from products.llm_analytics.backend.llm.providers.anthropic import AnthropicConfig
@@ -10,9 +12,17 @@ SUPPORTED_MODELS_WITH_THINKING = (
 )
 
 
-def get_default_models() -> list[dict]:
+class ModelInfo(TypedDict):
+    id: str
+    name: str
+    provider: str
+    description: str
+    is_recommended: bool
+
+
+def get_default_models() -> list[ModelInfo]:
     """Returns the default static list of models for all providers."""
-    models: list[dict] = []
+    models: list[ModelInfo] = []
     models.extend(
         [
             {"id": m, "name": m, "provider": "OpenAI", "description": "", "is_recommended": True}
@@ -41,6 +51,7 @@ __all__ = [
     "StreamChunk",
     "Usage",
     "LLMError",
+    "ModelInfo",
     "ProviderMismatchError",
     "UnsupportedProviderError",
     "SUPPORTED_MODELS_WITH_THINKING",

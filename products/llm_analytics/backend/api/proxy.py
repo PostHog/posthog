@@ -41,6 +41,7 @@ from products.llm_analytics.backend.llm import (
     SUPPORTED_MODELS_WITH_THINKING,
     Client,
     CompletionRequest,
+    ModelInfo,
     get_default_models,
 )
 from products.llm_analytics.backend.llm.errors import UnsupportedProviderError
@@ -336,13 +337,13 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 provider_display = provider_key.provider.title()
                 return Response(
                     [
-                        {
-                            "id": m,
-                            "name": m,
-                            "provider": provider_display,
-                            "description": "",
-                            "is_recommended": m in recommended,
-                        }
+                        ModelInfo(
+                            id=m,
+                            name=m,
+                            provider=provider_display,
+                            description="",
+                            is_recommended=m in recommended,
+                        )
                         for m in models
                     ]
                 )

@@ -6,7 +6,7 @@ import api from 'lib/api'
 import type { byokModelPickerLogicType } from './byokModelPickerLogicType'
 import { ModelOption, ProviderModelGroup } from './llmAnalyticsPlaygroundLogic'
 import { LLMProvider, LLMProviderKey, LLM_PROVIDER_LABELS, llmProviderKeysLogic } from './settings/llmProviderKeysLogic'
-import { providerKeyStateSuffix } from './settings/providerKeyStateUtils'
+import { isUnhealthyProviderKeyState, providerKeyStateSuffix } from './settings/providerKeyStateUtils'
 
 export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'byokModelPickerLogic']),
@@ -115,10 +115,9 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                 const groups: ProviderModelGroup[] = []
                 for (const key of providerKeys) {
                     const models = byKeyId[key.id] ?? []
-                    const isUnhealthy = key.state !== 'ok'
-
-                    // Skip unhealthy keys with no models — nothing useful to show
-                    if (isUnhealthy && models.length === 0) {
+                    // Show invalid/error keys as disabled entries with a state suffix.
+                    // Keys in 'unknown' state are skipped — they haven't been validated yet.
+                    if (isUnhealthyProviderKeyState(key.state) && models.length === 0) {
                         const providerLabel = LLM_PROVIDER_LABELS[key.provider] ?? key.provider
                         const suffix = providerKeyStateSuffix(key.state)
                         const label =
@@ -173,7 +172,7 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                             (m) => m.name.toLowerCase().includes(lower) || m.id.toLowerCase().includes(lower)
                         ),
                     }))
-                    .filter((group) => group.models.length > 0 || group.disabled)
+                    .filter((group) => group.models.length > 0)
             },
         ],
         isProviderExpanded: [

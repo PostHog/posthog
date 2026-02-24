@@ -11,6 +11,18 @@ const BYOK_OPENAI_MODELS = [
     { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI', description: '', is_recommended: true },
 ]
 
+const BYOK_OPENAI_MODELS_MIXED = [
+    { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '', is_recommended: true },
+    { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI', description: '', is_recommended: true },
+    {
+        id: 'gpt-4o-audio-preview',
+        name: 'gpt-4o-audio-preview',
+        provider: 'OpenAI',
+        description: '',
+        is_recommended: false,
+    },
+]
+
 const BYOK_ANTHROPIC_MODELS = [
     { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'Anthropic', description: '', is_recommended: true },
 ]
@@ -59,6 +71,38 @@ describe('byokModelPickerLogic', () => {
                     providerKeyId: 'key-1',
                 }))
             )
+        })
+
+        it('should map is_recommended correctly for both true and false values', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
+                    },
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/llm_proxy/models/': (req: any) => {
+                        if (req.url.searchParams.get('provider_key_id') === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS_MIXED]
+                        }
+                        return [200, []]
+                    },
+                },
+            })
+
+            logic = byokModelPickerLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const models = logic.values.byokModels
+            expect(models).toHaveLength(3)
+
+            const recommended = models.filter((m) => m.isRecommended)
+            const nonRecommended = models.filter((m) => !m.isRecommended)
+            expect(recommended).toHaveLength(2)
+            expect(nonRecommended).toHaveLength(1)
+            expect(nonRecommended[0].id).toBe('gpt-4o-audio-preview')
         })
 
         it('should return empty array when no valid keys exist', async () => {
@@ -390,6 +434,43 @@ describe('byokModelPickerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.filteredProviderModelGroups).toEqual(logic.values.providerModelGroups)
+        })
+
+        it('should hide disabled groups during search', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [
+                            { id: 'key-1', provider: 'openai', name: 'OpenAI Key', state: 'ok' },
+                            { id: 'key-2', provider: 'anthropic', name: 'Anthropic Key', state: 'error' },
+                        ],
+                    },
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/llm_proxy/models/': (req: any) => {
+                        if (req.url.searchParams.get('provider_key_id') === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        return [200, []]
+                    },
+                },
+            })
+
+            logic = byokModelPickerLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Without search, disabled group should be present
+            const allGroups = logic.values.filteredProviderModelGroups
+            expect(allGroups.some((g) => g.disabled)).toBe(true)
+
+            // With search, disabled group should be hidden
+            logic.actions.setSearch('gpt')
+            const filtered = logic.values.filteredProviderModelGroups
+            expect(filtered.every((g) => !g.disabled)).toBe(true)
+            expect(filtered).toHaveLength(1)
+            expect(filtered[0].provider).toBe('openai')
         })
 
         it('should exclude groups with no matching models', async () => {
