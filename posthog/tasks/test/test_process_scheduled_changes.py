@@ -1403,6 +1403,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(scheduled_change.failure_reason)
         self.assertEqual(scheduled_change.failure_count, 1)
 
+        assert scheduled_change.failure_reason is not None
         failure_data = json.loads(scheduled_change.failure_reason)
         self.assertFalse(failure_data["will_retry"])
         self.assertEqual(failure_data["error_classification"], "unrecoverable")
