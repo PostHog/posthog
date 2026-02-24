@@ -1,22 +1,26 @@
 import json
-import asyncio
 
 from django.core.cache import cache
 
 import structlog
+from asgiref.sync import async_to_sync
 from celery import shared_task
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
-def process_twig_mention(event: dict, integration_id: int) -> None:
+def process_twig_mention(event: dict, integration_id: int, slack_team_id: str) -> None:
     """Process a Twig app_mention event asynchronously (local region only)."""
     from posthog.models.integration import Integration
 
     from products.slack_app.backend.api import handle_twig_app_mention
 
-    integration = Integration.objects.select_related("team", "team__organization").get(id=integration_id)
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=integration_id,
+        kind="slack-twig",
+        integration_id=slack_team_id,
+    )
     handle_twig_app_mention(event, integration)
 
 
@@ -50,6 +54,11 @@ def process_twig_repo_selection(payload: dict) -> None:
 
     action_ts = action.get("action_ts", "")
     slack_user_id = payload.get("user", {}).get("id", "")
+    slack_team_id = payload.get("team", {}).get("id")
+
+    if not slack_team_id:
+        logger.warning("twig_repo_selection_missing_slack_team")
+        return
 
     context_token = _extract_context_token(payload)
     if not context_token:
@@ -89,7 +98,11 @@ def process_twig_repo_selection(payload: dict) -> None:
         return
 
     try:
-        integration = Integration.objects.select_related("team", "team__organization").get(id=ctx["integration_id"])
+        integration = Integration.objects.select_related("team", "team__organization").get(
+            id=ctx["integration_id"],
+            kind="slack-twig",
+            integration_id=slack_team_id,
+        )
     except Integration.DoesNotExist:
         logger.warning("twig_repo_selection_no_integration", integration_id=ctx["integration_id"])
         return
@@ -209,9 +222,14 @@ def process_twig_task_termination(payload: dict) -> None:
     expected_user_id = value.get("mentioning_slack_user_id")
     thread_ts_from_value = value.get("thread_ts")
     requesting_user_id = payload.get("user", {}).get("id")
+    slack_team_id = payload.get("team", {}).get("id")
 
     if not run_id or not integration_id:
         logger.warning("twig_terminate_missing_context", run_id=run_id, integration_id=integration_id)
+        return
+
+    if not slack_team_id:
+        logger.warning("twig_terminate_missing_slack_team", run_id=run_id)
         return
 
     if expected_user_id and requesting_user_id and expected_user_id != requesting_user_id:
@@ -228,7 +246,7 @@ def process_twig_task_termination(payload: dict) -> None:
     from products.tasks.backend.models import TaskRun
 
     try:
-        integration = Integration.objects.get(id=integration_id)
+        integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
     except Integration.DoesNotExist:
         logger.warning("twig_terminate_integration_not_found", integration_id=integration_id)
         return
@@ -238,31 +256,12 @@ def process_twig_task_termination(payload: dict) -> None:
     thread_ts = thread_ts_from_value or payload.get("message", {}).get("thread_ts") or message_ts
 
     try:
-        task_run = TaskRun.objects.select_related("task").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task").get(id=run_id, team_id=integration.team_id)
     except TaskRun.DoesNotExist:
         logger.warning("twig_terminate_run_not_found", run_id=run_id)
         return
 
-    if task_run.team_id != integration.team_id:
-        logger.warning(
-            "twig_terminate_team_mismatch",
-            run_id=run_id,
-            task_team_id=task_run.team_id,
-            integration_team_id=integration.team_id,
-        )
-        if channel and thread_ts:
-            try:
-                slack_client = SlackIntegration(integration).client
-                slack_client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text="This run belongs to a different project context and cannot be terminated from here.",
-                )
-            except Exception:
-                logger.warning("twig_terminate_team_mismatch_feedback_failed", run_id=run_id)
-        return
-
-    if str(task_run.status) in {
+    if task_run.status in {
         TaskRun.Status.COMPLETED,
         TaskRun.Status.FAILED,
         TaskRun.Status.CANCELLED,
@@ -284,11 +283,9 @@ def process_twig_task_termination(payload: dict) -> None:
         client = sync_connect()
         workflow_id = f"task-processing-{task_run.task_id}-{task_run.id}"
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(
-            handle.signal(
-                ProcessTaskWorkflow.complete_task,
-                args=["cancelled", "Run terminated from Slack"],
-            )
+        async_to_sync(handle.signal)(
+            ProcessTaskWorkflow.complete_task,
+            args=["cancelled", "Run terminated from Slack"],
         )
         logger.info("twig_terminate_signaled", run_id=run_id, workflow_id=workflow_id)
     except Exception as e:

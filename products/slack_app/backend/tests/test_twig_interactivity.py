@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+from typing import Any
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -30,7 +31,8 @@ class TestTwigInteractivityHandler(TestCase):
         self.client = APIClient()
         self.signing_secret = "twig-test-secret"
 
-    def _post_interactivity(self, payload: dict, **extra_headers) -> object:
+    def _post_interactivity(self, payload: dict, **extra_headers) -> Any:
+        payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
         signature, ts = _sign_request(body, self.signing_secret)
@@ -89,7 +91,8 @@ class TestRepoPickerOptions(TestCase):
         }
         cache.set(f"twig_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
 
-    def _post_interactivity(self, payload: dict) -> object:
+    def _post_interactivity(self, payload: dict) -> Any:
+        payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
         signature, ts = _sign_request(body, self.signing_secret)
@@ -285,6 +288,7 @@ class TestProcessTwigRepoSelection(TestCase):
         token = context_token or self.context_token
         return {
             "type": "block_actions",
+            "team": {"id": "T12345"},
             "user": {"id": user_id},
             "actions": [
                 {
@@ -443,6 +447,7 @@ class TestProcessTwigRepoSelection(TestCase):
 
         payload = {
             "type": "block_actions",
+            "team": {"id": "T12345"},
             "user": {"id": "U123"},
             "actions": [
                 {
@@ -493,6 +498,7 @@ class TestProcessTwigRepoSelection(TestCase):
 
         payload = {
             "type": "block_actions",
+            "team": {"id": "T12345"},
             "user": {"id": "U123"},
             "actions": [
                 {
@@ -543,6 +549,7 @@ class TestProcessTwigRepoSelection(TestCase):
 
         payload = {
             "type": "block_actions",
+            "team": {"id": "T12345"},
             "user": {"id": "U123"},
             "actions": [
                 {

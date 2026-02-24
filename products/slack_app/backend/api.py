@@ -770,7 +770,7 @@ def route_twig_event_to_relevant_region(
         if event.get("type") == "app_mention":
             from products.slack_app.backend.tasks import process_twig_mention
 
-            process_twig_mention.delay(event, integration.id)
+            process_twig_mention.delay(event, integration.id, slack_team_id)
         return ROUTE_HANDLED_LOCALLY
     elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
         success = proxy_slack_event_to_secondary_region(request)
@@ -1203,6 +1203,10 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         return JsonResponse({"options": []})
 
     context_token = _extract_context_token(payload)
+    slack_team_id = payload.get("team", {}).get("id")
+    if not slack_team_id:
+        logger.info("twig_repo_picker_options_missing_slack_team")
+        return JsonResponse({"options": []})
     if not context_token:
         logger.info("twig_repo_picker_options_missing_token")
         return JsonResponse({"options": []})
@@ -1244,7 +1248,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
 
     try:
         integration_id = ctx["integration_id"] if ctx else hinted_integration_id
-        integration = Integration.objects.get(id=integration_id)
+        integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
     except Integration.DoesNotExist:
         logger.info("twig_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
@@ -1308,14 +1312,21 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
+    slack_team_id = payload.get("team", {}).get("id")
 
     local = False
-    if context:
-        local = Integration.objects.filter(id=context.get("integration_id"), kind="slack-twig").exists()
-    elif hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
-        local = Integration.objects.filter(id=hinted_integration_id, kind="slack-twig").exists()
-    elif terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
-        local = Integration.objects.filter(id=terminate_integration_id, kind="slack-twig").exists()
+    if slack_team_id and context:
+        local = Integration.objects.filter(
+            id=context.get("integration_id"), kind="slack-twig", integration_id=slack_team_id
+        ).exists()
+    elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
+        local = Integration.objects.filter(
+            id=hinted_integration_id, kind="slack-twig", integration_id=slack_team_id
+        ).exists()
+    elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
+        local = Integration.objects.filter(
+            id=terminate_integration_id, kind="slack-twig", integration_id=slack_team_id
+        ).exists()
 
     logger.info(
         "twig_interactivity_resolution",

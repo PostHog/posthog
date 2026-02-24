@@ -45,12 +45,15 @@ async def execute_task_processing_workflow_async(
     Args:
         skip_user_check: If True, skip user-based feature flag check. Use for automated/system tasks.
     """
-    logger.info("execute_task_processing_workflow_async_called", task_id=task_id, run_id=run_id)
+    logger.info(
+        "execute_task_processing_workflow_async_called",
+        extra={"task_id": task_id, "run_id": run_id},
+    )
     try:
         team = await Team.objects.select_related("organization").aget(id=team_id)
 
         if skip_user_check:
-            logger.info("task_processing_skip_user_check", task_id=task_id, team_id=team_id)
+            logger.info("task_processing_skip_user_check", extra={"task_id": task_id, "team_id": team_id})
             tasks_enabled = posthoganalytics.feature_enabled(
                 "tasks",
                 f"team_{team_id}",
@@ -61,16 +64,15 @@ async def execute_task_processing_workflow_async(
             )
         else:
             if not user_id:
-                logger.warning("task_processing_missing_user_id", task_id=task_id)
+                logger.warning("task_processing_missing_user_id", extra={"task_id": task_id})
                 return
 
-            logger.info("task_processing_fetching_team_and_user", team_id=team_id, user_id=user_id)
+            logger.info("task_processing_fetching_team_and_user", extra={"team_id": team_id, "user_id": user_id})
             user = await User.objects.aget(id=user_id)
 
             logger.info(
                 "task_processing_checking_feature_flag",
-                distinct_id=user.distinct_id,
-                organization_id=team.organization_id,
+                extra={"distinct_id": user.distinct_id, "organization_id": team.organization_id},
             )
             tasks_enabled = posthoganalytics.feature_enabled(
                 "tasks",
@@ -81,10 +83,10 @@ async def execute_task_processing_workflow_async(
                 send_feature_flag_events=False,
             )
 
-        logger.info("task_processing_feature_flag_result", task_id=task_id, tasks_enabled=tasks_enabled)
+        logger.info("task_processing_feature_flag_result", extra={"task_id": task_id, "tasks_enabled": tasks_enabled})
 
         if not tasks_enabled:
-            logger.warning("task_processing_blocked_feature_flag", task_id=task_id)
+            logger.warning("task_processing_blocked_feature_flag", extra={"task_id": task_id})
             return
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id)
@@ -96,7 +98,10 @@ async def execute_task_processing_workflow_async(
             slack_thread_context=slack_context_dict,
         )
 
-        logger.info("task_processing_starting_workflow", workflow_id=workflow_id, task_id=task_id, run_id=run_id)
+        logger.info(
+            "task_processing_starting_workflow",
+            extra={"workflow_id": workflow_id, "task_id": task_id, "run_id": run_id},
+        )
 
         client = await async_connect()
         await client.start_workflow(
@@ -108,12 +113,18 @@ async def execute_task_processing_workflow_async(
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        logger.info("task_processing_workflow_started", task_id=task_id, run_id=run_id)
+        logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
 
     except (Team.DoesNotExist, User.DoesNotExist) as e:
-        logger.exception("task_processing_permission_validation_failed", task_id=task_id, run_id=run_id, error=str(e))
+        logger.exception(
+            "task_processing_permission_validation_failed",
+            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
     except Exception as e:
-        logger.exception("task_processing_workflow_start_failed", task_id=task_id, run_id=run_id, error=str(e))
+        logger.exception(
+            "task_processing_workflow_start_failed",
+            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
 
 
 def execute_task_processing_workflow(
@@ -135,19 +146,16 @@ def execute_task_processing_workflow(
     try:
         logger.info(
             "execute_task_processing_workflow_called",
-            task_id=task_id,
-            run_id=run_id,
-            team_id=team_id,
-            user_id=user_id,
+            extra={"task_id": task_id, "run_id": run_id, "team_id": team_id, "user_id": user_id},
         )
 
         team = Team.objects.get(id=team_id)
 
         if settings.DEBUG:
-            logger.info("task_processing_debug_skip_feature_flag", task_id=task_id)
+            logger.info("task_processing_debug_skip_feature_flag", extra={"task_id": task_id})
             tasks_enabled = True
         elif skip_user_check:
-            logger.info("task_processing_skip_user_check", task_id=task_id, team_id=team_id)
+            logger.info("task_processing_skip_user_check", extra={"task_id": task_id, "team_id": team_id})
             tasks_enabled = posthoganalytics.feature_enabled(
                 "tasks",
                 f"team_{team_id}",
@@ -158,7 +166,7 @@ def execute_task_processing_workflow(
             )
         else:
             if not user_id:
-                logger.warning("task_processing_missing_user_id", task_id=task_id)
+                logger.warning("task_processing_missing_user_id", extra={"task_id": task_id})
                 return
 
             user = User.objects.get(id=user_id)
@@ -172,10 +180,10 @@ def execute_task_processing_workflow(
                 send_feature_flag_events=False,
             )
 
-        logger.info("task_processing_feature_flag_result", task_id=task_id, tasks_enabled=tasks_enabled)
+        logger.info("task_processing_feature_flag_result", extra={"task_id": task_id, "tasks_enabled": tasks_enabled})
 
         if not tasks_enabled:
-            logger.warning("task_processing_blocked_feature_flag", task_id=task_id)
+            logger.warning("task_processing_blocked_feature_flag", extra={"task_id": task_id})
             return
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id)
@@ -187,11 +195,17 @@ def execute_task_processing_workflow(
             slack_thread_context=slack_context_dict,
         )
 
-        logger.info("task_processing_connecting_temporal", task_id=task_id, task_queue=settings.TASKS_TASK_QUEUE)
+        logger.info(
+            "task_processing_connecting_temporal",
+            extra={"task_id": task_id, "task_queue": settings.TASKS_TASK_QUEUE},
+        )
 
         client = sync_connect()
 
-        logger.info("task_processing_temporal_connected", workflow_id=workflow_id, task_id=task_id, run_id=run_id)
+        logger.info(
+            "task_processing_temporal_connected",
+            extra={"workflow_id": workflow_id, "task_id": task_id, "run_id": run_id},
+        )
 
         asyncio.run(
             client.start_workflow(
@@ -204,12 +218,18 @@ def execute_task_processing_workflow(
             )
         )
 
-        logger.info("task_processing_workflow_started", task_id=task_id, run_id=run_id)
+        logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
 
     except (Team.DoesNotExist, User.DoesNotExist) as e:
-        logger.exception("task_processing_permission_validation_failed", task_id=task_id, run_id=run_id, error=str(e))
+        logger.exception(
+            "task_processing_permission_validation_failed",
+            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
     except Exception as e:
-        logger.exception("task_processing_workflow_start_failed", task_id=task_id, run_id=run_id, error=str(e))
+        logger.exception(
+            "task_processing_workflow_start_failed",
+            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
 
 
 def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool = False) -> dict[str, Any]:
@@ -236,7 +256,7 @@ def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool =
             skip_priming=skip_priming,
         )
 
-        logger.info("video_clustering_starting_workflow", workflow_id=workflow_id, team_id=team_id)
+        logger.info("video_clustering_starting_workflow", extra={"workflow_id": workflow_id, "team_id": team_id})
 
         client = sync_connect()
         handle = asyncio.run(
@@ -250,14 +270,17 @@ def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool =
             )
         )
 
-        logger.info("video_clustering_workflow_started_waiting", workflow_id=workflow_id, team_id=team_id)
+        logger.info(
+            "video_clustering_workflow_started_waiting",
+            extra={"workflow_id": workflow_id, "team_id": team_id},
+        )
 
         # Wait for workflow completion and get result
         result = asyncio.run(handle.result())
 
-        logger.info("video_clustering_workflow_completed", workflow_id=workflow_id, team_id=team_id)
+        logger.info("video_clustering_workflow_completed", extra={"workflow_id": workflow_id, "team_id": team_id})
         return {"workflow_id": workflow_id, "run_id": handle.result_run_id, **result}
 
     except Exception as e:
-        logger.exception("video_clustering_workflow_failed", team_id=team_id, error=str(e))
+        logger.exception("video_clustering_workflow_failed", extra={"team_id": team_id, "error": str(e)})
         raise

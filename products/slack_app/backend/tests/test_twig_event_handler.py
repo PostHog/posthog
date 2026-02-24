@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+from typing import Any
 
 from unittest.mock import MagicMock, patch
 
@@ -31,7 +32,7 @@ class TestTwigEventHandler(TestCase):
         self.client = APIClient()
         self.signing_secret = "twig-test-secret"
 
-    def _post_event(self, payload: dict, **extra_headers) -> object:
+    def _post_event(self, payload: dict, **extra_headers) -> Any:
         body = json.dumps(payload).encode()
         signature, ts = _sign_request(body, self.signing_secret)
         return self.client.post(
@@ -518,7 +519,7 @@ class TestRouteTwigEventToRelevantRegion(TestCase):
         result = route_twig_event_to_relevant_region(request, self.event, "T12345")
 
         assert result == ROUTE_HANDLED_LOCALLY
-        mock_delay.assert_called_once_with(self.event, self.twig_integration.id)
+        mock_delay.assert_called_once_with(self.event, self.twig_integration.id, "T12345")
 
     @patch("products.slack_app.backend.api.proxy_slack_event_to_secondary_region")
     @patch("products.slack_app.backend.api.SLACK_PRIMARY_REGION_DOMAIN", "eu.posthog.com")

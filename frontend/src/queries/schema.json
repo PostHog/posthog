@@ -18703,6 +18703,7 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
+                "slack-twig",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
