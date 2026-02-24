@@ -383,6 +383,8 @@ class HyperCache:
         if "s3" in kinds:
             object_storage.delete(self.get_cache_key(key))
 
+        self._remove_expiry_tracking(key)
+
     def _set_cache_value_redis(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
     ) -> int | None:
@@ -427,6 +429,38 @@ class HyperCache:
         else:
             # Use sort_keys for deterministic serialization (consistent ETags)
             object_storage.write(key, json.dumps(data, sort_keys=True))
+
+    def _remove_expiry_tracking(self, key: KeyType) -> None:
+        """
+        Remove cache expiration entry from Redis sorted set.
+
+        Mirrors _track_expiry but for removal. Derives the identifier from the key
+        type without requiring a DB lookup — mismatched types (int for token-based,
+        str for ID-based) are silently skipped since the identifier can't be resolved.
+        """
+        if not self.expiry_sorted_set_key:
+            return
+
+        try:
+            if isinstance(key, Team):
+                identifier = str(self.get_cache_identifier(key))
+            elif isinstance(key, int) and not self.token_based:
+                identifier = str(key)
+            elif isinstance(key, str) and self.token_based:
+                identifier = key
+            else:
+                return
+
+            redis_client = get_client(self.redis_url)
+            redis_client.zrem(self.expiry_sorted_set_key, identifier)
+        except Exception as e:
+            logger.warning(
+                "Failed to remove cache expiry tracking",
+                namespace=self.namespace,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            capture_exception(e)
 
     def _track_expiry(self, team: Team, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None) -> None:
         """
