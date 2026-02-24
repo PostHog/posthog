@@ -14,11 +14,12 @@ def fetch_generations(
     trace_ids: list[str],
     date_from: str,
     date_to: str,
-) -> dict[str, list[tuple[str, dict]]]:
+) -> dict[str, list[tuple[str, object]]]:
     """Fetch $ai_generation events and group by trace_id.
 
-    Returns {trace_id: [(event_uuid, parsed_props), ...]} with at most
-    MAX_GENERATIONS rows per trace.
+    Returns {trace_id: [(event_uuid, ai_input), ...]} with at most
+    MAX_GENERATIONS rows per trace. Only fetches the $ai_input property
+    to avoid transferring large $ai_output and tool call payloads.
     """
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
@@ -42,13 +43,13 @@ def fetch_generations(
         limit_context=LimitContext.QUERY_ASYNC,
     )
 
-    rows_by_trace: dict[str, list[tuple[str, dict]]] = {}
+    rows_by_trace: dict[str, list[tuple[str, object]]] = {}
     for row in result.results or []:
         row_trace_id = str(row[2])
         trace_rows = rows_by_trace.setdefault(row_trace_id, [])
         if len(trace_rows) < MAX_GENERATIONS:
-            raw_props = row[1]
-            props = json.loads(raw_props) if isinstance(raw_props, str) else raw_props
-            trace_rows.append((str(row[0]), props))
+            raw_ai_input = row[1]
+            ai_input = json.loads(raw_ai_input) if isinstance(raw_ai_input, str) else raw_ai_input
+            trace_rows.append((str(row[0]), ai_input))
 
     return rows_by_trace

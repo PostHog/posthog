@@ -119,8 +119,15 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     }
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
-        // We don't support IPv6 for now
-        if (!isIPv4(parsed)) {
+
+        let ipv4: ipaddr.IPv4 | null = null
+        if (isIPv4(parsed)) {
+            ipv4 = parsed
+        } else if (parsed.isIPv4MappedAddress()) {
+            // IPv6-mapped IPv4 (e.g. ::ffff:169.254.169.254) must be unwrapped and validated
+            ipv4 = parsed.toIPv4Address()
+        } else {
+            // Pure IPv6 — skip for now
             continue
         }
 
@@ -128,7 +135,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
         const allowUnsafe = !isProdEnv()
 
         // Check if the IPv4 address is global
-        if (!allowUnsafe && !isGlobalIPv4(parsed)) {
+        if (!allowUnsafe && !isGlobalIPv4(ipv4)) {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
             throw new SecureRequestError('Hostname is not allowed')
         }

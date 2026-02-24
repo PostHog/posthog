@@ -288,6 +288,7 @@ def send_password_changed_email(user_id: int) -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_email_verification(user_id: int, token: str, next_url: str | None = None) -> None:
     user: User = User.objects.get(pk=user_id)
+    next_query = f"?next={quote(next_url, safe='')}" if next_url else ""
     message = EmailMessage(
         use_http=True,
         campaign_key=f"email-verification-{user.uuid}-{timezone.now().timestamp()}",
@@ -295,9 +296,9 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
         template_name="email_verification",
         template_context={
             "preheader": "Please follow the link inside to verify your account.",
-            "link": f"/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
+            "link": f"/verify_email/{user.uuid}/{token}{next_query}",
             "site_url": settings.SITE_URL,
-            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
+            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{next_query}",
         },
     )
     message.add_user_recipient(user, email_override=user.pending_email)
@@ -1409,19 +1410,22 @@ def send_error_tracking_weekly_digest() -> None:
 
     logger.info(f"Found {len(results)} teams with exceptions, fanning out digest emails")
 
-    for team_id, exception_count, ingestion_failure_count in results:
-        send_error_tracking_weekly_digest_for_team.delay(team_id, exception_count, ingestion_failure_count)
+    for team_id, exception_count, ingestion_failure_count, prev_exception_count in results:
+        send_error_tracking_weekly_digest_for_team.delay(
+            team_id, exception_count, ingestion_failure_count, prev_exception_count
+        )
 
     logger.info("Completed Error Tracking weekly digest fan-out")
 
 
 @shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
 def send_error_tracking_weekly_digest_for_team(
-    team_id: int, exception_count: int, ingestion_failure_count: int
+    team_id: int, exception_count: int, ingestion_failure_count: int, prev_exception_count: int = 0
 ) -> None:
     """Send the weekly error tracking digest email to all members of a team."""
     from products.error_tracking.backend.weekly_digest import (
         build_ingestion_failures_url,
+        compute_week_over_week_change,
         get_crash_free_sessions,
         get_daily_exception_counts,
         get_new_issues_for_team,
@@ -1454,9 +1458,9 @@ def send_error_tracking_weekly_digest_for_team(
     new_issues = get_new_issues_for_team(team)
     daily_counts = get_daily_exception_counts(team_id)
     crash_free = get_crash_free_sessions(team)
+    exception_change = compute_week_over_week_change(exception_count, prev_exception_count, higher_is_better=False)
 
-    # TODO: restore to "%Y-%W" after testing (currently allows one email per hour)
-    date_suffix = timezone.now().strftime("%Y-%W-%d-%H")
+    date_suffix = timezone.now().strftime("%Y-%W")
     error_tracking_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest"
     ingestion_failures_url = build_ingestion_failures_url(team_id)
 
@@ -1469,6 +1473,7 @@ def send_error_tracking_weekly_digest_for_team(
             template_context={
                 "team": team,
                 "exception_count": exception_count,
+                "exception_change": exception_change,
                 "ingestion_failure_count": ingestion_failure_count,
                 "top_issues": top_issues,
                 "new_issues": new_issues,

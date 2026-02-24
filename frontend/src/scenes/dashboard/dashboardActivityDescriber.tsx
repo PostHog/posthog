@@ -3,7 +3,6 @@ import { DashboardFilter, HogQLVariable } from 'src/queries/schema/schema-genera
 
 import { Link } from '@posthog/lemon-ui'
 
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -14,6 +13,7 @@ import {
     detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     BreakdownSummary,
     DateRangeSummary,

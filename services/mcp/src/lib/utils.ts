@@ -7,6 +7,12 @@ export function hash(data: string): string {
     return crypto.pbkdf2Sync(data, salt, 100000, 32, 'sha256').toString('hex')
 }
 
+export function formatPrompt(template: string, vars: Record<string, string>): string {
+    return Object.entries(vars)
+        .reduce((result, [key, value]) => result.replaceAll(`{${key}}`, value), template)
+        .trim()
+}
+
 export function getSearchParamsFromRecord(
     params: Record<string, string | number | boolean | undefined>
 ): URLSearchParams {

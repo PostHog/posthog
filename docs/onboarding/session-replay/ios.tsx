@@ -79,10 +79,10 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
 
                                     class AppDelegate: NSObject, UIApplicationDelegate {
                                         func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-                                            let POSTHOG_API_KEY = "<ph_project_api_key>"
+                                            let POSTHOG_TOKEN = "<ph_project_token>"
                                             let POSTHOG_HOST = "<ph_client_api_host>"
 
-                                            let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
+                                            let config = PostHogConfig(apiKey: POSTHOG_TOKEN, host: POSTHOG_HOST)
 
                                             // Enable session recording. Requires enabling in your project settings as well.
                                             // Default is false.

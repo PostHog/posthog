@@ -19,6 +19,7 @@ from posthog.dags.backups import (
     Backup,
     BackupConfig,
     BackupStatus,
+    cleanup_old_backups,
     get_latest_backups,
     get_latest_successful_backup,
     non_sharded_backup,
@@ -341,3 +342,229 @@ def test_incremental_sharded_backup(cluster: ClickhouseCluster):
         job_config=config,
         sharded=True,
     )
+
+
+def _make_s3_mock() -> MagicMock:
+    return MagicMock()
+
+
+def _make_cluster_mock(status_value: Optional[str]) -> MagicMock:
+    mock_cluster = MagicMock()
+
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        return_status = (
+            BackupStatus(hostname="test", status=status_value, event_time_microseconds=datetime.now())
+            if status_value is not None
+            else None
+        )
+        mock_result.result.return_value = {"host1": return_status}
+        return mock_result
+
+    mock_cluster.map_hosts_by_role.side_effect = mock_map_hosts
+    mock_cluster.map_hosts_in_shard_by_role.side_effect = mock_map_hosts
+    return mock_cluster
+
+
+@pytest.mark.parametrize(
+    "status_value, expect_cleanup",
+    [
+        ("BACKUP_CREATED", True),
+        ("BACKUP_FAILED", False),
+        ("CREATING_BACKUP", False),
+        (None, False),
+    ],
+)
+def test_cleanup_skips_or_proceeds_based_on_backup_log_status(status_value: Optional[str], expect_cleanup: bool):
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    # Current backup is incremental, so cleanup must check backup_log for the latest full
+    current_backup = Backup(database="posthog", table="test", date="20240202000000", incremental=True)
+    prior_backups = [
+        Backup(database="posthog", table="test", date="20240201000000", incremental=False),
+        Backup(database="posthog", table="test", date="20240102000000", incremental=True),
+        Backup(database="posthog", table="test", date="20240101000000", incremental=False),
+    ]
+
+    mock_s3 = _make_s3_mock()
+    mock_cluster = _make_cluster_mock(status_value)
+
+    cleanup_old_backups(
+        context=dagster.build_op_context(),
+        config=config,
+        s3=mock_s3,
+        backup=current_backup,
+        all_backups=prior_backups,
+        cluster=mock_cluster,
+    )
+
+    assert mock_s3.get_client().get_paginator.called == expect_cleanup
+
+
+def test_cleanup_skips_when_no_s3_backups():
+    # incremental backup with no prior backups in S3 → no full found → skip
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    current_backup = Backup(database="posthog", table="test", date="20240202000000", incremental=True)
+
+    mock_s3 = _make_s3_mock()
+    mock_cluster = MagicMock()
+
+    cleanup_old_backups(
+        context=dagster.build_op_context(),
+        config=config,
+        s3=mock_s3,
+        backup=current_backup,
+        all_backups=[],
+        cluster=mock_cluster,
+    )
+
+    mock_s3.get_client().get_paginator.assert_not_called()
+
+
+def test_cleanup_skips_when_no_full_backup():
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    current_backup = Backup(database="posthog", table="test", date="20240202000000", incremental=True)
+
+    # Only incrementals in the prior backup list, no full backup
+    prior_backups = [
+        Backup(database="posthog", table="test", date="20240101000000", incremental=True),
+    ]
+
+    mock_s3 = _make_s3_mock()
+    mock_cluster = MagicMock()
+
+    cleanup_old_backups(
+        context=dagster.build_op_context(),
+        config=config,
+        s3=mock_s3,
+        backup=current_backup,
+        all_backups=prior_backups,
+        cluster=mock_cluster,
+    )
+
+    mock_s3.get_client().get_paginator.assert_not_called()
+    mock_cluster.map_hosts_by_role.assert_not_called()
+
+
+def test_cleanup_current_full_backup_does_not_check_log():
+    config = BackupConfig(database="posthog", table="test", incremental=False)
+    # Current backup is the full we just created; prior list has an older full
+    current_backup = Backup(database="posthog", table="test", date="20240201000000", incremental=False)
+    prior_backups = [
+        Backup(database="posthog", table="test", date="20240101000000", incremental=False),
+    ]
+
+    mock_s3 = _make_s3_mock()
+    mock_cluster = MagicMock()
+
+    cleanup_old_backups(
+        context=dagster.build_op_context(),
+        config=config,
+        s3=mock_s3,
+        backup=current_backup,
+        all_backups=prior_backups,
+        cluster=mock_cluster,
+    )
+
+    # Backup log must not be consulted because we just created this full backup
+    mock_cluster.map_hosts_by_role.assert_not_called()
+    mock_cluster.map_hosts_in_shard_by_role.assert_not_called()
+    mock_s3.get_client().get_paginator.assert_called_once_with("list_objects_v2")
+
+
+def test_cleanup_deletes_correct_backups():
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    # Current backup is the latest incremental; prior list has two old backups and the latest full
+    current_backup = Backup(database="posthog", table="test", date="20240202000000", incremental=True)
+    prior_backups = [
+        Backup(database="posthog", table="test", date="20240201000000", incremental=False),
+        Backup(database="posthog", table="test", date="20240102000000", incremental=True),
+        Backup(database="posthog", table="test", date="20240101000000", incremental=False),
+    ]
+
+    mock_s3 = _make_s3_mock()
+    mock_cluster = _make_cluster_mock("BACKUP_CREATED")
+
+    cleanup_old_backups(
+        context=dagster.build_op_context(),
+        config=config,
+        s3=mock_s3,
+        backup=current_backup,
+        all_backups=prior_backups,
+        cluster=mock_cluster,
+    )
+
+    paginated_prefixes = {
+        call.kwargs["Prefix"] for call in mock_s3.get_client().get_paginator.return_value.paginate.call_args_list
+    }
+    assert paginated_prefixes == {
+        f"{prior_backups[1].path}/",
+        f"{prior_backups[2].path}/",
+    }
+
+
+def test_cleanup_nothing_to_delete():
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    # Current backup is incremental; prior list has only the latest full, nothing older
+    current_backup = Backup(database="posthog", table="test", date="20240202000000", incremental=True)
+    prior_backups = [
+        Backup(database="posthog", table="test", date="20240201000000", incremental=False),
+    ]
+
+    mock_s3 = _make_s3_mock()
+    mock_cluster = _make_cluster_mock("BACKUP_CREATED")
+
+    cleanup_old_backups(
+        context=dagster.build_op_context(),
+        config=config,
+        s3=mock_s3,
+        backup=current_backup,
+        all_backups=prior_backups,
+        cluster=mock_cluster,
+    )
+
+    mock_s3.get_client().get_paginator.assert_not_called()
+
+
+def test_cleanup_deletes_failed_recent_backups():
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    current_backup = Backup(database="posthog", table="test", date="20240203000000", incremental=True)
+    prior_backups = [
+        Backup(database="posthog", table="test", date="20240202000000", incremental=True),
+        Backup(database="posthog", table="test", date="20240201000000", incremental=False),
+    ]
+
+    statuses_by_path = {
+        prior_backups[0].path: "BACKUP_FAILED",
+        prior_backups[1].path: "BACKUP_CREATED",
+    }
+
+    mock_s3 = _make_s3_mock()
+    mock_cluster = MagicMock()
+
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        status_value = statuses_by_path.get(fn.__self__.path)
+        return_status = (
+            BackupStatus(hostname="test", status=status_value, event_time_microseconds=datetime.now())
+            if status_value is not None
+            else None
+        )
+        mock_result.result.return_value = {"host1": return_status}
+        return mock_result
+
+    mock_cluster.map_hosts_by_role.side_effect = mock_map_hosts
+
+    cleanup_old_backups(
+        context=dagster.build_op_context(),
+        config=config,
+        s3=mock_s3,
+        backup=current_backup,
+        all_backups=prior_backups,
+        cluster=mock_cluster,
+    )
+
+    paginated_prefixes = {
+        call.kwargs["Prefix"] for call in mock_s3.get_client().get_paginator.return_value.paginate.call_args_list
+    }
+    # Only the failed incremental should be deleted; the verified full should be kept
+    assert paginated_prefixes == {f"{prior_backups[0].path}/"}

@@ -34,6 +34,7 @@ from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.subscription import Subscription
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.settings import (
     HOGQL_INCREASED_MAX_EXECUTION_TIME,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -50,6 +51,7 @@ from posthog.tasks.exports.failure_handler import (
 )
 from posthog.tasks.exports.image_exporter import export_image
 
+from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions import subscription_utils
 
 TEST_ROOT_BUCKET = "test_exports"
@@ -116,7 +118,7 @@ class TestExports(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d")
+        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d-%H%M%S")
         assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
@@ -158,7 +160,7 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z")
         )
 
-        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d")
+        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d-%H%M%S")
         assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
@@ -214,7 +216,7 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
                 "export_format": "image/png",
-                "filename": "export-example-insight-2021-08-25.png",
+                "filename": "export-example-insight-2021-08-25-220914.png",
                 "has_content": False,
                 "dashboard": None,
                 "exception": None,
@@ -635,6 +637,89 @@ class TestExports(APIBaseTest):
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_other_users_export(self, _name, url_template) -> None:
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            export_format="image/png",
+            created_by=self.user,
+        )
+
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self.client.force_login(other_user)
+
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_export_after_losing_resource_access(self, _name, url_template) -> None:
+        other_user = User.objects.create_and_join(self.organization, "rbac-test@posthog.com", "password")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            export_format="image/png",
+            created_by=other_user,
+        )
+
+        self.organization.available_product_features = [{"key": "advanced_permissions", "name": "Advanced permissions"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="dashboard",
+            resource_id=str(self.dashboard.id),
+            team=self.team,
+            access_level="none",
+        )
+
+        self.client.force_login(other_user)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_session_recording_export_after_losing_access(self, _name, url_template) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        other_user = User.objects.create_and_join(self.organization, "rbac-recording@posthog.com", "password")
+        recording = SessionRecording.objects.create(team=self.team, session_id="test-session-123")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "test-session-123"},
+            created_by=other_user,
+        )
+
+        self.organization.available_product_features = [{"key": "advanced_permissions", "name": "Advanced permissions"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            resource_id=str(recording.id),
+            team=self.team,
+            access_level="none",
+        )
+
+        self.client.force_login(other_user)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @parameterized.expand(
         [

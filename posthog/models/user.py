@@ -45,7 +45,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
-    "project_api_key_exposed": True,  # Project API key exposure alerts enabled by default
+    "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
 }
 

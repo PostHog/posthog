@@ -277,7 +277,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsPrompts(),
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS,
+            flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
             tags: ['alpha'],
             sceneKey: 'LLMAnalyticsPrompts',
         },

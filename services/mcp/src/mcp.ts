@@ -4,8 +4,6 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
-import { SessionManager } from '@/lib/SessionManager'
-import { StateManager } from '@/lib/StateManager'
 import { AnalyticsEvent, getPostHogClient } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
@@ -18,6 +16,8 @@ import {
 import { handleToolError } from '@/lib/errors'
 import { getInstructions, INSTRUCTIONS_V1 } from '@/lib/instructions'
 import { formatResponse } from '@/lib/response'
+import { SessionManager } from '@/lib/SessionManager'
+import { StateManager } from '@/lib/StateManager'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -151,31 +151,21 @@ export class MCP extends McpAgent<Env> {
         return _distinctId
     }
 
-    private async getBaseEventProperties(): Promise<Record<string, any>> {
-        const props: Record<string, any> = {}
-
-        if (this.requestProperties.sessionId) {
-            props.$session_id = await this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
-        }
-
-        const clientName = await this.cache.get('clientName')
-        if (clientName) {
-            props.client_name = clientName
-        }
-
-        return props
-    }
-
     async trackEvent(event: AnalyticsEvent, properties: Record<string, any> = {}): Promise<void> {
         try {
             const distinctId = await this.getDistinctId()
+
             const client = getPostHogClient()
 
             client.capture({
                 distinctId,
                 event,
                 properties: {
-                    ...(await this.getBaseEventProperties()),
+                    ...(this.requestProperties.sessionId
+                        ? {
+                              $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
+                          }
+                        : {}),
                     ...properties,
                 },
             })
@@ -212,7 +202,9 @@ export class MCP extends McpAgent<Env> {
 
             try {
                 const result = await handler(params)
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, { tool: tool.name })
+                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, {
+                    tool: tool.name,
+                })
 
                 // For tools with UI resources, include structuredContent for better UI rendering
                 // structuredContent is not added to model context, only used by UI apps
@@ -319,7 +311,11 @@ export class MCP extends McpAgent<Env> {
         await registerUiAppResources(this.server, context)
 
         // Register tools
-        const allTools = await getToolsFromContext(context, { features, version, excludeTools })
+        const allTools = await getToolsFromContext(context, {
+            features,
+            version,
+            excludeTools,
+        })
 
         for (const tool of allTools) {
             this.registerTool(tool, async (params) => tool.handler(context, params))
