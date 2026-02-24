@@ -22,7 +22,7 @@ export function LLMProviderIcon({
 }: {
     provider: LLMProvider
     className?: string
-}): JSX.Element {
+}): JSX.Element | null {
     const imageUrl = PROVIDER_IMAGES[provider]
     if (imageUrl) {
         return <img src={imageUrl} className={className} alt={provider} />
@@ -31,13 +31,13 @@ export function LLMProviderIcon({
     const Component = PROVIDER_COMPONENTS[provider]
     if (Component) {
         return (
-            <span className={`${className} inline-flex items-center justify-center`}>
+            <span className={`${className} inline-flex items-center justify-center overflow-hidden`}>
                 <Component />
             </span>
         )
     }
 
-    return null as unknown as JSX.Element
+    return null
 }
 
 export const LLM_PROVIDER_SELECT_OPTIONS = (Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]).map((provider) => ({

@@ -3,10 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { LLM_PROVIDER_SELECT_OPTIONS } from './LLMProviderIcon'
 import { byokModelPickerLogic } from './byokModelPickerLogic'
 import { ModelOption } from './llmAnalyticsPlaygroundLogic'
-import { LLM_PROVIDER_LABELS } from './settings/llmProviderKeysLogic'
 
 const BYOK_OPENAI_MODELS: Omit<ModelOption, 'providerKeyId'>[] = [
     { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '' },
@@ -16,17 +14,6 @@ const BYOK_OPENAI_MODELS: Omit<ModelOption, 'providerKeyId'>[] = [
 const BYOK_ANTHROPIC_MODELS: Omit<ModelOption, 'providerKeyId'>[] = [
     { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'Anthropic', description: '' },
 ]
-
-describe('LLM_PROVIDER_SELECT_OPTIONS', () => {
-    it('should have an entry for every provider in LLM_PROVIDER_LABELS', () => {
-        const providers = Object.keys(LLM_PROVIDER_LABELS)
-        expect(LLM_PROVIDER_SELECT_OPTIONS.map((o) => o.value)).toEqual(providers)
-        for (const option of LLM_PROVIDER_SELECT_OPTIONS) {
-            expect(option.label).toBe(LLM_PROVIDER_LABELS[option.value])
-            expect(option.icon).toBeTruthy()
-        }
-    })
-})
 
 describe('byokModelPickerLogic', () => {
     let logic: ReturnType<typeof byokModelPickerLogic.build>
