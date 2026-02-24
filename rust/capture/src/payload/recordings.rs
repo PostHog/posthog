@@ -18,6 +18,7 @@ use crate::{
     extractors::extract_body_with_timeout,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
+    types::{GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM, GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL},
     v0_request::ProcessingContext,
 };
 
@@ -136,9 +137,9 @@ pub async fn handle_recording_payload(
             .await
         {
             let limit_type = if limited.is_custom_limited {
-                "custom"
+                GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM
             } else {
-                "global"
+                GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL
             };
             debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(),
                 limit_type, "global rate limit applied");
