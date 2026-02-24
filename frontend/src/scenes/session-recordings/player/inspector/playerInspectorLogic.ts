@@ -13,6 +13,7 @@ import {
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
@@ -106,6 +107,7 @@ export type InspectorListItemBase = {
 export type InspectorListItemEvent = InspectorListItemBase & {
     type: 'events'
     data: RecordingEventType
+    groupedEvents?: InspectorListItemEvent[]
 }
 
 export type InspectorListItemInactivity = InspectorListItemBase & {
@@ -128,6 +130,7 @@ export type InspectorListItemComment = InspectorListItemBase & {
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: 'console'
     data: RecordingConsoleLogV2
+    groupedConsoleLogs?: InspectorListItemConsole[]
 }
 
 export type InspectorListOfflineStatusChange = InspectorListItemBase & {
@@ -200,6 +203,57 @@ function mergeAdjacentInactivity(items: InspectorListItem[]): InspectorListItem[
         acc.push(item)
         return acc
     }, [] as InspectorListItem[])
+}
+
+/** Legacy: merges runs of identical adjacent items into grouped items on the data layer. */
+function collapseAdjacentItems(items: InspectorListItem[], groupSimilar = true): InspectorListItem[] {
+    const collapsed = items.reduce((acc, item) => {
+        const previousItem = acc[acc.length - 1]
+
+        if (item.type === 'inactivity' && previousItem?.type === 'inactivity') {
+            acc[acc.length - 1] = { ...previousItem, durationMs: previousItem.durationMs + item.durationMs }
+            return acc
+        }
+
+        if (
+            groupSimilar &&
+            item.type === 'events' &&
+            previousItem?.type === 'events' &&
+            item.data.event === previousItem.data.event &&
+            item.search === previousItem.search &&
+            !item.highlightColor &&
+            !previousItem.highlightColor
+        ) {
+            const existingGroup = previousItem.groupedEvents ?? [{ ...previousItem }]
+            acc[acc.length - 1] = { ...previousItem, groupedEvents: [...existingGroup, item] }
+            return acc
+        }
+
+        if (
+            groupSimilar &&
+            item.type === 'console' &&
+            previousItem?.type === 'console' &&
+            item.data.content === previousItem.data.content &&
+            item.highlightColor === previousItem.highlightColor
+        ) {
+            const existingGroup = previousItem.groupedConsoleLogs ?? [{ ...previousItem }]
+            acc[acc.length - 1] = { ...previousItem, groupedConsoleLogs: [...existingGroup, item] }
+            return acc
+        }
+
+        acc.push(item)
+        return acc
+    }, [] as InspectorListItem[])
+
+    return collapsed.flatMap((item) => {
+        if (item.type === 'events' && item.groupedEvents && item.groupedEvents.length <= 1) {
+            return item.groupedEvents.map((e) => ({ ...e, groupedEvents: undefined }))
+        }
+        if (item.type === 'console' && item.groupedConsoleLogs && item.groupedConsoleLogs.length <= 1) {
+            return item.groupedConsoleLogs.map((e) => ({ ...e, groupedConsoleLogs: undefined }))
+        }
+        return item
+    })
 }
 
 export type DisplayGroup = { indices: number[] }
@@ -1072,6 +1126,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allowMatchingEventsFilter,
                 s.trackedWindow,
                 s.hasEventsToDisplay,
+                s.groupRepeatedItems,
+                s.featureFlags,
             ],
             (
                 allItemsData,
@@ -1079,7 +1135,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 showOnlyMatching,
                 allowMatchingEventsFilter,
                 trackedWindow,
-                hasEventsToDisplay
+                hasEventsToDisplay,
+                groupRepeatedItems,
+                featureFlags
             ): InspectorListItem[] => {
                 const filteredItems = filterInspectorListItems({
                     allItems: allItemsData.items,
@@ -1090,7 +1148,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     hasEventsToDisplay,
                 })
 
-                return mergeAdjacentInactivity(filteredItems)
+                if (featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS]) {
+                    return mergeAdjacentInactivity(filteredItems)
+                }
+                return collapseAdjacentItems(filteredItems, groupRepeatedItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1302,8 +1363,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         displayGroups: [
-            (s) => [s.items, s.groupRepeatedItems],
-            (items, groupRepeatedItems): DisplayGroup[] => {
+            (s) => [s.items, s.groupRepeatedItems, s.featureFlags],
+            (items, groupRepeatedItems, featureFlags): DisplayGroup[] => {
+                if (!featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS]) {
+                    return items.map((_, i) => ({ indices: [i] }))
+                }
                 return computeDisplayGroups(items, groupRepeatedItems)
             },
             { resultEqualityCheck: equal },
@@ -1336,13 +1400,23 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
-                const group = values.displayGroups[index]
-                const item = values.items[group.indices[0]]
-                actions.reportRecordingInspectorItemExpanded(item.type, index)
+                if (values.featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS]) {
+                    const group = values.displayGroups[index]
+                    const item = values.items[group.indices[0]]
+                    actions.reportRecordingInspectorItemExpanded(item.type, index)
 
-                if (item.type === 'events') {
-                    const eventsToLoad = group.indices.map((i) => (values.items[i] as InspectorListItemEvent).data)
-                    actions.loadFullEventData(eventsToLoad)
+                    if (item.type === 'events') {
+                        const eventsToLoad = group.indices.map((i) => (values.items[i] as InspectorListItemEvent).data)
+                        actions.loadFullEventData(eventsToLoad)
+                    }
+                } else {
+                    const item = values.items[index]
+                    actions.reportRecordingInspectorItemExpanded(item.type, index)
+
+                    if (item.type === 'events') {
+                        const eventsToLoad = item.groupedEvents ? item.groupedEvents.map((e) => e.data) : [item.data]
+                        actions.loadFullEventData(eventsToLoad)
+                    }
                 }
             }
         },
