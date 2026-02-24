@@ -35,7 +35,7 @@ describe('handleRegister', () => {
             })
         )
 
-        const request = new Request('https://auth.posthog.com/oauth/register/', {
+        const request = new Request('https://oauth.posthog.com/oauth/register/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ client_name: 'Test App', redirect_uris: ['http://localhost:3000/callback'] }),
@@ -66,7 +66,7 @@ describe('handleRegister', () => {
             )
         )
 
-        const request = new Request('https://auth.posthog.com/oauth/register/', {
+        const request = new Request('https://oauth.posthog.com/oauth/register/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ client_name: '' }),

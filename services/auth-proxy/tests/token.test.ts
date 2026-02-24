@@ -39,7 +39,7 @@ describe('handleToken', () => {
             )
         )
 
-        const request = new Request('https://auth.posthog.com/oauth/token/', {
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: 'grant_type=authorization_code&code=test_code&client_id=proxy_client_123&state=oauth_state_123',
@@ -58,7 +58,7 @@ describe('handleToken', () => {
     it('returns error for authorization_code grant when region is unknown', async () => {
         mockKVGetValue(mockKV, null)
 
-        const request = new Request('https://auth.posthog.com/oauth/token/', {
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: 'grant_type=authorization_code&code=test_code&client_id=unknown_client',
@@ -95,7 +95,7 @@ describe('handleToken', () => {
                 )
         )
 
-        const request = new Request('https://auth.posthog.com/oauth/token/', {
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: 'grant_type=refresh_token&refresh_token=rt_test&client_id=unknown_client',

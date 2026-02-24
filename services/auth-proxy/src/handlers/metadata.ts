@@ -1,7 +1,7 @@
 /**
  * OAuth 2.0 Authorization Server Metadata (RFC 8414)
  *
- * Returns metadata pointing to auth.posthog.com endpoints.
+ * Returns metadata pointing to oauth.posthog.com endpoints.
  * MCP clients and other OAuth integrations use this to discover where to register,
  * authorize, and exchange tokens.
  */

@@ -13,7 +13,7 @@ beforeEach(() => {
 describe('handleAuthorize', () => {
     it('shows region picker when no _region param', async () => {
         const request = new Request(
-            'https://auth.posthog.com/oauth/authorize/?client_id=abc&redirect_uri=http://localhost:3000/callback&response_type=code'
+            'https://oauth.posthog.com/oauth/authorize/?client_id=abc&redirect_uri=http://localhost:3000/callback&response_type=code'
         )
         const response = await handleAuthorize(request, mockKV)
 
@@ -36,7 +36,7 @@ describe('handleAuthorize', () => {
         })
 
         const request = new Request(
-            'https://auth.posthog.com/oauth/authorize/?client_id=us_real_id&redirect_uri=http://localhost:3000/callback&response_type=code&_region=us'
+            'https://oauth.posthog.com/oauth/authorize/?client_id=us_real_id&redirect_uri=http://localhost:3000/callback&response_type=code&_region=us'
         )
         const response = await handleAuthorize(request, mockKV)
 
@@ -57,7 +57,7 @@ describe('handleAuthorize', () => {
         })
 
         const request = new Request(
-            'https://auth.posthog.com/oauth/authorize/?client_id=us_real_id&redirect_uri=http://localhost:3000/callback&response_type=code&_region=eu'
+            'https://oauth.posthog.com/oauth/authorize/?client_id=us_real_id&redirect_uri=http://localhost:3000/callback&response_type=code&_region=eu'
         )
         const response = await handleAuthorize(request, mockKV)
 
@@ -78,7 +78,7 @@ describe('handleAuthorize', () => {
         })
 
         const request = new Request(
-            'https://auth.posthog.com/oauth/authorize/?client_id=us_id&response_type=code&state=abc123&_region=eu'
+            'https://oauth.posthog.com/oauth/authorize/?client_id=us_id&response_type=code&state=abc123&_region=eu'
         )
         await handleAuthorize(request, mockKV)
 
@@ -89,7 +89,7 @@ describe('handleAuthorize', () => {
     })
 
     it('sets security headers on region picker page', async () => {
-        const request = new Request('https://auth.posthog.com/oauth/authorize/?client_id=abc&response_type=code')
+        const request = new Request('https://oauth.posthog.com/oauth/authorize/?client_id=abc&response_type=code')
         const response = await handleAuthorize(request, mockKV)
 
         expect(response.headers.get('x-frame-options')).toBe('DENY')

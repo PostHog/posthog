@@ -1,5 +1,5 @@
 /**
- * auth.posthog.com — Cross-Region OAuth Proxy
+ * oauth.posthog.com — Cross-Region OAuth Proxy
  *
  * A Cloudflare Worker that sits in front of both US and EU PostHog instances,
  * providing a single OAuth endpoint that handles region routing transparently.

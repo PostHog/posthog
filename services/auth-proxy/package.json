@@ -1,7 +1,16 @@
 {
     "name": "@posthog/auth-proxy",
     "version": "1.0.0",
-    "description": "Cross-region OAuth proxy for PostHog Cloud (auth.posthog.com)",
+    "description": "Cross-region OAuth proxy for PostHog Cloud (oauth.posthog.com)",
+    "keywords": [
+        "auth",
+        "multi-region",
+        "oauth",
+        "posthog",
+        "proxy"
+    ],
+    "license": "MIT",
+    "author": "PostHog Inc.",
     "scripts": {
         "dev": "wrangler dev",
         "deploy": "wrangler deploy",
@@ -10,15 +19,6 @@
         "test:watch": "vitest watch",
         "typecheck": "tsc --noEmit"
     },
-    "keywords": [
-        "posthog",
-        "oauth",
-        "auth",
-        "proxy",
-        "multi-region"
-    ],
-    "author": "PostHog Inc.",
-    "license": "MIT",
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260120.0",
         "typescript": "^5.2.2",
