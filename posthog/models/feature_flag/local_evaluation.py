@@ -354,7 +354,7 @@ def get_flags_response_if_none_match(
 
 def update_flag_caches(team: Team):
     """Update both flag cache variants."""
-    logger.info(f"Syncing feature_flags cache for team {team.id}")
+    logger.info("Syncing feature_flags cache for team", team_id=team.id)
 
     start_time = time.time()
     success = False
@@ -370,7 +370,7 @@ def update_flag_caches(team: Team):
         success = True
     except Exception as e:
         capture_exception(e)
-        logger.exception(f"Failed to sync feature_flags cache for team {team.id}", exception=str(e))
+        logger.exception("Failed to sync feature_flags cache for team", team_id=team.id, exception=str(e))
     finally:
         duration = time.time() - start_time
         result = "success" if success else "failure"

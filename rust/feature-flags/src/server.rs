@@ -251,9 +251,8 @@ pub async fn serve<F>(
         };
 
     // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
-    let flags_with_cohorts_redis_client = dedicated_redis_client
-        .clone()
-        .unwrap_or_else(|| redis_client.clone());
+    // Uses the shared cache (redis_client) - same cache Django writes to via HyperCache
+    let flags_with_cohorts_redis_client = redis_client.clone();
 
     let mut flags_with_cohorts_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
@@ -313,6 +312,13 @@ pub async fn serve<F>(
                 return;
             }
         };
+
+    if *config.skip_writes {
+        tracing::warn!(
+            "SKIP_WRITES is enabled: all writes to PostgreSQL and Redis are disabled. \
+             This instance is running in read-only mode for safe performance testing."
+        );
+    }
 
     // Warn about deprecated environment variables
     if std::env::var("TEAM_CACHE_TTL_SECONDS").is_ok() {

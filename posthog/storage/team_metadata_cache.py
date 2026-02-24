@@ -286,19 +286,20 @@ def verify_team_metadata(
         cached_data = get_team_metadata(team)
         source = "redis" if cached_data else "miss"
 
+    # Get database comparison data - use db_batch_data if available to avoid redundant serialization
+    if db_batch_data and team.id in db_batch_data:
+        db_data = db_batch_data[team.id]
+    else:
+        db_data = _serialize_team_to_metadata(team)
+
     # Handle cache miss
     if not cached_data or source == "miss":
         return {
             "status": "miss",
             "issue": "CACHE_MISS",
             "details": "No cached data found",
+            "db_data": db_data,
         }
-
-    # Get database comparison data - use db_batch_data if available to avoid redundant serialization
-    if db_batch_data and team.id in db_batch_data:
-        db_data = db_batch_data[team.id]
-    else:
-        db_data = _serialize_team_to_metadata(team)
 
     # Compare only fields we care about (defined in TEAM_METADATA_FIELDS + derived fields).
     # This allows removing fields from the cache without triggering unnecessary fixes.
@@ -321,6 +322,7 @@ def verify_team_metadata(
         "issue": "DATA_MISMATCH",
         "details": f"{len(diffs)} field(s) differ",
         "diff_fields": diff_fields,
+        "db_data": db_data,
     }
 
     if verbose:
