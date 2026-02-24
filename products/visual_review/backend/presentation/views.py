@@ -180,6 +180,11 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             run = api.approve_run(input_dto)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.StaleRunError as e:
+            return Response(
+                {"detail": str(e), "code": "stale_run"},
+                status=status.HTTP_409_CONFLICT,
+            )
         except api.ArtifactNotFoundError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except api.GitHubIntegrationNotFoundError:

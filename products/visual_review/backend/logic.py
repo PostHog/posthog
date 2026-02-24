@@ -8,6 +8,7 @@ Called by api/api.py facade. Do not call from outside this module.
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 import structlog
@@ -45,6 +46,12 @@ class GitHubCommitError(Exception):
 
 class PRSHAMismatchError(Exception):
     """PR has new commits since this run was created."""
+
+    pass
+
+
+class StaleRunError(Exception):
+    """Approval blocked because a newer run exists for this PR."""
 
     pass
 
@@ -171,9 +178,40 @@ def write_artifact_bytes(
 # --- Run Operations ---
 
 
+def _newer_run_exists_subquery():
+    """Subquery: True if a newer run exists for the same (repo, pr_number, run_type)."""
+    return Exists(
+        Run.objects.filter(
+            repo_id=OuterRef("repo_id"),
+            pr_number=OuterRef("pr_number"),
+            run_type=OuterRef("run_type"),
+            created_at__gt=OuterRef("created_at"),
+        ).exclude(
+            pr_number__isnull=True,
+        )
+    )
+
+
+def is_run_stale(run: Run) -> bool:
+    """A run is stale if a newer run exists for the same (repo, pr_number, run_type)."""
+    if run.pr_number is None:
+        return False
+    return Run.objects.filter(
+        repo_id=run.repo_id,
+        pr_number=run.pr_number,
+        run_type=run.run_type,
+        created_at__gt=run.created_at,
+    ).exists()
+
+
 def list_runs_for_team(team_id: int) -> list[Run]:
     """List all runs for projects belonging to a team, ordered by creation date (newest first)."""
-    return list(Run.objects.filter(repo__team_id=team_id).select_related("repo").order_by("-created_at"))
+    return list(
+        Run.objects.filter(repo__team_id=team_id)
+        .select_related("repo")
+        .annotate(is_stale=_newer_run_exists_subquery())
+        .order_by("-created_at")
+    )
 
 
 def get_run(run_id: UUID) -> Run:
@@ -650,12 +688,14 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     run = get_run(run_id)
     repo = run.repo
 
+    if is_run_stale(run):
+        raise StaleRunError("A newer run exists for this PR. Approve the latest run instead.")
+
     # Build lookup of identifier -> new_hash
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
 
     # TODO: Validate identifiers exist in run (currently unknown identifiers are silently ignored)
     # TODO: Enforce new_hash == snapshot.current_hash (prevents corrupting baseline YAML)
-    # TODO: Block approval of superseded runs (newer run exists for same repo + PR number)
 
     # Validate all artifacts exist before making any changes
     for identifier, new_hash in approvals.items():

@@ -151,6 +151,7 @@ class Run:
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None
+    is_stale: bool = False
     # Flexible metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
 

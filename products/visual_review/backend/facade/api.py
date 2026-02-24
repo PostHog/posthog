@@ -27,6 +27,7 @@ ArtifactNotFoundError = logic.ArtifactNotFoundError
 GitHubIntegrationNotFoundError = logic.GitHubIntegrationNotFoundError
 GitHubCommitError = logic.GitHubCommitError
 PRSHAMismatchError = logic.PRSHAMismatchError
+StaleRunError = logic.StaleRunError
 BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
 
 
@@ -65,7 +66,9 @@ def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
     )
 
 
-def _to_run(run) -> contracts.Run:
+def _to_run(run, *, is_stale: bool = False) -> contracts.Run:
+    if not is_stale:
+        is_stale = getattr(run, "is_stale", False)
     return contracts.Run(
         id=run.id,
         repo_id=run.repo_id,
@@ -86,6 +89,7 @@ def _to_run(run) -> contracts.Run:
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
+        is_stale=is_stale,
         metadata=run.metadata or {},
     )
 
@@ -175,7 +179,7 @@ def create_run(input: contracts.CreateRunInput) -> contracts.CreateRunResult:
 
 def get_run(run_id: UUID) -> contracts.Run:
     run = logic.get_run(run_id)
-    return _to_run(run)
+    return _to_run(run, is_stale=logic.is_run_stale(run))
 
 
 def get_run_snapshots(run_id: UUID) -> list[contracts.Snapshot]:

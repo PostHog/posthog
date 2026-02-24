@@ -496,3 +496,96 @@ class TestCommitStatusChecks:
         logic.mark_run_completed(run.id)
 
         assert len(mock_github_api.status_checks) == 0
+
+
+@pytest.mark.django_db
+class TestRunStaleness:
+    """Staleness is derived, not stored: a run is stale if a newer run exists for (repo, pr_number, run_type)."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return Repo.objects.create(team=team, name="test-repo")
+
+    def _create_run(self, repo, *, pr_number: int | None = 1, run_type=RunType.STORYBOOK, commit_sha="abc"):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            run_type=run_type,
+            commit_sha=commit_sha,
+            branch="feat/x",
+            pr_number=pr_number,
+            snapshots=[{"identifier": "snap", "content_hash": commit_sha}],
+            baseline_hashes={},
+        )
+        return run
+
+    def test_single_run_is_not_stale(self, repo):
+        run = self._create_run(repo)
+
+        assert logic.is_run_stale(run) is False
+
+    def test_older_run_is_stale_when_newer_exists(self, repo):
+        old = self._create_run(repo, commit_sha="old")
+        self._create_run(repo, commit_sha="new")
+
+        assert logic.is_run_stale(old) is True
+
+    def test_newest_run_is_not_stale(self, repo):
+        self._create_run(repo, commit_sha="old")
+        newest = self._create_run(repo, commit_sha="new")
+
+        assert logic.is_run_stale(newest) is False
+
+    def test_different_pr_numbers_are_independent(self, repo):
+        run_pr1 = self._create_run(repo, pr_number=1, commit_sha="a")
+        self._create_run(repo, pr_number=2, commit_sha="b")
+
+        assert logic.is_run_stale(run_pr1) is False
+
+    def test_different_run_types_are_independent(self, repo):
+        run_sb = self._create_run(repo, run_type=RunType.STORYBOOK, commit_sha="a")
+        self._create_run(repo, run_type=RunType.PLAYWRIGHT, commit_sha="b")
+
+        assert logic.is_run_stale(run_sb) is False
+
+    def test_no_pr_number_is_never_stale(self, repo):
+        old = self._create_run(repo, pr_number=None, commit_sha="old")
+        self._create_run(repo, pr_number=None, commit_sha="new")
+
+        assert logic.is_run_stale(old) is False
+
+    def test_list_runs_annotates_staleness(self, repo, team):
+        self._create_run(repo, commit_sha="old")
+        self._create_run(repo, commit_sha="new")
+
+        runs = logic.list_runs_for_team(team.id)
+
+        newest, oldest = runs[0], runs[1]
+        assert newest.is_stale is False
+        assert oldest.is_stale is True
+
+    def test_approve_stale_run_raises(self, repo, user):
+        old = self._create_run(repo, commit_sha="old")
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="old", storage_path="p/old")
+        self._create_run(repo, commit_sha="new")
+
+        with pytest.raises(logic.StaleRunError):
+            logic.approve_run(
+                run_id=old.id,
+                user_id=user.id,
+                approved_snapshots=[{"identifier": "snap", "new_hash": "old"}],
+                commit_to_github=False,
+            )
+
+    def test_approve_latest_run_succeeds(self, repo, user):
+        self._create_run(repo, commit_sha="old")
+        newest = self._create_run(repo, commit_sha="new")
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="new", storage_path="p/new")
+
+        run = logic.approve_run(
+            run_id=newest.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "snap", "new_hash": "new"}],
+            commit_to_github=False,
+        )
+
+        assert run.approved is True
