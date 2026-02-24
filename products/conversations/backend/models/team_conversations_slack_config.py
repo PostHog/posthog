@@ -16,6 +16,7 @@ class TeamConversationsSlackConfig(models.Model):
 
     class Meta:
         app_label = "conversations"
+        db_table = "posthog_conversations_slack_config"
 
 
 register_team_extension_signal(TeamConversationsSlackConfig, logger=logger)

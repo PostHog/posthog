@@ -8,9 +8,13 @@ from django.http import HttpRequest
 
 from rest_framework.request import Request
 
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.integration import SlackIntegrationError
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import mask_key_value
+
+from products.conversations.backend.models import TeamConversationsSlackConfig
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -29,10 +33,6 @@ def get_support_slack_settings() -> dict:
 
 
 def get_support_slack_bot_token(team: "Team") -> str:
-    from posthog.models.team.extensions import get_or_create_team_extension
-
-    from products.conversations.backend.models import TeamConversationsSlackConfig
-
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
     return str(config.slack_bot_token or "")
 
@@ -80,11 +80,6 @@ def save_supporthog_slack_token(
     bot_token: str,
     slack_team_id: str,
 ) -> None:
-    from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-    from posthog.models.team.extensions import get_or_create_team_extension
-
-    from products.conversations.backend.models import TeamConversationsSlackConfig
-
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
     old_token = config.slack_bot_token
 
@@ -135,11 +130,6 @@ def clear_supporthog_slack_token(
     user: "User",
     is_impersonated_session: bool,
 ) -> None:
-    from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-    from posthog.models.team.extensions import get_or_create_team_extension
-
-    from products.conversations.backend.models import TeamConversationsSlackConfig
-
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
     old_token = config.slack_bot_token
     if old_token is None:

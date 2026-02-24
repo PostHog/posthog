@@ -30,5 +30,8 @@ class Migration(migrations.Migration):
                     posthog.helpers.encrypted_fields.EncryptedTextField(blank=True, max_length=500, null=True),
                 ),
             ],
+            options={
+                "db_table": "posthog_conversations_slack_config",
+            },
         ),
     ]

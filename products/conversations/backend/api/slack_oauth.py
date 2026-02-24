@@ -17,6 +17,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.conversations.backend.support_slack import clear_supporthog_slack_token
+
 STATE_SALT = "conversations.supporthog.slack.oauth"
 STATE_MAX_AGE_SECONDS = 10 * 60
 SUPPORTHOG_SLACK_SCOPE = ",".join(
@@ -105,8 +107,6 @@ class SupportSlackDisconnectView(APIView):
         user = request.user
         if not isinstance(user, User) or user.current_team is None:
             return Response({"error": "No current team selected"}, status=400)
-
-        from products.conversations.backend.support_slack import clear_supporthog_slack_token
 
         clear_supporthog_slack_token(
             team=user.current_team,
