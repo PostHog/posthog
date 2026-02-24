@@ -138,8 +138,6 @@ const getDefaultSizeForTile = (tile: DashboardTile<QueryBasedInsightModel>): { d
 const cleanCalculatedLayouts = (layouts: LayoutItem[], columnCount: number): Layout => {
     const cleanLayouts = layouts.filter(({ y }) => y !== Infinity)
     const dirtyLayouts = layouts.filter(({ y }) => y === Infinity)
-    console.debug('cleanLayouts', cleanLayouts)
-    console.debug('dirtyLayouts', dirtyLayouts)
 
     // array of -1 for each column
     const lowestPoints = Array.from(Array(columnCount)).map(() => -1)
@@ -194,49 +192,44 @@ export const calculateLayouts = (
 ): Partial<Record<DashboardLayoutSize, Layout>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
 
-    // Always calculate sm layout first to establish reference order
-    let referenceOrder: number[] | undefined = undefined
+    // sm layout
+    let columnCount = BREAKPOINT_COLUMN_COUNTS['sm']
 
-    for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
-        const columnCount = BREAKPOINT_COLUMN_COUNTS[breakpoint]
+    const smLayout = sortTilesByLayout(tiles, 'sm').map((tile) => {
+        const layout = tile.layouts?.['sm']
+        const { x, y, w, h } = layout || {}
+        const { defaultW, defaultH } = getDefaultSizeForTile(tile)
 
-        let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
-        if (referenceOrder === undefined) {
-            // First pass: calculate sm layout and establish order
-            sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
-            referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
-        } else {
-            // Subsequent passes: follow the reference order from sm layout
-            sortedDashboardTiles = tiles.sort((a, b) => {
-                return (referenceOrder?.indexOf(a.id) || 0) - (referenceOrder?.indexOf(b.id) || 0)
-            })
+        const realW = Math.min(w || defaultW, columnCount)
+        const realH = h || defaultH
+
+        const layoutItem: LayoutItem = {
+            i: tile.id?.toString(),
+            x: x != null && Number.isInteger(x) && x + realW - 1 < columnCount ? x : 0,
+            y: y != null && Number.isInteger(y) ? y : Infinity,
+            w: realW,
+            h: realH,
+            minW: 1,
+            minH: 1,
+        }
+        return layoutItem
+    })
+    allLayouts['sm'] = cleanCalculatedLayouts(smLayout, columnCount)
+
+    // xs layout
+    let currentY = 0
+    allLayouts['xs'] = (allLayouts['sm'] || []).map((item) => {
+        const nextItem = {
+            ...item,
+            x: 0,
+            y: currentY,
+            w: 1,
         }
 
-        const layouts = (sortedDashboardTiles || []).map((tile) => {
-            // For xs layout, ignore stored layout and derive from sm order
-            // For sm layout, use stored layout if available
-            const layout = breakpoint === 'xs' ? undefined : tile.layouts?.[breakpoint]
-            const { x, y, w, h } = layout || {}
+        currentY += item.h ?? 0
 
-            const { defaultW, defaultH } = getDefaultSizeForTile(tile)
-
-            const realW = Math.min(w || defaultW, columnCount)
-            const realH = h || defaultH
-
-            const layoutItem: LayoutItem = {
-                i: tile.id?.toString(),
-                x: x != null && Number.isInteger(x) && x + realW - 1 < columnCount ? x : 0,
-                y: y != null && Number.isInteger(y) ? y : Infinity,
-                w: realW,
-                h: realH,
-                minW: 1,
-                minH: 1,
-            }
-            return layoutItem
-        })
-
-        allLayouts[breakpoint] = cleanCalculatedLayouts(layouts, columnCount)
-    }
+        return nextItem
+    })
 
     return allLayouts
 }
