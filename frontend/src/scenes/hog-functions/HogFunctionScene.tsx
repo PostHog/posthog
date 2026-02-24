@@ -185,7 +185,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     return [
                         {
                             key: Scene.Snippets,
-                            name: 'JS snippets',
+                            name: 'Web scripts',
                             path: urls.snippets(),
                             iconType: 'data_pipeline',
                         },

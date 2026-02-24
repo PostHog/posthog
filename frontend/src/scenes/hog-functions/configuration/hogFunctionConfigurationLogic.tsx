@@ -715,7 +715,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const type = values.type
                     const typeFolder =
                         type === 'site_app'
-                            ? 'JS snippets'
+                            ? 'Web scripts'
                             : type === 'transformation'
                               ? 'Transformations'
                               : type === 'source_webhook'

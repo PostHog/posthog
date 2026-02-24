@@ -37,8 +37,8 @@ export const snippetsSceneLogic = kea<snippetsSceneLogicType>([
                 (): Breadcrumb[] => {
                     return [
                         {
-                            key: 'JS snippets',
-                            name: 'JS snippets',
+                            key: 'Web scripts',
+                            name: 'Web scripts',
                             iconType: 'data_pipeline',
                         },
                     ]

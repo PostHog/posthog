@@ -56,7 +56,7 @@ export const manifest: ProductManifest = {
     ],
     treeItemsProducts: [
         {
-            path: 'JS snippets',
+            path: 'Web scripts',
             intents: [ProductKey.SITE_APPS],
             category: 'Tools',
             type: 'hog_function',

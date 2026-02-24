@@ -62,7 +62,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Snippets]: {
         projectBased: true,
-        name: 'JS snippets',
+        name: 'Web scripts',
         description: 'Snippets allow you to add custom tags and functionality to your website using PostHog.',
         activityScope: ActivityScope.HOG_FUNCTION,
         defaultDocsPath: '/docs/cdp/apps',
