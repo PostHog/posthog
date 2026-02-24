@@ -117,6 +117,44 @@ fun truncateIfNeeded(s) {
     return substring(s, 1, limit)
 }
 
+fun parseQueryParams(url) {
+    if (empty(url) or typeof(url) != 'string') {
+        return {}
+    }
+    let queryIndex := position(url, '?')
+    if (queryIndex == 0) {
+        return {}
+    }
+    let queryString := substring(url, queryIndex + 1, length(url) - queryIndex)
+    if (empty(queryString)) {
+        return {}
+    }
+    let params := {}
+    let pairs := splitByString('&', queryString)
+    for (let _, pair in pairs) {
+        if (empty(pair)) {
+            continue
+        }
+        let kv := splitByString('=', pair, 2)
+        let key := kv[1]
+        if (length(kv) > 1 and notEmpty(kv[2])) {
+            params[key] := decodeURLComponent(kv[2])
+        }
+    }
+    return params
+}
+
+fun extractPathname(url) {
+    if (empty(url) or typeof(url) != 'string') {
+        return ''
+    }
+    let queryIndex := position(url, '?')
+    if (queryIndex > 0) {
+        return substring(url, 1, queryIndex - 1)
+    }
+    return url
+}
+
 // Distinct ID: user-level grouping based on project, host, client IP, and user agent
 let host := proxy.host ?? log.host ?? ''
 let clientIp := proxy.clientIp ?? ''
@@ -125,11 +163,25 @@ let scheme := proxy.scheme ?? 'https'
 let path := proxy.path ?? log.path ?? ''
 let distinctId := f'vercel_{sha256Hex(f'{log.projectId}:{host}:{clientIp}:{userAgent}')}'
 
+// Parse URL for pathname and UTM parameters
+let queryParams := parseQueryParams(path)
+let pathname := extractPathname(path)
+
 let props := {
     // PostHog standard properties
     '$ip': clientIp,
     '$raw_user_agent': userAgent,
     '$current_url': f'{scheme}://{host}{path}',
+    '$host': host,
+    '$pathname': pathname,
+    '$referrer': proxy.referer,
+
+    // UTM parameters (extracted from URL query string)
+    'utm_source': queryParams['utm_source'],
+    'utm_medium': queryParams['utm_medium'],
+    'utm_campaign': queryParams['utm_campaign'],
+    'utm_term': queryParams['utm_term'],
+    'utm_content': queryParams['utm_content'],
 
     // Core log fields
     'vercel_log_id': log.id,

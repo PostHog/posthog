@@ -87,7 +87,7 @@ jobs:
                   bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Check formatting with prettier
-              run: pnpm --filter=@posthog/nodejs prettier:check
+              run: pnpm --filter=@posthog/nodejs format:check
 
             - name: Lint with ESLint
               run: pnpm --filter=@posthog/nodejs lint
