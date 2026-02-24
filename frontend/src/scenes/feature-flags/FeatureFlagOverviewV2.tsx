@@ -364,7 +364,11 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                         id={String(featureFlag.id)}
                                         flagKey={featureFlag.key}
                                         filters={featureFlag.filters}
-                                        earlyAccessFeatures={featureFlag.features ?? undefined}
+                                        earlyAccessFeatures={
+                                            (featureFlag.features ?? undefined) as
+                                                | { id: string; flagKey: string }[]
+                                                | undefined
+                                        }
                                         isDisabled={!featureFlag.active}
                                     />
                                 </div>

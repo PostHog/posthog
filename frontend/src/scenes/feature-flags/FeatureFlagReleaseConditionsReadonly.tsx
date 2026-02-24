@@ -177,12 +177,18 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
     )
 }
 
+// Minimal type for early access features as they appear on featureFlag.features
+// The actual API response shape differs from the formal EarlyAccessFeatureType
+interface EarlyAccessFeatureSummary {
+    id: string
+    flagKey: string
+}
+
 interface FeatureFlagSuperConditionsReadonlyProps {
     id: string
     flagKey: string
     filters: FeatureFlagFilters
-    // TODO: The actual type from featureFlag.features differs from EarlyAccessFeatureType
-    earlyAccessFeatures?: any[]
+    earlyAccessFeatures?: EarlyAccessFeatureSummary[]
     isDisabled?: boolean
 }
 
@@ -201,7 +207,7 @@ export function FeatureFlagSuperConditionsReadonly({
     })
 
     const { filterGroups, aggregationTargetName } = useValues(releaseConditionsLogic)
-    const matchingEarlyAccessFeature = earlyAccessFeatures?.find((f: any) => f.flagKey === flagKey)
+    const matchingEarlyAccessFeature = earlyAccessFeatures?.find((f) => f.flagKey === flagKey)
 
     if (filterGroups.length === 0) {
         return null
