@@ -234,10 +234,10 @@ class CallMCPServerTool(MaxTool):
 
         try:
             await self._refresh_token_for_server(server_url)
-        except (TokenRefreshError, MaxToolFatalError) as e:
+        except (TokenRefreshError, MaxToolFatalError):
             await self._mark_needs_reauth(server_url)
             raise MaxToolFatalError(
-                f"Authentication failed for {server_url} and token refresh failed: {e}. "
+                f"Authentication failed for {server_url} and token refresh failed."
                 "Ask the user to re-authenticate with this MCP server in the MCP store settings page."
             )
 
