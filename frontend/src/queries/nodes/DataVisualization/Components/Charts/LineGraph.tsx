@@ -480,16 +480,14 @@ export const LineGraph = ({
                                                     render: (value, record) => {
                                                         if (record.isTotalRow) {
                                                             return (
-                                                                <>
-                                                                    <div className="datum-label-column">
-                                                                        <span className="font-extrabold">Total</span>
-                                                                        {isTruncated && (
-                                                                            <span className="text-xs text-muted ml-1">
-                                                                                (incl. hidden series)
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                </>
+                                                                <div className="datum-label-column">
+                                                                    <span className="font-extrabold">Total</span>
+                                                                    {isTruncated && (
+                                                                        <span className="text-xs text-muted ml-1">
+                                                                            (incl. hidden series)
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             )
                                                         }
 
