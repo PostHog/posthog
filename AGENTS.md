@@ -165,3 +165,48 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 ## Skills
 
 Skills are created inside [.agents/skills](.agents/skills/) by default and then symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.
+
+## Cursor Cloud specific instructions
+
+### Environment overview
+
+PostHog is a monorepo with Django backend, React/Vite frontend, Node.js ingestion pipeline, and Rust/Go services.
+Infrastructure (Postgres, Redis, ClickHouse, Kafka/Redpanda, MinIO, etc.) runs in Docker; app processes run on the host.
+See `docker-compose.dev.yml` for infrastructure and `bin/mprocs.yaml` for process definitions.
+
+### Tool versions (via Flox)
+
+The Flox environment at `.flox/` provides pinned versions of all tools.
+In Cloud VMs where Flox activation may hang or fail (no systemd), use the Flox-built binaries directly:
+
+```bash
+export FLOX_ENV=/workspace/.flox/run/x86_64-linux.posthog.dev
+export PATH="$FLOX_ENV/bin:$PATH"
+```
+
+Key versions: Python 3.12.12, Node.js 24.x, pnpm 10.29.3, uv 0.10.x, Cargo 1.91.x, Go 1.25.x.
+
+### Starting services
+
+1. **Docker infrastructure**: `docker compose -f docker-compose.dev.yml up -d db redis7 clickhouse zookeeper kafka objectstorage proxy echo_server feature-flags etcd`
+2. **Nix daemon** (if Flox was installed): `sudo /nix/store/*/bin/nix-daemon &` — needed for Flox to build environments.
+3. **Migrations** (three required scopes):
+   - Postgres: `python manage.py migrate`
+   - ClickHouse: `python manage.py migrate_clickhouse`
+   - Persons DB: `python manage.py apply_persons_migrations --database=persons_db_writer --ensure-database`
+4. **Django backend**: `python manage.py runserver 0.0.0.0:8000` (bind `0.0.0.0` so the Caddy proxy container can reach it)
+5. **Frontend**: `DEBUG=0 pnpm turbo --filter=@posthog/frontend start-vite`
+6. **GeoLite2 DB**: `./bin/download-mmdb` (needed before first run)
+
+### Gotchas
+
+- **Persons DB migrations**: The `PersonDBRouter` routes `GroupTypeMapping`, `Person`, `Group`, etc. to a separate `posthog_persons` database.
+  Standard `python manage.py migrate` does NOT create those tables — you must also run `python manage.py apply_persons_migrations --database=persons_db_writer --ensure-database`.
+  Without this, the app will crash with `relation "posthog_grouptypemapping" does not exist` on any authenticated page.
+- **Django must bind to `0.0.0.0:8000`** (not `127.0.0.1`) for the Caddy proxy at `:8010` to reach it — the proxy container resolves `web` to the Docker host gateway IP.
+- **Stale Django processes**: After killing Django with `kill -9`, zombie child processes may persist. Always kill all `manage.py runserver` PIDs before restarting.
+- **Browser caching**: Django's DEBUG error pages can get cached by Chrome. If you see a stale error after fixing the backend, clear browser cache or use an incognito window.
+- **Flox activation in non-systemd environments**: Flox's post-install fails without systemd. The workaround is: install Flox (dpkg), create nixbld group/users manually, start `nix-daemon` manually, then use the built environment at `.flox/run/x86_64-linux.posthog.dev/bin/`.
+- **`/etc/hosts`**: Tests and some services expect `kafka`, `clickhouse`, `clickhouse-coordinator`, `objectstorage` to resolve to `127.0.0.1`.
+- **Pytest collection is slow** (~3 min) because Django model loading is heavy. Use `--timeout=300` or higher for first test runs.
+- **`.env` file**: Copy `.env.example` to `.env` on first setup. Contains OIDC keys needed for local dev.
