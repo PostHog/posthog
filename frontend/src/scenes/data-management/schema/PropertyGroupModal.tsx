@@ -125,7 +125,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
         },
         {
             title: (
-                <Tooltip title="When enabled, this property will be optional in generated SDK types even if required. Useful when the property is set as a super property via posthog.register().">
+                <Tooltip title="When enabled, this property will be optional in generated SDK types even if required. Use this for properties automatically added to all events (e.g., set globally via posthog.register()).">
                     <span>Optional in types</span>
                 </Tooltip>
             ),

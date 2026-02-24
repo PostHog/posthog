@@ -396,11 +396,11 @@ func CreativeNamingCaptureFromBase(
 
         code = self.generator._generate_event_with_properties("file_uploaded", props)  # type: ignore[arg-type]
 
-        # file_size should be an option function (optional), not a required param
-        self.assertIn("FileUploadedWithFileSize", code)
+        # file_size should become an option function (not a required param)
+        self.assertIn("FileUploadedWithFileSize(fileSize float64)", code)
         # file_name should still be a required param
         self.assertIn("fileName string", code)
-        # file_size should NOT be a required param in the capture function
+        # file_size should NOT appear as a required param in the capture function signature
         self.assertNotIn("fileSize float64,\n\toptions", code)
 
     def _create_mock_property(
