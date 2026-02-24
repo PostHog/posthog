@@ -18,7 +18,7 @@ describe('handleRegister', () => {
         vi.stubGlobal(
             'fetch',
             vi.fn().mockImplementation((url: string) => {
-                if (url.startsWith('https://us.posthog.com')) {
+                if (new URL(url).hostname === 'us.posthog.com') {
                     return Promise.resolve(
                         new Response(JSON.stringify({ client_id: usClientId, client_name: 'Test App' }), {
                             status: 201,
