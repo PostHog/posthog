@@ -5,7 +5,7 @@ import { IntegrationChoice, IntegrationConfigureProps } from './IntegrationChoic
 function buildRedirectUrl(integrationTarget: string): string {
     const params = new URLSearchParams(window.location.search)
     params.set('integration_target', integrationTarget)
-    return `${window.location.pathname}?${params.toString()}`
+    return `${window.location.pathname}?${params.toString()}${window.location.hash}`
 }
 
 export type CyclotronJobInputIntegrationProps = IntegrationConfigureProps & {

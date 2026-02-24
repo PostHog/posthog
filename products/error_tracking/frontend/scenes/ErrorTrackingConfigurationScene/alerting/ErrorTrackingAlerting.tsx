@@ -9,8 +9,8 @@ import {
     WizardTrigger,
     alertWizardLogic,
 } from 'scenes/hog-functions/AlertWizard/alertWizardLogic'
-import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
+import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType } from '~/types'
@@ -85,7 +85,6 @@ const ALERT_WIZARD_PROPS: AlertWizardLogicProps = {
     destinations: ERROR_TRACKING_DESTINATIONS,
     destinationPriority: ERROR_TRACKING_DESTINATION_PRIORITY,
     urlPattern: '**/error_tracking/configuration',
-    sourceName: 'Error tracking alert wizard',
 }
 
 export function ErrorTrackingAlerting(): JSX.Element {

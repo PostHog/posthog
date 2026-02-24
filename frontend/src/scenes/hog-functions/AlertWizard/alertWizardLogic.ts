@@ -39,9 +39,7 @@ export interface AlertWizardLogicProps {
     // Controls how many top destinations to show, sorted by prior usage. Ordered by default priority.
     destinationPriority: string[]
     // URL glob pattern for syncing wizard state to query params (e.g. '**/error_tracking/configuration')
-    urlPattern?: string
-    // Label used in test invocation globals
-    sourceName: string
+    urlPattern: string
 }
 
 function hasSubTemplateForDestination(
@@ -93,7 +91,6 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         triggers: [logicProps.triggers as WizardTrigger[], {}],
         allDestinations: [logicProps.destinations as WizardDestination[], {}],
         destinationPriority: [logicProps.destinationPriority as string[], {}],
-        sourceName: [logicProps.sourceName, {}],
         alertCreationView: [
             'none' as AlertCreationView,
             {
@@ -358,7 +355,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     url: window.location.origin,
                 },
                 source: {
-                    name: values.sourceName,
+                    name: 'Alert wizard',
                     url: window.location.href,
                 },
             }
@@ -457,9 +454,6 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
     }),
 
     urlToAction(({ actions, values, props: logicProps }) => {
-        if (!logicProps.urlPattern) {
-            return {}
-        }
         return {
             [logicProps.urlPattern]: (_, searchParams) => {
                 const wizardStep = searchParams.wizard_step as WizardStep | undefined
