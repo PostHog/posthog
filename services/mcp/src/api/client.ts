@@ -152,13 +152,17 @@ export class ApiClient {
 
     private async fetch(url: string, options?: RequestInit): Promise<Response> {
         // TODO: should we move rate limiting from `fetchWithSchema` to here?
-        const contentType = options?.body ? 'application/json' : undefined
+        const defaultHeaders: HeadersInit = {
+            Authorization: `Bearer ${this.config.apiToken}`,
+            'User-Agent': USER_AGENT,
+        }
+        if (options?.body) {
+            defaultHeaders['Content-Type'] = 'application/json'
+        }
         return fetch(url, {
             ...options,
             headers: {
-                Authorization: `Bearer ${this.config.apiToken}`,
-                'Content-Type': contentType,
-                'User-Agent': USER_AGENT,
+                ...defaultHeaders,
                 ...options?.headers,
             },
         })
