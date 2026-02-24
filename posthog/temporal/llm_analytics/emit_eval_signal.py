@@ -1,5 +1,4 @@
 import json
-from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -106,14 +105,6 @@ async def summarize_eval_for_signal(
         validate=validate,
         thinking=True,
     )
-
-
-@dataclass
-class EmitEvalSignalInput:
-    team_id: int
-    evaluation: dict[str, Any]
-    event_data: dict[str, Any]
-    result: dict[str, Any]
 
 
 @temporalio.activity.defn

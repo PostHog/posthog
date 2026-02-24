@@ -113,6 +113,9 @@ def evaluate_auth_attempt(
     if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
         return None
 
+    if action != RadarAction.SIGNUP:
+        return None
+
     ip_address = get_ip_address(request)
     raw_user_agent = _get_raw_user_agent(request)
     short_user_agent = get_short_user_agent(request)
