@@ -15,36 +15,36 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { appsSceneLogic } from './appsSceneLogic'
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
+import { webScriptsSceneLogic } from './webScriptsSceneLogic'
 
 export const scene: SceneExport = {
-    component: AppsScene,
-    logic: appsSceneLogic,
+    component: WebScriptsScene,
+    logic: webScriptsSceneLogic,
     productKey: ProductKey.SITE_APPS,
 }
 
-export function AppsScene(): JSX.Element {
-    const { activeTab } = useValues(appsSceneLogic)
-    const { setActiveTab } = useActions(appsSceneLogic)
+export function WebScriptsScene(): JSX.Element {
+    const { activeTab } = useValues(webScriptsSceneLogic)
+    const { setActiveTab } = useActions(webScriptsSceneLogic)
 
     const action = (
         <AppShortcut
             name="NewPipelineApp"
             keybind={[keyBinds.new]}
-            intent="New app"
+            intent="New JS snippet"
             interaction="click"
-            scope={Scene.Apps}
+            scope={Scene.WebScripts}
         >
             <LemonButton
                 type="primary"
-                to={urls.appsNew()}
+                to={urls.webScriptsNew()}
                 icon={<IconPlusSmall />}
                 size="small"
-                tooltip="New app"
-                data-attr="new-app"
+                tooltip="New web script"
+                data-attr="new-web-script"
             >
-                New app
+                New web script
             </LemonButton>
         </AppShortcut>
     )
@@ -52,7 +52,7 @@ export function AppsScene(): JSX.Element {
     const tabs = [
         {
             key: 'all',
-            label: 'All apps',
+            label: 'All web scripts',
             content: <DataPipelinesHogFunctions kind="site_app" action={action} />,
         },
         {
@@ -65,10 +65,10 @@ export function AppsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={sceneConfigurations[Scene.Apps].name}
-                description={sceneConfigurations[Scene.Apps].description}
+                name={sceneConfigurations[Scene.WebScripts].name}
+                description={sceneConfigurations[Scene.WebScripts].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.Apps].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.WebScripts].iconType || 'default_icon_type',
                 }}
                 actions={action}
             />

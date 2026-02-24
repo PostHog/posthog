@@ -270,7 +270,7 @@ export class PluginServer {
 
             // The service commands is always created
             serviceLoaders.push(() => {
-                const serverCommands = new ServerCommands(hub)
+                const serverCommands = new ServerCommands(hub.pubSub)
                 this.expressApp.use('/', serverCommands.router())
                 return Promise.resolve(serverCommands.service)
             })

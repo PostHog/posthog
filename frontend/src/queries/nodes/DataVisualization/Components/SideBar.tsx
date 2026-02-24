@@ -38,18 +38,18 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
 }
 
 export const SideBar = (): JSX.Element => {
-    const { activeSideBarTab, visualizationType } = useValues(dataVisualizationLogic)
+    const { activeSideBarTab, effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const { setSideBarTab } = useActions(dataVisualizationLogic)
 
     const tabs: LemonTab<string>[] = useMemo(
         () =>
             Object.entries(TABS_TO_CONTENT)
-                .filter(([_, tab]) => tab.shouldShow(visualizationType))
+                .filter(([_, tab]) => tab.shouldShow(effectiveVisualizationType))
                 .map(([key, tab]) => ({
                     label: tab.label,
                     key,
                 })),
-        [visualizationType]
+        [effectiveVisualizationType]
     )
 
     return (

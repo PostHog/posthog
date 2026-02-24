@@ -3,10 +3,10 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { Breadcrumb } from '~/types'
 
-import type { appsSceneLogicType } from './appsSceneLogicType'
+import type { webScriptsSceneLogicType } from './webScriptsSceneLogicType'
 
-export const appsSceneLogic = kea<appsSceneLogicType>([
-    path(['scenes', 'data-pipelines', 'appsSceneLogic']),
+export const webScriptsSceneLogic = kea<webScriptsSceneLogicType>([
+    path(['scenes', 'data-pipelines', 'webScriptsSceneLogic']),
     actions({
         setActiveTab: (tab: 'all' | 'history') => ({ tab }),
     }),
@@ -25,7 +25,7 @@ export const appsSceneLogic = kea<appsSceneLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/apps': (_, searchParams) => {
+        '/web-scripts': (_, searchParams) => {
             const tab = searchParams.tab === 'history' ? 'history' : 'all'
             actions.setActiveTab(tab)
         },
@@ -37,8 +37,8 @@ export const appsSceneLogic = kea<appsSceneLogicType>([
                 (): Breadcrumb[] => {
                     return [
                         {
-                            key: 'Apps',
-                            name: 'Apps',
+                            key: 'Web scripts',
+                            name: 'Web scripts',
                             iconType: 'data_pipeline',
                         },
                     ]
