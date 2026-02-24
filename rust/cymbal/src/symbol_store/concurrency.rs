@@ -38,6 +38,7 @@ impl<P> AtMostOne<P> {
     pub async fn acquire(&self, key: impl ToString) -> OwnedMutexGuard<()> {
         let key = key.to_string();
         let mut state = self.limiters.lock().await;
+        state.retain(|_, v| v.strong_count() > 0);
         let limiter = state.entry(key).or_default();
 
         if let Some(lock) = limiter.upgrade() {

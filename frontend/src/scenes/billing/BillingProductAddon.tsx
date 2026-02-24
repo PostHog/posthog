@@ -11,17 +11,17 @@ import { getProductIcon } from 'scenes/onboarding/productSelection/ProductSelect
 
 import { BillingProductV2AddonType } from '~/types'
 
+import { isProductVariantSecondary } from './billing-utils'
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
+import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
+import { billingProductLogic } from './billingProductLogic'
 import { ConfirmDowngradeModal } from './ConfirmDowngradeModal'
 import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { ProductPricingModal } from './ProductPricingModal'
 import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
-import { isProductVariantSecondary } from './billing-utils'
-import { billingLogic } from './billingLogic'
-import { billingProductLogic } from './billingProductLogic'
-import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {

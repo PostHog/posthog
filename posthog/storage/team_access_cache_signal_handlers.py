@@ -54,7 +54,7 @@ def update_team_authentication_cache(instance: Team, created: bool, **kwargs):
             logger.debug(f"Team {instance.pk} is being created, skipping cache update")
             return
 
-        # Check if api_token changed (project API key regeneration)
+        # Check if api_token changed (project token regeneration)
         # We look for the old value stored before save
         old_api_token = getattr(instance, "_old_api_token", None)
 

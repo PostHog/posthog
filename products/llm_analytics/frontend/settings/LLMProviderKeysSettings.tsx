@@ -14,12 +14,11 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 import {
     AlternativeKey,
     DependentConfigsResponse,
@@ -30,6 +29,7 @@ import {
     LLM_PROVIDER_LABELS,
     llmProviderKeysLogic,
 } from './llmProviderKeysLogic'
+import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
     const tagProps: { type: 'success' | 'danger' | 'warning' | 'default'; children: string } = {
@@ -639,7 +639,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <p className="text-muted mb-4 text-center">
                                     Add your API key for LLM analytics features with your own account.
                                     <br />
-                                    Supports evaluations today and playground support coming soon.
+                                    Used for evaluations and the playground.
                                 </p>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmAnalytics}

@@ -88,8 +88,7 @@ export type TextInputBaseProps = {
 } & VariantProps<typeof textInputVariants>
 
 export interface TextInputPrimitiveProps
-    extends TextInputBaseProps,
-        Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {}
+    extends TextInputBaseProps, Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {}
 
 export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiveProps>((props, ref) => {
     const {
