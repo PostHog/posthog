@@ -1,5 +1,4 @@
 import '~/styles'
-
 import './RenderQuery.scss'
 
 import { createRoot } from 'react-dom/client'

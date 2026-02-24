@@ -12,11 +12,11 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
-import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 import {
     conversionGoalDescription,
     conversionGoalNamePlaceholder,

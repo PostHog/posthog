@@ -6,17 +6,15 @@ use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
 use rdkafka::types::RDKafkaErrorCode;
 use serde::{Deserialize, Serialize};
-use sqlx::{Acquire, PgConnection};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
 use crate::teams::TeamManager;
 use crate::types::{FingerprintedErrProps, OutputErrProps};
 use crate::{
-    app_context::AppContext,
-    error::UnhandledError,
-    metric_consts::{ISSUE_CREATED, ISSUE_REOPENED},
-    posthog_utils::{capture_issue_created, capture_issue_reopened},
+    app_context::AppContext, error::UnhandledError, metric_consts::ISSUE_REOPENED,
+    posthog_utils::capture_issue_reopened,
 };
 
 #[derive(Debug, Clone)]
@@ -252,110 +250,6 @@ impl IssueFingerprintOverride {
 
         Ok(res)
     }
-}
-
-pub async fn resolve_issue(
-    context: &AppContext,
-    team_id: i32,
-    name: String,
-    description: String,
-    event_timestamp: DateTime<Utc>,
-    event_properties: FingerprintedErrProps,
-) -> Result<Issue, UnhandledError> {
-    let mut conn = context.posthog_pool.acquire().await?;
-    // Fast path - just fetch the issue directly, and then reopen it if needed
-    let existing_issue =
-        Issue::load_by_fingerprint(&mut *conn, team_id, &event_properties.fingerprint.value)
-            .await?;
-    if let Some(mut issue) = existing_issue {
-        if issue.maybe_reopen(&mut *conn).await? {
-            let assignment = process_assignment(
-                &mut conn,
-                &context.team_manager,
-                &issue,
-                event_properties.clone(),
-            )
-            .await?;
-            let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
-            send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
-                .await?;
-        }
-        return Ok(issue);
-    }
-
-    // Slow path - insert a new issue, and then insert the fingerprint override, rolling
-    // back the transaction if the override insert fails (since that indicates someone else
-    // beat us to creating this new issue). Then, possibly reopen the issue.
-
-    // Start a transaction, so we can roll it back on override insert failure
-    let mut txn = conn.begin().await?;
-    // Insert a new issue
-    let issue = Issue::insert_new(
-        team_id,
-        name.to_string(),
-        description.to_string(),
-        &mut *txn,
-    )
-    .await?;
-
-    // Insert the fingerprint override
-    let issue_override = IssueFingerprintOverride::create_or_load(
-        &mut *txn,
-        team_id,
-        &event_properties.fingerprint.value,
-        &issue,
-        event_timestamp,
-    )
-    .await?;
-
-    // If we actually inserted a new row for the issue override, commit the transaction,
-    // saving both the issue and the override. Otherwise, rollback the transaction, and
-    // use the retrieved issue override.
-    let was_created = issue_override.issue_id == issue.id;
-    let mut issue = issue;
-    if !was_created {
-        txn.rollback().await?;
-        // Replace the attempt issue with the existing one
-        issue = Issue::load(&mut *conn, team_id, issue_override.id)
-            .await?
-            .unwrap_or(issue);
-
-        // Since we just loaded an issue, check if it needs to be reopened
-        if issue.maybe_reopen(&mut *conn).await? {
-            let assignment = process_assignment(
-                &mut conn,
-                &context.team_manager,
-                &issue,
-                event_properties.clone(),
-            )
-            .await?;
-            let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
-            send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
-                .await?;
-        }
-    } else {
-        metrics::counter!(ISSUE_CREATED).increment(1);
-        let assignment = process_assignment(
-            &mut txn,
-            &context.team_manager,
-            &issue,
-            event_properties.clone(),
-        )
-        .await?;
-
-        let output_props = event_properties.clone().to_output(issue.id);
-        send_new_fingerprint_event(context, &issue, &output_props).await?;
-        send_issue_created_alert(context, &issue, assignment, output_props, &event_timestamp)
-            .await?;
-        txn.commit().await?;
-        capture_issue_created(
-            team_id,
-            issue_override.issue_id,
-            event_properties.other.contains_key("$sentry_event_id"),
-        );
-    };
-
-    Ok(issue)
 }
 
 pub async fn process_assignment(

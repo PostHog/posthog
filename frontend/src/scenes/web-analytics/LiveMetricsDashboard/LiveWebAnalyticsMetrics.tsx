@@ -5,13 +5,14 @@ import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLo
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
 import { BreakdownLiveCard } from './BreakdownLiveCard'
+import { getBrowserLogo } from './browserLogos'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
-import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
-import { getBrowserLogo } from './browserLogos'
 import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
+import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
+import { LiveWorldMap } from './LiveWorldMap'
 
 const STATS_POLL_INTERVAL_MS = 1000
 
@@ -20,6 +21,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         chartData,
         deviceBreakdown,
         browserBreakdown,
+        countryBreakdown,
         topPaths,
         totalPageviews,
         totalUniqueVisitors,
@@ -55,7 +57,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 <LiveStatCard label="Pageviews" value={totalPageviews} isLoading={isLoading} />
             </div>
 
-            <div className="grid grid-cols-1 @4xl/main-content:grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <LiveChartCard
                     title="Active users per minute"
                     subtitle={timezone}
@@ -69,7 +71,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 <LiveTopPathsTable paths={topPaths} isLoading={isLoading} totalPageviews={totalPageviews} />
             </div>
 
-            <div className="grid grid-cols-1 @4xl/main-content:grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <BreakdownLiveCard<DeviceBreakdownItem>
                     title="Devices"
                     data={deviceBreakdown}
@@ -94,6 +96,13 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     isLoading={isLoading}
                 />
             </div>
+
+            <LiveChartCard title="Countries" isLoading={isLoading} contentClassName="">
+                <LiveWorldMap
+                    data={countryBreakdown}
+                    totalEvents={countryBreakdown.reduce((sum, c) => sum + c.count, 0)}
+                />
+            </LiveChartCard>
         </div>
     )
 }

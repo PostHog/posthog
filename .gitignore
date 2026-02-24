@@ -73,6 +73,7 @@ yalc.lock
 .vscode/*
 !.vscode/launch.json
 !.vscode/settings.example.json
+!.vscode/extensions.json
 
 # Ignoring local Zed config
 # but commit shared `debug.json` file

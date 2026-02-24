@@ -95,9 +95,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         kind: 'query',
                         tileId: TileId.MARKETING_OVERVIEW,
                         layout: {
-                            colSpanClassName:
-                                '@4xl/main-content:col-span-2 @7xl/main-content:col-span-3' as `@4xl/main-content:col-span-${number}`,
-                            orderWhenLargeClassName: '@7xl/main-content:order-0',
+                            colSpanClassName: 'md:col-span-2 xxl:col-span-3' as `md:col-span-${number}`,
+                            orderWhenLargeClassName: 'xxl:order-0',
                         },
                         query: {
                             kind: NodeKind.MarketingAnalyticsAggregatedQuery,
@@ -117,8 +116,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         kind: 'query',
                         tileId: TileId.MARKETING,
                         layout: {
-                            colSpanClassName: '@4xl/main-content:col-span-2',
-                            orderWhenLargeClassName: '@7xl/main-content:order-1',
+                            colSpanClassName: 'md:col-span-2',
+                            orderWhenLargeClassName: 'xxl:order-1',
                         },
                         title: `Marketing ${tileColumnSelectionName}`,
                         query: {
@@ -173,8 +172,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                               kind: 'query',
                               tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
                               layout: {
-                                  colSpanClassName: '@4xl/main-content:col-span-2',
-                                  orderWhenLargeClassName: '@7xl/main-content:order-2',
+                                  colSpanClassName: 'md:col-span-2',
+                                  orderWhenLargeClassName: 'xxl:order-2',
                               },
                               title: 'Campaign costs breakdown',
                               query: campaignCostsBreakdown,

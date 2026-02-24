@@ -68,8 +68,6 @@ pub struct GlobalRateLimiterConfig {
     /// Time bucket granularity (e.g., 10 seconds) - keys seen are accumulated into this
     /// granularity of time interval, and evaluated over window_interval for rate limiting
     pub bucket_interval: Duration,
-    /// The interval over which a key will be rate limited if it exceeds the threshold
-    pub rate_limit_interval: Duration,
     /// Redis key prefix (not including final separator)
     pub redis_key_prefix: String,
     /// How long to cache globally before refreshing from Redis
@@ -98,10 +96,9 @@ pub struct GlobalRateLimiterConfig {
 impl Default for GlobalRateLimiterConfig {
     fn default() -> Self {
         Self {
-            global_threshold: 100_000,
+            global_threshold: 1_000_000,
             window_interval: Duration::from_secs(60),
             bucket_interval: Duration::from_secs(10),
-            rate_limit_interval: Duration::from_secs(60),
             redis_key_prefix: "@posthog/global_rate_limiter".to_string(),
             // 10 minutes - long enough to benefit from hot cache under high cardinality
             local_cache_ttl: Duration::from_secs(600),
@@ -549,10 +546,12 @@ impl GlobalRateLimiterImpl {
             })
             .sum();
 
-        // expires_at = timestamp + (bucket_interval / 2)
-        let half_bucket =
-            chrono::Duration::milliseconds(self.config.bucket_interval.as_millis() as i64 / 2);
-        let expires_at = timestamp + half_bucket;
+        // Refresh from Redis at most once per bucket interval — the read window
+        // only includes completed buckets so more frequent checks add overhead
+        // without improving accuracy.
+        let staleness =
+            chrono::Duration::milliseconds(self.config.bucket_interval.as_millis() as i64);
+        let expires_at = timestamp + staleness;
 
         Ok(CacheEntry {
             count,
@@ -704,7 +703,6 @@ mod tests {
             global_threshold: 10,
             window_interval: Duration::from_secs(60),
             bucket_interval: Duration::from_secs(10),
-            rate_limit_interval: Duration::from_secs(60),
             redis_key_prefix: "test:".to_string(),
             global_cache_ttl: Duration::from_secs(300),
             local_cache_ttl: Duration::from_secs(1),
@@ -1021,7 +1019,7 @@ mod tests {
     #[test]
     fn test_config_defaults() {
         let config = GlobalRateLimiterConfig::default();
-        assert_eq!(config.global_threshold, 100_000);
+        assert_eq!(config.global_threshold, 1_000_000);
         assert_eq!(config.window_interval, Duration::from_secs(60));
         assert_eq!(config.bucket_interval, Duration::from_secs(10));
         assert_eq!(config.redis_key_prefix, "@posthog/global_rate_limiter");

@@ -5,15 +5,15 @@ import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -22,12 +22,12 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
-import { OptOutScene } from './OptOuts/OptOutScene'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
+import { OptOutScene } from './OptOuts/OptOutScene'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
+import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
-import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import type { workflowSceneLogicType } from './WorkflowsSceneType'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs'] as const
