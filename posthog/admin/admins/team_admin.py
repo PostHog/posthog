@@ -1,3 +1,4 @@
+import io
 import uuid
 import asyncio
 import tempfile
@@ -73,6 +74,7 @@ class TeamAdmin(admin.ModelAdmin):
         "remote_config_cache_actions",
         "export_individual_replay",
         "import_individual_replay",
+        "ingest_signals",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -185,6 +187,15 @@ class TeamAdmin(admin.ModelAdmin):
                 ],
             },
         ),
+        (
+            "Signals actions",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "ingest_signals",
+                ],
+            },
+        ),
     ]
 
     def organization_link(self, team: Team):
@@ -252,6 +263,22 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
+    @admin.display(description="Ingest signals from JSON")
+    def ingest_signals(self, team: Team):
+        if not team.pk:
+            return "-"
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/ingest_signals.html",
+                {
+                    "team": team,
+                    "ingest_url": f"/admin/posthog/team/{team.pk}/ingest-signals/",
+                },
+                request=getattr(self, "_current_request", None),
+            )
+        )
+
     @admin.display(description="Remote config cache actions")
     def remote_config_cache_actions(self, team: Team):
         if not team.pk:
@@ -294,6 +321,11 @@ class TeamAdmin(admin.ModelAdmin):
                 name="posthog_team_import_replay",
             ),
             path(
+                "<path:object_id>/ingest-signals/",
+                self.admin_site.admin_view(self.ingest_signals_view),
+                name="posthog_team_ingest_signals",
+            ),
+            path(
                 "<path:object_id>/export-history/",
                 self.admin_site.admin_view(self.export_history_view),
                 name="posthog_team_export_history",
@@ -305,6 +337,58 @@ class TeamAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+    def ingest_signals_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+
+        if request.method == "GET":
+            context = {
+                **self.admin_site.each_context(request),
+                "team": team,
+                "title": f"Ingest Signals - {team.name}",
+            }
+            return render(request, "admin/posthog/team/ingest_signals_form.html", context)
+
+        from products.signals.backend.ingest import ingest_signals, parse_signals_json
+
+        signals_file = request.FILES.get("signals_file")
+        if not signals_file:
+            messages.error(request, "Signals JSON file is required")
+            return redirect(reverse("admin:posthog_team_ingest_signals", args=[object_id]))
+
+        logger.info(
+            "ingest_signals_triggered",
+            team_id=team.id,
+            file_name=signals_file.name,
+            file_size=signals_file.size,
+            triggered_by=request.user.email,
+        )
+
+        content = io.TextIOWrapper(signals_file, encoding="utf-8")
+        rows = parse_signals_json(content)
+
+        if not rows:
+            messages.error(request, "No valid signal rows found in the uploaded file")
+            return redirect(reverse("admin:posthog_team_ingest_signals", args=[object_id]))
+
+        try:
+            result = asyncio.run(ingest_signals(team, rows))
+            messages.success(
+                request,
+                f"Ingested {result.success} signals ({result.failed} failed) out of {result.total} total "
+                f"for team '{team.name}' by {request.user.email}.",
+            )
+            for error in result.errors[:10]:
+                messages.warning(request, error)
+        except Exception as e:
+            logger.exception(
+                "ingest_signals_failed",
+                team_id=team.id,
+                error=str(e),
+            )
+            messages.error(request, f"Ingestion failed: {e}")
+
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def export_replay_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
