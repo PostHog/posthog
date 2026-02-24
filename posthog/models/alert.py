@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
@@ -8,6 +9,7 @@ from django.db import models
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
+    from posthog.models.user import User
 
 import pydantic
 
@@ -22,6 +24,11 @@ ALERT_STATE_CHOICES = [
     (AlertState.ERRORED, AlertState.ERRORED),
     (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
+
+
+class AlertCreationSource(StrEnum):
+    WEB = "web"
+    POSTHOG_AI = "posthog_ai"
 
 
 # TODO: Enable `@deprecated` once we move to Python 3.13
@@ -137,6 +144,25 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 kwargs["update_fields"].append("state")
 
         super().save(*args, **kwargs)
+
+    def _get_event_properties(self, source: AlertCreationSource) -> dict:
+        return {
+            "alert_id": self.id,
+            "alert_name": self.name,
+            "condition_type": self.condition.get("type") if self.condition else None,
+            "calculation_interval": self.calculation_interval,
+            "creation_source": str(source),
+        }
+
+    def report_created(self, user: User, source: AlertCreationSource) -> None:
+        from posthog.event_usage import report_user_action
+
+        report_user_action(user, "alert created", self._get_event_properties(source))
+
+    def report_updated(self, user: User, source: AlertCreationSource) -> None:
+        from posthog.event_usage import report_user_action
+
+        report_user_action(user, "alert updated", self._get_event_properties(source))
 
     @classmethod
     def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:

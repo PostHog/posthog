@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from posthog.models.alert import AlertConfiguration, AlertCreationSource, AlertSubscription, Threshold
 from posthog.models.insight import Insight
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -217,6 +217,7 @@ class UpsertAlertTool(MaxTool):
                 enabled=action.enabled,
                 skip_weekend=action.skip_weekend,
             )
+            await sync_to_async(alert.report_created)(user, AlertCreationSource.POSTHOG_AI)
 
             status = "enabled" if action.enabled else "disabled (draft)"
             alert_url = f"/insights/{insight.short_id}/alerts?alert_id={alert.id}"
@@ -296,6 +297,7 @@ class UpsertAlertTool(MaxTool):
 
             update_fields.extend(alert.mark_for_recheck(reset_state=conditions_or_threshold_changed))
             await sync_to_async(alert.save)(update_fields=update_fields)
+            await sync_to_async(alert.report_updated)(self._user, AlertCreationSource.POSTHOG_AI)
 
             insight = await sync_to_async(lambda: alert.insight)()
             alert_url = f"/insights/{insight.short_id}/alerts?alert_id={alert.id}"
