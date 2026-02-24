@@ -5,7 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isGroupType } from 'lib/utils'
+import { isGroupType, isSessionType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
@@ -40,12 +40,65 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
+    SessionActorType,
     UniversalFilterValue,
 } from '~/types'
 
 import type { personsModalLogicType } from './personsModalLogicType'
 
 const RESULTS_PER_PAGE = 100
+
+/**
+ * Checks if the result data represents a session rather than a person or group.
+ * Sessions lack person-specific fields (distinct_ids, is_identified) and may have session-specific fields.
+ */
+function isSessionData(data: Record<string, any>): boolean {
+    // Session data lacks person-specific fields and has session_id or lacks distinct_ids array
+    const hasPersonFields = Array.isArray(data.distinct_ids) || data.is_identified !== undefined
+    const hasGroupFields = data.group_type_index !== undefined
+
+    // If it's clearly person or group data, it's not session data
+    if (hasPersonFields || hasGroupFields) {
+        return false
+    }
+
+    // Session data has these characteristics:
+    // - Has session_id field OR has id that looks like a session UUID
+    // - May have $session_id, $start_timestamp, $end_timestamp, $session_duration fields
+    // - Has distinct_id (singular, not distinct_ids array)
+    const hasSessionFields =
+        data.session_id !== undefined ||
+        data.$session_id !== undefined ||
+        data.$start_timestamp !== undefined ||
+        data.$end_timestamp !== undefined ||
+        data.$session_duration !== undefined
+
+    // If it has session-specific fields or lacks both person and group identifiers
+    return hasSessionFields || (data.distinct_id !== undefined && !hasPersonFields)
+}
+
+/**
+ * Normalizes session data to match the schema expected by the actors modal.
+ * Moves session fields (other than id, distinct_id, session_id) under a `properties` key.
+ */
+function normalizeSessionData(data: Record<string, any>): SessionActorType {
+    const sessionId = data.session_id || data.$session_id || data.id
+    const distinctId = data.distinct_id
+
+    // Extract fields that should not be in properties
+    const { id, session_id, $session_id, distinct_id, matched_recordings, created_at, ...sessionProperties } = data
+
+    return {
+        type: 'session',
+        id: sessionId,
+        session_id: sessionId,
+        distinct_id: distinctId,
+        properties: sessionProperties,
+        created_at: created_at || data.$start_timestamp || '',
+        matched_recordings: matched_recordings || [],
+        value_at_data_point: null,
+    }
+}
 
 export interface PersonModalLogicProps {
     query?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | null
@@ -146,6 +199,14 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 group[field] = result[additionalFieldIndices[index]]
                                             })
                                             return group
+                                        }
+                                        // Check if this is session data (lacks person-specific fields)
+                                        if (isSessionData(result[0])) {
+                                            const session: SessionActorType = normalizeSessionData(result[0])
+                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                                session[field] = result[additionalFieldIndices[index]]
+                                            })
+                                            return session
                                         }
                                         const person: PersonActorType = {
                                             type: 'person',
@@ -307,6 +368,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 if (!firstResult) {
                     return { singular: 'result', plural: 'results' }
+                }
+                if (isSessionType(firstResult)) {
+                    return { singular: 'session', plural: 'sessions' }
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
             },
