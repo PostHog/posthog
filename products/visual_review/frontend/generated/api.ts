@@ -114,7 +114,7 @@ export const visualReviewReposPartialUpdate = async (
 }
 
 /**
- * List all runs for the team.
+ * List runs for the team, optionally filtered by tab.
  */
 export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualReviewRunsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -250,6 +250,20 @@ export const visualReviewRunsSnapshotsList = async (
     options?: RequestInit
 ): Promise<PaginatedSnapshotListApi> => {
     return apiMutator<PaginatedSnapshotListApi>(getVisualReviewRunsSnapshotsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Tab counts for the runs list.
+ */
+export const getVisualReviewRunsCountsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/counts/`
+}
+
+export const visualReviewRunsCountsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getVisualReviewRunsCountsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
