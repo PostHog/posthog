@@ -5,8 +5,8 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { colonDelimitedDuration } from 'lib/utils'
 
+import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { InspectorListItemAppState, InspectorListItemConsole } from '../playerInspectorLogic'
 
 export interface ItemConsoleLogProps {
@@ -57,14 +57,13 @@ export function ItemConsoleLogDetail({ item, groupedItems }: ItemConsoleLogProps
                             {groupedItems.map((entry, i) => (
                                 <div
                                     key={entry.key}
-                                    className={clsx(
-                                        'flex items-center gap-2 px-2 py-0.5 font-mono',
-                                        i > 0 && 'border-t'
-                                    )}
+                                    className={clsx('flex items-center gap-2 font-mono', i > 0 && 'border-t')}
                                 >
-                                    <span className="text-secondary shrink-0">
-                                        {colonDelimitedDuration(entry.timeInRecording / 1000, 2)}
-                                    </span>
+                                    <ItemTimeDisplay
+                                        timestamp={entry.timestamp}
+                                        timeInRecording={entry.timeInRecording}
+                                        className="shrink-0 text-secondary !py-0"
+                                    />
                                     <span className="truncate">{entry.data.content}</span>
                                 </div>
                             ))}

@@ -1,5 +1,6 @@
 import './ImagePreview.scss'
 
+import clsx from 'clsx'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
@@ -15,11 +16,12 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration, isString } from 'lib/utils'
+import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
+import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 
@@ -115,7 +117,12 @@ export function ItemEvent({ item, groupCount }: ItemEventProps): JSX.Element {
                         </div>
                     ) : null}
                     {groupCount && groupCount > 1 ? (
-                        <span className="inline-flex items-center justify-center rounded-full min-w-4 h-4 px-0.5 text-white text-xxs font-bold bg-secondary-3000-hover">
+                        <span
+                            className={clsx(
+                                'inline-flex items-center justify-center rounded-full min-w-4 h-4 px-0.5 text-white text-xxs font-bold',
+                                item.highlightColor === 'danger' ? 'bg-fill-error-highlight' : 'bg-secondary-3000-hover'
+                            )}
+                        >
                             {groupCount}
                         </span>
                     ) : null}
@@ -246,21 +253,17 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
     return (
         <div className={index > 0 ? 'border-t' : ''}>
             <div
-                className="flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-surface-primary"
+                className="flex items-center gap-1 cursor-pointer hover:bg-surface-primary"
                 onClick={() => setExpanded(!expanded)}
             >
-                <span
-                    className="shrink-0 cursor-pointer text-secondary"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setExpanded(!expanded)
-                    }}
-                >
+                <span className="shrink-0 text-secondary pl-2">
                     {expanded ? <IconCollapse className="text-sm" /> : <IconExpand className="text-sm" />}
                 </span>
-                <span className="text-secondary shrink-0 font-mono">
-                    {colonDelimitedDuration(event.timeInRecording / 1000, 2)}
-                </span>
+                <ItemTimeDisplay
+                    timestamp={event.timestamp}
+                    timeInRecording={event.timeInRecording}
+                    className="shrink-0 text-secondary !py-0"
+                />
                 <PropertyKeyInfo
                     className="truncate"
                     disablePopover

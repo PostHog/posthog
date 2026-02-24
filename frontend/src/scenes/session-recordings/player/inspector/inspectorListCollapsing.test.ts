@@ -38,9 +38,9 @@ describe('computeDisplayGroups', () => {
         expect(computeDisplayGroups([], true)).toEqual([])
     })
 
-    it('groups identical events across interleaved console logs', () => {
+    it('does not group events across non-event items', () => {
         const items = [makeEvent(), makeEvent(), makeConsoleLog(), makeEvent()]
-        expect(counts(items)).toEqual([3, 1])
+        expect(counts(items)).toEqual([2, 1, 1])
     })
 
     it('breaks event group on different event name or search text', () => {
@@ -52,9 +52,14 @@ describe('computeDisplayGroups', () => {
         expect(counts(items)).toEqual([2, 1])
     })
 
-    it('never groups highlighted events', () => {
+    it('groups highlighted events with same highlight color', () => {
         const items = [makeEvent({ highlightColor: 'primary' }), makeEvent({ highlightColor: 'primary' }), makeEvent()]
-        expect(counts(items)).toEqual([1, 1, 1])
+        expect(counts(items)).toEqual([2, 1])
+    })
+
+    it('breaks event group on different highlight color', () => {
+        const items = [makeEvent({ highlightColor: 'danger' }), makeEvent({ highlightColor: 'primary' })]
+        expect(counts(items)).toEqual([1, 1])
     })
 
     it('groups adjacent console logs with same content and highlight', () => {

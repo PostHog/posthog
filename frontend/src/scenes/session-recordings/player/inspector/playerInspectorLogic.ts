@@ -205,47 +205,34 @@ function mergeAdjacentInactivity(items: InspectorListItem[]): InspectorListItem[
 
 export type DisplayGroup = { indices: number[] }
 
-/** Groups repeated events and adjacent identical console logs into display rows. */
+function canGroup(current: InspectorListItem, next: InspectorListItem): boolean {
+    if (current.type !== next.type || current.highlightColor !== next.highlightColor) {
+        return false
+    }
+    switch (current.type) {
+        case 'events':
+            return next.type === 'events' && current.data.event === next.data.event && current.search === next.search
+        case 'console':
+            return next.type === 'console' && current.data.content === next.data.content
+        default:
+            return false
+    }
+}
+
+/** Groups adjacent identical events and console logs into display rows. */
 export function computeDisplayGroups(items: InspectorListItem[], groupSimilar: boolean): DisplayGroup[] {
     const groups: DisplayGroup[] = []
-    let activeEventGroup: number | null = null
 
     for (let i = 0; i < items.length; i++) {
-        const item = items[i]
-
-        if (groupSimilar) {
-            if (item.type === 'events' && activeEventGroup !== null) {
-                const leader = items[groups[activeEventGroup].indices[0]] as InspectorListItemEvent
-                if (
-                    leader.data.event === item.data.event &&
-                    leader.search === item.search &&
-                    !leader.highlightColor &&
-                    !item.highlightColor
-                ) {
-                    groups[activeEventGroup].indices.push(i)
-                    continue
-                }
-                activeEventGroup = null
-            }
-
-            if (item.type === 'console' && groups.length > 0) {
-                const lastGroup = groups[groups.length - 1]
-                const lastItem = items[lastGroup.indices[0]] as InspectorListItemConsole
-                if (
-                    lastItem.type === 'console' &&
-                    lastItem.data.content === item.data.content &&
-                    lastItem.highlightColor === item.highlightColor
-                ) {
-                    lastGroup.indices.push(i)
-                    continue
-                }
+        if (groupSimilar && groups.length > 0) {
+            const lastGroup = groups[groups.length - 1]
+            if (canGroup(items[lastGroup.indices[0]], items[i])) {
+                lastGroup.indices.push(i)
+                continue
             }
         }
 
         groups.push({ indices: [i] })
-        if (groupSimilar && item.type === 'events') {
-            activeEventGroup = groups.length - 1
-        }
     }
 
     return groups
