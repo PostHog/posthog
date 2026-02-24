@@ -13,7 +13,7 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
     props({} as GroupedAccessControlRuleModalLogicProps),
 
     connect((props: GroupedAccessControlRuleModalLogicProps) => ({
-        actions: [accessControlsLogic({ projectId: props.projectId }), ['saveGroupedRules']],
+        actions: [accessControlsLogic({ projectId: props.projectId }), ['saveGroupedRules', 'closeRuleModal']],
         values: [
             accessControlsLogic({ projectId: props.projectId }),
             ['loading', 'canEdit', 'availableProjectLevels', 'availableResourceLevels'],
@@ -25,6 +25,7 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         setResourceLevel: (resource: APIScopeObject, level: AccessControlLevel | null) => ({ resource, level }),
         setResourceLevels: (levels: Record<APIScopeObject, FormAccessLevel>) => ({ levels }),
         clearResourceOverrides: true,
+        close: true,
         save: true,
     }),
 
@@ -189,6 +190,9 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                 ])
             ) as Record<APIScopeObject, FormAccessLevel>
             actions.setResourceLevels(clearedLevels)
+        },
+        close: () => {
+            actions.closeRuleModal()
         },
         save: () => {
             actions.saveGroupedRules({

@@ -2,7 +2,7 @@ import { toSentenceCase } from 'lib/utils'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import { AccessControlSettingsEntry, InheritedReason } from './types'
+import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry, InheritedReason } from './types'
 
 export function describeAccessControlLevel(
     level: AccessControlLevel | null | undefined,
@@ -44,11 +44,19 @@ export function humanizeAccessControlLevel(level: AccessControlLevel | null | un
     return toSentenceCase(level)
 }
 
+export function isRoleEntry(entry: AccessControlSettingsEntry): entry is AccessControlRoleEntry {
+    return 'role_id' in entry
+}
+
+export function isMemberEntry(entry: AccessControlSettingsEntry): entry is AccessControlMemberEntry {
+    return 'organization_membership_id' in entry
+}
+
 export function getEntryId(entry: AccessControlSettingsEntry): string {
-    if ('role_id' in entry) {
+    if (isRoleEntry(entry)) {
         return entry.role_id
     }
-    if ('organization_membership_id' in entry) {
+    if (isMemberEntry(entry)) {
         return entry.organization_membership_id
     }
     throw new Error('Unknown entry type')

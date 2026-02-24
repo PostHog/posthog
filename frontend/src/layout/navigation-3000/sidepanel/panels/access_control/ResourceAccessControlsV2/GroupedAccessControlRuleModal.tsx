@@ -11,28 +11,18 @@ import { accessControlsLogic } from './accessControlsLogic'
 import { groupedAccessControlRuleModalLogic } from './groupedAccessControlRuleModalLogic'
 import { GroupedAccessControlRuleModalLogicProps } from './types'
 
-export interface GroupedAccessControlRuleModalProps {
-    state: GroupedAccessControlRuleModalLogicProps
-    close: () => void
-}
-
-export function GroupedAccessControlRuleModal(props: GroupedAccessControlRuleModalProps): JSX.Element {
+export function GroupedAccessControlRuleModal(props: { state: GroupedAccessControlRuleModalLogicProps }): JSX.Element {
     const { modalTitle, loading, canEdit } = useValues(groupedAccessControlRuleModalLogic(props.state))
-    const { save } = useActions(groupedAccessControlRuleModalLogic(props.state))
+    const { save, close } = useActions(groupedAccessControlRuleModalLogic(props.state))
 
     return (
         <LemonModal
             isOpen={true}
-            onClose={loading ? undefined : props.close}
+            onClose={loading ? undefined : close}
             title={modalTitle}
             maxWidth="32rem"
             footer={
-                <GroupedAccessControlRuleModalFooter
-                    close={props.close}
-                    loading={loading}
-                    canEdit={canEdit}
-                    onSave={save}
-                />
+                <GroupedAccessControlRuleModalFooter close={close} loading={loading} canEdit={canEdit} onSave={save} />
             }
         >
             <GroupedAccessControlRuleModalContent logicProps={props.state} />

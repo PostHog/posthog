@@ -17,9 +17,11 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
     const { defaults, resourceKeys, loading } = useValues(logic)
     const { updateAccessControlDefault, updateResourceAccessControls } = useActions(logic)
 
-    const canEdit = defaults?.can_edit ?? false
-    const projectLevels = defaults?.available_project_levels ?? []
-    const resourceLevels = defaults?.available_resource_levels ?? []
+    const {
+        can_edit: canEdit = false,
+        available_project_levels: projectLevels = [],
+        available_resource_levels: resourceLevels = [],
+    } = defaults ?? {}
 
     return (
         <div className="space-y-4">

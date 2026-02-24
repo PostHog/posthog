@@ -3,25 +3,13 @@ import { capitalizeFirstLetter } from 'kea-forms'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
+import { fullName } from 'lib/utils'
 import { pluralizeResource } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject } from '~/types'
 
-import { getEntryId } from './helpers'
-import {
-    AccessControlMemberEntry,
-    AccessControlRoleEntry,
-    AccessControlSettingsEntry,
-    AccessControlsTab,
-} from './types'
-
-function isRoleEntry(entry: AccessControlSettingsEntry): entry is AccessControlRoleEntry {
-    return 'role_id' in entry
-}
-
-function isMemberEntry(entry: AccessControlSettingsEntry): entry is AccessControlMemberEntry {
-    return 'organization_membership_id' in entry
-}
+import { getEntryId, isMemberEntry, isRoleEntry } from './helpers'
+import { AccessControlSettingsEntry, AccessControlsTab } from './types'
 
 function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<AccessControlSettingsEntry> {
     switch (activeTab) {
@@ -46,19 +34,18 @@ function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<
                         }
                         return (
                             <div className="flex items-center gap-3">
-                                <ProfilePicture
-                                    user={{
-                                        first_name: entry.user.first_name,
-                                        email: entry.user.email,
-                                    }}
-                                />
+                                <ProfilePicture user={entry.user} />
                                 <div className="overflow-hidden">
-                                    <p className="font-medium mb-0 truncate">
-                                        {entry.user.first_name || entry.user.email}
-                                    </p>
-                                    <p className="text-secondary font-light mb-0 truncate text-xs">
-                                        {entry.user.email}
-                                    </p>
+                                    {entry.user.first_name ? (
+                                        <>
+                                            <p className="font-medium mb-0 truncate">{fullName(entry.user)}</p>
+                                            <p className="text-secondary font-light mb-0 truncate text-xs">
+                                                {entry.user.email}
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <p className="text-secondary mb-0 truncate">{entry.user.email}</p>
+                                    )}
                                 </div>
                             </div>
                         )

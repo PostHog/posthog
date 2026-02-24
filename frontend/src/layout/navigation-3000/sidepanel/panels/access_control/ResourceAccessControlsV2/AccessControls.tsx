@@ -11,7 +11,7 @@ import { AccessControlFilters } from './AccessControlFilters'
 import { AccessControlTable } from './AccessControlTable'
 import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { accessControlsLogic } from './accessControlsLogic'
-import type { AccessControlSettingsEntry, AccessControlsTab } from './types'
+import type { AccessControlsTab, ScopeType } from './types'
 
 export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
@@ -32,13 +32,9 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         loading,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openRuleModal } = useActions(logic)
 
-    const scopeType = activeTab === 'roles' ? 'role' : 'member'
-
-    const handleEdit = (entry: AccessControlSettingsEntry): void => {
-        openRuleModal({ scopeType, entry, projectId })
-    }
+    const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
 
     return (
         <>
@@ -79,14 +75,14 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
                                 loading={loading}
                                 canEditAny={canEdit}
-                                onEdit={handleEdit}
+                                onEdit={(entry) => openRuleModal({ scopeType, entry, projectId })}
                             />
                         </div>
                     )}
                 </AccessControlTabContainer>
             </div>
 
-            {ruleModalState && <GroupedAccessControlRuleModal state={ruleModalState} close={closeRuleModal} />}
+            {ruleModalState && <GroupedAccessControlRuleModal state={ruleModalState} />}
         </>
     )
 }
