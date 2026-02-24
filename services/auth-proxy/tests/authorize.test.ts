@@ -68,7 +68,7 @@ describe('handleAuthorize', () => {
         expect(location).not.toContain('_region')
     })
 
-    it('stores region selection keyed by state param', async () => {
+    it('stores region selection keyed by both state and client_id', async () => {
         const mapping = { us_client_id: 'us_id', eu_client_id: 'eu_id', created_at: Date.now() }
         mockKVGet(mockKV, (_key: string, type?: unknown) => {
             if (type === 'json') {
@@ -83,9 +83,12 @@ describe('handleAuthorize', () => {
         await handleAuthorize(request, mockKV)
 
         const putCalls = vi.mocked(mockKV.put).mock.calls
-        const regionPut = putCalls.find(([key]) => (key as string) === 'region:abc123')
-        expect(regionPut).toBeTruthy()
-        expect(regionPut![1]).toBe('eu')
+        const statePut = putCalls.find(([key]) => (key as string) === 'region:abc123')
+        const clientPut = putCalls.find(([key]) => (key as string) === 'region:us_id')
+        expect(statePut).toBeTruthy()
+        expect(statePut![1]).toBe('eu')
+        expect(clientPut).toBeTruthy()
+        expect(clientPut![1]).toBe('eu')
     })
 
     it('sets security headers on region picker page', async () => {

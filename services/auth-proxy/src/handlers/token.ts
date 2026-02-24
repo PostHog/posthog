@@ -6,9 +6,9 @@ import { proxyPostWithClientId, tryBothRegions } from '@/lib/proxy'
  * OAuth Token Exchange — proxy to the correct region.
  *
  * Routes the token exchange to the correct regional PostHog server.
- * For authorization_code grants, region is determined by KV lookup (stored
- * during the authorize step, keyed by the OAuth state param).
- * For refresh_token grants, we fall back to try-both since there's no state.
+ * Region is determined by KV lookup on client_id (stored during the authorize step).
+ * For refresh_token grants, we fall back to try-both since the client may not
+ * have gone through our authorize flow.
  */
 export async function handleToken(request: Request, kv: KVNamespace): Promise<Response> {
     const body = await request.text()
@@ -16,18 +16,15 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
     const contentType = request.headers.get('content-type') || ''
     let clientId: string | null = null
     let grantType: string | null = null
-    let state: string | null = null
 
     if (contentType.includes('application/json')) {
         const json = JSON.parse(body) as Record<string, unknown>
         clientId = (json.client_id as string) || null
         grantType = (json.grant_type as string) || null
-        state = (json.state as string) || null
     } else {
         const formParams = new URLSearchParams(body)
         clientId = formParams.get('client_id')
         grantType = formParams.get('grant_type')
-        state = formParams.get('state')
     }
 
     const rebuild = (): Request =>
@@ -37,10 +34,9 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
             body,
         })
 
-    // Look up region by state param first (per-session), then by client_id (fallback)
-    const lookupKeys = [state, clientId].filter(Boolean) as string[]
-    for (const key of lookupKeys) {
-        const region = await getRegionSelection(kv, key)
+    // Look up region by client_id (stored during the authorize step)
+    if (clientId) {
+        const region = await getRegionSelection(kv, clientId)
         if (region) {
             return proxyWithMapping(rebuild(), kv, clientId, region)
         }

@@ -46,13 +46,17 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         }
     }
 
-    // Store region selection keyed by the OAuth state param (unique per session)
-    // to avoid concurrent users overwriting each other's region choice
+    // Store region selection keyed by both state and client_id.
+    // The token exchange only has client_id (state is not sent to the token endpoint),
+    // but we also store by state for any future callback interception.
+    const kvWrites: Promise<void>[] = []
     if (state) {
-        await putRegionSelection(kv, state, region)
-    } else if (clientId) {
-        await putRegionSelection(kv, clientId, region)
+        kvWrites.push(putRegionSelection(kv, state, region))
     }
+    if (clientId) {
+        kvWrites.push(putRegionSelection(kv, clientId, region))
+    }
+    await Promise.all(kvWrites)
 
     // Build the regional authorize URL with all original params
     const regionalBase = baseUrlForRegion(region)

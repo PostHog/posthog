@@ -11,9 +11,9 @@ beforeEach(() => {
 })
 
 describe('handleToken', () => {
-    it('proxies to the correct region when region is stored in KV by state', async () => {
+    it('proxies to the correct region when region is stored in KV by client_id', async () => {
         mockKVGet(mockKV, (key: string, type?: unknown) => {
-            if (key === 'region:oauth_state_123') {
+            if (key === 'region:proxy_client_123') {
                 return Promise.resolve('us')
             }
             if (key === 'client:proxy_client_123' && type === 'json') {
@@ -42,7 +42,7 @@ describe('handleToken', () => {
         const request = new Request('https://oauth.posthog.com/oauth/token/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'grant_type=authorization_code&code=test_code&client_id=proxy_client_123&state=oauth_state_123',
+            body: 'grant_type=authorization_code&code=test_code&client_id=proxy_client_123',
         })
 
         const response = await handleToken(request, mockKV)
