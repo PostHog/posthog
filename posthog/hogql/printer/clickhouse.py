@@ -80,6 +80,17 @@ class ClickHousePrinter(HogQLPrinter):
         if not self.context.team_id:
             raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
+        # Wrap top-level queries that have CTEs in SELECT * FROM (...) so CTE
+        # definitions survive ClickHouse distributed shard decomposition.
+        # ClickHouse does not propagate top-level WITH clauses into shard subqueries,
+        # causing "Table .<cte_name> does not exist" errors on workers.
+        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
+        is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
+
+        if is_top_level_query and node.ctes:
+            inner_sql = super().visit_select_query(node)
+            return f"SELECT * FROM ({inner_sql})"
+
         return super().visit_select_query(node)
 
     def visit_join_expr(self, node: ast.JoinExpr):

@@ -3371,6 +3371,48 @@ class TestPrinter(BaseTest):
         self.assertIn("LEFT JOIN base AS b2", result)
         self.assertIn("LEFT JOIN base AS b3", result)
 
+    def test_cte_distributed_wrapping_single_cte(self):
+        """Top-level queries with CTEs are wrapped in SELECT * FROM (...) for distributed safety"""
+        result = self._select("WITH my_cte AS (SELECT event FROM events) SELECT event FROM my_cte")
+        self.assertTrue(result.startswith("SELECT * FROM (WITH"))
+        self.assertIn("my_cte AS", result)
+        self.assertTrue(result.endswith(")"))
+
+    def test_cte_distributed_wrapping_multiple_ctes(self):
+        """Multiple CTEs are preserved inside the wrapper"""
+        result = self._select(
+            """
+            WITH
+                cte_a AS (SELECT event FROM events),
+                cte_b AS (SELECT event FROM events)
+            SELECT a.event, b.event
+            FROM cte_a AS a
+            LEFT JOIN cte_b AS b ON a.event = b.event
+            """
+        )
+        self.assertTrue(result.startswith("SELECT * FROM (WITH"))
+        self.assertIn("cte_a AS", result)
+        self.assertIn("cte_b AS", result)
+
+    def test_no_cte_no_distributed_wrapping(self):
+        """Queries without CTEs are NOT wrapped"""
+        result = self._select("SELECT event FROM events")
+        self.assertFalse(result.startswith("SELECT * FROM ("))
+
+    def test_cte_distributed_wrapping_with_left_join(self):
+        """CTE + LEFT JOIN produces wrapped output"""
+        result = self._select(
+            """
+            WITH pageviews AS (SELECT distinct_id FROM events WHERE event = '$pageview')
+            SELECT e.event
+            FROM events AS e
+            LEFT JOIN pageviews AS p ON e.distinct_id = p.distinct_id
+            """
+        )
+        self.assertTrue(result.startswith("SELECT * FROM (WITH"))
+        self.assertIn("pageviews AS", result)
+        self.assertIn("LEFT JOIN", result)
+
     def test_final_keyword_not_supported(self):
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL")
