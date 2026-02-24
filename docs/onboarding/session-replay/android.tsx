@@ -90,7 +90,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             // Capture logs automatically. Default is true.
                                             // 
                                             // Support for remote configuration 
-                                            // in the [error tracking settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
+                                            // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
                                             // requires SDK version 3.32.0 or higher.
                                             config.sessionReplayConfig.captureLogcat = true
 

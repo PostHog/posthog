@@ -78,7 +78,7 @@ export function MyApp() {
                 // Android only (Native Logcat only)
                 //
                 // Support for remote configuration 
-                // in the [error tracking settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
+                // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
                 // requires SDK version 4.35.0 or higher.
                 captureLog: true,
                 // Whether network requests are captured in recordings. Default is true
@@ -87,7 +87,7 @@ export function MyApp() {
                 // iOS only
                 //
                 // Support for remote configuration 
-                // in the [error tracking settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
+                // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-network)
                 // requires SDK version 4.35.0 or higher.
                 captureNetworkTelemetry: true,
                 // Throttling delay used to reduce the number of snapshots captured and reduce performance impact

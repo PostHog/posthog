@@ -107,7 +107,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                                         // Android only (Native Logcat only)
                                                         //
                                                         // Support for remote configuration 
-                                                        // in the [error tracking settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
+                                                        // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
                                                         // requires SDK version 4.35.0 or higher.
                                                         captureLog: true,
 
@@ -117,7 +117,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                                         // iOS only
                                                         //
                                                         // Support for remote configuration 
-                                                        // in the [error tracking settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
+                                                        // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-network)
                                                         // requires SDK version 4.35.0 or higher.
                                                         captureNetworkTelemetry: true,
 
