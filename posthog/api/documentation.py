@@ -5,6 +5,7 @@ from typing import Any, get_args
 from django.core.exceptions import ImproperlyConfigured
 
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
+from drf_spectacular.plumbing import build_mock_request
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     extend_schema,  # noqa: F401
@@ -17,6 +18,17 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+
+
+def build_openapi_mock_request(method, path, view, original_request, **kwargs):
+    request = build_mock_request(method, path, view, original_request, **kwargs)
+
+    if os.getenv("OPENAPI_MOCK_INTERNAL_API_SECRET") == "1":
+        from django.conf import settings
+
+        request.META["HTTP_X_INTERNAL_API_SECRET"] = settings.INTERNAL_API_SECRET
+
+    return request
 
 
 @extend_schema_field(OpenApiTypes.STR)

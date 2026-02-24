@@ -1,21 +1,20 @@
 {
     "name": "@posthog/frontend",
-    "description": "",
     "version": "0.0.0",
+    "description": "",
+    "homepage": "https://github.com/posthog/posthog#readme",
+    "bugs": {
+        "url": "https://github.com/posthog/posthog/issues"
+    },
+    "license": "MIT",
+    "author": "PostHog Inc.",
     "repository": {
         "type": "git",
         "url": "https://github.com/posthog/posthog.git"
     },
-    "author": "PostHog Inc.",
-    "bugs": {
-        "url": "https://github.com/posthog/posthog/issues"
+    "browser": {
+        "path": "path-browserify"
     },
-    "homepage": "https://github.com/posthog/posthog#readme",
-    "license": "MIT",
-    "engines": {
-        "node": ">=24 <25"
-    },
-    "packageManager": "pnpm@10.23.0",
     "scripts": {
         "copy-scripts": "mkdir -p dist/ && ./bin/copy-posthog-js",
         "clean": "rm -rf dist && mkdir dist",
@@ -33,20 +32,18 @@
         "typegen:watch": "cd .. && NODE_OPTIONS=\"--max-old-space-size=16384\" kea-typegen watch --delete --show-ts-errors --use-cache",
         "typegen:write": "cd .. && NODE_OPTIONS=\"--max-old-space-size=16384\" kea-typegen write --delete --show-ts-errors --use-cache",
         "typegen:write:no-cache": "cd .. && NODE_OPTIONS=\"--max-old-space-size=16384\" kea-typegen write --delete --show-ts-errors",
-        "schema:build:json": "ts-node ./bin/build-schema-json.mjs && prettier --write ./src/queries/schema.json && ts-node ./bin/build-validators.mjs && prettier --write ./src/queries/validators.js",
+        "schema:build:json": "ts-node ./bin/build-schema-json.mjs && oxfmt ./src/queries/schema.json && ts-node ./bin/build-validators.mjs && oxfmt ./src/queries/validators.js",
         "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; pnpm build:products && jest --testPathPattern='(frontend/|products/|common/)' --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL",
         "jest": "pnpm build:products && jest",
-        "prettier": "prettier --write \"../{products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\" --ignore-path \"../.prettierignore\"",
-        "prettier:check": "prettier --check \"../{products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\" --ignore-path \"../.prettierignore\"",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "lint": "cd .. && oxlint --quiet",
-        "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && pnpm prettier -w \"./{products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
         "start-vite": "pnpm build:products && concurrently -n VITE,TAILWIND,TOOLBAR -c green,yellow,magenta \"vite --host 0.0.0.0\" \"pnpm watch:tailwind\" \"pnpm watch:toolbar\"",
         "watch:toolbar": "node ./bin/build-toolbar.mjs --dev",
-        "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/@posthog/rrweb-types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && prettier --write ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
-        "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path './src/scenes/session-recordings/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json && prettier --write ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json",
+        "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/@posthog/rrweb-types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
+        "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path './src/scenes/session-recordings/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json",
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
         "build:survey-sdk-docs": "ts-node -r tsconfig-paths/register --transpile-only ./bin/docs/build-survey-sdk-docs.ts"
     },
@@ -213,11 +210,11 @@
         "motion": "^12.26.1",
         "natural-orderby": "^3.0.2",
         "openai": "^4.81.0",
+        "oxfmt": "catalog:",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
         "posthog-js": "catalog:",
         "posthog-js-lite": "4.2.2",
-        "prettier": "catalog:",
         "prop-types": "^15.7.2",
         "protomaps-themes-base": "2.0.0-alpha.1",
         "query-selector-shadow-dom": "^1.0.0",
@@ -295,7 +292,6 @@
         "@types/papaparse": "^5.3.8",
         "@types/pixelmatch": "^5.2.4",
         "@types/pngjs": "^6.0.1",
-        "@types/prettier": "^2.7.3",
         "@types/query-selector-shadow-dom": "^1.0.0",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
@@ -353,7 +349,8 @@
             "defaults and not op_mini all"
         ]
     },
-    "browser": {
-        "path": "path-browserify"
-    }
+    "engines": {
+        "node": ">=24 <25"
+    },
+    "packageManager": "pnpm@10.23.0"
 }

@@ -17,13 +17,6 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
 import {
-    DEFAULT_DATE_RANGE,
-    DEFAULT_SERVICE_NAMES,
-    DEFAULT_SEVERITY_LEVELS,
-    isValidSeverityLevel,
-    logsViewerFiltersLogic,
-} from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
-import {
     DEFAULT_ORDER_BY,
     logsViewerConfigLogic,
 } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
@@ -32,6 +25,13 @@ import {
     DEFAULT_INITIAL_LOGS_LIMIT,
     logsViewerDataLogic,
 } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import {
+    DEFAULT_DATE_RANGE,
+    DEFAULT_SERVICE_NAMES,
+    DEFAULT_SEVERITY_LEVELS,
+    isValidSeverityLevel,
+    logsViewerFiltersLogic,
+} from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { logsSceneLogicType } from './logsSceneLogicType'
 import { LogsFiltersHistoryEntry } from './types'

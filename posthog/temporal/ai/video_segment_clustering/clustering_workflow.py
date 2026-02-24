@@ -66,7 +66,9 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         lookback_hours=inputs.lookback_hours,
                     )
                 ],
-                start_to_close_timeout=timedelta(seconds=300),
+                start_to_close_timeout=timedelta(
+                    seconds=660
+                ),  # Should exceed HOGQL_INCREASED_MAX_EXECUTION_TIME (600s)
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     initial_interval=timedelta(seconds=1),

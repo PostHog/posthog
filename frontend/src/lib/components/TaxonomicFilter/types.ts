@@ -170,6 +170,8 @@ export interface TaxonomicFilterGroup {
     componentProps?: Record<string, any>
     /** Minimum number of characters before a remote search is issued. */
     minSearchQueryLength?: number
+    /** Description shown in the empty state when minSearchQueryLength is set. */
+    searchDescription?: string
 }
 
 export enum TaxonomicFilterGroupType {

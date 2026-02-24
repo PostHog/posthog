@@ -281,6 +281,22 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
+            # Start Docker early (before dependency installs) so containers can pull
+            # images and initialize while we install deps. This matches the pattern
+            # used by core-tests/django which achieves ~1s wait times.
+            - name: Clean up data directories
+              run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Start services
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  docker compose -f docker-compose.dev.yml --profile batch-exports down
+                  docker compose -f docker-compose.dev.yml --profile batch-exports up -d &
+
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
@@ -329,19 +345,6 @@ jobs:
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Clean up data directories
-              run: |
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
-              continue-on-error: true
-
-            - name: Start services
-              run: |
-                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
-                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
-                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  docker compose -f docker-compose.dev.yml --profile batch-exports down
-                  docker compose -f docker-compose.dev.yml --profile batch-exports up -d &
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts

@@ -1,4 +1,4 @@
-import { S3Client } from '@aws-sdk/client-s3'
+import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
 
 import { PostgresRouter } from '../../utils/db/postgres'
 import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
@@ -140,6 +140,14 @@ describe('RecordingService', () => {
             const result = await service.getBlock(validParams)
 
             expect(result).toEqual({ ok: false, error: 'deleted', deletedAt: undefined })
+        })
+
+        it('returns not_found when S3 throws NoSuchKey', async () => {
+            mockS3Send.mockRejectedValue(new NoSuchKey({ message: 'The specified key does not exist.', $metadata: {} }))
+
+            const result = await service.getBlock(validParams)
+
+            expect(result).toEqual({ ok: false, error: 'not_found' })
         })
 
         it('propagates unexpected S3 errors', async () => {

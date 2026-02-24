@@ -176,6 +176,7 @@
     width: 100%;
 
     &--type-steps-vertical,
+    &--type-steps-flow,
     &--type-time_to_convert,
     &--type-trends {
         min-height: var(--insight-viz-min-height);

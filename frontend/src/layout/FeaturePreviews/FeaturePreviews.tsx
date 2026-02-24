@@ -5,8 +5,8 @@ import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { BasicCard } from 'lib/components/Cards/BasicCard'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { Label } from 'lib/ui/Label/Label'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
