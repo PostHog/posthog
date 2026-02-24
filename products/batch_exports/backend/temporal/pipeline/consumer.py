@@ -486,6 +486,7 @@ class ConsumerGroup(typing.Protocol[_C]):
 
                 if consumers_delta <= 0:
                     # TODO: Support scaling *down* number of consumers?
+                    await self._wait_poll_delay()
                     continue
 
                 for _ in range(consumers_delta):
