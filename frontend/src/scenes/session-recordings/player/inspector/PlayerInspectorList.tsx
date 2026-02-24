@@ -41,8 +41,8 @@ function InspectorRow({
 
     const group = displayGroups[index]
     const item = items[group.indices[0]]
-    const groupCount = group.indices.length
-    const groupedItems = groupCount > 1 ? group.indices.map((i) => items[i]) : undefined
+    const groupCount = group.indices.length > 1 ? group.indices.length : undefined
+    const groupedItems = group.indices.length > 1 ? group.indices.map((i) => items[i]) : undefined
 
     return (
         <div ref={rowRef} style={style} data-index={index}>

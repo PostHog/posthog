@@ -107,7 +107,6 @@ export type InspectorListItemBase = {
 export type InspectorListItemEvent = InspectorListItemBase & {
     type: 'events'
     data: RecordingEventType
-    groupedEvents?: InspectorListItemEvent[]
 }
 
 export type InspectorListItemInactivity = InspectorListItemBase & {
@@ -130,7 +129,6 @@ export type InspectorListItemComment = InspectorListItemBase & {
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: 'console'
     data: RecordingConsoleLogV2
-    groupedConsoleLogs?: InspectorListItemConsole[]
 }
 
 export type InspectorListOfflineStatusChange = InspectorListItemBase & {
@@ -205,73 +203,18 @@ function mergeAdjacentInactivity(items: InspectorListItem[]): InspectorListItem[
     }, [] as InspectorListItem[])
 }
 
-/** Legacy: merges runs of identical adjacent items into grouped items on the data layer. */
-function collapseAdjacentItems(items: InspectorListItem[], groupSimilar = true): InspectorListItem[] {
-    const collapsed = items.reduce((acc, item) => {
-        const previousItem = acc[acc.length - 1]
-
-        if (item.type === 'inactivity' && previousItem?.type === 'inactivity') {
-            acc[acc.length - 1] = { ...previousItem, durationMs: previousItem.durationMs + item.durationMs }
-            return acc
-        }
-
-        if (
-            groupSimilar &&
-            item.type === 'events' &&
-            previousItem?.type === 'events' &&
-            item.data.event === previousItem.data.event &&
-            item.search === previousItem.search &&
-            !item.highlightColor &&
-            !previousItem.highlightColor
-        ) {
-            const existingGroup = previousItem.groupedEvents ?? [{ ...previousItem }]
-            acc[acc.length - 1] = { ...previousItem, groupedEvents: [...existingGroup, item] }
-            return acc
-        }
-
-        if (
-            groupSimilar &&
-            item.type === 'console' &&
-            previousItem?.type === 'console' &&
-            item.data.content === previousItem.data.content &&
-            item.highlightColor === previousItem.highlightColor
-        ) {
-            const existingGroup = previousItem.groupedConsoleLogs ?? [{ ...previousItem }]
-            acc[acc.length - 1] = { ...previousItem, groupedConsoleLogs: [...existingGroup, item] }
-            return acc
-        }
-
-        acc.push(item)
-        return acc
-    }, [] as InspectorListItem[])
-
-    return collapsed.flatMap((item) => {
-        if (item.type === 'events' && item.groupedEvents && item.groupedEvents.length <= 1) {
-            return item.groupedEvents.map((e) => ({ ...e, groupedEvents: undefined }))
-        }
-        if (item.type === 'console' && item.groupedConsoleLogs && item.groupedConsoleLogs.length <= 1) {
-            return item.groupedConsoleLogs.map((e) => ({ ...e, groupedConsoleLogs: undefined }))
-        }
-        return item
-    })
-}
-
 export type DisplayGroup = { indices: number[] }
 
 /** Groups repeated events (across interleaved types) and adjacent identical console logs. */
 export function computeDisplayGroups(items: InspectorListItem[], groupSimilar: boolean): DisplayGroup[] {
-    if (items.length === 0) {
-        return []
-    }
-
     const groups: DisplayGroup[] = []
     let activeEventGroup: number | null = null
 
     for (let i = 0; i < items.length; i++) {
         const item = items[i]
-        let added = false
 
         if (groupSimilar) {
+            // Events can group across interleaved non-event items
             if (item.type === 'events' && activeEventGroup !== null) {
                 const leader = items[groups[activeEventGroup].indices[0]] as InspectorListItemEvent
                 if (
@@ -281,11 +224,13 @@ export function computeDisplayGroups(items: InspectorListItem[], groupSimilar: b
                     !item.highlightColor
                 ) {
                     groups[activeEventGroup].indices.push(i)
-                    added = true
-                } else {
-                    activeEventGroup = null
+                    continue
                 }
-            } else if (item.type === 'console' && groups.length > 0) {
+                activeEventGroup = null
+            }
+
+            // Console logs group only when strictly adjacent
+            if (item.type === 'console' && groups.length > 0) {
                 const lastGroup = groups[groups.length - 1]
                 const lastItem = items[lastGroup.indices[0]] as InspectorListItemConsole
                 if (
@@ -294,16 +239,14 @@ export function computeDisplayGroups(items: InspectorListItem[], groupSimilar: b
                     lastItem.highlightColor === item.highlightColor
                 ) {
                     lastGroup.indices.push(i)
-                    added = true
+                    continue
                 }
             }
         }
 
-        if (!added) {
-            groups.push({ indices: [i] })
-            if (groupSimilar && item.type === 'events') {
-                activeEventGroup = groups.length - 1
-            }
+        groups.push({ indices: [i] })
+        if (groupSimilar && item.type === 'events') {
+            activeEventGroup = groups.length - 1
         }
     }
 
@@ -721,34 +664,44 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             if (!consoleLogSeenCache.has(cacheKey)) {
                                 consoleLogSeenCache.add(cacheKey)
 
-                                const consoleLog = {
-                                    timestamp: snapshot.timestamp,
-                                    windowId: windowId,
-                                    windowNumber: windowNumberForID(windowId),
-                                    content,
-                                    lines,
-                                    level,
-                                    trace,
-                                }
-                                consoleLogs.push(consoleLog)
+                                const lastLogLine = consoleLogs[consoleLogs.length - 1]
+                                if (lastLogLine?.content === content) {
+                                    if (lastLogLine.count === undefined) {
+                                        lastLogLine.count = 1
+                                    } else {
+                                        lastLogLine.count += 1
+                                    }
+                                } else {
+                                    const consoleLog = {
+                                        timestamp: snapshot.timestamp,
+                                        windowId: windowId,
+                                        windowNumber: windowNumberForID(windowId),
+                                        content,
+                                        lines,
+                                        level,
+                                        trace,
+                                        count: 1,
+                                    }
+                                    consoleLogs.push(consoleLog)
 
-                                // Also create the inspector list item
-                                const { timestamp: itemTimestamp, timeInRecording } = timeRelativeToStart(
-                                    consoleLog,
-                                    start || dayjs()
-                                )
-                                consoleItems.push({
-                                    type: 'console',
-                                    timestamp: itemTimestamp,
-                                    timeInRecording,
-                                    search: content,
-                                    data: consoleLog,
-                                    highlightColor:
-                                        level === 'error' ? 'danger' : level === 'warn' ? 'warning' : undefined,
-                                    windowId: windowId,
-                                    windowNumber: windowNumberForID(windowId),
-                                    key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
-                                })
+                                    // Also create the inspector list item
+                                    const { timestamp: itemTimestamp, timeInRecording } = timeRelativeToStart(
+                                        consoleLog,
+                                        start || dayjs()
+                                    )
+                                    consoleItems.push({
+                                        type: 'console',
+                                        timestamp: itemTimestamp,
+                                        timeInRecording,
+                                        search: content,
+                                        data: consoleLog,
+                                        highlightColor:
+                                            level === 'error' ? 'danger' : level === 'warn' ? 'warning' : undefined,
+                                        windowId: windowId,
+                                        windowNumber: windowNumberForID(windowId),
+                                        key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
+                                    })
+                                }
                             }
                         }
                     })
@@ -1126,8 +1079,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allowMatchingEventsFilter,
                 s.trackedWindow,
                 s.hasEventsToDisplay,
-                s.groupRepeatedItems,
-                s.featureFlags,
             ],
             (
                 allItemsData,
@@ -1135,9 +1086,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 showOnlyMatching,
                 allowMatchingEventsFilter,
                 trackedWindow,
-                hasEventsToDisplay,
-                groupRepeatedItems,
-                featureFlags
+                hasEventsToDisplay
             ): InspectorListItem[] => {
                 const filteredItems = filterInspectorListItems({
                     allItems: allItemsData.items,
@@ -1148,10 +1097,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     hasEventsToDisplay,
                 })
 
-                if (featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS]) {
-                    return mergeAdjacentInactivity(filteredItems)
-                }
-                return collapseAdjacentItems(filteredItems, groupRepeatedItems)
+                return mergeAdjacentInactivity(filteredItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1320,11 +1266,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         playbackIndicatorIndex: [
             (s) => [s.currentPlayerTime, s.items, s.displayGroups],
             (playerTime, items, displayGroups): number => {
-                // Returns the display index that the playback is closest to
+                // When the flag is off, displayGroups is 1:1 with items, so this works either way
                 if (!playerTime) {
                     return 0
                 }
-
                 const timeSeconds = Math.floor(playerTime / 1000)
                 return displayGroups.findIndex(
                     (g) => Math.floor(items[g.indices[0]].timeInRecording / 1000) >= timeSeconds
@@ -1400,23 +1345,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
-                if (values.featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS]) {
-                    const group = values.displayGroups[index]
-                    const item = values.items[group.indices[0]]
-                    actions.reportRecordingInspectorItemExpanded(item.type, index)
+                // When the flag is off, displayGroups is 1:1 with items, so this works either way
+                const group = values.displayGroups[index]
+                const item = values.items[group.indices[0]]
+                actions.reportRecordingInspectorItemExpanded(item.type, index)
 
-                    if (item.type === 'events') {
-                        const eventsToLoad = group.indices.map((i) => (values.items[i] as InspectorListItemEvent).data)
-                        actions.loadFullEventData(eventsToLoad)
-                    }
-                } else {
-                    const item = values.items[index]
-                    actions.reportRecordingInspectorItemExpanded(item.type, index)
-
-                    if (item.type === 'events') {
-                        const eventsToLoad = item.groupedEvents ? item.groupedEvents.map((e) => e.data) : [item.data]
-                        actions.loadFullEventData(eventsToLoad)
-                    }
+                if (item.type === 'events') {
+                    const eventsToLoad = group.indices.map((i) => (values.items[i] as InspectorListItemEvent).data)
+                    actions.loadFullEventData(eventsToLoad)
                 }
             }
         },

@@ -4,6 +4,8 @@ import { useActions, useValues } from 'kea'
 
 import { BaseIcon, IconCheck } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
@@ -125,11 +127,13 @@ function GroupRepeatedItems(): JSX.Element {
 }
 
 export function PlayerInspectorBottomSettings(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
         <SettingsBar border="top">
             <SyncScrolling />
             <ShowOnlyMatching />
-            <GroupRepeatedItems />
+            {featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS] ? <GroupRepeatedItems /> : null}
             <HideProperties />
         </SettingsBar>
     )

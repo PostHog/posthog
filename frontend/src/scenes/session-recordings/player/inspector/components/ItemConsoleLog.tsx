@@ -20,7 +20,8 @@ export interface ItemAppStateProps {
 }
 
 export function ItemConsoleLog({ item, groupCount }: ItemConsoleLogProps): JSX.Element {
-    const showBadge = groupCount && groupCount > 1
+    const effectiveCount = groupCount ?? item.data.count
+    const showBadge = effectiveCount && effectiveCount > 1
 
     return (
         <div className="w-full font-light flex items-center" data-attr="item-console-log">
@@ -36,7 +37,7 @@ export function ItemConsoleLog({ item, groupCount }: ItemConsoleLogProps): JSX.E
                               : 'bg-secondary-3000-hover'
                     )}
                 >
-                    {groupCount}
+                    {effectiveCount}
                 </span>
             ) : null}
         </div>
@@ -68,6 +69,13 @@ export function ItemConsoleLogDetail({ item, groupedItems }: ItemConsoleLogProps
                                 </div>
                             ))}
                         </div>
+                    </>
+                ) : (item.data.count || 1) > 1 ? (
+                    <>
+                        <div className="italic">
+                            This log occurred <b>{item.data.count}</b> times in a row.
+                        </div>
+                        <LemonDivider dashed />
                     </>
                 ) : null}
                 {item.data.lines?.length && (
