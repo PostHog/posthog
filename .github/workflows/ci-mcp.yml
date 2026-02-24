@@ -236,7 +236,7 @@ jobs:
                   touch frontend/dist/exporter.html
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e # v1
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
                   toolchain: 1.91.1
                   components: cargo
