@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { props, useValues } from 'kea'
 
 import { IconClock } from '@posthog/icons'
 import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -14,8 +14,12 @@ import { HogFlowBatchJob } from './hogflows/types'
 import { renderWorkflowLogMessage } from './logs/log-utils'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
-function WorkflowRunLogs(props: WorkflowLogicProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic(props))
+export type WorkflowLogsProps = {
+    id: string
+}
+
+function WorkflowRunLogs(props: WorkflowLogsProps): JSX.Element {
+    const { workflow } = useValues(workflowLogic)
 
     return (
         <LogsViewer
@@ -63,7 +67,7 @@ function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
 }
 
 function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
-    const { workflow } = useValues(workflowLogic({ id: job.hog_flow }))
+    const { workflow } = useValues(workflowLogic)
 
     const isFutureJob = job.scheduled_at && dayjs(job.scheduled_at).isAfter(dayjs())
 
@@ -154,8 +158,8 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
     )
 }
 
-export function WorkflowLogs(props: WorkflowLogicProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic(props))
+export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {
+    const { workflow } = useValues(workflowLogic)
 
     return workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs {...props} /> : <WorkflowRunLogs {...props} />
 }
