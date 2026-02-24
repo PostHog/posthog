@@ -460,11 +460,9 @@ def _get_flags_response_for_local_evaluation_batch(
         .order_by("team_id", "key")
     )
 
-    for flag in all_flags:
-        flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
-
     referenced_cohort_ids: set[int] = set()
     for flag in all_flags:
+        flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
         referenced_cohort_ids.update(_extract_cohort_ids_from_filters(flag.filters or {}))
 
     # Load only the referenced cohorts and resolve nested dependencies
