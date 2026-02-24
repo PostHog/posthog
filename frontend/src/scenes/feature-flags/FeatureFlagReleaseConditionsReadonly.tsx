@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonButton, LemonDivider, LemonLabel, LemonSnack, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonLabel, LemonSnack, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
@@ -209,7 +210,12 @@ export function FeatureFlagSuperConditionsReadonly({
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
-                <LemonLabel>Super release conditions</LemonLabel>
+                <LemonLabel className="flex items-center gap-1">
+                    Super release conditions
+                    <Tooltip title="This flag is linked to an early access feature. Super conditions are managed through the early access feature and take priority over regular release conditions.">
+                        <IconInfo className="text-muted text-base" />
+                    </Tooltip>
+                </LemonLabel>
                 {isDisabled && (
                     <LemonTag type="muted" size="small">
                         Flag disabled – returns false regardless of conditions
