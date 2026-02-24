@@ -2998,6 +2998,7 @@ class PersonType(BaseModel):
     distinct_ids: list[str]
     id: str | None = None
     is_identified: bool | None = None
+    last_seen_at: str | None = None
     name: str | None = None
     properties: dict[str, Any]
     uuid: str | None = None
@@ -3007,28 +3008,6 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
-
-
-class PlaywrightWorkspaceSetupData(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    organization_name: str | None = None
-    skip_onboarding: bool | None = None
-    use_current_time: bool | None = None
-
-
-class PlaywrightWorkspaceSetupResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    organization_id: str
-    organization_name: str
-    personal_api_key: str
-    team_id: str
-    team_name: str
-    user_email: str
-    user_id: str
 
 
 class ProductIntentContext(StrEnum):
@@ -3998,24 +3977,6 @@ class TaxonomicFilterGroupType(StrEnum):
     WORKFLOW_VARIABLES = "workflow_variables"
     SUGGESTED_FILTERS = "suggested_filters"
     EMPTY = "empty"
-
-
-class TestSetupRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    data: dict[str, Any] | None = None
-
-
-class TestSetupResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    available_tests: list[str] | None = None
-    error: str | None = None
-    result: Any | None = None
-    success: bool
-    test_name: str
 
 
 class TikTokAdsDefaultSources(StrEnum):

@@ -35,7 +35,7 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 # Sources created after this date must use SSL/TLS connections
-SSL_REQUIRED_AFTER_DATE = datetime(2025, 2, 17, tzinfo=UTC)
+SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 
 
 class SSLRequiredError(Exception):

@@ -9,8 +9,8 @@ import { urls } from 'scenes/urls'
 
 import { ActivityTab } from '~/types'
 
-import { iconForType } from '../ProjectTree/defaultTree'
 import { panelLayoutLogic } from '../panelLayoutLogic'
+import { iconForType } from '../ProjectTree/defaultTree'
 
 export function DataMenu(): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)

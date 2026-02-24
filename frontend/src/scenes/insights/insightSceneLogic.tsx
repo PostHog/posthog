@@ -9,17 +9,18 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
@@ -35,6 +36,7 @@ import {
     ItemMode,
     ProjectTreeRef,
     QueryBasedInsightModel,
+    SidePanelTab,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -279,12 +281,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                           path: urls.llmAnalyticsDashboard(),
                                           iconType: 'llm_analytics' as FileSystemIconType,
                                       }
-                                    : {
-                                          key: Scene.SavedInsights,
-                                          name: 'Product analytics',
-                                          path: urls.savedInsights(),
-                                          iconType: 'product_analytics' as FileSystemIconType,
-                                      },
+                                    : sceneSource === 'endpoints'
+                                      ? {
+                                            key: Scene.Endpoints,
+                                            name: 'endpoints',
+                                            path: urls.endpoints(),
+                                            iconType: 'endpoints' as FileSystemIconType,
+                                        }
+                                      : {
+                                            key: Scene.SavedInsights,
+                                            name: 'Product analytics',
+                                            path: urls.savedInsights(),
+                                            iconType: 'product_analytics' as FileSystemIconType,
+                                        },
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
@@ -388,7 +397,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     })),
     listeners(({ sharedListeners, values }) => ({
         setInsightMode: sharedListeners.reloadInsightLogic,
-        setSceneState: sharedListeners.reloadInsightLogic,
+        setSceneState: [
+            sharedListeners.reloadInsightLogic,
+            ({ sceneSource }) => {
+                if (sceneSource === 'endpoints') {
+                    sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Info)
+                }
+            },
+        ],
         upgradeQuery: async ({ query }) => {
             let upgradedQuery: Node | null = null
 

@@ -1,4 +1,5 @@
-import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -22,7 +23,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             values: [nodeLogic, ['response', 'responseLoading'], issueActionsLogic, ['needsReload']],
             actions: [
                 nodeLogic,
-                ['setResponse', 'loadData', 'cancelQuery'],
+                ['setResponse', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelQuery'],
                 issueActionsLogic,
                 [
                     'mergeIssues',
@@ -42,6 +43,16 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
 
     actions({
         reloadData: () => ({}),
+        setLoadStartTime: (startTime: number | null) => ({ startTime }),
+    }),
+
+    reducers({
+        loadStartTime: [
+            null as number | null,
+            {
+                setLoadStartTime: (_, { startTime }) => startTime,
+            },
+        ],
     }),
 
     selectors({
@@ -51,9 +62,32 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         ],
     }),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props }) => ({
         reloadData: () => {
             actions.loadData('force_blocking')
+        },
+        loadData: () => {
+            actions.setLoadStartTime(performance.now())
+        },
+        loadDataSuccess: () => {
+            const durationMs =
+                values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
+            actions.setLoadStartTime(null)
+
+            const response = values.response as Record<string, any> | null
+            const results = response && 'results' in response ? response.results : []
+            const query = props.query as Record<string, any>
+            const filterGroups = query?.filterGroup?.values ?? []
+            const filterCount = filterGroups.reduce(
+                (count: number, group: any) => count + (group?.values?.length ?? 0),
+                0
+            )
+            posthog.capture('error_tracking_issue_list_loaded', {
+                duration_ms: durationMs,
+                result_count: (results as ErrorTrackingIssue[]).length,
+                is_cached: response?.is_cached ?? null,
+                filter_count: filterCount,
+            })
         },
         // optimistically update local results
         mergeIssues: ({ ids }) => {

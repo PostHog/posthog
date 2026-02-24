@@ -26,10 +26,10 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Query } from '~/queries/Query/Query'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { queryExportContext } from '~/queries/query'
+import { Query } from '~/queries/Query/Query'
 import {
     DataVisualizationNode,
     DatabaseSchemaViewTable,
@@ -49,7 +49,6 @@ import {
 } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { ViewEmptyState } from './ViewLoadingState'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
@@ -62,6 +61,7 @@ import {
     aiSuggestionOnReject,
     aiSuggestionOnRejectText,
 } from './suggestions/aiSuggestion'
+import { ViewEmptyState } from './ViewLoadingState'
 
 export interface SqlEditorLogicProps {
     tabId: string
@@ -175,8 +175,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'createDataWarehouseSavedQuerySuccess',
                 'runDataWarehouseSavedQuery',
                 'materializeDataWarehouseSavedQuery',
-                'resetDataModelingJobs',
-                'loadDataModelingJobs',
                 'updateDataWarehouseSavedQuerySuccess',
                 'updateDataWarehouseSavedQueryFailure',
                 'updateDataWarehouseSavedQuery',
@@ -1083,8 +1081,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
         editingView: (editingView) => {
             if (editingView) {
-                actions.resetDataModelingJobs()
-                actions.loadDataModelingJobs(editingView.id)
                 actions.loadUpstream(editingView.id)
             }
         },

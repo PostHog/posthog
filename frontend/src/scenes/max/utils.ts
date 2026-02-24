@@ -36,7 +36,6 @@ import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
-import { EnhancedToolCall } from './Thread'
 import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
@@ -48,6 +47,7 @@ import {
     MaxInsightContext,
     MaxUIContext,
 } from './maxTypes'
+import { EnhancedToolCall } from './Thread'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null

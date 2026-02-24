@@ -12,8 +12,8 @@ import { CommentComposer } from 'scenes/comments/CommentComposer'
 import { CommentsList } from 'scenes/comments/CommentsList'
 import { CommentsLogicProps, commentsLogic } from 'scenes/comments/commentsLogic'
 
-import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelDiscussionLogic } from './sidePanelDiscussionLogic'
 

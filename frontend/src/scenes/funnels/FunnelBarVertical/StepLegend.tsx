@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconClock } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
@@ -14,9 +14,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
 
-import { FunnelStepMore } from '../FunnelStepMore'
-import { ValueInspectorButton } from '../ValueInspectorButton'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { FunnelStepMore } from '../FunnelStepMore'
 import {
     formatConvertedCount,
     formatConvertedPercentage,
@@ -26,6 +25,7 @@ import {
     getTooltipTitleForConverted,
     getTooltipTitleForDroppedOff,
 } from '../funnelUtils'
+import { ValueInspectorButton } from '../ValueInspectorButton'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
