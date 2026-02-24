@@ -484,20 +484,21 @@ pub struct Config {
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
 ///
 /// Tokio handles request I/O (DB, Redis, network) and lightweight sequential flag
-/// evaluation. Workers spend most of their time in `.await`, so half the core count
-/// is sufficient. Rayon handles CPU-bound parallel batch evaluation for large flag
-/// sets (>= PARALLEL_EVAL_THRESHOLD). Because `rayon::spawn` + `oneshot` frees the
-/// Tokio worker, the two pools never compete for the same work — but they do share
-/// the CFS budget.
+/// evaluation. Workers spend most of their time in `.await`, so a quarter of the
+/// core count is sufficient. Rayon handles CPU-bound parallel batch evaluation for
+/// large flag sets (>= PARALLEL_EVAL_THRESHOLD). Because `rayon::spawn` + `oneshot`
+/// frees the Tokio worker, the two pools never compete for the same work — but they
+/// do share the CFS budget.
 ///
-/// We give Rayon the full core count and Tokio half, accepting ~50% oversubscription
-/// (e.g. 3 + 6 = 9 threads on 6 cores). This is safe because Tokio threads are mostly
-/// idle (parked in `.await`), so actual concurrent CPU demand rarely exceeds the core
-/// count. Canary testing on EU (6-core pods) showed that a strict 50/50 split
-/// (3 Tokio + 3 Rayon = 6 threads, 0% CFS throttling) starved the Rayon pool: p99
-/// parallel batch time was ~1900ms vs the fleet's ~240ms, while CPU utilization sat
-/// at only 1.3 of 6 cores. The fleet runs 12 threads on 6 cores (7–30% throttling)
-/// with no issues, confirming moderate oversubscription is well-tolerated.
+/// We give Rayon the full core count and Tokio a quarter (ceil), accepting ~25%
+/// oversubscription (e.g. 2 + 8 = 10 threads on 8 cores). Production profiling
+/// showed Tokio workers at only 12.8% busy ratio with 50% of cores (4 workers on
+/// 8 vCPUs), parking ~9,000 times per 15s interval. Meanwhile, CFS throttling
+/// spikes (10–15%) correlated with every p99 latency spike above 1,000ms — the
+/// extra Tokio threads competed with Rayon during parallel batch evaluations.
+/// Reducing to 25% of cores (2 workers on 8 vCPUs) projects ~25% busy ratio,
+/// still well below the 0.6 saturation threshold, while cutting total thread count
+/// from 12→10 and reducing CFS contention during parallel batches.
 pub struct ThreadCounts {
     pub tokio_workers: usize,
     pub rayon_threads: usize,
@@ -525,7 +526,7 @@ impl ThreadCounts {
     }
 
     fn from_cores(cores: usize) -> Self {
-        let tokio_workers = (cores / 2).max(1);
+        let tokio_workers = cores.div_ceil(4).max(1);
         let rayon_threads = cores.max(1);
 
         Self {
@@ -1071,10 +1072,10 @@ mod thread_counts_tests {
     #[rstest]
     #[case::single_core(1, 1, 1)]
     #[case::two_cores(2, 1, 2)]
-    #[case::four_cores(4, 2, 4)]
-    #[case::six_cores(6, 3, 6)]
-    #[case::eight_cores(8, 4, 8)]
-    #[case::sixteen_cores(16, 8, 16)]
+    #[case::four_cores(4, 1, 4)]
+    #[case::six_cores(6, 2, 6)]
+    #[case::eight_cores(8, 2, 8)]
+    #[case::sixteen_cores(16, 4, 16)]
     fn test_thread_allocation(
         #[case] cores: usize,
         #[case] expected_tokio: usize,
@@ -1112,13 +1113,13 @@ mod thread_counts_tests {
     }
 
     #[test]
-    fn test_tokio_gets_half_cores() {
-        for cores in 2..=128 {
+    fn test_tokio_gets_quarter_cores_ceil() {
+        for cores in 1..=128 {
             let counts = ThreadCounts::from_cores(cores);
             assert_eq!(
                 counts.tokio_workers,
-                cores / 2,
-                "tokio should get half the cores for {cores} cores"
+                cores.div_ceil(4).max(1),
+                "tokio should get ceil(cores/4) for {cores} cores"
             );
         }
     }
