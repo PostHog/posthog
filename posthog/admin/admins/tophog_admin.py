@@ -7,7 +7,7 @@ from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render
 
-from posthog.clickhouse.client import sync_execute
+from posthog.models.tophog.queries import query_tophog_filter_options, query_tophog_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -25,42 +25,6 @@ PRESETS = OrderedDict(
         ("30d", 43200),
     ]
 )
-
-TOPHOG_QUERY = """
-SELECT metric, type, key, total, obs, pipeline, lane
-FROM (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY metric, type ORDER BY total DESC) AS rn
-    FROM (
-        SELECT
-            metric,
-            type,
-            key,
-            CASE type
-                WHEN 'max' THEN max(value)
-                WHEN 'avg' THEN sum(value * count) / sum(count)
-                ELSE sum(value)
-            END AS total,
-            sum(count) AS obs,
-            any(pipeline) AS pipeline,
-            any(lane) AS lane
-        FROM tophog
-        WHERE timestamp >= %(date_from)s AND timestamp <= %(date_to)s
-        {filters}
-        GROUP BY metric, type, key
-    )
-)
-WHERE rn <= 10
-ORDER BY metric, type, rn
-"""
-
-FILTER_OPTIONS_QUERY = """
-SELECT DISTINCT pipeline, lane
-FROM tophog
-WHERE timestamp >= %(date_from)s AND timestamp <= %(date_to)s
-ORDER BY pipeline, lane
-"""
 
 
 def _parse_time_range(request) -> tuple[str, str, datetime, datetime]:
@@ -99,8 +63,6 @@ def tophog_dashboard_view(request):
     if request.GET.get("mode") == "absolute" and not (request.GET.get("date_from") and request.GET.get("date_to")):
         mode = "absolute"
 
-    time_params: dict[str, datetime] = {"date_from": date_from, "date_to": date_to}
-
     selected_pipeline = request.GET.get("pipeline", "")
     selected_lane = request.GET.get("lane", "")
     pipelines: list[str] = []
@@ -109,31 +71,24 @@ def tophog_dashboard_view(request):
     error = ""
 
     try:
-        filter_options = sync_execute(FILTER_OPTIONS_QUERY, time_params)
-        pipelines = sorted({row[0] for row in filter_options})
-        lanes = sorted({row[1] for row in filter_options})
+        pipelines, lanes = query_tophog_filter_options(date_from, date_to)
 
-        filters = []
-        params: dict[str, object] = {**time_params}
-        if selected_pipeline:
-            filters.append("AND pipeline = %(pipeline)s")
-            params["pipeline"] = selected_pipeline
-        if selected_lane:
-            filters.append("AND lane = %(lane)s")
-            params["lane"] = selected_lane
+        rows = query_tophog_metrics(
+            date_from,
+            date_to,
+            pipeline=selected_pipeline or None,
+            lane=selected_lane or None,
+        )
 
-        query = TOPHOG_QUERY.format(filters=" ".join(filters))
-        rows = sync_execute(query, params)
-
-        for metric, type_, key, total, obs, pipeline, lane in rows:
-            table_name = f"{metric} ({type_})"
+        for row in rows:
+            table_name = f"{row['metric']} ({row['type']})"
             metrics[table_name].append(
                 {
-                    "key": _format_key(key),
-                    "value": total,
-                    "count": obs,
-                    "pipeline": pipeline,
-                    "lane": lane,
+                    "key": _format_key(row["key"]),
+                    "value": row["total"],
+                    "count": row["obs"],
+                    "pipeline": ", ".join(row["pipelines"]),
+                    "lane": ", ".join(row["lanes"]),
                 }
             )
     except Exception as e:

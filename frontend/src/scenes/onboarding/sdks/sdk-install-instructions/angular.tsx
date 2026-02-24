@@ -59,13 +59,13 @@ export function SDKInstallAngularInstructions(): JSX.Element {
             <h3>Add environment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
-                Netlify, AWS). You can find your project API key in your project settings.
+                Netlify, AWS). You can find your project token in your project settings.
             </p>
             <EnvVarsSnippet />
 
             <h3>Initialize</h3>
             <p>
-                In your <code>src/main.ts</code>, initialize PostHog using your project API key and instance address:
+                In your <code>src/main.ts</code>, initialize PostHog using your project token and instance address:
             </p>
             <AngularInitializeCodeSnippet />
         </>

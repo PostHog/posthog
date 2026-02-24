@@ -472,6 +472,67 @@ pub struct Config {
     // Default: 100 (sequential is faster for typical workloads of ~50 flags)
     #[envconfig(from = "PARALLEL_EVAL_THRESHOLD", default = "100")]
     pub parallel_eval_threshold: usize,
+
+    // Maximum number of large-flag batches evaluated concurrently on the Rayon pool.
+    // Bounds the rayon::spawn queue to prevent unbounded queueing latency and
+    // preserve per-batch work-stealing parallelism.
+    // 0 = auto (derived from rayon thread count).
+    #[envconfig(from = "MAX_CONCURRENT_BATCH_EVALS", default = "0")]
+    pub max_concurrent_batch_evals: usize,
+}
+
+/// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
+///
+/// Tokio handles request I/O (DB, Redis, network) and lightweight sequential flag
+/// evaluation. Workers spend most of their time in `.await`, so half the core count
+/// is sufficient. Rayon handles CPU-bound parallel batch evaluation for large flag
+/// sets (>= PARALLEL_EVAL_THRESHOLD). Because `rayon::spawn` + `oneshot` frees the
+/// Tokio worker, the two pools never compete for the same work — but they do share
+/// the CFS budget.
+///
+/// We give Rayon the full core count and Tokio half, accepting ~50% oversubscription
+/// (e.g. 3 + 6 = 9 threads on 6 cores). This is safe because Tokio threads are mostly
+/// idle (parked in `.await`), so actual concurrent CPU demand rarely exceeds the core
+/// count. Canary testing on EU (6-core pods) showed that a strict 50/50 split
+/// (3 Tokio + 3 Rayon = 6 threads, 0% CFS throttling) starved the Rayon pool: p99
+/// parallel batch time was ~1900ms vs the fleet's ~240ms, while CPU utilization sat
+/// at only 1.3 of 6 cores. The fleet runs 12 threads on 6 cores (7–30% throttling)
+/// with no issues, confirming moderate oversubscription is well-tolerated.
+pub struct ThreadCounts {
+    pub tokio_workers: usize,
+    pub rayon_threads: usize,
+}
+
+impl ThreadCounts {
+    pub fn from_available_parallelism() -> Self {
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        Self::from_cores(cores)
+    }
+
+    /// Default concurrency limit for the Rayon batch dispatcher.
+    ///
+    /// Targets ~3 Rayon threads per concurrent batch so each batch gets
+    /// meaningful work-stealing parallelism. With fewer threads per batch,
+    /// `into_par_iter` degrades toward sequential execution.
+    pub fn default_max_concurrent_batch_evals(&self) -> usize {
+        // Integer ceil(rayon_threads / 3): keeps ~3 threads per batch.
+        //   6 threads → 2 batches  (3 threads each)
+        //   8 threads → 3 batches  (~2.7 threads each)
+        //  12 threads → 4 batches  (3 threads each)
+        self.rayon_threads.div_ceil(3).max(1)
+    }
+
+    fn from_cores(cores: usize) -> Self {
+        let tokio_workers = (cores / 2).max(1);
+        let rayon_threads = cores.max(1);
+
+        Self {
+            tokio_workers,
+            rayon_threads,
+        }
+    }
 }
 
 impl Config {
@@ -592,6 +653,7 @@ impl Config {
             redis_client_retry_count: 3,
             optimize_experience_continuity_lookups: FlexBool(true),
             parallel_eval_threshold: 100,
+            max_concurrent_batch_evals: 0,
         }
     }
 
@@ -998,6 +1060,67 @@ mod tests {
 
         assert_eq!(zero_config.redis_response_timeout_ms, 0);
         assert_eq!(zero_config.redis_connection_timeout_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod thread_counts_tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::single_core(1, 1, 1)]
+    #[case::two_cores(2, 1, 2)]
+    #[case::four_cores(4, 2, 4)]
+    #[case::six_cores(6, 3, 6)]
+    #[case::eight_cores(8, 4, 8)]
+    #[case::sixteen_cores(16, 8, 16)]
+    fn test_thread_allocation(
+        #[case] cores: usize,
+        #[case] expected_tokio: usize,
+        #[case] expected_rayon: usize,
+    ) {
+        let counts = ThreadCounts::from_cores(cores);
+        assert_eq!(counts.tokio_workers, expected_tokio);
+        assert_eq!(counts.rayon_threads, expected_rayon);
+    }
+
+    #[test]
+    fn test_both_pools_always_have_at_least_one_thread() {
+        for cores in 1..=128 {
+            let counts = ThreadCounts::from_cores(cores);
+            assert!(
+                counts.tokio_workers >= 1,
+                "tokio must have >= 1 thread for {cores} cores"
+            );
+            assert!(
+                counts.rayon_threads >= 1,
+                "rayon must have >= 1 thread for {cores} cores"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rayon_gets_full_core_count() {
+        for cores in 1..=128 {
+            let counts = ThreadCounts::from_cores(cores);
+            assert_eq!(
+                counts.rayon_threads, cores,
+                "rayon should get full core count for {cores} cores"
+            );
+        }
+    }
+
+    #[test]
+    fn test_tokio_gets_half_cores() {
+        for cores in 2..=128 {
+            let counts = ThreadCounts::from_cores(cores);
+            assert_eq!(
+                counts.tokio_workers,
+                cores / 2,
+                "tokio should get half the cores for {cores} cores"
+            );
+        }
     }
 }
 

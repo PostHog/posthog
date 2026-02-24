@@ -8,7 +8,9 @@ use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
+use crate::tokio_monitor::TokioRuntimeMonitor;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
@@ -21,8 +23,12 @@ use tokio::net::TcpListener;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
 
-pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
-where
+pub async fn serve<F>(
+    config: Config,
+    listener: TcpListener,
+    rayon_dispatcher: RayonDispatcher,
+    shutdown: F,
+) where
     F: Future<Output = ()> + Send + 'static,
 {
     // Configure compression based on environment variable
@@ -133,6 +139,12 @@ where
         cohort_cache_clone
             .start_monitoring(cohort_cache_monitor_interval)
             .await;
+    });
+
+    // Start Tokio runtime monitoring
+    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
+    tokio::spawn(async move {
+        tokio_monitor.start_monitoring().await;
     });
 
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
@@ -330,6 +342,7 @@ where
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
+        rayon_dispatcher,
         config,
     );
 

@@ -15,7 +15,7 @@ from posthog.api.github import (
     GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
     GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
     GITHUB_TYPE_FOR_PERSONAL_API_KEY,
-    GITHUB_TYPE_FOR_PROJECT_SECRET,
+    GITHUB_TYPE_FOR_SECURE_API_KEY,
     SignatureVerificationError,
     relay_to_eu,
     verify_github_signature,
@@ -201,7 +201,7 @@ class TestSecretAlertEndpoint(APIBaseTest):
         self.valid_payload = [
             {
                 "token": "phx_test_token_123",
-                "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                 "url": "https://github.com/posthog/posthog/blob/master/example.py",
                 "source": "github",
             }
@@ -241,7 +241,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         self.assertIn("token_hash", data[0])
         self.assertIn("token_type", data[0])
         self.assertIn("label", data[0])
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_PROJECT_SECRET)
+        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_SECURE_API_KEY)
 
     def test_secret_alert_missing_headers(self):
         """Test that missing headers are rejected."""
@@ -482,7 +482,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -496,7 +496,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         data = response.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["label"], "true_positive")
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_PROJECT_SECRET)
+        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_SECURE_API_KEY)
 
         # Verify email task was called
         mock_send_email.assert_called_once()
@@ -524,7 +524,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/old_config.py",
                         "source": "github",
                     }
@@ -611,7 +611,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -637,7 +637,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
         payload = [
             {
                 "token": token,
-                "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                 "url": "https://github.com/test/repo/blob/main/config.py",
                 "source": "github",
             }
@@ -668,7 +668,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
         token_hash = sha256(token.encode("utf-8")).hexdigest()
 
         mock_relay.return_value = [
-            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_PROJECT_SECRET}
+            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_SECURE_API_KEY}
         ]
 
         response = self.client.post(
@@ -677,7 +677,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -706,7 +706,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -735,7 +735,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -774,7 +774,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -804,7 +804,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
         token_hash = sha256(token.encode("utf-8")).hexdigest()
 
         mock_relay.return_value = [
-            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_PROJECT_SECRET}
+            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_SECURE_API_KEY}
         ]
 
         self.client.post(
@@ -813,7 +813,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -846,7 +846,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }

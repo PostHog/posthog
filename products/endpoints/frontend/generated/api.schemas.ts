@@ -1697,6 +1697,7 @@ export const DetailedResultsAggregationTypeApi = {
 export type ChartDisplayTypeApi = (typeof ChartDisplayTypeApi)[keyof typeof ChartDisplayTypeApi]
 
 export const ChartDisplayTypeApi = {
+    Auto: 'Auto',
     ActionsLineGraph: 'ActionsLineGraph',
     ActionsBar: 'ActionsBar',
     ActionsUnstackedBar: 'ActionsUnstackedBar',
@@ -2380,6 +2381,8 @@ export const RetentionQueryApiKind = {
 } as const
 
 export interface RetentionValueApi {
+    /** @nullable */
+    aggregation_value?: number | null
     count: number
     /** @nullable */
     label?: string | null

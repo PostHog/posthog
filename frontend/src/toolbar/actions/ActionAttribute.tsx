@@ -6,8 +6,8 @@ import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon
 
 import { SelectorQualityBadge } from '~/toolbar/elements/SelectorQualityWarning'
 
-import { ActionStepPropertyKey } from './ActionStep'
 import { actionsTabLogic } from './actionsTabLogic'
+import { ActionStepPropertyKey } from './ActionStep'
 
 function SelectorString({ value }: { value: string }): JSX.Element {
     const [last, ...rest] = value.split(' ').reverse()

@@ -28,9 +28,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
     SessionRecordingDataCoordinatorLogicProps,
@@ -1366,7 +1366,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: ({ player }) => {
             if (player) {
                 if (values.currentTimestamp !== undefined) {
-                    actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                    actions.seekToTimestamp(values.currentTimestamp)
                 }
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
@@ -1409,7 +1409,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                actions.seekToTimestamp(values.currentTimestamp)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1435,7 +1435,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                actions.seekToTimestamp(values.currentTimestamp)
             }
         },
         initializePlayerFromStart: () => {
@@ -1509,14 +1509,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.initializePlayerFromStart()
             }
             actions.checkBufferingCompleted()
-
-            // If snapshot data arrived but the replayer hasn't been created yet,
-            // try initializing it now. This handles the race condition where
-            // setRootFrame fired before data was available (e.g. in modals where
-            // the DOM is ready before network requests complete).
-            if (!values.player && values.rootFrame) {
-                actions.tryInitReplayer()
-            }
 
             breakpoint()
         },
