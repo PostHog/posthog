@@ -26,9 +26,9 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Query } from '~/queries/Query/Query'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { queryExportContext } from '~/queries/query'
+import { Query } from '~/queries/Query/Query'
 import {
     DataVisualizationNode,
     DatabaseSchemaViewTable,

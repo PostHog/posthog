@@ -87,6 +87,7 @@
         "staticfiles",
         ".env",
         "*.code-workspace",
+        "*.toml",
         ".mypy_cache",
         ".cache/",
         "*Type.ts",
