@@ -49,30 +49,29 @@ import {
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
 
-interface InsightMetaProps
-    extends Pick<
-        InsightCardProps,
-        | 'ribbonColor'
-        | 'updateColor'
-        | 'removeFromDashboard'
-        | 'deleteWithUndo'
-        | 'refresh'
-        | 'refreshEnabled'
-        | 'loading'
-        | 'loadingQueued'
-        | 'rename'
-        | 'setOverride'
-        | 'duplicate'
-        | 'dashboardId'
-        | 'moveToDashboard'
-        | 'showEditingControls'
-        | 'showDetailsControls'
-        | 'moreButtons'
-        | 'filtersOverride'
-        | 'variablesOverride'
-        | 'placement'
-        | 'surveyOpportunity'
-    > {
+interface InsightMetaProps extends Pick<
+    InsightCardProps,
+    | 'ribbonColor'
+    | 'updateColor'
+    | 'removeFromDashboard'
+    | 'deleteWithUndo'
+    | 'refresh'
+    | 'refreshEnabled'
+    | 'loading'
+    | 'loadingQueued'
+    | 'rename'
+    | 'setOverride'
+    | 'duplicate'
+    | 'dashboardId'
+    | 'moveToDashboard'
+    | 'showEditingControls'
+    | 'showDetailsControls'
+    | 'moreButtons'
+    | 'filtersOverride'
+    | 'variablesOverride'
+    | 'placement'
+    | 'surveyOpportunity'
+> {
     tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -266,7 +265,7 @@ export function InsightMeta({
                                 to={
                                     isDataVisualizationNode(insight.query)
                                         ? urls.sqlEditor({ insightShortId: short_id })
-                                        : urls.insightEdit(short_id)
+                                        : urls.insightEdit(short_id, dashboardId)
                                 }
                                 fullWidth
                                 {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}

@@ -53,7 +53,7 @@ WHERE timestamp IS NOT NULL /* Remove sentinel row */
 
 
 class PropertiesTimeline:
-    def extract_crucial_property_keys(self, filter: PropertiesTimelineFilter) -> set[str]:
+    def extract_crucial_property_keys(self, filter: PropertiesTimelineFilter, team_id: int) -> set[str]:
         is_filter_relevant = lambda property_type, property_group_type_index: (
             (property_type == "person")
             if filter.aggregation_group_type_index is None
@@ -63,7 +63,7 @@ class PropertiesTimeline:
         property_filters = filter.property_groups.flat
         for event in filter.entities:
             property_filters.extend(event.property_groups.flat)
-        all_property_identifiers = extract_tables_and_properties(property_filters)
+        all_property_identifiers = extract_tables_and_properties(property_filters, team_id=team_id)
 
         crucial_property_keys = {
             property_key
@@ -100,7 +100,7 @@ class PropertiesTimeline:
         )
         event_query_sql, event_query_params = event_query.get_query()
 
-        crucial_property_keys = self.extract_crucial_property_keys(filter)
+        crucial_property_keys = self.extract_crucial_property_keys(filter, team_id=team.pk)
         crucial_property_columns, crucial_property_params = get_single_or_multi_property_string_expr(
             sorted(crucial_property_keys),
             query_alias=None,

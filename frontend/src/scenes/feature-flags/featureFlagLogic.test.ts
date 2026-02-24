@@ -5,9 +5,10 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+import { FeatureFlagFilters } from '~/types'
 
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
-import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
+import { NEW_FLAG, featureFlagLogic, hasMultipleVariantsActive, hasZeroRollout } from './featureFlagLogic'
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -63,15 +64,15 @@ describe('featureFlagLogic', () => {
     })
 
     describe('setMultivariateEnabled functionality', () => {
-        it('adds an empty variant when enabling multivariate', async () => {
+        it('adds default variants when enabling multivariate', async () => {
             await expectLogic(logic).toMatchValues({
                 featureFlag: partial({
                     filters: partial({
                         groups: [
-                            {
+                            partial({
                                 properties: [],
                                 variant: null,
-                            },
+                            }),
                         ],
                     }),
                 }),
@@ -84,9 +85,14 @@ describe('featureFlagLogic', () => {
                 .toMatchValues({
                     variants: [
                         {
-                            key: '',
+                            key: 'control',
                             name: '',
-                            rollout_percentage: 100,
+                            rollout_percentage: 50,
+                        },
+                        {
+                            key: 'test',
+                            name: '',
+                            rollout_percentage: 50,
                         },
                     ],
                 })
@@ -401,5 +407,119 @@ describe('featureFlagLogic', () => {
 
             testLogic.unmount()
         })
+    })
+})
+
+const createFilters = (overrides: Partial<FeatureFlagFilters> = {}): FeatureFlagFilters => ({
+    groups: [],
+    ...overrides,
+})
+
+describe('hasZeroRollout', () => {
+    it.each([
+        { filters: undefined, expected: false, desc: 'undefined filters' },
+        { filters: null, expected: false, desc: 'null filters' },
+        { filters: createFilters(), expected: false, desc: 'empty groups' },
+        {
+            filters: createFilters({ groups: [{ rollout_percentage: 0 }] }),
+            expected: true,
+            desc: 'single group at 0%',
+        },
+        {
+            filters: createFilters({ groups: [{ rollout_percentage: 0 }, { rollout_percentage: 0 }] }),
+            expected: true,
+            desc: 'all groups at 0%',
+        },
+        {
+            filters: createFilters({ groups: [{ rollout_percentage: 0 }, { rollout_percentage: 50 }] }),
+            expected: false,
+            desc: 'mixed groups',
+        },
+        {
+            filters: createFilters({ groups: [{ rollout_percentage: 100 }] }),
+            expected: false,
+            desc: 'single group at 100%',
+        },
+        {
+            filters: createFilters({ groups: [{ rollout_percentage: null }] }),
+            expected: false,
+            desc: 'null rollout_percentage (defaults to 100%)',
+        },
+        {
+            filters: createFilters({ groups: [{ rollout_percentage: undefined }] }),
+            expected: false,
+            desc: 'undefined rollout_percentage (defaults to 100%)',
+        },
+    ])('returns $expected when $desc', ({ filters, expected }) => {
+        expect(hasZeroRollout(filters)).toBe(expected)
+    })
+})
+
+describe('hasMultipleVariantsActive', () => {
+    it.each([
+        { filters: undefined, expected: false, desc: 'undefined filters' },
+        { filters: null, expected: false, desc: 'null filters' },
+        { filters: createFilters(), expected: false, desc: 'no multivariate config' },
+        {
+            filters: createFilters({ multivariate: { variants: [] } }),
+            expected: false,
+            desc: 'empty variants',
+        },
+        {
+            filters: createFilters({ multivariate: { variants: [{ key: 'control', rollout_percentage: 50 }] } }),
+            expected: false,
+            desc: 'single active variant',
+        },
+        {
+            filters: createFilters({
+                multivariate: {
+                    variants: [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                },
+            }),
+            expected: true,
+            desc: 'two active variants',
+        },
+        {
+            filters: createFilters({
+                multivariate: {
+                    variants: [
+                        { key: 'control', rollout_percentage: 100 },
+                        { key: 'test', rollout_percentage: 0 },
+                    ],
+                },
+            }),
+            expected: false,
+            desc: 'two variants, but one shipped',
+        },
+        {
+            filters: createFilters({
+                multivariate: {
+                    variants: [
+                        { key: 'control', rollout_percentage: 0 },
+                        { key: 'test', rollout_percentage: 0 },
+                    ],
+                },
+            }),
+            expected: false,
+            desc: 'all variants at 0%',
+        },
+        {
+            filters: createFilters({
+                multivariate: {
+                    variants: [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 0 },
+                        { key: 'test-2', rollout_percentage: 50 },
+                    ],
+                },
+            }),
+            expected: true,
+            desc: 'two of three variants active',
+        },
+    ])('returns $expected when $desc', ({ filters, expected }) => {
+        expect(hasMultipleVariantsActive(filters)).toBe(expected)
     })
 })

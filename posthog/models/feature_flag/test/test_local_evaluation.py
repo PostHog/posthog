@@ -6,7 +6,8 @@ from parameterized import parameterized
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.feature_flag.local_evaluation import (
-    _get_flags_for_local_evaluation,
+    _get_flags_response_for_local_evaluation,
+    _get_flags_response_for_local_evaluation_batch,
     clear_flag_caches,
     flags_hypercache,
     get_flags_response_for_local_evaluation,
@@ -335,8 +336,8 @@ class TestSurveyFlagExclusion(BaseTest):
             **{flag_field: survey_flag},
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
 
         assert regular_flag.key in flag_keys
         assert survey_flag.key not in flag_keys
@@ -356,8 +357,8 @@ class TestSurveyFlagExclusion(BaseTest):
             linked_flag=user_linked_flag,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
 
         assert user_linked_flag.key in flag_keys
 
@@ -376,13 +377,13 @@ class TestSurveyFlagExclusion(BaseTest):
             targeting_flag=survey_flag,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        assert survey_flag.key not in [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key not in [f["key"] for f in response["flags"]]
 
         survey.delete()
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        assert survey_flag.key in [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key in [f["key"] for f in response["flags"]]
 
     def test_survey_flags_excluded_from_api_response(self):
         """Verify the full API response excludes survey flags."""
@@ -478,16 +479,16 @@ class TestSurveyFlagExclusion(BaseTest):
             targeting_flag=survey_flag,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        assert survey_flag.key not in [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key not in [f["key"] for f in response["flags"]]
 
         # Archive the survey (not delete)
         survey.archived = True
         survey.save()
 
         # Flag should still be excluded since the survey still exists
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        assert survey_flag.key not in [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key not in [f["key"] for f in response["flags"]]
 
     def test_survey_flag_reassignment_updates_exclusions(self):
         """When a survey changes which flags it uses, both old and new flags should update correctly."""
@@ -509,16 +510,16 @@ class TestSurveyFlagExclusion(BaseTest):
             targeting_flag=flag_a,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
         assert flag_a.key not in flag_keys
         assert flag_b.key in flag_keys
 
         survey.targeting_flag = flag_b
         survey.save()
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
         assert flag_a.key in flag_keys
         assert flag_b.key not in flag_keys
 
@@ -538,8 +539,8 @@ class TestSurveyFlagExclusion(BaseTest):
                 targeting_flag=shared_flag,
             )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
 
         assert shared_flag.key not in flag_keys
 
@@ -570,9 +571,156 @@ class TestSurveyFlagExclusion(BaseTest):
             internal_response_sampling_flag=flag_b,
         )
 
-        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
-        flag_keys = [f.key for f in flags]
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f["key"] for f in response["flags"]]
 
         assert flag_a.key not in flag_keys
         assert flag_b.key not in flag_keys
         assert regular_flag.key in flag_keys
+
+
+class TestLocalEvaluationBatch(BaseTest):
+    def _create_team_with_project(self, name: str) -> Team:
+        project, team = Project.objects.create_with_team(
+            initiating_user=self.user,
+            organization=self.organization,
+            name=name,
+        )
+        return team
+
+    def test_batch_empty_team_list(self):
+        result = _get_flags_response_for_local_evaluation_batch([], True)
+        assert result == {}
+
+    def test_batch_two_teams_flags_isolated(self):
+        team_a = self._create_team_with_project("Team A")
+        team_b = self._create_team_with_project("Team B")
+
+        FeatureFlag.objects.create(
+            team=team_a,
+            key="flag-a",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.create(
+            team=team_b,
+            key="flag-b",
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team_a, team_b], True)
+
+        assert team_a.id in results
+        assert team_b.id in results
+
+        keys_a = [f["key"] for f in results[team_a.id]["flags"]]
+        keys_b = [f["key"] for f in results[team_b.id]["flags"]]
+
+        assert keys_a == ["flag-a"]
+        assert keys_b == ["flag-b"]
+
+    def test_batch_team_with_no_flags(self):
+        team_with_flags = self._create_team_with_project("Has Flags")
+        team_without_flags = self._create_team_with_project("No Flags")
+
+        FeatureFlag.objects.create(
+            team=team_with_flags,
+            key="some-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team_with_flags, team_without_flags], True)
+
+        assert len(results[team_with_flags.id]["flags"]) == 1
+        assert results[team_without_flags.id]["flags"] == []
+        assert "group_type_mapping" in results[team_without_flags.id]
+        assert "cohorts" in results[team_without_flags.id]
+
+    def test_batch_team_with_no_flags_includes_group_type_mapping(self):
+        team = self._create_team_with_project("GTM Team")
+
+        create_group_type_mapping_without_created_at(
+            team=team, project_id=team.project_id, group_type="company", group_type_index=0
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team], True)
+
+        assert results[team.id]["flags"] == []
+        assert results[team.id]["group_type_mapping"] == {"0": "company"}
+
+    def test_batch_cohort_isolation_across_projects(self):
+        team_a = self._create_team_with_project("Project A")
+        team_b = self._create_team_with_project("Project B")
+
+        cohort_a = Cohort.objects.create(
+            team=team_a,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+            name="cohort-a",
+        )
+        cohort_b = Cohort.objects.create(
+            team=team_b,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "b@b.com", "type": "person"}]}],
+                }
+            },
+            name="cohort-b",
+        )
+
+        FeatureFlag.objects.create(
+            team=team_a,
+            key="flag-with-cohort-a",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.pk}]}]},
+        )
+        FeatureFlag.objects.create(
+            team=team_b,
+            key="flag-with-cohort-b",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_b.pk}]}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team_a, team_b], True)
+
+        cohort_ids_a = set(results[team_a.id]["cohorts"].keys())
+        cohort_ids_b = set(results[team_b.id]["cohorts"].keys())
+
+        assert str(cohort_a.pk) in cohort_ids_a
+        assert str(cohort_b.pk) not in cohort_ids_a
+
+        assert str(cohort_b.pk) in cohort_ids_b
+        assert str(cohort_a.pk) not in cohort_ids_b
+
+    def test_batch_deleted_cohort_handled_gracefully(self):
+        team = self._create_team_with_project("Deleted Cohort Team")
+
+        cohort = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "x@x.com", "type": "person"}]}],
+                }
+            },
+            name="soon-deleted",
+        )
+        cohort_id = cohort.pk
+
+        FeatureFlag.objects.create(
+            team=team,
+            key="flag-ref-deleted-cohort",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}]},
+        )
+
+        # Soft-delete the cohort
+        cohort.deleted = True
+        cohort.save()
+
+        results = _get_flags_response_for_local_evaluation_batch([team], True)
+
+        flag_keys = [f["key"] for f in results[team.id]["flags"]]
+        assert "flag-ref-deleted-cohort" in flag_keys
+        assert str(cohort_id) not in results[team.id]["cohorts"]

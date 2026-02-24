@@ -837,6 +837,19 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    # Registered here for server-side CSV export only (ExportedAsset + Celery).
+    # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
+    if kind == "LogsQuery":
+        from products.logs.backend.logs_query_runner import LogsQueryRunner
+
+        return LogsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
@@ -990,6 +1003,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             cache_key=cache_manager.cache_key,
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
+            is_posthog_ai=self.limit_context == LimitContext.POSTHOG_AI,
         )
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:

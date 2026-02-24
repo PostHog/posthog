@@ -2,7 +2,12 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
+from ee.hogai.chat_agent.executables import (
+    ChatAgentExecutable,
+    ChatAgentPlanExecutable,
+    ChatAgentPlanToolsExecutable,
+    ChatAgentToolsExecutable,
+)
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -19,14 +24,14 @@ Assistant: I'll help you find those recordings. Let me create a todo list to ens
 *Creates todo list with the following items:*
 1. Use read_taxonomy to discover person properties for country filtering
 2. Use read_taxonomy to discover session properties for device type
-3. Use read_taxonomy to discover recording properties for errors
+3. Apply console_error_count recording filter (built-in, no discovery needed)
 4. Filter session recordings with the discovered properties
 *Begins working on the first task*
 """.strip()
 
 POSITIVE_EXAMPLE_FILTER_WITH_PROPERTIES_REASONING = """
 The assistant used the todo list because:
-1. Filtering session recordings requires discovering multiple property types (person, session, recording)
+1. Filtering session recordings requires discovering person and session properties (recording properties are built-in)
 2. Property names and values must be validated through read_taxonomy before creating filters
 3. The query involves multiple filter criteria that need to be combined
 4. The filter_session_recordings tool documentation explicitly requires using read_taxonomy for property discovery
@@ -103,6 +108,8 @@ session_replay_agent = AgentModeDefinition(
     mode=AgentMode.SESSION_REPLAY,
     mode_description=MODE_DESCRIPTION,
     toolkit_class=SessionReplayAgentToolkit,
+    node_class=ChatAgentExecutable,
+    tools_node_class=ChatAgentToolsExecutable,
 )
 
 

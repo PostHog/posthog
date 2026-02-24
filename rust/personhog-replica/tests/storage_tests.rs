@@ -1,7 +1,8 @@
 mod common;
 
 use common::TestContext;
-use personhog_replica::storage::GroupKey;
+use personhog_replica::storage::postgres::ConsistencyLevel;
+use personhog_replica::storage::{GroupKey, HashKeyOverrideInput};
 
 #[tokio::test]
 async fn test_get_person_by_id() {
@@ -122,7 +123,7 @@ async fn test_get_distinct_ids_for_person() {
 
     let result = ctx
         .storage
-        .get_distinct_ids_for_person(ctx.team_id, person.id)
+        .get_distinct_ids_for_person(ctx.team_id, person.id, ConsistencyLevel::Eventual)
         .await
         .expect("Failed to get distinct IDs");
 
@@ -144,7 +145,12 @@ async fn test_get_group() {
 
     let result = ctx
         .storage
-        .get_group(ctx.team_id, group.group_type_index, &group.group_key)
+        .get_group(
+            ctx.team_id,
+            group.group_type_index,
+            &group.group_key,
+            ConsistencyLevel::Eventual,
+        )
         .await
         .expect("Failed to get group");
 
@@ -167,7 +173,7 @@ async fn test_get_group_type_mappings() {
 
     let result = ctx
         .storage
-        .get_group_type_mappings_by_team_id(ctx.team_id)
+        .get_group_type_mappings_by_team_id(ctx.team_id, ConsistencyLevel::Eventual)
         .await
         .expect("Failed to get group type mappings");
 
@@ -197,7 +203,11 @@ async fn test_check_cohort_membership() {
 
     let result = ctx
         .storage
-        .check_cohort_membership(person.id, &[cohort_id_1, cohort_id_2])
+        .check_cohort_membership(
+            person.id,
+            &[cohort_id_1, cohort_id_2],
+            ConsistencyLevel::Eventual,
+        )
         .await
         .expect("Failed to check cohort membership");
 
@@ -288,7 +298,11 @@ async fn test_get_distinct_ids_for_persons() {
 
     let result = ctx
         .storage
-        .get_distinct_ids_for_persons(ctx.team_id, &[person1.id, person2.id])
+        .get_distinct_ids_for_persons(
+            ctx.team_id,
+            &[person1.id, person2.id],
+            ConsistencyLevel::Eventual,
+        )
         .await
         .expect("Failed to get distinct ids for persons");
 
@@ -345,7 +359,7 @@ async fn test_get_groups_batch() {
 
     let result = ctx
         .storage
-        .get_groups_batch(&keys)
+        .get_groups_batch(&keys, ConsistencyLevel::Eventual)
         .await
         .expect("Failed to get groups batch");
 
@@ -370,7 +384,7 @@ async fn test_get_group_type_mappings_by_team_ids() {
 
     let result = ctx
         .storage
-        .get_group_type_mappings_by_team_ids(&[ctx.team_id])
+        .get_group_type_mappings_by_team_ids(&[ctx.team_id], ConsistencyLevel::Eventual)
         .await
         .expect("Failed to get mappings by team ids");
 
@@ -396,7 +410,7 @@ async fn test_get_group_type_mappings_by_project_id() {
 
     let result = ctx
         .storage
-        .get_group_type_mappings_by_project_id(ctx.team_id)
+        .get_group_type_mappings_by_project_id(ctx.team_id, ConsistencyLevel::Eventual)
         .await
         .expect("Failed to get mappings by project id");
 
@@ -418,7 +432,7 @@ async fn test_get_group_type_mappings_by_project_ids() {
 
     let result = ctx
         .storage
-        .get_group_type_mappings_by_project_ids(&[ctx.team_id])
+        .get_group_type_mappings_by_project_ids(&[ctx.team_id], ConsistencyLevel::Eventual)
         .await
         .expect("Failed to get mappings by project ids");
 
@@ -429,7 +443,7 @@ async fn test_get_group_type_mappings_by_project_ids() {
 }
 
 #[tokio::test]
-async fn test_get_person_ids_and_hash_key_overrides() {
+async fn test_get_hash_key_override_context_with_overrides() {
     let ctx = TestContext::new().await;
 
     let person = ctx
@@ -446,18 +460,21 @@ async fn test_get_person_ids_and_hash_key_overrides() {
 
     let result = ctx
         .storage
-        .get_person_ids_and_hash_key_overrides(
+        .get_hash_key_override_context(
             ctx.team_id,
             &["hash_override_user".to_string(), "nonexistent".to_string()],
+            false,
+            ConsistencyLevel::Eventual,
         )
         .await
-        .expect("Failed to get person ids and hash key overrides");
+        .expect("Failed to get hash key override context");
 
     assert_eq!(result.len(), 1);
     let person_result = &result[0];
     assert_eq!(person_result.person_id, person.id);
     assert_eq!(person_result.distinct_id, "hash_override_user");
     assert_eq!(person_result.overrides.len(), 2);
+    assert_eq!(person_result.existing_feature_flag_keys.len(), 2);
 
     let override_keys: Vec<&str> = person_result
         .overrides
@@ -471,7 +488,7 @@ async fn test_get_person_ids_and_hash_key_overrides() {
 }
 
 #[tokio::test]
-async fn test_get_person_ids_and_hash_key_overrides_no_overrides() {
+async fn test_get_hash_key_override_context_no_overrides() {
     let ctx = TestContext::new().await;
 
     let person = ctx
@@ -481,24 +498,30 @@ async fn test_get_person_ids_and_hash_key_overrides_no_overrides() {
 
     let result = ctx
         .storage
-        .get_person_ids_and_hash_key_overrides(ctx.team_id, &["user_no_overrides".to_string()])
+        .get_hash_key_override_context(
+            ctx.team_id,
+            &["user_no_overrides".to_string()],
+            false,
+            ConsistencyLevel::Eventual,
+        )
         .await
-        .expect("Failed to get person ids and hash key overrides");
+        .expect("Failed to get hash key override context");
 
     assert_eq!(result.len(), 1);
     let person_result = &result[0];
     assert_eq!(person_result.person_id, person.id);
     assert!(person_result.overrides.is_empty());
+    assert!(person_result.existing_feature_flag_keys.is_empty());
 
     ctx.cleanup().await.ok();
 }
 
 #[tokio::test]
-async fn test_get_existing_person_ids_with_override_keys() {
+async fn test_get_hash_key_override_context_with_check_person_exists() {
     let ctx = TestContext::new().await;
 
     let person = ctx
-        .insert_person("existing_override_user", None)
+        .insert_person("existing_person_user", None)
         .await
         .expect("Failed to insert person");
 
@@ -511,12 +534,14 @@ async fn test_get_existing_person_ids_with_override_keys() {
 
     let result = ctx
         .storage
-        .get_existing_person_ids_with_override_keys(
+        .get_hash_key_override_context(
             ctx.team_id,
-            &["existing_override_user".to_string()],
+            &["existing_person_user".to_string()],
+            true,
+            ConsistencyLevel::Eventual,
         )
         .await
-        .expect("Failed to get existing person ids with override keys");
+        .expect("Failed to get hash key override context with person check");
 
     assert_eq!(result.len(), 1);
     let person_result = &result[0];
@@ -532,28 +557,268 @@ async fn test_get_existing_person_ids_with_override_keys() {
     ctx.cleanup().await.ok();
 }
 
+// ============================================================
+// Upsert hash key overrides tests
+// ============================================================
+
 #[tokio::test]
-async fn test_get_existing_person_ids_with_override_keys_no_overrides() {
+async fn test_upsert_hash_key_overrides_single_override() {
     let ctx = TestContext::new().await;
 
     let person = ctx
-        .insert_person("user_no_existing_overrides", None)
+        .insert_person("upsert_single_user", None)
         .await
         .expect("Failed to insert person");
 
+    let overrides = vec![HashKeyOverrideInput {
+        person_id: person.id,
+        feature_flag_key: "test-flag".to_string(),
+    }];
+
+    let inserted_count = ctx
+        .storage
+        .upsert_hash_key_overrides(ctx.team_id, &overrides, "my_hash_key")
+        .await
+        .expect("Failed to upsert hash key overrides");
+
+    assert_eq!(inserted_count, 1);
+
+    // Verify the override was inserted with the correct hash_key
     let result = ctx
         .storage
-        .get_existing_person_ids_with_override_keys(
+        .get_hash_key_override_context(
             ctx.team_id,
-            &["user_no_existing_overrides".to_string()],
+            &["upsert_single_user".to_string()],
+            false,
+            ConsistencyLevel::Eventual,
         )
         .await
-        .expect("Failed to get existing person ids with override keys");
+        .expect("Failed to get hash key override context");
 
     assert_eq!(result.len(), 1);
-    let person_result = &result[0];
-    assert_eq!(person_result.person_id, person.id);
-    assert!(person_result.existing_feature_flag_keys.is_empty());
+    assert_eq!(result[0].overrides.len(), 1);
+    assert_eq!(result[0].overrides[0].feature_flag_key, "test-flag");
+    assert_eq!(result[0].overrides[0].hash_key, "my_hash_key");
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_multiple_overrides_same_hash_key() {
+    let ctx = TestContext::new().await;
+
+    let person1 = ctx
+        .insert_person("upsert_multi_user1", None)
+        .await
+        .expect("Failed to insert person 1");
+    let person2 = ctx
+        .insert_person("upsert_multi_user2", None)
+        .await
+        .expect("Failed to insert person 2");
+
+    // Multiple overrides for different persons and flags, all sharing the same hash_key
+    let overrides = vec![
+        HashKeyOverrideInput {
+            person_id: person1.id,
+            feature_flag_key: "flag-a".to_string(),
+        },
+        HashKeyOverrideInput {
+            person_id: person1.id,
+            feature_flag_key: "flag-b".to_string(),
+        },
+        HashKeyOverrideInput {
+            person_id: person2.id,
+            feature_flag_key: "flag-a".to_string(),
+        },
+    ];
+
+    let inserted_count = ctx
+        .storage
+        .upsert_hash_key_overrides(ctx.team_id, &overrides, "shared_anon_id")
+        .await
+        .expect("Failed to upsert hash key overrides");
+
+    assert_eq!(inserted_count, 3);
+
+    // Verify all overrides have the same hash_key
+    let result = ctx
+        .storage
+        .get_hash_key_override_context(
+            ctx.team_id,
+            &[
+                "upsert_multi_user1".to_string(),
+                "upsert_multi_user2".to_string(),
+            ],
+            false,
+            ConsistencyLevel::Eventual,
+        )
+        .await
+        .expect("Failed to get hash key override context");
+
+    assert_eq!(result.len(), 2);
+
+    // All overrides should have the same hash_key
+    for person_result in &result {
+        for override_entry in &person_result.overrides {
+            assert_eq!(override_entry.hash_key, "shared_anon_id");
+        }
+    }
+
+    // Person 1 should have 2 overrides
+    let person1_result = result.iter().find(|r| r.person_id == person1.id).unwrap();
+    assert_eq!(person1_result.overrides.len(), 2);
+
+    // Person 2 should have 1 override
+    let person2_result = result.iter().find(|r| r.person_id == person2.id).unwrap();
+    assert_eq!(person2_result.overrides.len(), 1);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_empty_returns_zero() {
+    let ctx = TestContext::new().await;
+
+    let overrides: Vec<HashKeyOverrideInput> = vec![];
+
+    let inserted_count = ctx
+        .storage
+        .upsert_hash_key_overrides(ctx.team_id, &overrides, "unused_hash_key")
+        .await
+        .expect("Failed to upsert hash key overrides");
+
+    assert_eq!(inserted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_on_conflict_do_nothing() {
+    let ctx = TestContext::new().await;
+
+    let person = ctx
+        .insert_person("upsert_conflict_user", None)
+        .await
+        .expect("Failed to insert person");
+
+    let overrides = vec![HashKeyOverrideInput {
+        person_id: person.id,
+        feature_flag_key: "conflict-flag".to_string(),
+    }];
+
+    // First insert
+    let first_count = ctx
+        .storage
+        .upsert_hash_key_overrides(ctx.team_id, &overrides, "first_hash")
+        .await
+        .expect("Failed to upsert hash key overrides");
+
+    assert_eq!(first_count, 1);
+
+    // Second insert with same person_id and feature_flag_key should do nothing
+    // (ON CONFLICT DO NOTHING)
+    let second_count = ctx
+        .storage
+        .upsert_hash_key_overrides(ctx.team_id, &overrides, "second_hash")
+        .await
+        .expect("Failed to upsert hash key overrides");
+
+    // No new rows inserted due to conflict
+    assert_eq!(second_count, 0);
+
+    // Verify the original hash_key is preserved (not updated)
+    let result = ctx
+        .storage
+        .get_hash_key_override_context(
+            ctx.team_id,
+            &["upsert_conflict_user".to_string()],
+            false,
+            ConsistencyLevel::Eventual,
+        )
+        .await
+        .expect("Failed to get hash key override context");
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].overrides.len(), 1);
+    assert_eq!(result[0].overrides[0].hash_key, "first_hash");
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Delete hash key overrides by teams tests
+// ============================================================
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_single_team() {
+    let ctx = TestContext::new().await;
+
+    let person = ctx
+        .insert_person("delete_test_user", None)
+        .await
+        .expect("Failed to insert person");
+
+    // Insert some overrides
+    ctx.insert_hash_key_override(person.id, "flag-1", "hash_1")
+        .await
+        .unwrap();
+    ctx.insert_hash_key_override(person.id, "flag-2", "hash_2")
+        .await
+        .unwrap();
+
+    // Delete by team
+    let deleted_count = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id])
+        .await
+        .expect("Failed to delete hash key overrides");
+
+    assert_eq!(deleted_count, 2);
+
+    // Verify they're gone
+    let result = ctx
+        .storage
+        .get_hash_key_override_context(
+            ctx.team_id,
+            &["delete_test_user".to_string()],
+            false,
+            ConsistencyLevel::Eventual,
+        )
+        .await
+        .expect("Failed to get hash key override context");
+
+    assert_eq!(result.len(), 1);
+    assert!(result[0].overrides.is_empty());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_empty_returns_zero() {
+    let ctx = TestContext::new().await;
+
+    let deleted_count = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[])
+        .await
+        .expect("Failed to delete hash key overrides");
+
+    assert_eq!(deleted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_nonexistent_team() {
+    let ctx = TestContext::new().await;
+
+    let deleted_count = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[999999999])
+        .await
+        .expect("Failed to delete hash key overrides");
+
+    assert_eq!(deleted_count, 0);
 
     ctx.cleanup().await.ok();
 }

@@ -3,14 +3,15 @@ mod common;
 use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest,
-    GetExistingPersonIdsWithOverrideKeysRequest, GetGroupRequest,
+    CheckCohortMembershipRequest, DeleteHashKeyOverridesByTeamsRequest,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
     GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonIdsAndHashKeyOverridesRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
-    GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier,
-    GroupKey, TeamDistinctId,
+    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
+    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
+    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
+    GetPersonsRequest, GroupIdentifier, GroupKey, HashKeyOverrideInput, TeamDistinctId,
+    UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use tonic::Request;
@@ -54,6 +55,7 @@ async fn test_get_person_returns_person_when_found() {
         .get_person(Request::new(GetPersonRequest {
             team_id: ctx.team_id,
             person_id: person.id,
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -78,6 +80,7 @@ async fn test_get_person_returns_none_when_not_found() {
         .get_person(Request::new(GetPersonRequest {
             team_id: ctx.team_id,
             person_id: 999999999,
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -100,6 +103,7 @@ async fn test_get_person_by_uuid_returns_person() {
         .get_person_by_uuid(Request::new(GetPersonByUuidRequest {
             team_id: ctx.team_id,
             uuid: person.uuid.to_string(),
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -122,6 +126,7 @@ async fn test_get_person_by_uuid_invalid_uuid_returns_error() {
         .get_person_by_uuid(Request::new(GetPersonByUuidRequest {
             team_id: ctx.team_id,
             uuid: "not-a-valid-uuid".to_string(),
+            read_options: None,
         }))
         .await;
 
@@ -144,6 +149,7 @@ async fn test_get_persons_returns_found_and_missing() {
         .get_persons(Request::new(GetPersonsRequest {
             team_id: ctx.team_id,
             person_ids: vec![person1.id, person2.id, missing_id],
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -170,6 +176,7 @@ async fn test_get_person_by_distinct_id_returns_person() {
         .get_person_by_distinct_id(Request::new(GetPersonByDistinctIdRequest {
             team_id: ctx.team_id,
             distinct_id: distinct_id.to_string(),
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -198,6 +205,7 @@ async fn test_get_persons_by_distinct_ids_in_team() {
                 "did_2".to_string(),
                 "did_missing".to_string(),
             ],
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -239,6 +247,7 @@ async fn test_get_persons_by_distinct_ids_cross_team() {
                     distinct_id: "nonexistent".to_string(),
                 },
             ],
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -265,6 +274,7 @@ async fn test_get_distinct_ids_for_person() {
         .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
             team_id: ctx.team_id,
             person_id: person.id,
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -291,6 +301,7 @@ async fn test_get_group_returns_group_when_found() {
             team_id: ctx.team_id,
             group_type_index: 0,
             group_key: "company_abc".to_string(),
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -315,6 +326,7 @@ async fn test_get_group_returns_none_when_not_found() {
             team_id: ctx.team_id,
             group_type_index: 0,
             group_key: "nonexistent".to_string(),
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -348,6 +360,7 @@ async fn test_get_groups_returns_found_and_missing() {
                     group_key: "missing".to_string(),
                 },
             ],
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -376,6 +389,7 @@ async fn test_get_group_type_mappings_by_team_id() {
         .service
         .get_group_type_mappings_by_team_id(Request::new(GetGroupTypeMappingsByTeamIdRequest {
             team_id: ctx.team_id,
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -410,6 +424,7 @@ async fn test_check_cohort_membership() {
         .check_cohort_membership(Request::new(CheckCohortMembershipRequest {
             person_id: person.id,
             cohort_ids: vec![cohort_member, cohort_not_member],
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -454,6 +469,7 @@ async fn test_person_properties_are_serialized_correctly() {
         .get_person(Request::new(GetPersonRequest {
             team_id: ctx.team_id,
             person_id: person.id,
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -489,6 +505,7 @@ async fn test_get_persons_by_uuids() {
                 person2.uuid.to_string(),
                 nonexistent_uuid,
             ],
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -515,6 +532,7 @@ async fn test_get_distinct_ids_for_persons() {
         .get_distinct_ids_for_persons(Request::new(GetDistinctIdsForPersonsRequest {
             team_id: ctx.team_id,
             person_ids: vec![person1.id, person2.id],
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -567,6 +585,7 @@ async fn test_get_groups_batch() {
                     group_key: "missing".to_string(),
                 },
             ],
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -600,6 +619,7 @@ async fn test_get_group_type_mappings_by_team_ids() {
         .service
         .get_group_type_mappings_by_team_ids(Request::new(GetGroupTypeMappingsByTeamIdsRequest {
             team_ids: vec![ctx.team_id],
+            read_options: None,
         }))
         .await
         .expect("RPC failed");
@@ -622,6 +642,7 @@ async fn test_get_group_type_mappings_by_project_id() {
         .get_group_type_mappings_by_project_id(Request::new(
             GetGroupTypeMappingsByProjectIdRequest {
                 project_id: ctx.team_id, // insert_group_type_mapping uses team_id as project_id
+                read_options: None,
             },
         ))
         .await
@@ -647,6 +668,7 @@ async fn test_get_group_type_mappings_by_project_ids() {
         .get_group_type_mappings_by_project_ids(Request::new(
             GetGroupTypeMappingsByProjectIdsRequest {
                 project_ids: vec![ctx.team_id],
+                read_options: None,
             },
         ))
         .await
@@ -661,11 +683,11 @@ async fn test_get_group_type_mappings_by_project_ids() {
 }
 
 // ============================================================
-// Feature flag hash key override tests
+// Feature flag hash key override context tests
 // ============================================================
 
 #[tokio::test]
-async fn test_get_person_ids_and_hash_key_overrides() {
+async fn test_get_hash_key_override_context_with_overrides() {
     let ctx = ServiceTestContext::new().await;
     let person = ctx.insert_person("hash_override_user", None).await.unwrap();
 
@@ -678,12 +700,12 @@ async fn test_get_person_ids_and_hash_key_overrides() {
 
     let response = ctx
         .service
-        .get_person_ids_and_hash_key_overrides(Request::new(
-            GetPersonIdsAndHashKeyOverridesRequest {
-                team_id: ctx.team_id,
-                distinct_ids: vec!["hash_override_user".to_string(), "nonexistent".to_string()],
-            },
-        ))
+        .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+            team_id: ctx.team_id,
+            distinct_ids: vec!["hash_override_user".to_string(), "nonexistent".to_string()],
+            check_person_exists: false,
+            read_options: None,
+        }))
         .await
         .expect("RPC failed");
 
@@ -694,6 +716,7 @@ async fn test_get_person_ids_and_hash_key_overrides() {
     assert_eq!(person_result.person_id, person.id);
     assert_eq!(person_result.distinct_id, "hash_override_user");
     assert_eq!(person_result.overrides.len(), 2);
+    assert_eq!(person_result.existing_feature_flag_keys.len(), 2);
 
     let override_keys: Vec<&str> = person_result
         .overrides
@@ -707,7 +730,7 @@ async fn test_get_person_ids_and_hash_key_overrides() {
 }
 
 #[tokio::test]
-async fn test_get_person_ids_and_hash_key_overrides_no_overrides() {
+async fn test_get_hash_key_override_context_no_overrides() {
     let ctx = ServiceTestContext::new().await;
     let person = ctx
         .insert_person("user_without_overrides", None)
@@ -716,12 +739,12 @@ async fn test_get_person_ids_and_hash_key_overrides_no_overrides() {
 
     let response = ctx
         .service
-        .get_person_ids_and_hash_key_overrides(Request::new(
-            GetPersonIdsAndHashKeyOverridesRequest {
-                team_id: ctx.team_id,
-                distinct_ids: vec!["user_without_overrides".to_string()],
-            },
-        ))
+        .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+            team_id: ctx.team_id,
+            distinct_ids: vec!["user_without_overrides".to_string()],
+            check_person_exists: false,
+            read_options: None,
+        }))
         .await
         .expect("RPC failed");
 
@@ -729,33 +752,31 @@ async fn test_get_person_ids_and_hash_key_overrides_no_overrides() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].person_id, person.id);
     assert!(results[0].overrides.is_empty());
+    assert!(results[0].existing_feature_flag_keys.is_empty());
 
     ctx.cleanup().await.ok();
 }
 
 #[tokio::test]
-async fn test_get_existing_person_ids_with_override_keys() {
+async fn test_get_hash_key_override_context_with_check_person_exists() {
     let ctx = ServiceTestContext::new().await;
     let person = ctx
-        .insert_person("existing_overrides_user", None)
+        .insert_person("existing_person_user", None)
         .await
         .unwrap();
 
     ctx.insert_hash_key_override(person.id, "feature-a", "hash_a")
         .await
         .unwrap();
-    ctx.insert_hash_key_override(person.id, "feature-b", "hash_b")
-        .await
-        .unwrap();
 
     let response = ctx
         .service
-        .get_existing_person_ids_with_override_keys(Request::new(
-            GetExistingPersonIdsWithOverrideKeysRequest {
-                team_id: ctx.team_id,
-                distinct_ids: vec!["existing_overrides_user".to_string()],
-            },
-        ))
+        .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+            team_id: ctx.team_id,
+            distinct_ids: vec!["existing_person_user".to_string()],
+            check_person_exists: true,
+            read_options: None,
+        }))
         .await
         .expect("RPC failed");
 
@@ -764,37 +785,287 @@ async fn test_get_existing_person_ids_with_override_keys() {
 
     let person_result = &results[0];
     assert_eq!(person_result.person_id, person.id);
-    assert_eq!(person_result.existing_feature_flag_keys.len(), 2);
+    assert_eq!(person_result.existing_feature_flag_keys.len(), 1);
     assert!(person_result
         .existing_feature_flag_keys
         .contains(&"feature-a".to_string()));
-    assert!(person_result
-        .existing_feature_flag_keys
-        .contains(&"feature-b".to_string()));
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Upsert hash key overrides tests
+// ============================================================
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_single_override() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("upsert_user_1", None).await.unwrap();
+
+    let response = ctx
+        .service
+        .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
+            team_id: ctx.team_id,
+            overrides: vec![HashKeyOverrideInput {
+                person_id: person.id,
+                feature_flag_key: "test-flag".to_string(),
+            }],
+            hash_key: "my_hash_key".to_string(),
+        }))
+        .await
+        .expect("RPC failed");
+
+    assert_eq!(response.into_inner().inserted_count, 1);
+
+    // Verify the override was created by reading it back
+    let context_response = ctx
+        .service
+        .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+            team_id: ctx.team_id,
+            distinct_ids: vec!["upsert_user_1".to_string()],
+            check_person_exists: false,
+            read_options: None,
+        }))
+        .await
+        .expect("RPC failed");
+
+    let results = context_response.into_inner().results;
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].overrides.len(), 1);
+    assert_eq!(results[0].overrides[0].feature_flag_key, "test-flag");
+    assert_eq!(results[0].overrides[0].hash_key, "my_hash_key");
 
     ctx.cleanup().await.ok();
 }
 
 #[tokio::test]
-async fn test_get_existing_person_ids_with_override_keys_no_overrides() {
+async fn test_upsert_hash_key_overrides_multiple_flags_same_hash_key() {
     let ctx = ServiceTestContext::new().await;
-    let person = ctx.insert_person("no_overrides_user", None).await.unwrap();
+    let person = ctx.insert_person("upsert_user_2", None).await.unwrap();
 
     let response = ctx
         .service
-        .get_existing_person_ids_with_override_keys(Request::new(
-            GetExistingPersonIdsWithOverrideKeysRequest {
-                team_id: ctx.team_id,
-                distinct_ids: vec!["no_overrides_user".to_string()],
-            },
-        ))
+        .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
+            team_id: ctx.team_id,
+            overrides: vec![
+                HashKeyOverrideInput {
+                    person_id: person.id,
+                    feature_flag_key: "flag-a".to_string(),
+                },
+                HashKeyOverrideInput {
+                    person_id: person.id,
+                    feature_flag_key: "flag-b".to_string(),
+                },
+                HashKeyOverrideInput {
+                    person_id: person.id,
+                    feature_flag_key: "flag-c".to_string(),
+                },
+            ],
+            hash_key: "shared_hash".to_string(),
+        }))
         .await
         .expect("RPC failed");
 
-    let results = response.into_inner().results;
+    assert_eq!(response.into_inner().inserted_count, 3);
+
+    // Verify all overrides share the same hash_key
+    let context_response = ctx
+        .service
+        .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+            team_id: ctx.team_id,
+            distinct_ids: vec!["upsert_user_2".to_string()],
+            check_person_exists: false,
+            read_options: None,
+        }))
+        .await
+        .expect("RPC failed");
+
+    let results = context_response.into_inner().results;
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].person_id, person.id);
-    assert!(results[0].existing_feature_flag_keys.is_empty());
+    assert_eq!(results[0].overrides.len(), 3);
+
+    for override_entry in &results[0].overrides {
+        assert_eq!(override_entry.hash_key, "shared_hash");
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_empty_returns_zero() {
+    let ctx = ServiceTestContext::new().await;
+
+    let response = ctx
+        .service
+        .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
+            team_id: ctx.team_id,
+            overrides: vec![],
+            hash_key: "unused".to_string(),
+        }))
+        .await
+        .expect("RPC failed");
+
+    assert_eq!(response.into_inner().inserted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_on_conflict_do_nothing() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx
+        .insert_person("upsert_conflict_user", None)
+        .await
+        .unwrap();
+
+    // Insert initial override
+    ctx.insert_hash_key_override(person.id, "existing-flag", "original_hash")
+        .await
+        .unwrap();
+
+    // Try to upsert with a different hash_key - should be ignored due to ON CONFLICT DO NOTHING
+    let response = ctx
+        .service
+        .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
+            team_id: ctx.team_id,
+            overrides: vec![HashKeyOverrideInput {
+                person_id: person.id,
+                feature_flag_key: "existing-flag".to_string(),
+            }],
+            hash_key: "different_hash".to_string(),
+        }))
+        .await
+        .expect("RPC failed");
+
+    // No rows inserted due to conflict
+    assert_eq!(response.into_inner().inserted_count, 0);
+
+    // Verify the original hash_key is preserved
+    let context_response = ctx
+        .service
+        .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+            team_id: ctx.team_id,
+            distinct_ids: vec!["upsert_conflict_user".to_string()],
+            check_person_exists: false,
+            read_options: None,
+        }))
+        .await
+        .expect("RPC failed");
+
+    let results = context_response.into_inner().results;
+    assert_eq!(results[0].overrides.len(), 1);
+    assert_eq!(results[0].overrides[0].hash_key, "original_hash");
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_multiple_persons() {
+    let ctx = ServiceTestContext::new().await;
+    let person1 = ctx.insert_person("multi_person_1", None).await.unwrap();
+    let person2 = ctx.insert_person("multi_person_2", None).await.unwrap();
+
+    let response = ctx
+        .service
+        .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
+            team_id: ctx.team_id,
+            overrides: vec![
+                HashKeyOverrideInput {
+                    person_id: person1.id,
+                    feature_flag_key: "shared-flag".to_string(),
+                },
+                HashKeyOverrideInput {
+                    person_id: person2.id,
+                    feature_flag_key: "shared-flag".to_string(),
+                },
+            ],
+            hash_key: "common_hash".to_string(),
+        }))
+        .await
+        .expect("RPC failed");
+
+    assert_eq!(response.into_inner().inserted_count, 2);
+
+    // Verify both persons have the override
+    let context_response = ctx
+        .service
+        .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+            team_id: ctx.team_id,
+            distinct_ids: vec!["multi_person_1".to_string(), "multi_person_2".to_string()],
+            check_person_exists: false,
+            read_options: None,
+        }))
+        .await
+        .expect("RPC failed");
+
+    let results = context_response.into_inner().results;
+    assert_eq!(results.len(), 2);
+
+    for result in &results {
+        assert_eq!(result.overrides.len(), 1);
+        assert_eq!(result.overrides[0].feature_flag_key, "shared-flag");
+        assert_eq!(result.overrides[0].hash_key, "common_hash");
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Delete hash key overrides by teams tests
+// ============================================================
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_single_team() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("delete_svc_user", None).await.unwrap();
+
+    // Insert overrides
+    ctx.insert_hash_key_override(person.id, "flag-to-delete", "hash_val")
+        .await
+        .unwrap();
+
+    let response = ctx
+        .service
+        .delete_hash_key_overrides_by_teams(Request::new(DeleteHashKeyOverridesByTeamsRequest {
+            team_ids: vec![ctx.team_id],
+        }))
+        .await
+        .expect("RPC failed");
+
+    assert_eq!(response.into_inner().deleted_count, 1);
+
+    // Verify deletion
+    let context_response = ctx
+        .service
+        .get_hash_key_override_context(Request::new(GetHashKeyOverrideContextRequest {
+            team_id: ctx.team_id,
+            distinct_ids: vec!["delete_svc_user".to_string()],
+            check_person_exists: false,
+            read_options: None,
+        }))
+        .await
+        .expect("RPC failed");
+
+    let results = context_response.into_inner().results;
+    assert_eq!(results.len(), 1);
+    assert!(results[0].overrides.is_empty());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_empty_returns_zero() {
+    let ctx = ServiceTestContext::new().await;
+
+    let response = ctx
+        .service
+        .delete_hash_key_overrides_by_teams(Request::new(DeleteHashKeyOverridesByTeamsRequest {
+            team_ids: vec![],
+        }))
+        .await
+        .expect("RPC failed");
+
+    assert_eq!(response.into_inner().deleted_count, 0);
 
     ctx.cleanup().await.ok();
 }

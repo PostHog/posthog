@@ -97,7 +97,7 @@ export const rulesLogic = kea<rulesLogicType>([
                             return [...newValues, newRule]
                         }
                         await api.errorTracking.updateRule(props.ruleType, rule)
-                        return newValues.map((r) => (r.id === rule.id ? rule : r))
+                        return newValues.map((r) => (r.id === rule.id ? { ...rule, disabled_data: null } : r))
                     }
                     return newValues
                 },

@@ -18,6 +18,8 @@ from posthog.models import ColumnConfiguration
 
 
 class ColumnConfigurationSerializer(serializers.ModelSerializer):
+    filters = serializers.JSONField(required=False, default=dict)
+
     class Meta:
         model = ColumnConfiguration
         fields = [
@@ -32,6 +34,16 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at", "created_by", "team"]
+
+    def validate_filters(self, filters):
+        if not filters:
+            return []
+        return filters
+
+    def to_representation(self, instance: ColumnConfiguration):
+        values = super().to_representation(instance)
+        values["filters"] = self.validate_filters(values["filters"])
+        return values
 
 
 @extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])

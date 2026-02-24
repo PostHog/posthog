@@ -1,10 +1,11 @@
 import { v4 as uuidv4 } from 'uuid'
 
-import { CyclotronJobQueuePostgres } from './job-queue-postgres'
+import { CyclotronJobQueuePostgres, CyclotronJobQueuePostgresShadow } from './job-queue-postgres'
 
 // Mock external dependency to avoid needing the actual implementation in tests
 jest.mock('@posthog/cyclotron', () => ({
     CyclotronManager: jest.fn(),
+    CyclotronShadowManager: jest.fn(),
     CyclotronWorker: jest.fn(),
 }))
 
@@ -85,5 +86,77 @@ describe('CyclotronJobQueue - postgres', () => {
             const jobsArg = bulkCreateJobs.mock.calls[0][0]
             expect(jobsArg[0].id).toBeUndefined()
         })
+    })
+})
+
+describe('CyclotronJobQueuePostgresShadow', () => {
+    function createShadowQueue() {
+        const config: any = {
+            CYCLOTRON_DATABASE_URL: 'postgres://shadow-test',
+            CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
+            CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
+        }
+        const queue = new CyclotronJobQueuePostgresShadow(config, 'hog' as any)
+
+        const bulkCreateJobs = jest.fn().mockResolvedValue(undefined)
+        // Inject a fake manager so queueInvocations can run without connecting
+        ;(queue as any).cyclotronManager = {
+            bulkCreateJobs,
+        }
+
+        return { queue, bulkCreateJobs }
+    }
+
+    const baseInvocation = {
+        teamId: 1,
+        functionId: '0196a6b9-1104-0000-f099-9cf11985a307',
+        queue: 'hog',
+        queuePriority: 0,
+        state: {
+            globals: {},
+            timings: [],
+            vmState: { bytecodes: {}, stack: [], upvalues: [] },
+        },
+    }
+
+    it('should queue invocations using shadow manager', async () => {
+        const { queue, bulkCreateJobs } = createShadowQueue()
+
+        const invocation: any = {
+            ...baseInvocation,
+            id: uuidv4(),
+        }
+
+        await queue.queueInvocations([invocation])
+
+        expect(bulkCreateJobs).toHaveBeenCalledTimes(1)
+        const jobsArg = bulkCreateJobs.mock.calls[0][0]
+        expect(Array.isArray(jobsArg)).toBe(true)
+        expect(jobsArg).toHaveLength(1)
+        expect(jobsArg[0].id).toBe(invocation.id)
+    })
+
+    it('should not queue empty invocations', async () => {
+        const { queue, bulkCreateJobs } = createShadowQueue()
+
+        await queue.queueInvocations([])
+
+        expect(bulkCreateJobs).not.toHaveBeenCalled()
+    })
+
+    it('should throw if manager not initialized', async () => {
+        const config: any = {
+            CYCLOTRON_DATABASE_URL: 'postgres://shadow-test',
+            CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
+        }
+        const queue = new CyclotronJobQueuePostgresShadow(config, 'hog' as any)
+        // Don't inject the manager
+
+        const invocation: any = {
+            ...baseInvocation,
+            id: uuidv4(),
+        }
+
+        await expect(queue.queueInvocations([invocation])).rejects.toThrow('CyclotronShadowManager not initialized')
     })
 })

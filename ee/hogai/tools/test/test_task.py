@@ -31,20 +31,26 @@ class TestSubagentExecutor(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_executor_sets_stream_key(self):
         tool_call_id = "test_tool_call"
-        executor = SubagentExecutor(conversation=self.conversation, tool_call_id=tool_call_id)
+        execution_id = "test_execution"
+        executor = SubagentExecutor(
+            conversation=self.conversation, tool_call_id=tool_call_id, execution_id=execution_id
+        )
 
-        expected_stream_key = get_subagent_stream_key(self.conversation.id, tool_call_id)
+        expected_stream_key = get_subagent_stream_key(self.conversation.id, f"{tool_call_id}-{execution_id}")
         self.assertEqual(executor._redis_stream._stream_key, expected_stream_key)
 
     def test_executor_sets_workflow_id(self):
         tool_call_id = "test_tool_call"
-        executor = SubagentExecutor(conversation=self.conversation, tool_call_id=tool_call_id)
+        execution_id = "test_execution"
+        executor = SubagentExecutor(
+            conversation=self.conversation, tool_call_id=tool_call_id, execution_id=execution_id
+        )
 
-        expected_workflow_id = f"subagent-{self.conversation.id}-{tool_call_id}"
+        expected_workflow_id = f"subagent-{self.conversation.id}-{tool_call_id}-{execution_id}"
         self.assertEqual(executor._workflow_id, expected_workflow_id)
 
     def test_executor_disables_reconnect(self):
-        executor = SubagentExecutor(conversation=self.conversation, tool_call_id="test")
+        executor = SubagentExecutor(conversation=self.conversation, tool_call_id="test", execution_id="test_exec")
         self.assertFalse(executor._reconnectable)
 
 

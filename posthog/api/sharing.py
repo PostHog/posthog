@@ -39,6 +39,7 @@ from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_co
 from posthog.models.insight import Insight
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
@@ -812,6 +813,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             if not heatmap_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_url")
+
+            ok, err = is_url_allowed(heatmap_url)
+            if not ok:
+                raise ValidationError("heatmap_url not allowed")
 
             heatmap_data_url = resource.export_context.get("heatmap_data_url")
             if not heatmap_data_url:

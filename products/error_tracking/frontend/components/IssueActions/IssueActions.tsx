@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +27,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
     const { setFilterGroup } = useActions(issueFiltersLogic)
     const { setSelectedIssueIds } = useActions(bulkSelectLogic)
     const { newTab } = useActions(sceneLogic)
+    const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti()
 
     const hasAtLeastTwoIssues = selectedIds.length >= 2
 
@@ -75,6 +77,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
 
     return (
         <div className="flex gap-x-2 justify-between">
+            <HogfettiComponent />
             <div className="flex gap-x-2">
                 <LemonButton type="secondary" size="small" onClick={openInNewTabs}>
                     Open all
@@ -107,6 +110,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
                         switch (value) {
                             case 'resolved':
                                 resolveIssues(selectedIds)
+                                ;[0, 400, 800].forEach((delay) => setTimeout(triggerHogfetti, delay))
                                 break
                             case 'suppressed':
                                 suppressIssues(selectedIds)

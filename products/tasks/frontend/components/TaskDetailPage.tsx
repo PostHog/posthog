@@ -4,19 +4,21 @@ import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
+import { CollapsibleContent } from './CollapsibleContent'
 import { TaskRunItem } from './TaskRunItem'
 import { TaskSessionView } from './TaskSessionView'
 
@@ -98,7 +100,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
 
             <SceneTitleSection
                 name={task?.title}
-                description={task?.description}
+                description={null}
                 resourceType={{ type: 'task' }}
                 isLoading={false}
                 canEdit={false}
@@ -135,6 +137,16 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     </div>
                 }
             />
+
+            {task.description && (
+                <div className="relative -mt-2 mb-2 px-2">
+                    <CollapsibleContent>
+                        <LemonMarkdown lowKeyHeadings className="text-sm">
+                            {task.description}
+                        </LemonMarkdown>
+                    </CollapsibleContent>
+                </div>
+            )}
 
             {runsLoading ? (
                 <div className="flex items-center justify-center h-32">

@@ -20,8 +20,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 import { NewSurvey, SurveyTheme, WEB_SAFE_FONTS, defaultSurveyAppearance, surveyThemes } from '../../constants'
+import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 import { surveyLogic } from '../../surveyLogic'
 import { surveysLogic } from '../../surveysLogic'
 import { ColorInput } from '../ColorInput'

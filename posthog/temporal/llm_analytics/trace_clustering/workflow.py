@@ -1,9 +1,11 @@
 """Daily trace clustering workflow."""
 
+import json
 from datetime import timedelta
 
 from temporalio import workflow
 
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_clustering.activities import (
     emit_cluster_events_activity,
     generate_cluster_labels_activity,
@@ -12,11 +14,23 @@ from posthog.temporal.llm_analytics.trace_clustering.activities import (
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     COMPUTE_ACTIVITY_RETRY_POLICY,
     COMPUTE_ACTIVITY_TIMEOUT,
+    COMPUTE_HEARTBEAT_TIMEOUT,
+    COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
     EMIT_ACTIVITY_RETRY_POLICY,
     EMIT_ACTIVITY_TIMEOUT,
+    EMIT_HEARTBEAT_TIMEOUT,
+    EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
     LLM_ACTIVITY_RETRY_POLICY,
+    LLM_ACTIVITY_TIMEOUT,
+    LLM_HEARTBEAT_TIMEOUT,
+    LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
     NOISE_CLUSTER_ID,
     WORKFLOW_NAME,
+)
+from posthog.temporal.llm_analytics.trace_clustering.metrics import (
+    record_clusters_generated,
+    record_items_analyzed,
+    record_noise_points,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusteringActivityInputs,
@@ -102,7 +116,7 @@ def _compute_item_labeling_metadata(
 
 
 @workflow.defn(name=WORKFLOW_NAME)
-class DailyTraceClusteringWorkflow:
+class DailyTraceClusteringWorkflow(PostHogWorkflow):
     """
     Daily workflow to cluster LLM traces based on their embeddings.
 
@@ -116,6 +130,14 @@ class DailyTraceClusteringWorkflow:
     only ~250 KB of results are passed between activities.
     """
 
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> ClusteringWorkflowInputs:
+        """Parse workflow inputs from CLI arguments (JSON string)."""
+        if inputs:
+            data = json.loads(inputs[0])
+            return ClusteringWorkflowInputs(**data)
+        return ClusteringWorkflowInputs(team_id=0)
+
     @workflow.run
     async def run(self, inputs: ClusteringWorkflowInputs) -> ClusteringResult:
         """
@@ -127,6 +149,7 @@ class DailyTraceClusteringWorkflow:
         Returns:
             ClusteringResult with clustering metrics and cluster info
         """
+        analysis_level = inputs.analysis_level
 
         # Calculate window from workflow time (deterministic for replays)
         now = workflow.now()
@@ -152,12 +175,17 @@ class DailyTraceClusteringWorkflow:
                     clustering_method=inputs.clustering_method,
                     clustering_method_params=inputs.clustering_method_params,
                     visualization_method=inputs.visualization_method,
-                    trace_filters=inputs.trace_filters,
+                    event_filters=inputs.event_filters,
                 )
             ],
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=COMPUTE_HEARTBEAT_TIMEOUT,
             retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
         )
+
+        record_items_analyzed(len(compute_result.items), analysis_level)
+        record_noise_points(compute_result.num_noise_points, analysis_level)
 
         # Compute per-item metadata for labeling (O(n) instead of O(n × k))
         item_metadata = _compute_item_labeling_metadata(compute_result)
@@ -178,7 +206,9 @@ class DailyTraceClusteringWorkflow:
                     batch_run_ids=compute_result.batch_run_ids,
                 )
             ],
-            start_to_close_timeout=timedelta(seconds=600),  # 10 minutes for agent run
+            start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=LLM_HEARTBEAT_TIMEOUT,
             retry_policy=LLM_ACTIVITY_RETRY_POLICY,
         )
 
@@ -212,7 +242,10 @@ class DailyTraceClusteringWorkflow:
                 )
             ],
             start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=EMIT_HEARTBEAT_TIMEOUT,
             retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
         )
 
+        record_clusters_generated(result.metrics.num_clusters, analysis_level)
         return result

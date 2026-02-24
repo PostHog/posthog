@@ -82,6 +82,10 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub global_rate_limit_window_interval_secs: u64,
 
+    /// Time bucket granularity in seconds for the sliding window counters
+    #[envconfig(default = "10")]
+    pub global_rate_limit_bucket_interval_secs: u64,
+
     /// CSV list of key=value pairs assigning custom global rate limit thresholds
     /// for particular keys.
     pub global_rate_limit_overrides_csv: Option<String>,
@@ -258,4 +262,14 @@ pub struct KafkaConfig {
     pub kafka_metadata_max_age_ms: u32,
     #[envconfig(default = "60000")] // lib default, can tweak in env overrides
     pub kafka_socket_timeout_ms: u32,
+    #[envconfig(default = "10000")] // librdkafka default
+    pub kafka_producer_batch_num_messages: u32, // batch.num.messages - max messages per batch
+    #[envconfig(default = "1000000")] // librdkafka default
+    pub kafka_producer_batch_size: u32, // batch.size - max batch size in bytes
+    #[envconfig(default = "1000000")] // librdkafka default
+    pub kafka_producer_max_in_flight_requests: u32, // max.in.flight.requests.per.connection
+    #[envconfig(default = "10")] // librdkafka default
+    pub kafka_producer_sticky_partitioning_linger_ms: u32, // sticky.partitioning.linger.ms
+    #[envconfig(default = "false")] // librdkafka default
+    pub kafka_producer_enable_idempotence: bool, // enable.idempotence
 }

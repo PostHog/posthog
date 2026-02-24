@@ -49,9 +49,14 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub worker_loop_count: usize,
 
-    // We maintain an internal cache, to avoid sending the same UPSERT multiple times. This is it's size.
+    // Per-data-type cache capacities (event definitions, event properties, property definitions).
+    // Each internal cache avoids sending the same UPSERT multiple times.
     #[envconfig(default = "1000000")]
-    pub cache_capacity: usize,
+    pub eventdefs_cache_capacity: usize,
+    #[envconfig(default = "1000000")]
+    pub eventprops_cache_capacity: usize,
+    #[envconfig(default = "1000000")]
+    pub propdefs_cache_capacity: usize,
 
     // Each worker maintains a small local batch of updates, which it
     // flushes to the main thread (updating/filtering by the

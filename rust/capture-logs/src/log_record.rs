@@ -45,15 +45,11 @@ impl KafkaLogRow {
         resource: Option<Resource>,
         scope: Option<InstrumentationScope>,
     ) -> Result<Self> {
-        // Extract body
+        // Extract body - convert any AnyValue type to JSON string
         let body = match record.body {
             Some(body) => match body.value {
-                Some(value) => match value {
-                    opentelemetry_proto::tonic::common::v1::any_value::Value::StringValue(s) => {
-                        s.clone()
-                    }
-                    _ => format!("{value:?}"),
-                },
+                Some(any_value::Value::StringValue(s)) => s,
+                Some(_) => any_value_to_json(body).to_string(),
                 None => "".to_string(),
             },
             None => "".to_string(),

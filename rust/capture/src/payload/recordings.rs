@@ -16,7 +16,11 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
-    payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
+    payload::{
+        decompress_payload, extract_and_record_metadata, extract_payload_bytes,
+        types::{GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM, GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL},
+        EventQuery,
+    },
     router,
     v0_request::ProcessingContext,
 };
@@ -128,6 +132,30 @@ pub async fn handle_recording_payload(
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
     };
+
+    // Apply global rate limit per team (API token) if enabled
+    if let Some(global_rate_limiter) = &state.global_rate_limiter {
+        if let Some(limited) = global_rate_limiter
+            .is_limited(&context.token, events.len() as u64)
+            .await
+        {
+            let limit_type = if limited.is_custom_limited {
+                GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM
+            } else {
+                GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL
+            };
+            debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(),
+                limit_type, "global rate limit applied");
+            return Err(CaptureError::GlobalRateLimitExceeded(
+                context.token.clone(),
+                events.len() as u64,
+                limited.window_start,
+                limited.window_end,
+                limited.threshold,
+                limited.window_interval.as_secs(),
+            ));
+        }
+    }
 
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)

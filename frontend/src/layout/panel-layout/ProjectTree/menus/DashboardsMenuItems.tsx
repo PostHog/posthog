@@ -48,6 +48,8 @@ export function DashboardsMenuItems({
                                             menuItem: true,
                                         }}
                                         to={urls.dashboard(dashboard.id)}
+                                        tooltip={dashboard.name}
+                                        tooltipPlacement="right"
                                         onClick={(e) => {
                                             e.stopPropagation()
                                             onLinkClick?.(false)

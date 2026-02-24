@@ -1,8 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
+import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { hexToRGBA, pluralize } from 'lib/utils'
@@ -17,9 +17,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType } from '~/types'
 
+import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 import { COLORS } from './MetricsView/shared/colors'
 import { getVariantInterval } from './MetricsView/shared/utils'
-import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 
 export interface ProcessedTimeseriesDataPoint {
     date: string
@@ -295,11 +295,14 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     // Create a simple approach: just two datasets with segmented colors
                     const datasets: ChartDataset[] = []
 
+                    // We use the same color for upper and lower bound lines for clear association with the variant line
+                    const boundLineColor = variantColor
+
                     // Upper bounds dataset
                     datasets.push({
                         label: 'Upper bound',
                         data: upperBounds,
-                        borderColor: COLORS.BAR_DEFAULT,
+                        borderColor: boundLineColor,
                         borderWidth: 1,
                         fill: false,
                         tension: 0,
@@ -310,7 +313,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     datasets.push({
                         label: 'Lower bound',
                         data: lowerBounds,
-                        borderColor: COLORS.BAR_DEFAULT,
+                        borderColor: boundLineColor,
                         borderWidth: 1,
                         fill: '-1',
                         backgroundColor: (context: any) => {

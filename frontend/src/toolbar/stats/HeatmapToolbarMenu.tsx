@@ -6,24 +6,26 @@ import { IconMagicWand } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
+import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
+import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconSync } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { joinWithUiHost } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
 
 const HeatmapsJSWarning = (): JSX.Element | null => {
-    const { posthog } = useValues(toolbarConfigLogic)
+    const { posthog, uiHost } = useValues(toolbarConfigLogic)
 
     if (!posthog || posthog?.heatmaps?.isEnabled) {
         return null
@@ -36,7 +38,13 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
             ) : !posthog.heatmaps.isEnabled ? (
                 <>
                     You can enable heatmap collection in your posthog-js configuration or{' '}
-                    <Link to="https://us.posthog.com/settings/project#heatmaps">in your project config</Link>.
+                    <Link
+                        to={joinWithUiHost(uiHost, urls.settings('environment-heatmaps', 'heatmaps'))}
+                        target="_blank"
+                    >
+                        in your project config
+                    </Link>
+                    .
                 </>
             ) : null}
         </p>

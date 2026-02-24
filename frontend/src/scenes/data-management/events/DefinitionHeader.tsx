@@ -1,13 +1,13 @@
 import React from 'react'
 
-import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
+import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark, IconPlay } from '@posthog/icons'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LinkProps } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -118,6 +118,17 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
                 hidden={definition.hidden}
                 tooltipTitle="All events"
                 className="taxonomy-icon taxonomy-icon-built-in"
+            />
+        )
+    }
+    if (definition.is_action) {
+        return (
+            <IconWithBadge
+                icon={<IconPlay />}
+                verified={definition.verified}
+                hidden={definition.hidden}
+                tooltipTitle="Custom action"
+                className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted"
             />
         )
     }

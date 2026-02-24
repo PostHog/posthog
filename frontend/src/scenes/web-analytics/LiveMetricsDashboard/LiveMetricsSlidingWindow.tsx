@@ -1,12 +1,14 @@
-import { SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
+import { BrowserBreakdownItem, CountryBreakdownItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
 
 export class LiveMetricsSlidingWindow {
     private buckets = new Map<number, SlidingWindowBucket>()
     private windowSizeSeconds: number
-    // Tracks how many buckets each user appears in for efficient total unique user counting
+
+    // Tracks unique counts across all buckets
     private userBucketCounts = new Map<string, number>()
-    // Tracks how many buckets each device appears in, per device type
     private deviceBucketCounts = new Map<string, Map<string, number>>()
+    private browserBucketCounts = new Map<string, Map<string, number>>()
+    private countryBucketCounts = new Map<string, Map<string, number>>()
 
     constructor(windowSizeMinutes: number) {
         this.windowSizeSeconds = windowSizeMinutes * 60
@@ -19,6 +21,7 @@ export class LiveMetricsSlidingWindow {
             pageviews?: number
             pathname?: string
             device?: { deviceId: string; deviceType: string }
+            browser?: { deviceId: string; browserType: string }
         }
     ): void {
         const bucket = this.getOrCreateBucket(eventTs)
@@ -37,6 +40,19 @@ export class LiveMetricsSlidingWindow {
             this.addDeviceToBucket(bucket, data.device.deviceType, data.device.deviceId)
         }
 
+        if (data.browser) {
+            this.addBrowserToBucket(bucket, data.browser.browserType, data.browser.deviceId)
+        }
+
+        this.prune()
+    }
+
+    addGeoDataPoint(eventTs: number, countryCode: string, distinctId: string): void {
+        if (!countryCode || !distinctId) {
+            return
+        }
+        const bucket = this.getOrCreateBucket(eventTs)
+        this.addCountryToBucket(bucket, countryCode, distinctId)
         this.prune()
     }
 
@@ -61,9 +77,25 @@ export class LiveMetricsSlidingWindow {
             }
         }
 
+        if (data.browsers) {
+            for (const [browserType, deviceIds] of data.browsers) {
+                for (const deviceId of deviceIds) {
+                    this.addBrowserToBucket(bucket, browserType, deviceId)
+                }
+            }
+        }
+
         if (data.paths) {
             for (const [path, count] of data.paths) {
                 bucket.paths.set(path, (bucket.paths.get(path) || 0) + count)
+            }
+        }
+
+        if (data.countries) {
+            for (const [countryCode, userIds] of data.countries) {
+                for (const userId of userIds) {
+                    this.addCountryToBucket(bucket, countryCode, userId)
+                }
             }
         }
 
@@ -77,17 +109,43 @@ export class LiveMetricsSlidingWindow {
         }
     }
 
-    private addDeviceToBucket(bucket: SlidingWindowBucket, deviceType: string, deviceId: string): void {
-        const bucketDeviceIds = bucket.devices.get(deviceType) ?? new Set<string>()
+    private addItemToBucket(
+        bucketMap: Map<string, Set<string>>,
+        globalCounts: Map<string, Map<string, number>>,
+        itemType: string,
+        itemId: string
+    ): void {
+        const bucketIds = bucketMap.get(itemType) ?? new Set<string>()
 
-        if (!bucketDeviceIds.has(deviceId)) {
-            bucketDeviceIds.add(deviceId)
-            bucket.devices.set(deviceType, bucketDeviceIds)
+        if (!bucketIds.has(itemId)) {
+            bucketIds.add(itemId)
+            bucketMap.set(itemType, bucketIds)
+
+            const typeCounts = globalCounts.get(itemType) ?? new Map<string, number>()
+            typeCounts.set(itemId, (typeCounts.get(itemId) || 0) + 1)
+            globalCounts.set(itemType, typeCounts)
+        }
+    }
+
+    private addDeviceToBucket(bucket: SlidingWindowBucket, deviceType: string, deviceId: string): void {
+        this.addItemToBucket(bucket.devices, this.deviceBucketCounts, deviceType, deviceId)
+    }
+
+    private addBrowserToBucket(bucket: SlidingWindowBucket, browserType: string, deviceId: string): void {
+        this.addItemToBucket(bucket.browsers, this.browserBucketCounts, browserType, deviceId)
+    }
+
+    private addCountryToBucket(bucket: SlidingWindowBucket, countryCode: string, distinctId: string): void {
+        const bucketUserIds = bucket.countries.get(countryCode) ?? new Set<string>()
+
+        if (!bucketUserIds.has(distinctId)) {
+            bucketUserIds.add(distinctId)
+            bucket.countries.set(countryCode, bucketUserIds)
 
             // Update global tracking
-            const deviceTypeCounts = this.deviceBucketCounts.get(deviceType) ?? new Map<string, number>()
-            deviceTypeCounts.set(deviceId, (deviceTypeCounts.get(deviceId) || 0) + 1)
-            this.deviceBucketCounts.set(deviceType, deviceTypeCounts)
+            const countryCounts = this.countryBucketCounts.get(countryCode) ?? new Map<string, number>()
+            countryCounts.set(distinctId, (countryCounts.get(distinctId) || 0) + 1)
+            this.countryBucketCounts.set(countryCode, countryCounts)
         }
     }
 
@@ -102,25 +160,50 @@ export class LiveMetricsSlidingWindow {
         }
     }
 
-    private removeDevicesFromTracking(bucket: SlidingWindowBucket): void {
-        for (const [deviceType, deviceIds] of bucket.devices) {
-            const deviceTypeCounts = this.deviceBucketCounts.get(deviceType)
-            if (!deviceTypeCounts) {
+    private removeItemsFromTracking(
+        bucketMap: Map<string, Set<string>>,
+        globalCounts: Map<string, Map<string, number>>
+    ): void {
+        for (const [itemType, itemIds] of bucketMap) {
+            const typeCounts = globalCounts.get(itemType)
+            if (!typeCounts) {
                 continue
             }
 
-            for (const deviceId of deviceIds) {
-                const count = deviceTypeCounts.get(deviceId) || 0
+            for (const itemId of itemIds) {
+                const count = typeCounts.get(itemId) || 0
                 if (count <= 1) {
-                    deviceTypeCounts.delete(deviceId)
+                    typeCounts.delete(itemId)
                 } else {
-                    deviceTypeCounts.set(deviceId, count - 1)
+                    typeCounts.set(itemId, count - 1)
                 }
             }
 
-            // Clean up empty device type maps
-            if (deviceTypeCounts.size === 0) {
-                this.deviceBucketCounts.delete(deviceType)
+            if (typeCounts.size === 0) {
+                globalCounts.delete(itemType)
+            }
+        }
+    }
+
+    private removeCountriesFromTracking(bucket: SlidingWindowBucket): void {
+        for (const [countryCode, userIds] of bucket.countries) {
+            const countryCounts = this.countryBucketCounts.get(countryCode)
+            if (!countryCounts) {
+                continue
+            }
+
+            for (const userId of userIds) {
+                const count = countryCounts.get(userId) || 0
+                if (count <= 1) {
+                    countryCounts.delete(userId)
+                } else {
+                    countryCounts.set(userId, count - 1)
+                }
+            }
+
+            // Clean up empty country maps
+            if (countryCounts.size === 0) {
+                this.countryBucketCounts.delete(countryCode)
             }
         }
     }
@@ -131,7 +214,9 @@ export class LiveMetricsSlidingWindow {
         for (const [ts, bucket] of this.buckets.entries()) {
             if (ts < threshold) {
                 this.removeUsersFromTracking(bucket)
-                this.removeDevicesFromTracking(bucket)
+                this.removeItemsFromTracking(bucket.devices, this.deviceBucketCounts)
+                this.removeItemsFromTracking(bucket.browsers, this.browserBucketCounts)
+                this.removeCountriesFromTracking(bucket)
                 this.buckets.delete(ts)
             }
         }
@@ -172,9 +257,49 @@ export class LiveMetricsSlidingWindow {
             .sort((a, b) => b.count - a.count)
     }
 
-    getTotalDeviceCount(): number {
+    getBrowserBreakdown(limit?: number): BrowserBreakdownItem[] {
         let total = 0
-        for (const deviceIdCounts of this.deviceBucketCounts.values()) {
+        const counts: { browser: string; count: number }[] = []
+
+        for (const [browserType, deviceIdCounts] of this.browserBucketCounts) {
+            const count = deviceIdCounts.size
+            total += count
+            counts.push({ browser: browserType, count })
+        }
+
+        if (total === 0) {
+            return []
+        }
+
+        const sorted = counts
+            .map(({ browser, count }) => ({
+                browser,
+                count,
+                percentage: (count / total) * 100,
+            }))
+            .sort((a, b) => b.count - a.count)
+
+        if (!limit || sorted.length <= limit) {
+            return sorted
+        }
+
+        const top = sorted.slice(0, limit)
+        const othersCount = sorted.slice(limit).reduce((sum, item) => sum + item.count, 0)
+
+        if (othersCount > 0) {
+            top.push({
+                browser: 'Other',
+                count: othersCount,
+                percentage: (othersCount / total) * 100,
+            })
+        }
+
+        return top
+    }
+
+    getTotalBrowsers(): number {
+        let total = 0
+        for (const deviceIdCounts of this.browserBucketCounts.values()) {
             total += deviceIdCounts.size
         }
         return total
@@ -193,6 +318,29 @@ export class LiveMetricsSlidingWindow {
             .slice(0, limit)
     }
 
+    getCountryBreakdown(): CountryBreakdownItem[] {
+        let total = 0
+        const counts: { country: string; count: number }[] = []
+
+        for (const [countryCode, userIdCounts] of this.countryBucketCounts) {
+            const count = userIdCounts.size
+            total += count
+            counts.push({ country: countryCode, count })
+        }
+
+        if (total === 0) {
+            return []
+        }
+
+        return counts
+            .map(({ country, count }) => ({
+                country,
+                count,
+                percentage: (count / total) * 100,
+            }))
+            .sort((a, b) => b.count - a.count)
+    }
+
     getTotalUniqueUsers(): number {
         return this.userBucketCounts.size
     }
@@ -206,8 +354,10 @@ export class LiveMetricsSlidingWindow {
             bucket = {
                 pageviews: 0,
                 devices: new Map<string, Set<string>>(),
+                browsers: new Map<string, Set<string>>(),
                 paths: new Map<string, number>(),
                 uniqueUsers: new Set<string>(),
+                countries: new Map<string, Set<string>>(),
             }
             this.buckets.set(bucketTs, bucket)
         }

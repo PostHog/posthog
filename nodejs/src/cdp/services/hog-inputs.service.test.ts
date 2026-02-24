@@ -223,7 +223,7 @@ describe('Hog Inputs', () => {
                     templating: 'liquid',
                     value: {
                         to: { email: '{{person.properties.email}}' },
-                        html: '<div>Unsubscribe here <a href="{{unsubscribe_url}}">here</a></div>',
+                        html: '<div>Manage subscription preferences here <a href="{{unsubscribe_url}}">here</a>Or, click <a href="{{unsubscribe_url_one_click}}">here</a> to immediately unsubscribe from all marketing emails</div>',
                     },
                 },
             }
@@ -233,7 +233,7 @@ describe('Hog Inputs', () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
             expect(inputs.email.to.email).toEqual('test@posthog.com')
             expect(inputs.email.html).toEqual(
-                `<div>Unsubscribe here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a></div>`
+                `<div>Manage subscription preferences here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a>Or, click <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/?one_click_unsubscribe=1">here</a> to immediately unsubscribe from all marketing emails</div>`
             )
         })
     })

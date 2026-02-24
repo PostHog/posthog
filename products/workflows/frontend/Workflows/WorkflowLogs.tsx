@@ -3,9 +3,9 @@ import { useValues } from 'kea'
 import { IconClock } from '@posthog/icons'
 import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { ListHog, SleepingHog } from 'lib/components/hedgehogs'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
-import { ListHog, SleepingHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
@@ -89,7 +89,7 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-2 items-start">
+            <div className="flex flex-col gap-2 items-start w-full">
                 <span className="text-muted">Job filters</span>
                 <PropertyFiltersDisplay
                     filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}

@@ -12,8 +12,8 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,7 +25,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
+import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -70,6 +71,7 @@ function DashboardScene(): JSX.Element {
         hasVariables,
     } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useFileSystemLogView({
@@ -97,7 +99,7 @@ function DashboardScene(): JSX.Element {
     return (
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
-            {canEditDashboard && <AddInsightToDashboardModal />}
+            {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />

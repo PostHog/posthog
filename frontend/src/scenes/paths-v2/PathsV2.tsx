@@ -13,8 +13,8 @@ import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 import { shouldQueryBeAsync } from '~/queries/utils'
 
 import { PathNodeLabel } from './PathNodeLabel'
-import type { PathNodeData } from './pathUtils'
 import { pathsDataLogic } from './pathsDataLogic'
+import type { PathNodeData } from './pathUtils'
 import { renderPaths } from './renderPaths'
 
 export function PathsV2(): JSX.Element {

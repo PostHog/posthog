@@ -32,6 +32,7 @@ import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -40,45 +41,44 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import 'lib/lemon-ui/Lettermark'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
+import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { SceneExport } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -101,15 +101,16 @@ import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
+import { FeatureFlagForm } from './FeatureFlagForm'
+import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
+import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
-import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
 
@@ -184,17 +185,18 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const useFormUI = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
 
     useFileSystemLogView({
         type: 'feature_flag',
         ref: featureFlag?.id,
         enabled: Boolean(
             currentTeamId &&
-                !featureFlagMissing &&
-                !accessDeniedToFeatureFlag &&
-                props.id !== 'new' &&
-                props.id !== 'link' &&
-                featureFlag?.id
+            !featureFlagMissing &&
+            !accessDeniedToFeatureFlag &&
+            props.id !== 'new' &&
+            props.id !== 'link' &&
+            featureFlag?.id
         ),
         deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
     })
@@ -212,6 +214,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 <LemonSkeleton active className="h-4 w-3/5" />
             </div>
         )
+    }
+
+    // Use new form UI for creating new flags or editing existing flags
+    // For viewing existing flags (readonly), use the existing FeatureFlag UI with tabs
+    if (useFormUI && (isNewFeatureFlag || isEditingFlag)) {
+        return <FeatureFlagForm id={id} />
     }
 
     if (accessDeniedToFeatureFlag) {
@@ -595,12 +603,18 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </>
                             )}
                             <SceneDivider />
-                            <SceneSection title="Tags & Evaluation Contexts">
+                            <SceneSection
+                                title={
+                                    featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]
+                                        ? 'Tags & evaluation contexts'
+                                        : 'Tags'
+                                }
+                            >
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
                                     <div className="text-secondary text-sm mb-2">
                                         Use tags to organize and filter your feature flags. Mark specific tags as{' '}
                                         <strong>evaluation contexts</strong> to control when flags can be evaluated –
-                                        flags will only evaluate when the SDK provides matching environment tags.{' '}
+                                        flags will only evaluate when the SDK provides matching evaluation contexts.{' '}
                                         <Link
                                             to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                             target="_blank"
@@ -748,7 +762,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        router.actions.push(urls.featureFlagDuplicate(featureFlag.id))
+                                        router.actions.push(urls.featureFlagNew({ sourceId: featureFlag.id }))
                                     }}
                                     menuItem
                                     data-attr={`${RESOURCE_TYPE}-duplicate`}
@@ -821,6 +835,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     (featureFlag.experiment_set?.length || 0) > 0,
                                                 'This feature flag is linked to a survey. Delete the survey to delete this flag':
                                                     (featureFlag.surveys?.length || 0) > 0,
+                                                'This feature flag is used in session replay settings for recording conditions. Remove it from replay settings to delete this flag':
+                                                    featureFlag.is_used_in_replay_settings || false,
                                             }}
                                         >
                                             {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
@@ -1027,6 +1043,7 @@ function FeatureFlagRollout({
         experiment,
         experimentLoading,
         dependentFlags,
+        featureFlagActiveUpdateLoading,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -1128,6 +1145,7 @@ function FeatureFlagRollout({
                                                     toggleFeatureFlagActive(newValue)
                                                 }}
                                                 label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                                                loading={featureFlagActiveUpdateLoading}
                                                 disabledReason={
                                                     !featureFlag.can_edit
                                                         ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
@@ -1240,98 +1258,26 @@ function FeatureFlagRollout({
                     </div>
                     <SceneDivider />
                     {featureFlag.filters.multivariate && (
-                        <>
-                            <SceneSection title="Variant keys">
-                                <FeatureFlagVariantsForm
-                                    variants={variants}
-                                    payloads={featureFlag.filters?.payloads}
-                                    readOnly={true}
-                                    flagKey={featureFlag.key}
-                                    hasEnrichedAnalytics={featureFlag.has_enriched_analytics}
-                                    onViewRecordings={(variantKey) => {
-                                        reportViewRecordingsClicked(variantKey)
-                                        addProductIntentForCrossSell({
-                                            from: ProductKey.FEATURE_FLAGS,
-                                            to: ProductKey.SESSION_REPLAY,
-                                            intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                        })
-                                    }}
-                                    onGetFeedback={onGetFeedback}
-                                    surveys={featureFlag.surveys ?? []}
-                                    variantErrors={variantErrors}
-                                />
-                            </SceneSection>
-
-                            <SceneSection title="Evaluation contexts">
-                                <div className="text-secondary text-sm mb-2">
-                                    Evaluation contexts provide fine-grained control over where and when your feature
-                                    flags evaluate. Combine evaluation runtime and context tags to control where and
-                                    when your feature flags evaluate.{' '}
-                                    <Link
-                                        to="https://posthog.com/docs/feature-flags/evaluation-environments"
-                                        target="_blank"
-                                        targetBlankIcon
-                                    >
-                                        Learn more about using evaluation contexts
-                                    </Link>
-                                </div>
-                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
-                                    <div>
-                                        <span className="card-secondary">Evaluation runtime</span>
-                                        <div className="mt-2">
-                                            <div className="flex items-center gap-2">
-                                                {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL ? (
-                                                    <>
-                                                        <IconGlobe className="text-lg text-muted" />
-                                                        <span className="font-medium">Both client and server</span>
-                                                        <LemonTag type="primary" size="small">
-                                                            Single + multi-user
-                                                        </LemonTag>
-                                                    </>
-                                                ) : featureFlag.evaluation_runtime ===
-                                                  FeatureFlagEvaluationRuntime.CLIENT ? (
-                                                    <>
-                                                        <IconLaptop className="text-lg text-muted" />
-                                                        <span className="font-medium">Client-side only</span>
-                                                        <LemonTag type="completion" size="small">
-                                                            Single-user apps
-                                                        </LemonTag>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <IconServer className="text-lg text-muted" />
-                                                        <span className="font-medium">Server-side only</span>
-                                                        <LemonTag type="caution" size="small">
-                                                            Multi-user systems
-                                                        </LemonTag>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                                {featureFlag.tags && featureFlag.tags.length > 0 && (
-                                    <>
-                                        <SceneDivider />
-                                        <div>
-                                            <span className="card-secondary">Tags</span>
-                                            <div className="mt-2">
-                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                                    <FeatureFlagEvaluationTags
-                                                        tags={featureFlag.tags}
-                                                        evaluationTags={featureFlag.evaluation_tags || []}
-                                                        flagId={featureFlag.id}
-                                                        context="static"
-                                                    />
-                                                ) : (
-                                                    <ObjectTags tags={featureFlag.tags} staticOnly />
-                                                )}
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-                            </SceneSection>
-                        </>
+                        <SceneSection title="Variant keys">
+                            <FeatureFlagVariantsForm
+                                variants={variants}
+                                payloads={featureFlag.filters?.payloads}
+                                readOnly={true}
+                                flagKey={featureFlag.key}
+                                hasEnrichedAnalytics={featureFlag.has_enriched_analytics}
+                                onViewRecordings={(variantKey) => {
+                                    reportViewRecordingsClicked(variantKey)
+                                    addProductIntentForCrossSell({
+                                        from: ProductKey.FEATURE_FLAGS,
+                                        to: ProductKey.SESSION_REPLAY,
+                                        intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                    })
+                                }}
+                                onGetFeedback={onGetFeedback}
+                                surveys={featureFlag.surveys ?? []}
+                                variantErrors={variantErrors}
+                            />
+                        </SceneSection>
                     )}
                 </>
             ) : (

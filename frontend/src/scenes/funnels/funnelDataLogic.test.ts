@@ -746,6 +746,59 @@ describe('funnelDataLogic', () => {
         })
     })
 
+    describe('breakdownSorting', () => {
+        const insight: Partial<InsightModel> = {
+            filters: { insight: InsightType.FUNNELS },
+            result: funnelResultWithBreakdown.result,
+        }
+
+        const getBreakdownOrder = (items: unknown[]): unknown[] =>
+            items.map((b: any) => {
+                const v = b.breakdown_value
+                return Array.isArray(v) ? v[0] : v
+            })
+
+        it.each([
+            ['breakdown_value', ['Baseline', 'Chrome', 'Firefox', 'Safari']],
+            ['-breakdown_value', ['Safari', 'Firefox', 'Chrome', 'Baseline']],
+            ['step_0_conversion', ['Safari', 'Firefox', 'Chrome', 'Baseline']],
+            ['-step_0_conversion', ['Baseline', 'Chrome', 'Firefox', 'Safari']],
+            ['step_1_conversion', ['Safari', 'Firefox', 'Chrome', 'Baseline']],
+            ['-step_1_conversion', ['Baseline', 'Chrome', 'Firefox', 'Safari']],
+        ])('flattenedBreakdowns sorts by %s', async (breakdownSorting: string, expectedOrder: string[]) => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { breakdownSorting },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const order = getBreakdownOrder(logic.values.flattenedBreakdowns)
+            expect(order).toEqual(expectedOrder)
+        })
+
+        it('visibleStepsWithConversionMetrics matches flattenedBreakdowns order', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { breakdownSorting: '-step_1_conversion' },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const { flattenedBreakdowns, visibleStepsWithConversionMetrics } = logic.values
+            const graphOrder = getBreakdownOrder(visibleStepsWithConversionMetrics[1].nested_breakdown ?? [])
+            expect(graphOrder).toEqual(getBreakdownOrder(flattenedBreakdowns))
+        })
+    })
+
     describe('time to convert funnel', () => {
         describe('timeConversionResults', () => {
             it('with time-to-convert funnel', async () => {
@@ -1057,6 +1110,135 @@ describe('funnelDataLogic', () => {
                     funnelWindowIntervalUnit: 'week',
                 },
             })
+        })
+
+        it('draft interval defaults to null before any edits', async () => {
+            await expectLogic(logic).toMatchValues({
+                conversionWindowInterval: null,
+                conversionWindowUnit: null,
+            })
+        })
+
+        it('setConversionWindowInterval updates the draft value', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setConversionWindowInterval(21)
+            }).toMatchValues({
+                conversionWindowInterval: 21,
+            })
+        })
+
+        it('setConversionWindowUnit updates the draft unit', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setConversionWindowUnit(FunnelConversionWindowTimeUnit.Hour)
+            }).toMatchValues({
+                conversionWindowUnit: FunnelConversionWindowTimeUnit.Hour,
+            })
+        })
+
+        it('commitConversionWindow resets to saved value when interval is empty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setConversionWindowInterval(0)
+                logic.actions.commitConversionWindow()
+            })
+                .toDispatchActions(['commitConversionWindow', 'setConversionWindowInterval'])
+                .toMatchValues({
+                    conversionWindowInterval: 14,
+                })
+        })
+
+        it('commitConversionWindow clamps values to bounds', async () => {
+            const funnelQuery: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnelWindowInterval: 14,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(funnelQuery)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversionWindowInterval(9999)
+                logic.actions.commitConversionWindow()
+            }).toMatchValues({
+                conversionWindowInterval: 365,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversionWindowInterval(-5)
+                logic.actions.commitConversionWindow()
+            }).toMatchValues({
+                conversionWindowInterval: 1,
+            })
+        })
+
+        it('commitConversionWindow calls updateInsightFilter when interval changed', async () => {
+            const funnelQuery: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnelWindowInterval: 14,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(funnelQuery)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversionWindowInterval(21)
+                logic.actions.commitConversionWindow()
+            })
+                .toDispatchActions(['commitConversionWindow', 'updateInsightFilter'])
+                .toFinishAllListeners()
+        })
+
+        it('commitConversionWindow calls updateInsightFilter when only unit changed', async () => {
+            const funnelQuery: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnelWindowInterval: 14,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(funnelQuery)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversionWindowUnit(FunnelConversionWindowTimeUnit.Hour)
+                logic.actions.commitConversionWindow()
+            })
+                .toDispatchActions(['commitConversionWindow', 'updateInsightFilter'])
+                .toFinishAllListeners()
+        })
+
+        it('commitConversionWindow does not call updateInsightFilter when value unchanged', async () => {
+            const funnelQuery: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnelWindowInterval: 14,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(funnelQuery)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversionWindowInterval(14)
+                logic.actions.commitConversionWindow()
+            })
+                .toNotHaveDispatchedActions(['updateInsightFilter'])
+                .toFinishAllListeners()
         })
     })
 

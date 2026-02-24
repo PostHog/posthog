@@ -13,10 +13,12 @@ import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { cdpJobSizeKb } from './shared'
+import { WarpstreamFetchTester } from './warpstream-fetch-tester'
 
 export class CyclotronJobQueueKafka {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
+    private fetchTester?: WarpstreamFetchTester
 
     constructor(
         private config: PluginsServerConfig,
@@ -44,6 +46,23 @@ export class CyclotronJobQueueKafka {
             const { backgroundTask } = await this.consumeKafkaBatch(messages)
             return { backgroundTask }
         })
+
+        if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
+            if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
+                try {
+                    this.fetchTester = new WarpstreamFetchTester(this.config)
+                    this.fetchTester.start()
+                    logger.info('🔄', 'WarpStream fetch tester initialized')
+                } catch (error) {
+                    logger.warn('🔄', 'Failed to initialize WarpStream fetch tester', {
+                        error: String(error),
+                    })
+                    this.fetchTester = undefined
+                }
+            }
+
+            logger.info('🔄', 'WarpStream fetch tester initialized')
+        }
     }
 
     public async stopConsumer() {
@@ -152,6 +171,14 @@ export class CyclotronJobQueueKafka {
 
             invocation.queueSource = 'kafka' // NOTE: We always set this here, as we know it came from kafka
             invocations.push(invocation)
+        }
+
+        if (this.fetchTester) {
+            try {
+                await this.fetchTester.maybeMeasureFetchLatency(messages)
+            } catch (error) {
+                logger.warn('fetch_tester_error', { error: String(error) })
+            }
         }
 
         return await this.consumeBatch(invocations)

@@ -16,7 +16,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
-from .activities.execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
+from .activities.execute_task_in_sandbox import ExecuteTaskOutput
 from .activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     GetSandboxForRepositoryOutput,
@@ -28,6 +28,8 @@ from .activities.get_task_processing_context import (
     get_task_processing_context,
 )
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
+from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
@@ -47,11 +49,17 @@ class ProcessTaskOutput:
     sandbox_id: Optional[str] = None
 
 
+SANDBOX_SESSION_TIMEOUT_MINUTES = 60
+
+
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[TaskProcessingContext] = None
         self._slack_thread_context: Optional[dict[str, Any]] = None
+        self._task_completed: bool = False
+        self._completion_status: str = "completed"
+        self._completion_error: Optional[str] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -99,24 +107,35 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             await self._post_slack_update()
 
-            result = await self._execute_task_in_sandbox(sandbox_id)
+            # Start agent-server for direct connection from Twig
+            agent_server_output = await self._start_agent_server(sandbox_id)
 
             await self._track_workflow_event(
-                "process_task_workflow_completed",
+                "process_task_agent_server_started",
                 {
                     "task_id": self.context.task_id,
                     "sandbox_id": sandbox_id,
-                    "exit_code": result.exit_code,
+                    "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
                 },
             )
 
-            await self._update_task_run_status("completed")
+            # Wait for completion signal or timeout
+            try:
+                await workflow.wait_condition(
+                    lambda: self._task_completed,
+                    timeout=timedelta(minutes=SANDBOX_SESSION_TIMEOUT_MINUTES),
+                )
+            except TimeoutError:
+                # Timeout reached without signal - treat as completed
+                self._completion_status = "completed"
+
+            await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
             await self._post_slack_update()
 
             return ProcessTaskOutput(
                 success=True,
-                task_result=result,
+                task_result=None,
                 error=None,
                 sandbox_id=sandbox_id,
             )
@@ -153,6 +172,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         finally:
             if sandbox_id:
+                await self._read_sandbox_logs(sandbox_id)
                 await self._cleanup_sandbox(sandbox_id)
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
@@ -180,12 +200,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _execute_task_in_sandbox(self, sandbox_id: str) -> ExecuteTaskOutput:
-        execute_input = ExecuteTaskInput(context=self.context, sandbox_id=sandbox_id)
+    async def _read_sandbox_logs(self, sandbox_id: str) -> None:
+        try:
+            logs = await workflow.execute_activity(
+                read_sandbox_logs,
+                ReadSandboxLogsInput(sandbox_id=sandbox_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if logs:
+                workflow.logger.info(f"Agent-server logs from sandbox {sandbox_id}:\n{logs}")
+        except Exception as e:
+            workflow.logger.warning(f"Failed to read sandbox logs: {e}")
+
+    async def _start_agent_server(self, sandbox_id: str) -> StartAgentServerOutput:
         return await workflow.execute_activity(
-            execute_task_in_sandbox,
-            execute_input,
-            start_to_close_timeout=timedelta(minutes=60),
+            start_agent_server,
+            StartAgentServerInput(context=self.context, sandbox_id=sandbox_id),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -245,3 +277,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+
+    @temporalio.workflow.signal
+    async def complete_task(self, status: str = "completed", error_message: Optional[str] = None) -> None:
+        """Signal from API that task is complete."""
+        self._completion_status = status
+        self._completion_error = error_message
+        self._task_completed = True

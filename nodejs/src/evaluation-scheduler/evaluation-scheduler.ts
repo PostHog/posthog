@@ -110,14 +110,37 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
     }
 
     // Build globals for HogVM execution
+    let personProperties = {}
+    let eventProperties = {}
+
+    try {
+        personProperties = parseJSON(event.person_properties || '{}')
+    } catch (e) {
+        logger.warn('Failed to parse person_properties', {
+            conditionId: condition.id,
+            eventUuid: event.uuid,
+            error: e instanceof Error ? e.message : String(e),
+        })
+    }
+
+    try {
+        eventProperties = parseJSON(event.properties || '{}')
+    } catch (e) {
+        logger.warn('Failed to parse event properties', {
+            conditionId: condition.id,
+            eventUuid: event.uuid,
+            error: e instanceof Error ? e.message : String(e),
+        })
+    }
+
     const filterGlobals = {
         event: event.event,
         elements_chain: event.elements_chain || '',
         distinct_id: event.distinct_id,
         person: {
-            properties: {},
+            properties: personProperties,
         },
-        properties: parseJSON(event.properties || '{}'),
+        properties: eventProperties,
     }
 
     try {

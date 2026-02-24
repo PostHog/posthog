@@ -53,3 +53,28 @@ export interface EvaluationRun {
     reasoning: string
     status: 'completed' | 'failed' | 'running'
 }
+
+export type EvaluationSummaryFilter = 'all' | 'pass' | 'fail' | 'na'
+
+export interface EvaluationPattern {
+    title: string
+    description: string
+    frequency: string
+    example_generation_ids: string[]
+}
+
+export interface EvaluationSummaryStatistics {
+    total_analyzed: number
+    pass_count: number
+    fail_count: number
+    na_count: number
+}
+
+export interface EvaluationSummary {
+    overall_assessment: string
+    pass_patterns: EvaluationPattern[]
+    fail_patterns: EvaluationPattern[]
+    na_patterns: EvaluationPattern[]
+    recommendations: string[]
+    statistics: EvaluationSummaryStatistics
+}

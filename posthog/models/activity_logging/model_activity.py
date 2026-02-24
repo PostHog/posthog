@@ -28,7 +28,11 @@ class ModelActivityMixin(models.Model):
     """
     A mixin that automatically sends activity signals when a model is created or updated.
     The model's class name will be used as the scope for activity logging.
+
+    Set `activity_logging_on_delete = True` on the model class to also log deletions.
     """
+
+    activity_logging_on_delete: bool = False
 
     class Meta:
         # This is a mixin, so we don't need to create a table for it
@@ -55,6 +59,20 @@ class ModelActivityMixin(models.Model):
                 user=get_current_user(),
                 was_impersonated=get_was_impersonated(),
             )
+
+    def delete(self, *args: Any, **kwargs: Any) -> Any:
+        if self.activity_logging_on_delete:
+            model_activity_signal.send(
+                sender=self.__class__,
+                scope=self.__class__.__name__,
+                before_update=self,
+                after_update=None,
+                activity="deleted",
+                user=get_current_user(),
+                was_impersonated=get_was_impersonated(),
+            )
+
+        return super().delete(*args, **kwargs)
 
     def _get_before_update(self, **kwargs) -> Any:
         before_update = None

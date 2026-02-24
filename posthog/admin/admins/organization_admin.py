@@ -9,6 +9,7 @@ from django.template.loader import render_to_string
 from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.module_loading import import_string
 from django.utils.safestring import mark_safe
 
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
@@ -18,6 +19,103 @@ from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
+
+# Registry of models to count for bulk-delete report.
+# Format: (model_import_path, filter_field, display_name)
+# This mirrors delete_bulky_postgres_data() in posthog/models/team/util.py
+# When bulk-delete changes, update this list accordingly.
+# Note: CohortPeople and BatchExport require special handling (see below)
+BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
+    ("products.early_access_features.backend.models.EarlyAccessFeature", "team_id", "Early Access Features"),
+    ("posthog.models.person.PersonDistinctId", "team_id", "Person Distinct IDs"),
+    ("posthog.models.person.PersonlessDistinctId", "team_id", "Personless Distinct IDs"),
+    (
+        "products.error_tracking.backend.models.ErrorTrackingIssueFingerprintV2",
+        "team_id",
+        "Error Tracking Fingerprints",
+    ),
+    ("posthog.models.feature_flag.feature_flag.FeatureFlagHashKeyOverride", "team_id", "Feature Flag Overrides"),
+    ("posthog.models.group.group.Group", "team_id", "Groups"),
+    ("posthog.models.group_type_mapping.GroupTypeMapping", "team_id", "Group Type Mappings"),
+    ("posthog.models.person.Person", "team_id", "Persons"),
+    ("posthog.models.insight_caching_state.InsightCachingState", "team_id", "Insight Caching States"),
+)
+
+
+def get_model_counts_for_organization(organization: Organization) -> list[dict]:
+    """
+    Returns counts of all bulk-delete models for teams in this organization.
+    """
+    from posthog.models.cohort import Cohort, CohortPeople
+
+    team_ids = list(organization.teams.values_list("id", flat=True))
+    if not team_ids:
+        return []
+
+    results = []
+    for model_path, filter_field, display_name in BULK_DELETE_MODEL_REGISTRY:
+        try:
+            model_class = import_string(model_path)
+            count = model_class.objects.filter(**{f"{filter_field}__in": team_ids}).count()
+            results.append(
+                {
+                    "name": display_name,
+                    "count": count,
+                    "model": model_class._meta.label,
+                }
+            )
+        except Exception as e:
+            results.append(
+                {
+                    "name": display_name,
+                    "count": f"Error: {e}",
+                    "model": model_path,
+                }
+            )
+
+    # CohortPeople is in persons_db, Cohort is in default db - can't do cross-db JOIN
+    # Must first get cohort_ids from default db, then count CohortPeople by cohort_id
+    try:
+        cohort_ids = list(Cohort.objects.filter(team_id__in=team_ids).values_list("id", flat=True))
+        cohort_people_count = CohortPeople.objects.filter(cohort_id__in=cohort_ids).count() if cohort_ids else 0
+        results.append(
+            {
+                "name": "Cohort People",
+                "count": cohort_people_count,
+                "model": CohortPeople._meta.label,
+            }
+        )
+    except Exception as e:
+        results.append(
+            {
+                "name": "Cohort People",
+                "count": f"Error: {e}",
+                "model": "posthog.models.cohort.CohortPeople",
+            }
+        )
+
+    # BatchExport requires deleted=False filter to match delete_batch_exports() behavior
+    try:
+        from posthog.batch_exports.models import BatchExport
+
+        batch_export_count = BatchExport.objects.filter(team_id__in=team_ids, deleted=False).count()
+        results.append(
+            {
+                "name": "Batch Exports",
+                "count": batch_export_count,
+                "model": BatchExport._meta.label,
+            }
+        )
+    except Exception as e:
+        results.append(
+            {
+                "name": "Batch Exports",
+                "count": f"Error: {e}",
+                "model": "posthog.batch_exports.models.BatchExport",
+            }
+        )
+
+    return sorted(results, key=lambda x: x["name"])
 
 
 class UsageReportForm(forms.Form):
@@ -44,6 +142,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "usage_display",
         "limited_products_display",
         "customer_trust_scores",
+        "bulk_delete_data_display",
         "is_active",
         "is_not_active_reason",
         "is_hipaa",
@@ -60,6 +159,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "usage_display",
         "limited_products_display",
         "customer_trust_scores",
+        "bulk_delete_data_display",
     ]
     search_fields = ("name", "members__email", "team__api_token")
     list_display = (
@@ -189,6 +289,13 @@ class OrganizationAdmin(admin.ModelAdmin):
             )
         )
 
+    @admin.display(description="Child model counts")
+    def bulk_delete_data_display(self, organization: Organization):
+        if not organization.pk:
+            return "-"
+        url = reverse("admin:organization_model_counts", args=[organization.pk])
+        return format_html('<a class="button" href="{}">View counts</a>', url)
+
     def limit_product_view(self, request, organization_id):
         from ee.billing.quota_limiting import QuotaResource
 
@@ -244,8 +351,28 @@ class OrganizationAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.unlimit_product_view),
                 name="unlimit_product",
             ),
+            path(
+                "<path:organization_id>/model-counts/",
+                self.admin_site.admin_view(self.model_counts_view),
+                name="organization_model_counts",
+            ),
         ]
         return custom_urls + urls
+
+    def model_counts_view(self, request, organization_id):
+        organization = Organization.objects.get(id=organization_id)
+        counts = get_model_counts_for_organization(organization)
+        total = sum(c["count"] for c in counts if isinstance(c["count"], int))
+
+        return render(
+            request,
+            "admin/organization/model_counts.html",
+            {
+                "organization": organization,
+                "counts": counts,
+                "total": total,
+            },
+        )
 
     def send_usage_report_view(self, request):
         if not request.user.groups.filter(name="Billing Team").exists():

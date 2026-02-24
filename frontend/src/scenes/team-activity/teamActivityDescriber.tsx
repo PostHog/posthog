@@ -1,4 +1,3 @@
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -8,6 +7,7 @@ import {
     defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -121,7 +121,7 @@ function createSimpleValueHandler(fieldName: string, options: { useEmphasis?: bo
             return null
         }
 
-        const valueElement = useEmphasis ? <em>{change.after}</em> : change.after
+        const valueElement = useEmphasis ? <em>{String(change.after)}</em> : change.after
         return {
             description: [
                 <>
@@ -144,7 +144,7 @@ function createFixedVerbValueHandler(
             return null
         }
 
-        const valueElement = useEmphasis ? <em>{change.after}</em> : change.after
+        const valueElement = useEmphasis ? <em>{String(change.after)}</em> : change.after
         return {
             description: [
                 <>
@@ -157,7 +157,7 @@ function createFixedVerbValueHandler(
 
 const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) => ChangeMapping | null> = {
     // API-related tokens
-    api_token: createApiTokenHandler('project API key', 'set', 'reset'),
+    api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
     secret_api_token_backup: (change) => {
         if (change.after === undefined || change.action !== 'deleted') {
@@ -583,7 +583,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
                 <>
                     {change.action === 'created' ? 'set' : 'changed'} the <em>primary dashboard</em> to{' '}
                     <Link to={urls.dashboard(change.after as number)}>
-                        <em>{change.after}</em>
+                        <em>{String(change.after)}</em>
                     </Link>
                 </>,
             ],
@@ -753,6 +753,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     web_analytics_pre_aggregated_tables_version: () => null,
     experiment_recalculation_time: () => null,
     default_experiment_confidence_level: () => null,
+    default_experiment_stats_method: () => null,
     managed_viewsets: () => null,
 }
 

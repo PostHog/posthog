@@ -1,0 +1,5 @@
+# Lifecycle (unique users by pageviews)
+
+```sql
+{{ render_hogql_example({"kind": "LifecycleQuery", "filterTestAccounts": false, "series": [{"kind": "EventsNode", "event": "$pageview"}], "dateRange": {"date_from": "-7d"}, "interval": "day"}) }}
+```

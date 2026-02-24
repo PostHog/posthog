@@ -1,0 +1,2 @@
+hogli dev:setup now lets you configure which services to start
+Use 'hogli dev:explain' to see why each service is running

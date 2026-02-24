@@ -91,7 +91,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                     }
                 >
                     <div
-                        className="flex items-center gap-2 cursor-pointer"
+                        className="flex items-center gap-2 cursor-pointer h-[33px] mx-1"
                         onClick={() => handleToggleEngine(!isUsingNewEngine)}
                         onMouseEnter={() => setShowPopover(true)}
                         onMouseLeave={() => setShowPopover(false)}

@@ -60,7 +60,7 @@ export const sidePanelContextLogic = kea<sidePanelContextLogicType>([
                     ...(!context?.activity_scope ? activityFiltersForScene(sceneConfig) : {}),
                 }
             },
-            { equalityCheck: objectsEqual },
+            { resultEqualityCheck: objectsEqual },
         ],
     }),
 ])

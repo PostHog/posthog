@@ -13,6 +13,7 @@ const RICH_LOG_REGEX = /(\[[a-zA-Z0-9_-]+:.*?\])/
 
 const ACTION_REGEX = /\[Action:([a-zA-Z0-9_-]+)\]/
 const PERSON_REGEX = /\[Person:([a-zA-Z0-9_-]+)\|(.*?)\]/
+const EVENT_REGEX = /\[Event:([a-zA-Z0-9_-]+)\|(.*?)\|(.*?)\]/
 const ACTOR_REGEX = /\[Actor:(.*?)\]/
 
 export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
@@ -72,7 +73,29 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
             continue
         }
 
-        elements.push(part)
+        const matchesEventRegex = EVENT_REGEX.exec(part)
+        if (matchesEventRegex) {
+            const eventUuid = matchesEventRegex[1]
+            const eventName = matchesEventRegex[2]
+            const eventTimestamp = matchesEventRegex[3]
+
+            elements.push(
+                <Link
+                    key={part}
+                    className="rounded p-1 -m-1 bg-border text-bg-primary"
+                    to={urls.event(eventUuid, eventTimestamp)}
+                    target="_blank"
+                    targetBlankIcon
+                >
+                    Event: {eventName}
+                </Link>
+            )
+            continue
+        }
+
+        if (part) {
+            elements.push(part)
+        }
     }
 
     return <>{elements}</>

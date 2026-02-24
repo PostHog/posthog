@@ -123,6 +123,7 @@ def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[
 
     if actions is None:
         # If not provided as an optimization we fetch all actions
+        # nosemgrep: idor-lookup-without-team (already scoped by team__project_id)
         actions_list = (
             Action.objects.select_related("team")
             .filter(team__project_id=team.project_id)

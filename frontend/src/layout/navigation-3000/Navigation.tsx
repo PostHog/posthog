@@ -7,24 +7,25 @@ import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
-import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
 
-import { ProjectNotice } from '../navigation/ProjectNotice'
 import { navigationLogic } from '../navigation/navigationLogic'
-import { SceneLayout } from '../scenes/SceneLayout'
-import { SceneTabs } from '../scenes/SceneTabs'
+import { ProjectNotice } from '../navigation/ProjectNotice'
 import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
+import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
+import { SceneTabs } from '../scenes/SceneTabs'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
+import { SidePanelOfframpModal } from './sidepanel/SidePanelOfframpModal'
 import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
 import { themeLogic } from './themeLogic'
 
@@ -47,9 +48,9 @@ export function Navigation({
     const { activeTabId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const { sidePanelOpen, sidePanelAvailable } = useValues(sidePanelStateLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     // Set container ref so we can measure the width of the scene layout in logic
@@ -84,8 +85,7 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
-                    'app-layout--sidepanel-open': isRemovingSidePanelFlag && sidePanelOpen && sidePanelAvailable,
-                    'app-layout--ai-first': isRemovingSidePanelFlag,
+                    'app-layout--scene-side-panel reduce-visual-noise': isRemovingSidePanelFlag,
                 })}
                 style={
                     {
@@ -118,7 +118,8 @@ export function Navigation({
                             '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative',
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
-                                'lg:mr-2': isRemovingSidePanelFlag,
+                                'lg:mr-1 lg:mb-1': isRemovingSidePanelFlag,
+                                'rounded-r-none': isRemovingSidePanelFlag && sidePanelOpen,
                             }
                         )}
                     >
@@ -128,12 +129,15 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 transition-[width] duration-300 rounded-t',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||
                                         sceneConfig?.layout === 'app-raw',
                                     'rounded-tl-none': firstTabIsActive,
+                                    'focus-visible:outline-none': isRemovingSidePanelFlag,
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
+                                        isRemovingSidePanelFlag && sidePanelOpen,
                                 }
                             )}
                             onScroll={(e) => {
@@ -156,6 +160,7 @@ export function Navigation({
                                     </div>
                                 )}
                                 {children}
+                                {isRemovingSidePanelFlag && <SidePanel />}
                             </SceneLayout>
                         </main>
 
@@ -186,9 +191,10 @@ export function Navigation({
                             </>
                         )}
                     </div>
-                    <SidePanel className="right-nav" />
+                    {!isRemovingSidePanelFlag && <SidePanel className="right-nav" />}
                 </ProjectDragAndDropProvider>
             </div>
+            {isRemovingSidePanelFlag && <SidePanelOfframpModal />}
         </>
     )
 }

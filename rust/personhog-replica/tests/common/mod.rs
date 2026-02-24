@@ -28,7 +28,8 @@ impl TestContext {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("Failed to connect to test database");
-        let storage = Arc::new(PostgresStorage::new(pool.clone()));
+        // In tests, use the same pool for both primary and replica
+        let storage = Arc::new(PostgresStorage::new(pool.clone(), pool.clone()));
         let team_id = random_team_id();
 
         Self {

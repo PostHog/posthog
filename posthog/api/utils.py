@@ -589,12 +589,23 @@ ACTIVITY_TYPES = {
 }
 
 
-def log_activity_from_viewset(viewset, instance, activity=None, name=None, previous=None) -> None:
+def log_activity_from_viewset(
+    viewset, instance, activity=None, name=None, previous=None, detail_type=None, short_id=None
+) -> None:
     try:
         model_class = instance.__class__.__name__
         name = name or model_class
         activity = activity or ACTIVITY_TYPES.get(viewset.action, ACTIVITY_TYPES["default"])
-        changes = changes_between(model_class, previous=previous, current=instance)
+
+        detail_kwargs = {"name": name}
+        if previous is not None:
+            changes = changes_between(model_class, previous=previous, current=instance)
+            detail_kwargs["changes"] = changes
+        if detail_type is not None:
+            detail_kwargs["type"] = detail_type
+        if short_id is not None:
+            detail_kwargs["short_id"] = short_id
+
         log_activity(
             organization_id=viewset.organization.id,
             team_id=viewset.team.id,
@@ -603,7 +614,7 @@ def log_activity_from_viewset(viewset, instance, activity=None, name=None, previ
             item_id=str(instance.id),
             scope=model_class,
             activity=activity,
-            detail=Detail(name=name, changes=changes),
+            detail=Detail(**detail_kwargs),
         )
     except:
         pass

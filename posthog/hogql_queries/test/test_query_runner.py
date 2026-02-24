@@ -38,8 +38,19 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
-from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
+
+MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
+    "01977f7b-7f29-0000-a028-7275d1a767a4": {
+        "cost": "cost",
+        "date": "date",
+        "clicks": "clicks",
+        "source": "_metadata_launched_at",
+        "campaign": "campaignname",
+        "currency": "const:USD",
+        "impressions": "impressions",
+    },
+}
 
 
 class TheTestQuery(BaseModel):
@@ -135,9 +146,8 @@ class TestQueryRunner(BaseTest):
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "sessionTableVersion": SessionTableVersion.AUTO,
-                "sessionsV2JoinMode": SessionsV2JoinMode.STRING,
+                "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
-                "usePresortedEventsTable": False,
             },
             "products_modifiers": {
                 "marketing_analytics": {
@@ -154,7 +164,7 @@ class TestQueryRunner(BaseTest):
                             "clicks": "clicks",
                             "source": "_metadata_launched_at",
                             "campaign": "campaignname",
-                            "currency": "USD",
+                            "currency": "const:USD",
                             "impressions": "impressions",
                         },
                     },
@@ -216,7 +226,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_10d08b5eaad18162e0e4148a88d636d94517b589c29c253770ad996196f4bbb5"
+        assert cache_key == "cache_42_d68402e95878ead60a4807e978507a742edf81e4631a074eef9522805a8ca577"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -230,7 +240,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_d7401ca838bc18ba5c24f0512b6e60c687f0183c55a8c6933ca769581f2e6c8f"
+        assert cache_key == "cache_42_4bf69109c1bad5426b0bf38d932fad258696bf2fd7896316939274a337a2a850"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -241,7 +251,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_2b964378e4e1ae5d050d8deddcb22266c74d8541e462103c06929e62a7549ed2"
+        assert cache_key == "cache_42_dcce3a4bced9b8188b8e72ca3b1e94445e369e41c08bc2391f3b1ecae42ee1db"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

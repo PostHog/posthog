@@ -2,7 +2,7 @@ import json
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from posthog.models.utils import UUIDTModel
@@ -121,9 +121,27 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
     redis_client.set(redis_key, json.dumps(data))
 
 
+@receiver(pre_save, sender=EventIngestionRestrictionConfig)
+def capture_old_restriction_type(sender, instance, **kwargs):
+    """Capture the old restriction_type before save to handle type changes."""
+    if instance.pk:
+        try:
+            old_instance = EventIngestionRestrictionConfig.objects.get(pk=instance.pk)
+            instance._old_restriction_type = old_instance.restriction_type
+        except EventIngestionRestrictionConfig.DoesNotExist:
+            instance._old_restriction_type = None
+    else:
+        instance._old_restriction_type = None
+
+
 @receiver(post_save, sender=EventIngestionRestrictionConfig)
 def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
     regenerate_redis_for_restriction_type(instance.restriction_type)
+
+    # If restriction_type changed, also regenerate the old type's Redis key
+    old_restriction_type = getattr(instance, "_old_restriction_type", None)
+    if old_restriction_type and old_restriction_type != instance.restriction_type:
+        regenerate_redis_for_restriction_type(old_restriction_type)
 
 
 @receiver(post_delete, sender=EventIngestionRestrictionConfig)

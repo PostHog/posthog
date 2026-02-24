@@ -1,4 +1,5 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
 export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -24,8 +25,9 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        If you're using a different server-side SDK or prefer to use the API, you can manually capture the data
-                        by calling the `capture` method or using the [capture API](https://posthog.com/docs/api/capture).
+                        If you're using a different server-side SDK or prefer to use the API, you can manually capture
+                        the data by calling the `capture` method or using the [capture
+                        API](https://posthog.com/docs/api/capture).
                     </Markdown>
 
                     <Tab.Group tabs={languages.map((l) => l.label)}>
@@ -49,7 +51,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                     code={dedent`
                                                         import { PostHog } from 'posthog-node'
 
-                                                        const client = new PostHog('<ph_project_api_key>', {
+                                                        const client = new PostHog('<ph_project_token>', {
                                                             host: '<ph_client_api_host>'
                                                         })
                                                     `}
@@ -71,7 +73,10 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                 $ai_input_tokens: 10,
                                                                 $ai_output_choices: [{ role: 'assistant', content: 'Hedgehogs have around 5,000 to 7,000 spines on their backs!' }],
                                                                 $ai_output_tokens: 20,
-                                                                $ai_latency: 1.5
+                                                                $ai_latency: 1.5,
+                                                                // For streaming responses, also include:
+                                                                // $ai_stream: true,
+                                                                // $ai_time_to_first_token: 0.25
                                                             }
                                                         })
 
@@ -92,7 +97,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                     code={dedent`
                                                         from posthog import Posthog
 
-                                                        posthog = Posthog("<ph_project_api_key>", host="<ph_client_api_host>")
+                                                        posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
                                                     `}
                                                 />
 
@@ -112,7 +117,10 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                 '$ai_input_tokens': 10,
                                                                 '$ai_output_choices': [{'role': 'assistant', 'content': 'Hedgehogs have around 5,000 to 7,000 spines on their backs!'}],
                                                                 '$ai_output_tokens': 20,
-                                                                '$ai_latency': 1.5
+                                                                '$ai_latency': 1.5,
+                                                                # For streaming responses, also include:
+                                                                # '$ai_stream': True,
+                                                                # '$ai_time_to_first_token': 0.25
                                                             }
                                                         )
                                                     `}
@@ -123,7 +131,10 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Go' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="go get github.com/posthog/posthog-go" />
+                                                <CodeBlock
+                                                    language="bash"
+                                                    code="go get github.com/posthog/posthog-go"
+                                                />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -131,7 +142,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                     code={dedent`
                                                         import "github.com/posthog/posthog-go"
 
-                                                        client, _ := posthog.NewWithConfig("<ph_project_api_key>", posthog.Config{
+                                                        client, _ := posthog.NewWithConfig("<ph_project_token>", posthog.Config{
                                                             Endpoint: "<ph_client_api_host>",
                                                         })
                                                         defer client.Close()
@@ -153,6 +164,9 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                 "$ai_input_tokens":    10,
                                                                 "$ai_output_tokens":   20,
                                                                 "$ai_latency":         1.5,
+                                                                // For streaming responses, also include:
+                                                                // "$ai_stream":              true,
+                                                                // "$ai_time_to_first_token": 0.25,
                                                             },
                                                         })
                                                     `}
@@ -172,7 +186,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                         require 'posthog-ruby'
 
                                                         posthog = PostHog::Client.new({
-                                                            api_key: '<ph_project_api_key>',
+                                                            api_key: '<ph_project_token>',
                                                             host: '<ph_client_api_host>'
                                                         })
                                                     `}
@@ -193,6 +207,9 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             '$ai_input_tokens' => 10,
                                                             '$ai_output_tokens' => 20,
                                                             '$ai_latency' => 1.5
+                                                            # For streaming responses, also include:
+                                                            # '$ai_stream' => true,
+                                                            # '$ai_time_to_first_token' => 0.25
                                                             }
                                                         })
                                                     `}
@@ -203,7 +220,10 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'PHP' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="composer require posthog/posthog-php" />
+                                                <CodeBlock
+                                                    language="bash"
+                                                    code="composer require posthog/posthog-php"
+                                                />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -213,7 +233,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                         require_once __DIR__ . '/vendor/autoload.php';
                                                         use PostHog\\PostHog;
 
-                                                        PostHog::init('<ph_project_api_key>', [
+                                                        PostHog::init('<ph_project_token>', [
                                                             'host' => '<ph_client_api_host>'
                                                         ]);
                                                     `}
@@ -234,6 +254,9 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                 '$ai_input_tokens' => 10,
                                                                 '$ai_output_tokens' => 20,
                                                                 '$ai_latency' => 1.5
+                                                                // For streaming responses, also include:
+                                                                // '$ai_stream' => true,
+                                                                // '$ai_time_to_first_token' => 0.25
                                                             ]
                                                         ]);
                                                     `}
@@ -250,7 +273,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                         curl -X POST "<ph_client_api_host>/i/v0/e/" \\
                                                                 -H "Content-Type: application/json" \\
                                                                 -d '{
-                                                                    "api_key": "<ph_project_api_key>",
+                                                                    "api_key": "<ph_project_token>",
                                                                     "event": "$ai_generation",
                                                                     "properties": {
                                                                         "distinct_id": "user_123",
@@ -261,7 +284,9 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                         "$ai_input_tokens": 10,
                                                                         "$ai_output_choices": [{"role": "assistant", "content": "Hedgehogs have around 5,000 to 7,000 spines on their backs!"}],
                                                                         "$ai_output_tokens": 20,
-                                                                        "$ai_latency": 1.5
+                                                                        "$ai_latency": 1.5,
+                                                                        "$ai_stream": true,
+                                                                        "$ai_time_to_first_token": 0.25
                                                                     }
                                                                 }'
                                                     `}

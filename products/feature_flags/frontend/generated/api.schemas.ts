@@ -20,14 +20,14 @@
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -78,12 +78,12 @@ export type FeatureFlagCreationContextEnumApi =
     (typeof FeatureFlagCreationContextEnumApi)[keyof typeof FeatureFlagCreationContextEnumApi]
 
 export const FeatureFlagCreationContextEnumApi = {
-    feature_flags: 'feature_flags',
-    experiments: 'experiments',
-    surveys: 'surveys',
-    early_access_features: 'early_access_features',
-    web_experiments: 'web_experiments',
-    product_tours: 'product_tours',
+    FeatureFlags: 'feature_flags',
+    Experiments: 'experiments',
+    Surveys: 'surveys',
+    EarlyAccessFeatures: 'early_access_features',
+    WebExperiments: 'web_experiments',
+    ProductTours: 'product_tours',
 } as const
 
 /**
@@ -94,9 +94,9 @@ export const FeatureFlagCreationContextEnumApi = {
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
 export const EvaluationRuntimeEnumApi = {
-    server: 'server',
-    client: 'client',
-    all: 'all',
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
 } as const
 
 /**
@@ -106,8 +106,8 @@ export const EvaluationRuntimeEnumApi = {
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
 export const BucketingIdentifierEnumApi = {
-    distinct_id: 'distinct_id',
-    device_id: 'device_id',
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
 } as const
 
 export type FeatureFlagApiFilters = { [key: string]: unknown }
@@ -186,6 +186,8 @@ export interface FeatureFlagApi {
     last_called_at?: string | null
     _create_in_folder?: string
     _should_create_usage_dashboard?: boolean
+    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    readonly is_used_in_replay_settings: boolean
 }
 
 export interface PaginatedFeatureFlagListApi {
@@ -273,6 +275,8 @@ export interface PatchedFeatureFlagApi {
     last_called_at?: string | null
     _create_in_folder?: string
     _should_create_usage_dashboard?: boolean
+    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    readonly is_used_in_replay_settings?: boolean
 }
 
 export interface ChangeApi {
@@ -420,34 +424,34 @@ export type FeatureFlagsListParams = {
 export type FeatureFlagsListActive = (typeof FeatureFlagsListActive)[keyof typeof FeatureFlagsListActive]
 
 export const FeatureFlagsListActive = {
-    STALE: 'STALE',
-    false: 'false',
-    true: 'true',
+    Stale: 'STALE',
+    False: 'false',
+    True: 'true',
 } as const
 
 export type FeatureFlagsListEvaluationRuntime =
     (typeof FeatureFlagsListEvaluationRuntime)[keyof typeof FeatureFlagsListEvaluationRuntime]
 
 export const FeatureFlagsListEvaluationRuntime = {
-    both: 'both',
-    client: 'client',
-    server: 'server',
+    Both: 'both',
+    Client: 'client',
+    Server: 'server',
 } as const
 
 export type FeatureFlagsListHasEvaluationTags =
     (typeof FeatureFlagsListHasEvaluationTags)[keyof typeof FeatureFlagsListHasEvaluationTags]
 
 export const FeatureFlagsListHasEvaluationTags = {
-    false: 'false',
-    true: 'true',
+    False: 'false',
+    True: 'true',
 } as const
 
 export type FeatureFlagsListType = (typeof FeatureFlagsListType)[keyof typeof FeatureFlagsListType]
 
 export const FeatureFlagsListType = {
-    boolean: 'boolean',
-    experiment: 'experiment',
-    multivariant: 'multivariant',
+    Boolean: 'boolean',
+    Experiment: 'experiment',
+    Multivariant: 'multivariant',
 } as const
 
 export type FeatureFlagsActivityRetrieve2Params = {

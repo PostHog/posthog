@@ -242,6 +242,31 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(len(response.json()["messages"]), 1)
         self.assertEqual(response.json()["messages"][0]["content"], "Public message")
 
+    def test_get_messages_does_not_expose_is_private_field(self):
+        """Verify is_private field is never sent to widget, even for public messages."""
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Public message",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["messages"]), 1)
+        # is_private should NOT be present in the response
+        self.assertNotIn("is_private", response.json()["messages"][0])
+
     def test_get_messages_wrong_widget_session_forbidden(self):
         ticket = Ticket.objects.create_with_number(
             team=self.team,

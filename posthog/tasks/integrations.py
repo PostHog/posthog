@@ -63,3 +63,13 @@ def refresh_integration(id: int) -> int:
         firebase_integration.refresh_access_token()
 
     return 0
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
+def push_vercel_secrets(team_id: int) -> None:
+    from posthog.models.team import Team
+
+    from ee.vercel.integration import VercelIntegration
+
+    team = Team.objects.get(id=team_id)
+    VercelIntegration.push_secrets_to_vercel(team)

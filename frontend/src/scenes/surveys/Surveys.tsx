@@ -7,14 +7,14 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveysTable } from 'scenes/surveys/components/SurveysTable'
 import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
@@ -26,9 +26,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
-import { SURVEY_CREATED_SOURCE } from './constants'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
@@ -41,6 +41,7 @@ function NewSurveyButton(): JSX.Element {
     const { guidedEditorEnabled } = useValues(surveysLogic)
     const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const trackAddNewClick = (): void => {
         addProductIntent({
@@ -85,8 +86,12 @@ function NewSurveyButton(): JSX.Element {
                 router.actions.push(urls.survey(toolOutput.survey_id))
             }}
             position="bottom-right"
-            active={!!user?.uuid && userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Editor)}
-            className={cn('mr-3')}
+            active={
+                !isRemovingSidePanelFlag &&
+                !!user?.uuid &&
+                userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Editor)
+            }
+            className={cn(!isRemovingSidePanelFlag && 'mr-3')}
         >
             <AccessControlAction
                 resourceType={AccessControlResourceType.Survey}
@@ -107,7 +112,7 @@ function NewSurveyButton(): JSX.Element {
                         tooltip="New survey"
                         onClick={trackAddNewClick}
                     >
-                        <span className="pr-3">New survey</span>
+                        <span className={cn('pr-3', isRemovingSidePanelFlag && 'pr-0')}>New survey</span>
                     </LemonButton>
                 </AppShortcut>
             </AccessControlAction>
@@ -117,7 +122,8 @@ function NewSurveyButton(): JSX.Element {
 
 function Surveys(): JSX.Element {
     const { tab } = useValues(surveysLogic)
-    const { setTab } = useActions(surveysLogic)
+    const { setTab, loadSurveys, addProductIntent } = useActions(surveysLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (
         <SceneContent>
@@ -132,6 +138,47 @@ function Surveys(): JSX.Element {
                         <SurveyFeedbackButton />
                         <NewSurveyButton />
                     </>
+                }
+                maxToolProps={
+                    isRemovingSidePanelFlag
+                        ? {
+                              identifier: 'create_survey',
+                              initialMaxPrompt: 'Create a survey to collect ',
+                              suggestions: [
+                                  'Create an NPS survey for customers who completed checkout',
+                                  'Create a feedback survey asking about our new dashboard',
+                                  'Create a product-market fit survey for trial users',
+                                  'Create a quick satisfaction survey for support interactions',
+                              ],
+                              context: {},
+                              callback: (toolOutput: {
+                                  survey_id?: string
+                                  survey_name?: string
+                                  error?: string
+                                  error_message?: string
+                              }) => {
+                                  addProductIntent({
+                                      product_type: ProductKey.SURVEYS,
+                                      intent_context: ProductIntentContext.SURVEY_CREATED,
+                                      metadata: {
+                                          survey_id: toolOutput.survey_id,
+                                          source: SURVEY_CREATED_SOURCE.MAX_AI,
+                                          created_successfully: !toolOutput?.error,
+                                      },
+                                  })
+
+                                  if (toolOutput?.error || !toolOutput?.survey_id) {
+                                      return captureMaxAISurveyCreationException(
+                                          toolOutput.error,
+                                          SURVEY_CREATED_SOURCE.MAX_AI
+                                      )
+                                  }
+
+                                  loadSurveys()
+                                  router.actions.push(urls.survey(toolOutput.survey_id))
+                              },
+                          }
+                        : undefined
                 }
             />
             <SurveysDisabledBanner />
@@ -157,12 +204,7 @@ function Surveys(): JSX.Element {
 
             {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
 
-            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
-                <>
-                    <VersionCheckerBanner />
-                    <SurveysTable />
-                </>
-            )}
+            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && <SurveysTable />}
             <DuplicateToProjectModal />
         </SceneContent>
     )

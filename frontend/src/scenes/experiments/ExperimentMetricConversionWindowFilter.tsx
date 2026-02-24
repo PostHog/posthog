@@ -2,7 +2,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { TIME_INTERVAL_BOUNDS } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
+import { TIME_INTERVAL_BOUNDS } from 'scenes/funnels/funnelUtils'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExperimentMetric } from '~/queries/schema/schema-general'

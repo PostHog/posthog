@@ -1,13 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-
-import { LemonButton } from '@posthog/lemon-ui'
 
 import { DatawarehouseTableForm } from 'scenes/data-warehouse/new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouseTableLogic'
-import { urls } from 'scenes/urls'
 
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseTable } from '~/types'
 
 interface SelfManagedProps {
@@ -16,28 +11,11 @@ interface SelfManagedProps {
 
 export const DataPipelinesSelfManagedSource = ({ id }: SelfManagedProps): JSX.Element => {
     const { table } = useValues(dataWarehouseTableLogic({ id }))
-    const { updateTable, editingTable } = useActions(dataWarehouseTableLogic({ id }))
+    const { updateTable } = useActions(dataWarehouseTableLogic({ id }))
 
     return (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id }}>
-            <SceneTitleSection
-                name={table.name}
-                description={table.url_pattern}
-                resourceType={{ type: 'data_pipeline' }}
-                actions={
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            editingTable(false)
-                            router.actions.push(urls.dataPipelines('sources'))
-                        }}
-                        size="small"
-                    >
-                        Cancel
-                    </LemonButton>
-                }
-            />
-            <DataPipelinesSelfManagedSourceTable table={table} updateTable={updateTable} editingTable={editingTable} />
+            <DataPipelinesSelfManagedSourceTable table={table} updateTable={updateTable} />
         </BindLogic>
     )
 }
@@ -45,7 +23,6 @@ export const DataPipelinesSelfManagedSource = ({ id }: SelfManagedProps): JSX.El
 interface Props {
     table: DataWarehouseTable
     updateTable: (tablePayload: any) => void
-    editingTable: (editing: boolean) => void
 }
 
 export function DataPipelinesSelfManagedSourceTable({ table, updateTable }: Props): JSX.Element {

@@ -28,6 +28,7 @@ from posthog.redis import get_async_client
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai.session_summary.activities import CaptureTimingInputs, capture_timing_activity
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
@@ -60,7 +61,7 @@ from ee.hogai.session_summaries.constants import (
     SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS,
     SESSION_SUMMARIES_SYNC_MODEL,
 )
-from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
+from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SessionSummaryDBData,
@@ -135,8 +136,7 @@ async def fetch_session_batch_events_activity(
             fetched_session_ids=fetched_session_ids, expected_skip_session_ids=expected_skip_session_ids
         )
     # Get the team
-    # Keeping thread-sensitive as getting a single team should be fast
-    team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
+    team = await Team.objects.aget(id=inputs.team_id)
     # Fetch metadata for all sessions at once
     # Disable thread-sensitive as we can get metadata for lots of sessions here
     metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata, thread_sensitive=False)(
@@ -228,13 +228,7 @@ async def fetch_session_batch_events_activity(
         session_db_data = SessionSummaryDBData(
             session_metadata=session_metadata, session_events_columns=filtered_columns, session_events=filtered_events
         )
-        summary_data = await prepare_data_for_single_session_summary(
-            session_id=session_id,
-            user_id=inputs.user_id,
-            session_db_data=session_db_data,
-            extra_summary_context=inputs.extra_summary_context,
-        )
-        if summary_data.error_msg is not None:
+        if not session_db_data.session_events or not session_db_data.session_events_columns:
             # Sessions with no events after filtering are expected skips, not failures
             temporalio.activity.logger.info(
                 f"Session {session_id} in team {inputs.team_id} has no events after filtering, skipping",
@@ -242,6 +236,12 @@ async def fetch_session_batch_events_activity(
             )
             expected_skip_session_ids.append(session_id)
             continue
+        summary_data = await prepare_data_for_single_session_summary(
+            session_id=session_id,
+            user_id=inputs.user_id,
+            session_db_data=session_db_data,
+            extra_summary_context=inputs.extra_summary_context,
+        )
         input_data = prepare_single_session_summary_input(
             session_id=session_id,
             user_id=inputs.user_id,
@@ -429,7 +429,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                     single_session_input,
                 )
         self._current_status.append(f"Watching sessions ({self._total_sessions}/{self._total_sessions})")
-        session_inputs: list[SingleSessionSummaryInputs] = []
+        successful_sessions: list[SingleSessionSummaryInputs] = []
 
         # Check summary generation results
         for session_id, (task, single_session_input) in tasks.items():
@@ -447,10 +447,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 )
             else:
                 # Store only successful generations
-                session_inputs.append(single_session_input)
+                successful_sessions.append(single_session_input)
 
         # Fail the workflow if too many sessions failed to summarize
-        if ceil(len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO) > len(session_inputs):
+        if len(successful_sessions) / len(inputs) < FAILED_SESSION_SUMMARIES_MIN_RATIO:
             session_ids = [s.session_id for s in inputs]
             exception_message = (
                 f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
@@ -462,7 +462,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 extra={"user_id": inputs[0].user_id, "team_id": inputs[0].team_id, "signals_type": "session-summaries"},
             )
             raise ApplicationError(exception_message)
-        return session_inputs
+        return successful_sessions
 
     async def _run_patterns_extraction_chunk(self, inputs: SessionGroupSummaryOfSummariesInputs) -> None | Exception:
         """
@@ -578,6 +578,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SessionGroupSummaryInputs) -> str:
+        start_time = temporalio.workflow.now()
         self._total_sessions = len(inputs.session_ids)
         # Get events data from the DB (or cache)
         self._current_status.append("Fetching session data from the database")
@@ -627,6 +628,25 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
+        await temporalio.workflow.execute_activity(
+            capture_timing_activity,
+            CaptureTimingInputs(
+                distinct_id=inputs.user_distinct_id_to_log,
+                team_id=inputs.team_id,
+                session_id=inputs.session_ids[0] if inputs.session_ids else "",
+                timing_type="group_session_flow",
+                duration_seconds=duration_seconds,
+                success=True,
+                extra_properties={
+                    "workflow_type": "group",
+                    "session_count": len(inputs.session_ids),
+                    "video_validation_enabled": inputs.video_validation_enabled,
+                },
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
         return patterns_assignments
 
 
@@ -654,7 +674,7 @@ async def _start_session_group_summary_workflow(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.MAX_AI_TASK_QUEUE,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 

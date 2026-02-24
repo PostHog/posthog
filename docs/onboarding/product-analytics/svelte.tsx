@@ -2,10 +2,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getSvelteClientSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     return [
         {
@@ -64,10 +62,10 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     export const load = async () => {
                                       if (browser) {
                                         posthog.init(
-                                          '<ph_project_api_key>',
+                                          '<ph_project_token>',
                                           {
                                             api_host: '<ph_client_api_host>',
-                                            defaults: '2025-11-30'
+                                            defaults: '2026-01-30'
                                           }
                                         )
                                       }
@@ -87,6 +85,13 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
+    ]
+}
+
+export const getSvelteServerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
+
+    return [
         {
             title: 'Server-side setup',
             badge: 'optional',
@@ -138,7 +143,7 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     import { PostHog } from 'posthog-node';
 
                                     export async function load() {
-                                      const posthog = new PostHog('<ph_project_api_key>', { host: '<ph_client_api_host>' });
+                                      const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' });
 
                                       posthog.capture({
                                         distinctId: 'distinct_id_of_the_user',
@@ -161,6 +166,16 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
+    ]
+}
+
+export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { snippets } = ctx
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return [
+        ...getSvelteClientSteps(ctx),
+        ...getSvelteServerSteps(ctx),
         {
             title: 'Send events',
             badge: undefined,

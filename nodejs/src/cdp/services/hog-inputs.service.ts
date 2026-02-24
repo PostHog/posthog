@@ -17,7 +17,7 @@ export class HogInputsService {
     private recipientTokensService: RecipientTokensService
 
     constructor(private hub: HogInputsServiceHub) {
-        this.recipientTokensService = new RecipientTokensService(hub)
+        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
     }
 
     public async buildInputs(
@@ -66,6 +66,10 @@ export class HogInputsService {
             const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {
                 newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl({
+                    team_id: hogFunction.team_id,
+                    identifier: emailValue.to.email,
+                })
+                newGlobals.unsubscribe_url_one_click = this.recipientTokensService.generateOneClickUnsubscribeUrl({
                     team_id: hogFunction.team_id,
                     identifier: emailValue.to.email,
                 })

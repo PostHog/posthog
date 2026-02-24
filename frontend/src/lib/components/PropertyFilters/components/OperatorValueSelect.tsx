@@ -14,6 +14,7 @@ import {
     chooseOperatorMap,
     isMobile,
     isOperatorCohort,
+    isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRange,
@@ -220,6 +221,12 @@ export function OperatorValueSelect({
                             } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
                                 // If the new operator is range and the value is not a number, we want to set the new value to null
                                 onChange(newOperator, null)
+                            } else if (
+                                isOperatorDate(newOperator) &&
+                                !isOperatorDate(currentOperator || PropertyOperator.Exact)
+                            ) {
+                                // Switching to a date operator from a non-date operator: clear the value
+                                onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
                                 onChange(newOperator, newOperator)
                             } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
@@ -245,7 +252,7 @@ export function OperatorValueSelect({
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
                     // High flex-grow for proper sizing within TaxonomicPropertyFilter
-                    className="shrink grow-[1000] min-w-[10rem]"
+                    className="shrink grow-[1000] min-w-[10rem] overflow-hidden"
                     data-attr="taxonomic-value-select"
                 >
                     <PropertyValue

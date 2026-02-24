@@ -37,3 +37,32 @@ export type HeatmapJsData = {
 }
 
 export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
+
+export type HeatmapAreaPoint = {
+    x: number
+    y: number
+    target_fixed: boolean
+}
+
+export type HeatmapArea = {
+    points: HeatmapAreaPoint[]
+    expectedCount: number
+    clickX: number
+    clickY: number
+}
+
+export type HeatmapEvent = {
+    session_id: string | null
+    distinct_id: string
+    timestamp: string
+    pointer_relative_x: number
+    pointer_y: number
+    current_url: string
+    type: string
+}
+
+export type HeatmapEventsResponse = {
+    results: HeatmapEvent[]
+    total_count: number
+    has_more: boolean
+}
