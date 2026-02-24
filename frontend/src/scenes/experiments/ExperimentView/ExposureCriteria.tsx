@@ -77,6 +77,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     selected={!exposureCriteria?.exposure_config}
                     onClick={() => {
                         setExposureCriteria({
+                            ...exposureCriteria,
                             exposure_config: undefined,
                         })
                     }}
@@ -93,6 +94,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     selected={!!exposureCriteria?.exposure_config}
                     onClick={() => {
                         setExposureCriteria({
+                            ...exposureCriteria,
                             exposure_config: {
                                 kind: NodeKind.ExperimentEventExposureConfig,
                                 event: '$feature_flag_called',
