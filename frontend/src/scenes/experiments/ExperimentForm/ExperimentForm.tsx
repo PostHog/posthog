@@ -236,6 +236,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                             [context.type]: [...sharedMetrics[context.type], ...metrics],
                         })
                     }}
+                    onSaveExposureCriteria={setExposureCriteria}
                 />
 
                 {renderFormFooter()}
