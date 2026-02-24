@@ -45,7 +45,7 @@ class Command(BaseCommand):
         except Team.DoesNotExist:
             raise CommandError(f"Team {options['team_id']} not found")
 
-        # Each line is a JSON array, from the embeddint table, is:
+        # Each line is a JSON array, from the embedding table, is:
         # [0] "signals"       - product name
         # [1] "signal"        - document type
         # [2] uuid            - document id
