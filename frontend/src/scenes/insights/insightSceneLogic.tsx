@@ -460,6 +460,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const alertChanged = (alert_id ?? null) !== values.alertId
             const isExistingInsight = shortId !== 'new'
 
+            // Normalize itemId the same way the reducer does for comparison
+            const normalizedItemId =
+                itemId !== undefined
+                    ? itemId === 'new' || itemId?.startsWith('new-')
+                        ? 'new'
+                        : Number.isInteger(+itemId)
+                          ? parseInt(itemId, 10)
+                          : itemId
+                    : null
+            const itemIdChanged =
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>)?.values.itemId !== normalizedItemId
+
             if (
                 isExistingInsight &&
                 currentScene?.activeSceneId === Scene.Insight &&
@@ -467,7 +479,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
                     insightMode &&
-                !alertChanged
+                !alertChanged &&
+                !itemIdChanged
             ) {
                 // Nothing about the scene has changed, skip re-processing.
                 // New insights (/insights/new) are excluded because the insight type
