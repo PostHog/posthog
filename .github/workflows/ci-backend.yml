@@ -727,6 +727,7 @@ jobs:
                   GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
                   ./bin/hogli build:openapi
+                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
                   if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
                       exit 0
@@ -774,10 +775,11 @@ jobs:
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
 
-                  # Switch to PR branch and regenerate types there
+                  # Switch to PR branch and regenerate types and YAML there
                   git fetch origin "$BRANCH"
                   git checkout -f -B "$BRANCH" "origin/$BRANCH"
                   ./bin/hogli build:openapi
+                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 
                   if git diff --exit-code; then
                       echo "Types already up to date on PR branch"
@@ -786,24 +788,11 @@ jobs:
 
                   git add frontend/src/generated/
                   git add products/*/frontend/generated/ 2>/dev/null || true
+                  git add products/*/mcp/*.yaml 2>/dev/null || true
+                  git add services/mcp/definitions/*.yaml 2>/dev/null || true
                   git commit -m "chore: update OpenAPI generated types"
                   git push origin "$BRANCH"
                   echo "::notice::Pushed updated OpenAPI types to $BRANCH"
-
-            - name: Check if MCP generated output is up to date
-              run: |
-                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-                  if ! git diff --exit-code; then
-                      echo ""
-                      echo "::error::MCP generated output is out of date!"
-                      echo ""
-                      echo "YAML definitions, tool handlers, or Zod schemas are out of sync."
-                      echo "Run locally:"
-                      echo "  hogli build:openapi"
-                      echo "  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all"
-                      echo "Then commit the updated generated files."
-                      exit 1
-                  fi
 
     django:
         needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions]
