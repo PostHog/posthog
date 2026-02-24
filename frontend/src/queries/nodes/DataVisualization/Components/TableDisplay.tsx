@@ -45,13 +45,18 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
 
     const options: LemonSelectOptions<ChartDisplayType> = [
         {
-            title: 'Table',
+            title: 'Auto',
             options: [
                 {
                     value: ChartDisplayType.Auto,
                     icon: <IconTrends />,
                     label: renderDisplayTypeLabel(ChartDisplayType.Auto),
                 },
+            ],
+        },
+        {
+            title: 'Table',
+            options: [
                 {
                     value: ChartDisplayType.ActionsTable,
                     icon: <IconTableChart />,
