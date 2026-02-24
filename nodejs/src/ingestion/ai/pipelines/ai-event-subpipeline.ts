@@ -19,6 +19,7 @@ import { createNormalizeProcessPersonFlagStep } from '../../event-processing/nor
 import { createPrepareEventStep } from '../../event-processing/prepare-event-step'
 import { createProcessPersonlessStep } from '../../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../../event-processing/process-persons-step'
+import { createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../../pipelines/extensions/tophog'
 import { isDropResult } from '../../pipelines/results'
@@ -106,6 +107,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         )
         .pipe(createPrepareEventStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createSplitAiEventsStep())
         .pipe(
             topHog(
                 createEmitEventStep({

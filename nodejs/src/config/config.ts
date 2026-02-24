@@ -3,6 +3,7 @@ import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import {
     KAFKA_APP_METRICS_2,
+    KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -126,6 +127,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         TEMPORAL_CLIENT_CERT: undefined,
         TEMPORAL_CLIENT_KEY: undefined,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
+        CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
