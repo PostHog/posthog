@@ -539,46 +539,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     actions.setSelectedNodeId(null)
                 }
 
-                // For active workflows, soft-delete and re-sync the flow from the unchanged workflow
-                if (values.workflow.status === 'active') {
-                    for (const node of deleted) {
-                        actions.softDeleteAction(node.id)
-                    }
-                    actions.resetFlowFromHogFlow(values.workflow)
-                    return
+                for (const node of deleted) {
+                    actions.softDeleteAction(node.id)
                 }
-
-                const deletedNodeIds = deleted.map((node) => node.id)
-
-                // Find all edges connected to the deleted node then reconnect them to avoid orphaned nodes
-                const updatedEdges = values.workflow.edges
-                    .map((hogFlowEdge) => {
-                        if (deletedNodeIds.includes(hogFlowEdge.to)) {
-                            // Find the deleted node
-                            const deletedNode = deleted.find((node) => node.id === hogFlowEdge.to)
-                            if (deletedNode) {
-                                // Find the first outgoer of the deleted node
-                                const outgoers = getOutgoers(deletedNode, values.nodes, values.edges)
-                                if (outgoers.length > 0) {
-                                    // Change target to the first outgoer
-                                    return {
-                                        ...hogFlowEdge,
-                                        to: outgoers[0].id,
-                                    }
-                                }
-                            }
-                        }
-                        return hogFlowEdge
-                    })
-                    .filter(
-                        (hogFlowEdge) =>
-                            !deletedNodeIds.includes(hogFlowEdge.from) && !deletedNodeIds.includes(hogFlowEdge.to)
-                    )
-
-                // Update workflow actions to match the new flow
-                const updatedActions = values.workflow.actions.filter((action) => !deletedNodeIds.includes(action.id))
-
-                actions.setWorkflowInfo({ actions: updatedActions, edges: updatedEdges })
+                actions.resetFlowFromHogFlow(values.workflow)
             },
 
             showDropzones: () => {

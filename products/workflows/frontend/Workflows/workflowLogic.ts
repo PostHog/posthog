@@ -233,6 +233,35 @@ export const workflowLogic = kea<workflowLogicType>([
                 saveWorkflow: async (updates: HogFlow) => {
                     updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
+                    // Strip soft-deleted actions and reconnect edges
+                    const deletedIds = values.draftDeletedActionIds
+                    if (deletedIds.size > 0) {
+                        let edges = [...updates.edges]
+                        let remainingActions = [...updates.actions]
+
+                        const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
+                        const sortedDeletedIds = [...deletedIds].sort((a, b) => {
+                            const aIsBranching = branchingTypes.includes(
+                                remainingActions.find((act) => act.id === a)?.type ?? ''
+                            )
+                            const bIsBranching = branchingTypes.includes(
+                                remainingActions.find((act) => act.id === b)?.type ?? ''
+                            )
+                            return aIsBranching === bIsBranching ? 0 : aIsBranching ? 1 : -1
+                        })
+
+                        for (const id of sortedDeletedIds) {
+                            const outgoing = edges.find((e) => e.from === id && e.type === 'continue')
+                            if (outgoing) {
+                                edges = edges.map((edge) => (edge.to === id ? { ...edge, to: outgoing.to } : edge))
+                            }
+                            edges = edges.filter((e) => e.from !== id && e.to !== id)
+                            remainingActions = remainingActions.filter((a) => a.id !== id)
+                        }
+
+                        updates = { ...updates, edges, actions: remainingActions }
+                    }
+
                     if (!props.id || props.id === 'new') {
                         const result = await api.hogFlows.createHogFlow(updates)
 
@@ -678,7 +707,7 @@ export const workflowLogic = kea<workflowLogicType>([
         draftChangedActionIds: [
             (s) => [s.workflow, s.originalWorkflow, s.draftDeletedActionIds],
             (workflow, originalWorkflow, draftDeletedActionIds): Set<string> => {
-                if (!originalWorkflow || originalWorkflow.status !== 'active') {
+                if (!originalWorkflow) {
                     return new Set()
                 }
                 const changed = new Set<string>(draftDeletedActionIds)

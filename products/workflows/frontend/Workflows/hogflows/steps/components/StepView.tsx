@@ -1,4 +1,3 @@
-import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
@@ -27,16 +26,9 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         animatingEdgePair,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
-    const {
-        actionValidationErrorsById,
-        logicProps,
-        workflow,
-        edgesByActionId,
-        draftChangedActionIds,
-        draftDeletedActionIds,
-    } = useValues(workflowLogic)
+    const { actionValidationErrorsById, logicProps, edgesByActionId, draftChangedActionIds, draftDeletedActionIds } =
+        useValues(workflowLogic)
     const { restoreAction, softDeleteAction } = useActions(workflowLogic)
-    const { deleteElements } = useReactFlow()
 
     const isSelected = selectedNode?.id === action.id
     const node = nodesById[action.id]
@@ -225,11 +217,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                     status: 'danger',
                                     icon: <IconTrash />,
                                     onClick: () => {
-                                        if (workflow.status === 'active') {
-                                            softDeleteAction(action.id)
-                                        } else {
-                                            void deleteElements({ nodes: [node] })
-                                        }
+                                        softDeleteAction(action.id)
                                         setSelectedNodeId(null)
                                     },
                                     disabledReason: !selectedNodeCanBeDeleted
