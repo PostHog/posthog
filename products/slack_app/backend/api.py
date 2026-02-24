@@ -1,12 +1,16 @@
 import re
 import json
+import time
+import uuid
 import random
 import asyncio
+import hashlib
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
+from django.core import signing
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -45,11 +49,22 @@ ROUTE_PROXIED = "proxied"
 ROUTE_PROXY_FAILED = "proxy_failed"
 ROUTE_NO_INTEGRATION = "no_integration"
 
+PICKER_TOKEN_SALT = "twig_repo_picker"
+PICKER_TOKEN_MAX_AGE_SECONDS = 900
+
 
 @dataclass
 class SlackUserContext:
     user: User
     slack_email: str
+
+
+@dataclass
+class RepoDecision:
+    mode: Literal["auto", "picker"]
+    repository: str | None
+    reason: str
+    llm_called: bool
 
 
 def resolve_slack_user(
@@ -165,7 +180,8 @@ def route_slack_event_to_relevant_region(request: HttpRequest, event: dict, slac
         return
 
 
-def proxy_slack_event_to_secondary_region(request: HttpRequest) -> bool:
+def _proxy_to_secondary(request: HttpRequest) -> requests.Response | None:
+    """Proxy a request to the secondary region, returning the upstream response or None on failure."""
     parsed_url = urlparse(request.build_absolute_uri())
     target_url = urlunparse(parsed_url._replace(netloc=SLACK_SECONDARY_REGION_DOMAIN))
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
@@ -181,17 +197,21 @@ def proxy_slack_event_to_secondary_region(request: HttpRequest) -> bool:
         )
         if 200 <= response.status_code < 300:
             logger.info("slack_app_proxy_to_secondary_region", target_url=target_url, status_code=response.status_code)
-            return True
+            return response
 
         logger.warning(
             "slack_app_proxy_to_secondary_region_non_success",
             target_url=target_url,
             status_code=response.status_code,
         )
-        return False
+        return None
     except requests.RequestException as exc:
         logger.exception("slack_app_proxy_to_secondary_region_failed", error=str(exc), target_url=target_url)
-        return False
+        return None
+
+
+def proxy_slack_event_to_secondary_region(request: HttpRequest) -> bool:
+    return _proxy_to_secondary(request) is not None
 
 
 def handle_app_mention(event: dict, integration: Integration) -> None:
@@ -472,6 +492,28 @@ def _strip_bot_mentions(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
+def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
+    """Extract an explicit org/repo token from message text, if it matches connected repos."""
+    if not text or not all_repos:
+        return None
+
+    normalized_repos = {repo.lower(): repo for repo in all_repos}
+    cleaned_text = _strip_bot_mentions(text)
+
+    for token in cleaned_text.split():
+        candidate = token.strip("`'\"()[]{}<>,.;:!?")
+        if not candidate or "://" in candidate or candidate.startswith("http"):
+            continue
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", candidate):
+            continue
+
+        match = normalized_repos.get(candidate.lower())
+        if match:
+            return match
+
+    return None
+
+
 def _collect_thread_messages(
     slack: SlackIntegration, channel: str, thread_ts: str, our_bot_id: str | None
 ) -> list[dict[str, str]]:
@@ -509,10 +551,8 @@ def _collect_thread_messages(
     return messages
 
 
-def guess_repository(
-    thread_messages: list[dict[str, str]], integration: Integration, user: "User | None" = None
-) -> list[str]:
-    """Use the LLM to guess which repository the user is referring to from the thread context."""
+def _get_full_repo_names(integration: Integration) -> list[str]:
+    """Return canonical org/repo names for the team's GitHub integration, or [] if unavailable."""
     github_integration_record = Integration.objects.filter(team=integration.team, kind="github").first()
     if not github_integration_record:
         return []
@@ -524,7 +564,19 @@ def guess_repository(
     if not repo_names:
         return []
 
-    full_repo_names = [f"{org}/{name}" for name in repo_names]
+    return [f"{org}/{name}" for name in repo_names]
+
+
+def guess_repository(
+    thread_messages: list[dict[str, str]],
+    integration: Integration,
+    user: "User | None" = None,
+    all_repos: list[str] | None = None,
+) -> list[str]:
+    """Use the LLM to guess which repository the user is referring to from the thread context."""
+    full_repo_names = all_repos if all_repos is not None else _get_full_repo_names(integration)
+    if not full_repo_names:
+        return []
 
     from openai import OpenAI
 
@@ -548,10 +600,11 @@ def guess_repository(
                 "role": "system",
                 "content": (
                     "You are a helper that identifies which GitHub repository a conversation is about. "
-                    "Given a Slack conversation and a list of available repositories, return the repository names "
-                    "that match. Return ONLY the repository names, one per line, in 'org/repo' format. "
-                    "If you cannot confidently identify a single repository, return all plausible matches. "
-                    "If none match, return nothing."
+                    "Given a Slack conversation and a list of available repositories, return repository names "
+                    "in 'org/repo' format, one per line. "
+                    "Return exactly one repository if and only if you are highly confident it is the correct one. "
+                    "If there is any ambiguity, uncertainty, or multiple plausible repositories, return nothing. "
+                    "Never guess based on organization defaults."
                 ),
             },
             {
@@ -573,6 +626,33 @@ def guess_repository(
             matched.append(repo)
 
     return matched
+
+
+def select_repository(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+    integration: Integration,
+    user: User,
+    all_repos: list[str],
+) -> RepoDecision:
+    if not all_repos:
+        return RepoDecision(mode="picker", repository=None, reason="no_repos", llm_called=False)
+
+    if len(all_repos) == 1:
+        return RepoDecision(mode="auto", repository=all_repos[0], reason="single_repo", llm_called=False)
+
+    explicit_repo = _extract_explicit_repo(event_text, all_repos)
+    if explicit_repo:
+        return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_called=False)
+
+    repos = guess_repository(thread_messages, integration, user=user, all_repos=all_repos)
+    if len(repos) == 1:
+        return RepoDecision(mode="auto", repository=repos[0], reason="llm_single", llm_called=True)
+
+    if len(repos) == 0:
+        return RepoDecision(mode="picker", repository=None, reason="llm_no_match", llm_called=True)
+
+    return RepoDecision(mode="picker", repository=None, reason="llm_ambiguous", llm_called=True)
 
 
 def route_twig_event_to_relevant_region(
@@ -599,6 +679,104 @@ def route_twig_event_to_relevant_region(
     else:
         logger.warning("twig_no_integration_found", slack_team_id=slack_team_id)
         return ROUTE_NO_INTEGRATION
+
+
+def _create_task_for_repo(
+    *,
+    repository: str,
+    integration: Integration,
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    user_message_ts: str | None,
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+    user_id: int,
+) -> None:
+    """Create a Task for the given repo, adding a seedling reaction and handling errors."""
+    if user_message_ts:
+        slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="seedling")
+
+    user_text = _strip_bot_mentions(event_text)
+    title = user_text[:255] if user_text else "Task from Slack"
+    description = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+
+    from products.slack_app.backend.slack_thread import SlackThreadContext
+    from products.tasks.backend.models import Task
+
+    slack_thread_context = SlackThreadContext(
+        integration_id=integration.id,
+        channel=channel,
+        thread_ts=thread_ts,
+        user_message_ts=user_message_ts,
+    )
+
+    try:
+        Task.create_and_run(
+            team=integration.team,
+            title=title,
+            description=description,
+            origin_product=Task.OriginProduct.SLACK,
+            user_id=user_id,
+            repository=repository,
+            slack_thread_context=slack_thread_context,
+        )
+    except Exception as e:
+        logger.exception(
+            "twig_task_creation_failed",
+            error=str(e),
+            team_id=integration.team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        try:
+            slack.client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
+            )
+        except Exception:
+            logger.warning("twig_error_notification_failed", channel=channel, thread_ts=thread_ts)
+        return
+
+    logger.info(
+        "twig_task_created",
+        team_id=integration.team_id,
+        repository=repository,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+
+
+def _picker_context_cache_key(context_token: str) -> str:
+    token_hash = hashlib.sha256(context_token.encode("utf-8")).hexdigest()
+    return f"twig_repo_picker_ctx:{token_hash}"
+
+
+def _decode_picker_context(context_token: str) -> dict[str, Any] | None:
+    if not context_token:
+        return None
+
+    cached = cache.get(_picker_context_cache_key(context_token))
+    if isinstance(cached, dict):
+        return cached
+
+    # Backward-compat for older tests/keys using raw token in cache key.
+    if len(context_token) < 120:
+        cached = cache.get(f"twig_repo_picker_ctx:{context_token}")
+    if isinstance(cached, dict):
+        return cached
+
+    try:
+        decoded = signing.loads(context_token, salt=PICKER_TOKEN_SALT, max_age=PICKER_TOKEN_MAX_AGE_SECONDS)
+        if isinstance(decoded, dict):
+            return decoded
+    except signing.SignatureExpired:
+        return None
+    except signing.BadSignature:
+        pass
+
+    return None
 
 
 def handle_twig_app_mention(event: dict, integration: Integration) -> None:
@@ -643,74 +821,86 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
         if not thread_messages:
             return
 
-        repos = guess_repository(thread_messages, integration, user=user_context.user)
-
-        if len(repos) != 1:
-            if len(repos) == 0:
-                msg = "I couldn't determine which repository you're referring to. Please mention the repo name (e.g. `org/repo`) and @mention me again."
-            else:
-                msg = (
-                    "I found multiple possible repositories. Please clarify which one and @mention me again:\n"
-                    + "\n".join(f"• `{r}`" for r in repos)
-                )
-
-            slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=msg)
-            return
-
-        repository = repos[0]
-
-        user_message_ts = event.get("ts")
-        if user_message_ts:
-            slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="seedling")
-
-        user_text = _strip_bot_mentions(event.get("text", ""))
-        title = user_text[:255] if user_text else "Task from Slack"
-        description = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
-
-        from products.slack_app.backend.slack_thread import SlackThreadContext
-        from products.tasks.backend.models import Task
-
-        slack_thread_context = SlackThreadContext(
-            integration_id=integration.id,
+        all_repos = _get_full_repo_names(integration)
+        decision = select_repository(
+            event_text=event.get("text", ""),
+            thread_messages=thread_messages,
+            integration=integration,
+            user=user_context.user,
+            all_repos=all_repos,
+        )
+        logger.info(
+            "twig_repo_decision",
+            mode=decision.mode,
+            repository=decision.repository,
+            reason=decision.reason,
+            llm_called=decision.llm_called,
+            repo_count=len(all_repos),
+            team_id=integration.team_id,
             channel=channel,
-            thread_ts=thread_ts,
-            user_message_ts=event.get("ts"),
         )
 
-        try:
-            Task.create_and_run(
-                team=integration.team,
-                title=title,
-                description=description,
-                origin_product=Task.OriginProduct.SLACK,
-                user_id=user_context.user.id,
-                repository=repository,
-                slack_thread_context=slack_thread_context,
-            )
-        except Exception as e:
-            logger.exception(
-                "twig_task_creation_failed",
-                error=str(e),
-                team_id=integration.team_id,
-                channel=channel,
-                thread_ts=thread_ts,
-            )
-            try:
+        if decision.mode == "picker":
+            if decision.reason == "no_repos":
                 slack.client.chat_postMessage(
                     channel=channel,
                     thread_ts=thread_ts,
-                    text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
+                    text="I couldn't find any connected GitHub repositories. Please make sure a GitHub integration is set up in your PostHog project.",
                 )
-            except Exception:
-                logger.warning("twig_error_notification_failed", channel=channel, thread_ts=thread_ts)
+                return
+
+            context_data = {
+                "integration_id": integration.id,
+                "channel": channel,
+                "thread_ts": thread_ts,
+                "user_message_ts": event.get("ts"),
+                "mentioning_slack_user_id": slack_user_id,
+                "event_text": event.get("text", ""),
+                "created_at": int(time.time()),
+            }
+            context_token = uuid.uuid4().hex
+            cache.set(_picker_context_cache_key(context_token), context_data, timeout=PICKER_TOKEN_MAX_AGE_SECONDS)
+
+            if decision.reason == "llm_ambiguous":
+                guidance = "I found multiple possible repositories. Please select the right one:"
+            else:
+                guidance = "I couldn't determine which repository you're referring to. Please select the repository:"
+
+            slack.client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text=guidance,
+                blocks=[
+                    {
+                        "type": "section",
+                        "block_id": f"twig_repo_picker_v2:{integration.id}:{slack_user_id}:{context_token}",
+                        "text": {"type": "mrkdwn", "text": guidance},
+                        "accessory": {
+                            "type": "external_select",
+                            "action_id": "twig_repo_select",
+                            "placeholder": {"type": "plain_text", "text": "Search repositories..."},
+                            "min_query_length": 0,
+                        },
+                    },
+                ],
+                metadata={"event_type": "twig_repo_picker", "event_payload": {"context_token": context_token}},
+            )
             return
 
-        logger.info(
-            "twig_task_created",
-            team_id=integration.team_id,
+        repository = decision.repository
+        if not repository:
+            return
+
+        _create_task_for_repo(
             repository=repository,
+            integration=integration,
+            slack=slack,
             channel=channel,
             thread_ts=thread_ts,
+            user_message_ts=event.get("ts"),
+            event_text=event.get("text", ""),
+            thread_messages=thread_messages,
+            user_id=user_context.user.id,
         )
 
     except Exception as e:
@@ -755,5 +945,214 @@ def twig_event_handler(request: HttpRequest) -> HttpResponse:
                 return HttpResponse(status=502)
 
         return HttpResponse(status=202)
+
+    # twig_event_handler: unrecognized event type
+    return HttpResponse(status=200)
+
+
+def _extract_context_token(payload: dict) -> str:
+    """Extract the context token from a block_id (block_suggestion) or message metadata (block_actions)."""
+
+    def token_from_block_id(raw_block_id: str) -> str:
+        if not raw_block_id:
+            return ""
+        if raw_block_id.startswith("twig_repo_picker_v2:"):
+            parts = raw_block_id.split(":", 3)
+            return parts[3] if len(parts) == 4 else ""
+        if ":" in raw_block_id:
+            return raw_block_id.split(":", 1)[1]
+        return ""
+
+    # block_suggestion: block_id is at top level
+    block_id = payload.get("block_id", "")
+    token = token_from_block_id(block_id)
+    if token:
+        return token
+
+    # block_actions: block_id is inside each action
+    for action in payload.get("actions", []):
+        action_block_id = action.get("block_id", "")
+        token = token_from_block_id(action_block_id)
+        if token:
+            return token
+
+    # fallback: message metadata
+    return payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("context_token", "")
+
+
+def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
+    """Extract integration_id and mentioning user id from block_id for fallback handling."""
+    block_id = payload.get("block_id", "")
+    if not block_id:
+        actions = payload.get("actions", [])
+        if actions:
+            block_id = actions[0].get("block_id", "")
+
+    if not block_id.startswith("twig_repo_picker_v2:"):
+        return None, None
+
+    parts = block_id.split(":", 3)
+    if len(parts) != 4:
+        return None, None
+
+    try:
+        integration_id = int(parts[1])
+    except ValueError:
+        return None, None
+
+    mentioning_slack_user_id = parts[2]
+    return integration_id, mentioning_slack_user_id
+
+
+def _handle_repo_picker_options(payload: dict) -> JsonResponse:
+    """Return filtered repo options for the external_select picker."""
+    action = payload.get("action_id") or (payload.get("actions", [{}])[0].get("action_id", ""))
+    if action != "twig_repo_select":
+        return JsonResponse({"options": []})
+
+    context_token = _extract_context_token(payload)
+    if not context_token:
+        logger.info("twig_repo_picker_options_missing_token")
+        return JsonResponse({"options": []})
+
+    ctx = _decode_picker_context(context_token)
+    hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
+    if not ctx and not hinted_integration_id:
+        team_id = payload.get("team", {}).get("id")
+        if team_id:
+            fallback_integration = (
+                Integration.objects.filter(kind="slack-twig", integration_id=team_id).order_by("id").first()
+            )
+            if fallback_integration:
+                hinted_integration_id = fallback_integration.id
+                logger.info(
+                    "twig_repo_picker_options_fallback_team",
+                    context_token=context_token,
+                    team_id=team_id,
+                    integration_id=hinted_integration_id,
+                )
+
+    if not ctx and not hinted_integration_id:
+        logger.info("twig_repo_picker_options_no_context", context_token=context_token)
+        return JsonResponse({"options": []})
+
+    requesting_user = payload.get("user", {}).get("id", "")
+    expected_user = ctx["mentioning_slack_user_id"] if ctx else hinted_user_id
+    if expected_user and requesting_user != expected_user:
+        logger.info(
+            "twig_repo_picker_options_user_mismatch",
+            context_token=context_token,
+            requesting_user=requesting_user,
+            expected_user=expected_user,
+        )
+        return JsonResponse({"options": []})
+
+    if not expected_user:
+        logger.info("twig_repo_picker_options_missing_expected_user", context_token=context_token)
+
+    try:
+        integration_id = ctx["integration_id"] if ctx else hinted_integration_id
+        integration = Integration.objects.get(id=integration_id)
+    except Integration.DoesNotExist:
+        logger.info("twig_repo_picker_options_no_integration", context_token=context_token)
+        return JsonResponse({"options": []})
+
+    all_repos = _get_full_repo_names(integration)
+    if not all_repos:
+        logger.info("twig_repo_picker_options_no_repos", context_token=context_token, integration_id=integration.id)
+        return JsonResponse({"options": []})
+
+    query = (payload.get("value") or "").lower()
+    filtered = [r for r in all_repos if query in r.lower()] if query else all_repos
+
+    options = [{"text": {"type": "plain_text", "text": r}, "value": r} for r in filtered[:25]]
+    return JsonResponse({"options": options})
+
+
+def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
+    """Dispatch the repo selection to a Celery task and return 200 immediately."""
+    from products.slack_app.backend.tasks import process_twig_repo_selection
+
+    process_twig_repo_selection.delay(payload)
+    return HttpResponse(status=200)
+
+
+@csrf_exempt
+def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    try:
+        twig_config = SlackIntegration.twig_slack_config()
+        validate_slack_request(request, twig_config["SLACK_TWIG_SIGNING_SECRET"])
+    except SlackIntegrationError as e:
+        logger.warning("twig_interactivity_invalid_request", error=str(e))
+        return HttpResponse("Invalid request", status=403)
+
+    try:
+        payload = json.loads(request.POST.get("payload", "{}"))
+    except json.JSONDecodeError:
+        return HttpResponse("Invalid JSON", status=400)
+
+    payload_type = payload.get("type")
+    context_token = _extract_context_token(payload)
+    logger.info(
+        "twig_interactivity_received",
+        payload_type=payload_type,
+        context_token=context_token,
+        host=request.get_host(),
+    )
+
+    # Check if we own this context locally
+    context = _decode_picker_context(context_token) if context_token else None
+    hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
+    requesting_user = payload.get("user", {}).get("id", "")
+
+    local = False
+    if context:
+        local = Integration.objects.filter(id=context.get("integration_id"), kind="slack-twig").exists()
+    elif hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
+        local = Integration.objects.filter(id=hinted_integration_id, kind="slack-twig").exists()
+
+    logger.info(
+        "twig_interactivity_resolution",
+        context_token_present=bool(context_token),
+        has_context=bool(context),
+        hinted_integration_id=hinted_integration_id,
+        requesting_user=requesting_user,
+        hinted_user=hinted_user_id,
+        local=local,
+        host=request.get_host(),
+    )
+
+    if not local and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
+        # Proxy to secondary and relay its response back to Slack
+        upstream = _proxy_to_secondary(request)
+        if upstream is not None:
+            return HttpResponse(
+                upstream.content,
+                status=upstream.status_code,
+                content_type=upstream.headers.get("Content-Type", "application/json"),
+            )
+        # Proxy failed — return safe defaults
+        if payload_type == "block_suggestion":
+            return JsonResponse({"options": []})
+        return HttpResponse(status=502)
+
+    if not local:
+        logger.warning("twig_interactivity_no_context", context_token=context_token)
+        if payload_type == "block_suggestion":
+            return JsonResponse({"options": []})
+        return HttpResponse(status=200)
+
+    # Handled locally
+    if payload_type == "block_suggestion":
+        return _handle_repo_picker_options(payload)
+
+    if payload_type == "block_actions":
+        actions = payload.get("actions", [])
+        for action in actions:
+            if action.get("action_id") == "twig_repo_select":
+                return _handle_repo_picker_submit(payload)
 
     return HttpResponse(status=200)

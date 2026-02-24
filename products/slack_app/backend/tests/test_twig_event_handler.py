@@ -164,10 +164,13 @@ class TestHandleTwigAppMention(TestCase):
         return event
 
     @patch("products.tasks.backend.models.Task")
-    @patch("products.slack_app.backend.api.guess_repository")
+    @patch("products.slack_app.backend.api.select_repository")
+    @patch("products.slack_app.backend.api._get_full_repo_names")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.WebClient")
-    def test_single_repo_creates_task(self, mock_webclient_class, mock_resolve, mock_guess, mock_task_class):
+    def test_single_repo_creates_task(
+        self, mock_webclient_class, mock_resolve, mock_get_repos, mock_select_repository, mock_task_class
+    ):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         mock_client.auth_test.return_value = {"bot_id": "B001", "user_id": "UBOT"}
@@ -178,7 +181,13 @@ class TestHandleTwigAppMention(TestCase):
         from products.slack_app.backend.api import SlackUserContext
 
         mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
-        mock_guess.return_value = ["posthog/posthog-js"]
+        mock_get_repos.return_value = ["posthog/posthog-js", "posthog/posthog"]
+
+        from products.slack_app.backend.api import RepoDecision
+
+        mock_select_repository.return_value = RepoDecision(
+            mode="auto", repository="posthog/posthog-js", reason="llm_single", llm_called=True
+        )
 
         from products.slack_app.backend.api import handle_twig_app_mention
 
@@ -190,10 +199,13 @@ class TestHandleTwigAppMention(TestCase):
         assert call_kwargs["origin_product"] == mock_task_class.OriginProduct.SLACK
         assert call_kwargs["slack_thread_context"] is not None
 
-    @patch("products.slack_app.backend.api.guess_repository")
+    @patch("products.slack_app.backend.api._get_full_repo_names")
+    @patch("products.slack_app.backend.api.select_repository")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.WebClient")
-    def test_ambiguous_repo_asks_for_clarification(self, mock_webclient_class, mock_resolve, mock_guess):
+    def test_ambiguous_repo_posts_external_select_picker(
+        self, mock_webclient_class, mock_resolve, mock_select_repository, mock_get_repos
+    ):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         mock_client.auth_test.return_value = {"bot_id": "B001", "user_id": "UBOT"}
@@ -204,15 +216,99 @@ class TestHandleTwigAppMention(TestCase):
         from products.slack_app.backend.api import SlackUserContext
 
         mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
-        mock_guess.return_value = []
+        mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js"]
+
+        from products.slack_app.backend.api import RepoDecision
+
+        mock_select_repository.return_value = RepoDecision(
+            mode="picker", repository=None, reason="llm_no_match", llm_called=True
+        )
 
         from products.slack_app.backend.api import handle_twig_app_mention
 
         handle_twig_app_mention(self._make_event(ts="2.002"), self.twig_integration)
 
         mock_client.chat_postMessage.assert_called_once()
-        call_text = mock_client.chat_postMessage.call_args.kwargs["text"]
-        assert "couldn't determine" in call_text.lower()
+        call_kwargs = mock_client.chat_postMessage.call_args.kwargs
+        blocks = call_kwargs["blocks"]
+        assert blocks[0]["block_id"].startswith("twig_repo_picker_v2:")
+        assert blocks[0]["accessory"]["type"] == "external_select"
+        assert blocks[0]["accessory"]["action_id"] == "twig_repo_select"
+
+    @patch("products.slack_app.backend.api._get_full_repo_names")
+    @patch("products.slack_app.backend.api.select_repository")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.WebClient")
+    def test_no_github_integration_posts_text_fallback(
+        self, mock_webclient_class, mock_resolve, mock_select_repository, mock_get_repos
+    ):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.auth_test.return_value = {"bot_id": "B001", "user_id": "UBOT"}
+        mock_client.conversations_replies.return_value = {
+            "messages": [{"user": "U123", "text": "fix the bug", "ts": "1234.5678"}]
+        }
+
+        from products.slack_app.backend.api import SlackUserContext
+
+        mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
+        mock_get_repos.return_value = []
+
+        from products.slack_app.backend.api import RepoDecision
+
+        mock_select_repository.return_value = RepoDecision(
+            mode="picker", repository=None, reason="no_repos", llm_called=False
+        )
+
+        from products.slack_app.backend.api import handle_twig_app_mention
+
+        handle_twig_app_mention(self._make_event(ts="2.003"), self.twig_integration)
+
+        mock_client.chat_postMessage.assert_called_once()
+        call_kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert "blocks" not in call_kwargs or call_kwargs.get("blocks") is None
+        assert "github" in call_kwargs["text"].lower()
+
+    @patch("products.slack_app.backend.api._get_full_repo_names")
+    @patch("products.slack_app.backend.api.select_repository")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.WebClient")
+    def test_ambiguous_repo_stores_context_in_cache(
+        self, mock_webclient_class, mock_resolve, mock_select_repository, mock_get_repos
+    ):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.auth_test.return_value = {"bot_id": "B001", "user_id": "UBOT"}
+        mock_client.conversations_replies.return_value = {
+            "messages": [{"user": "U123", "text": "fix the bug", "ts": "1234.5678"}]
+        }
+
+        from products.slack_app.backend.api import SlackUserContext
+
+        mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
+        mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js"]
+
+        from products.slack_app.backend.api import RepoDecision
+
+        mock_select_repository.return_value = RepoDecision(
+            mode="picker", repository=None, reason="llm_ambiguous", llm_called=True
+        )
+
+        from products.slack_app.backend.api import handle_twig_app_mention
+
+        handle_twig_app_mention(self._make_event(ts="2.004"), self.twig_integration)
+
+        call_kwargs = mock_client.chat_postMessage.call_args.kwargs
+        block_id = call_kwargs["blocks"][0]["block_id"]
+        from products.slack_app.backend.api import _decode_picker_context, _extract_context_token
+
+        context_token = _extract_context_token({"block_id": block_id})
+
+        ctx = _decode_picker_context(context_token)
+        assert ctx is not None
+        assert ctx["integration_id"] == self.twig_integration.id
+        assert ctx["channel"] == "C001"
+        assert ctx["mentioning_slack_user_id"] == "U123"
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.WebClient")
@@ -228,11 +324,12 @@ class TestHandleTwigAppMention(TestCase):
         mock_client.auth_test.assert_not_called()
 
     @patch("products.tasks.backend.models.Task")
-    @patch("products.slack_app.backend.api.guess_repository")
+    @patch("products.slack_app.backend.api.select_repository")
+    @patch("products.slack_app.backend.api._get_full_repo_names")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.WebClient")
     def test_task_creation_failure_posts_error_to_slack(
-        self, mock_webclient_class, mock_resolve, mock_guess, mock_task_class
+        self, mock_webclient_class, mock_resolve, mock_get_repos, mock_select_repository, mock_task_class
     ):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -244,7 +341,13 @@ class TestHandleTwigAppMention(TestCase):
         from products.slack_app.backend.api import SlackUserContext
 
         mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
-        mock_guess.return_value = ["posthog/posthog-js"]
+        mock_get_repos.return_value = ["posthog/posthog-js", "posthog/posthog"]
+
+        from products.slack_app.backend.api import RepoDecision
+
+        mock_select_repository.return_value = RepoDecision(
+            mode="auto", repository="posthog/posthog-js", reason="llm_single", llm_called=True
+        )
         mock_task_class.create_and_run.side_effect = RuntimeError("temporal connection failed")
 
         from products.slack_app.backend.api import handle_twig_app_mention
@@ -257,11 +360,12 @@ class TestHandleTwigAppMention(TestCase):
         assert "internal error" in call_kwargs["text"].lower()
 
     @patch("products.tasks.backend.models.Task")
-    @patch("products.slack_app.backend.api.guess_repository")
+    @patch("products.slack_app.backend.api.select_repository")
+    @patch("products.slack_app.backend.api._get_full_repo_names")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.WebClient")
     def test_threaded_mention_carries_user_message_ts(
-        self, mock_webclient_class, mock_resolve, mock_guess, mock_task_class
+        self, mock_webclient_class, mock_resolve, mock_get_repos, mock_select_repository, mock_task_class
     ):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -273,7 +377,13 @@ class TestHandleTwigAppMention(TestCase):
         from products.slack_app.backend.api import SlackUserContext
 
         mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
-        mock_guess.return_value = ["posthog/posthog-js"]
+        mock_get_repos.return_value = ["posthog/posthog-js", "posthog/posthog"]
+
+        from products.slack_app.backend.api import RepoDecision
+
+        mock_select_repository.return_value = RepoDecision(
+            mode="auto", repository="posthog/posthog-js", reason="llm_single", llm_called=True
+        )
 
         from products.slack_app.backend.api import handle_twig_app_mention
 
