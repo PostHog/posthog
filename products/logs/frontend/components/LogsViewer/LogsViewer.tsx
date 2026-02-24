@@ -243,7 +243,7 @@ function LogsViewerContent(): JSX.Element {
     )
 
     return (
-        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+        <div className="flex flex-col gap-2" data-attr="logs-viewer">
             <LogsFilterBar />
             <LogsSparkline
                 sparklineData={sparklineData}

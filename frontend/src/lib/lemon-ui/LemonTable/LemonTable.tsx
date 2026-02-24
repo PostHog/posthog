@@ -21,6 +21,7 @@ import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { TableRow } from './TableRow'
 import { ExpandableConfig, LemonTableColumnGroup, LemonTableColumns } from './types'
+import { useViewportVirtualization, ViewportVirtualizationConfig } from './useViewportVirtualization'
 
 export interface LemonTableProps<T extends Record<string, any>> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
@@ -92,6 +93,13 @@ export interface LemonTableProps<T extends Record<string, any>> {
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
     hideSortingIndicatorWhenInactive?: boolean
+    /**
+     * Enable viewport-based virtualization. When enabled, only rows visible in the viewport
+     * (plus overscan) are rendered. The table itself does NOT create its own scroll container —
+     * instead it relies on the page/scene scroll. Pass `true` for default settings (36px row height)
+     * or a config object for custom settings.
+     */
+    virtualized?: boolean | Omit<ViewportVirtualizationConfig, 'rowCount'>
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -131,6 +139,7 @@ export function LemonTable<T extends Record<string, any>>({
     hideScrollbar,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
+    virtualized,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -245,6 +254,21 @@ export function LemonTable<T extends Record<string, any>>({
     }
 
     const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
+
+    const tbodyRef = useRef<HTMLTableSectionElement>(null)
+    const virtualizedConfig: ViewportVirtualizationConfig = useMemo(() => {
+        const baseConfig: Partial<ViewportVirtualizationConfig> = typeof virtualized === 'object' ? virtualized : {}
+        return {
+            estimatedRowHeight: baseConfig.estimatedRowHeight ?? 36,
+            overscan: baseConfig.overscan ?? 10,
+            enabled: baseConfig.enabled ?? !!virtualized,
+            rowCount: paginationState.dataSourcePage.length,
+        }
+    }, [virtualized, paginationState.dataSourcePage.length])
+    const { startIndex, endIndex, topSpacerHeight, bottomSpacerHeight } = useViewportVirtualization(
+        tbodyRef,
+        virtualizedConfig
+    )
 
     return (
         <div
@@ -500,46 +524,69 @@ export function LemonTable<T extends Record<string, any>>({
                                 </tr>
                             </thead>
                         )}
-                        <tbody>
+                        <tbody ref={tbodyRef}>
                             {paginationState.dataSourcePage.length ? (
-                                paginationState.dataSourcePage.map((record, rowIndex) => {
-                                    const rowKeyDetermined = rowKey
-                                        ? typeof rowKey === 'function'
-                                            ? rowKey(record, rowIndex)
-                                            : (record[rowKey] ?? rowIndex)
-                                        : paginationState.currentStartIndex + rowIndex
-                                    const rowClassNameDetermined =
-                                        typeof rowClassName === 'function'
-                                            ? rowClassName(record, rowIndex)
-                                            : rowClassName
-                                    const rowRibbonColorDetermined =
-                                        typeof rowRibbonColor === 'function'
-                                            ? rowRibbonColor(record, rowIndex) || 'var(--color-border-primary)'
-                                            : rowRibbonColor
-                                    const rowStatusDetermined =
-                                        typeof rowStatus === 'function' ? rowStatus(record, rowIndex) : rowStatus
+                                <>
+                                    {virtualized && topSpacerHeight > 0 && (
+                                        <tr aria-hidden="true">
+                                            <td
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={{ height: topSpacerHeight, padding: 0, border: 'none' }}
+                                            />
+                                        </tr>
+                                    )}
+                                    {paginationState.dataSourcePage
+                                        .slice(startIndex, endIndex)
+                                        .map((record, sliceIndex) => {
+                                            const rowIndex = startIndex + sliceIndex
+                                            const rowKeyDetermined = rowKey
+                                                ? typeof rowKey === 'function'
+                                                    ? rowKey(record, rowIndex)
+                                                    : (record[rowKey] ?? rowIndex)
+                                                : paginationState.currentStartIndex + rowIndex
+                                            const rowClassNameDetermined =
+                                                typeof rowClassName === 'function'
+                                                    ? rowClassName(record, rowIndex)
+                                                    : rowClassName
+                                            const rowRibbonColorDetermined =
+                                                typeof rowRibbonColor === 'function'
+                                                    ? rowRibbonColor(record, rowIndex) || 'var(--color-border-primary)'
+                                                    : rowRibbonColor
+                                            const rowStatusDetermined =
+                                                typeof rowStatus === 'function'
+                                                    ? rowStatus(record, rowIndex)
+                                                    : rowStatus
 
-                                    return (
-                                        <TableRow
-                                            key={`LemonTable-tr-${rowKeyDetermined}`}
-                                            record={record}
-                                            recordIndex={paginationState.currentStartIndex + rowIndex}
-                                            rowKeyDetermined={rowKeyDetermined}
-                                            rowClassNameDetermined={rowClassNameDetermined}
-                                            rowRibbonColorDetermined={rowRibbonColorDetermined}
-                                            rowStatusDetermined={rowStatusDetermined}
-                                            columnGroups={columnGroups}
-                                            onRow={onRow}
-                                            expandable={expandable}
-                                            rowCount={paginationState.dataSourcePage.length}
-                                            firstColumnSticky={firstColumnSticky}
-                                            pinnedColumns={pinnedColumns}
-                                            pinnedColumnWidths={pinnedColumnWidths}
-                                            columns={columns}
-                                            rowActions={rowActions}
-                                        />
-                                    )
-                                })
+                                            return (
+                                                <TableRow
+                                                    key={`LemonTable-tr-${rowKeyDetermined}`}
+                                                    record={record}
+                                                    recordIndex={paginationState.currentStartIndex + rowIndex}
+                                                    rowKeyDetermined={rowKeyDetermined}
+                                                    rowClassNameDetermined={rowClassNameDetermined}
+                                                    rowRibbonColorDetermined={rowRibbonColorDetermined}
+                                                    rowStatusDetermined={rowStatusDetermined}
+                                                    columnGroups={columnGroups}
+                                                    onRow={onRow}
+                                                    expandable={expandable}
+                                                    rowCount={paginationState.dataSourcePage.length}
+                                                    firstColumnSticky={firstColumnSticky}
+                                                    pinnedColumns={pinnedColumns}
+                                                    pinnedColumnWidths={pinnedColumnWidths}
+                                                    columns={columns}
+                                                    rowActions={rowActions}
+                                                />
+                                            )
+                                        })}
+                                    {virtualized && bottomSpacerHeight > 0 && (
+                                        <tr aria-hidden="true">
+                                            <td
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={{ height: bottomSpacerHeight, padding: 0, border: 'none' }}
+                                            />
+                                        </tr>
+                                    )}
+                                </>
                             ) : loading ? (
                                 Array(loadingSkeletonRows)
                                     .fill(null)
