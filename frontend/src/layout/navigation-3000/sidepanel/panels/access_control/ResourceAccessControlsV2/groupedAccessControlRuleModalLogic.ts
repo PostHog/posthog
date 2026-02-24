@@ -170,7 +170,14 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                     const hasFormOverride = formResourceLevels[resource] !== null
                     const hasSavedOverride = access_level !== null && formResourceLevels[resource] !== null
                     if (inherited_access_level === null && (hasSavedOverride || hasFormOverride)) {
-                        return [{ value: null as AccessControlLevel | null, label: 'No override' }, ...levelOptions]
+                        return [
+                            {
+                                value: null as AccessControlLevel | null,
+                                label: 'No override',
+                                disabledReason: undefined,
+                            },
+                            ...levelOptions,
+                        ]
                     }
                     return levelOptions
                 },
