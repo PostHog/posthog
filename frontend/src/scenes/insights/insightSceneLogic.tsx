@@ -462,6 +462,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             if (
                 isExistingInsight &&
+                method !== 'PUSH' &&
                 currentScene?.activeSceneId === Scene.Insight &&
                 currentScene.activeSceneLogic &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
@@ -472,6 +473,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 // Nothing about the scene has changed, skip re-processing.
                 // New insights (/insights/new) are excluded because the insight type
                 // or dashboard in hash/search params may have changed.
+                // PUSH navigations are excluded because the user explicitly navigated
+                // (e.g. clicking an insight link from the list), so we must reload.
                 return
             }
 
