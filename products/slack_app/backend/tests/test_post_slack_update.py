@@ -65,6 +65,21 @@ class TestPostSlackUpdate(TestCase):
         mock_update_reaction.assert_called_once_with("x")
         mock_post_error.assert_called_once()
 
+    @patch.object(SlackThreadHandler, "post_cancelled")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_cancelled_run_posts_cancelled_message(
+        self, mock_task_run_class, mock_handler_init, mock_update_reaction, mock_post_cancelled
+    ):
+        mock_run = self._make_mock_run(mock_task_run_class.Status.CANCELLED)
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_update_reaction.assert_called_once_with("x")
+        mock_post_cancelled.assert_called_once()
+
     @patch.object(SlackThreadHandler, "post_or_update_progress")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")

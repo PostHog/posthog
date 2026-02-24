@@ -9,6 +9,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import _extract_explicit_repo, guess_repository, select_repository
+from products.slack_app.backend.models import SlackUserRepoPreference
 
 
 def _make_llm_response(content: str) -> MagicMock:
@@ -79,6 +80,11 @@ class TestExtractExplicitRepo:
             ("case_insensitive", "check PostHog/PostHog", "posthog/posthog"),
             ("url_false_positive", "see https://github.com/posthog/posthog/issues/1", None),
             ("backticks", "please fix `posthog/posthog-js`", "posthog/posthog-js"),
+            (
+                "slack_link_label",
+                "use <https://github.com/posthog/posthog-js|posthog/posthog-js>",
+                "posthog/posthog-js",
+            ),
             ("multiple_first_wins", "check posthog/posthog-js then posthog/posthog", "posthog/posthog-js"),
             ("with_bot_mention", "<@U123> fix posthog/posthog-js", "posthog/posthog-js"),
         ]
@@ -104,8 +110,7 @@ class TestSelectRepository:
 
         self.thread_messages = [{"user": "Dev", "text": "please update readme"}]
 
-    @patch("products.slack_app.backend.api.guess_repository")
-    def test_single_connected_repo_no_llm_call(self, mock_guess):
+    def test_single_connected_repo_auto(self):
         decision = select_repository(
             event_text="please update readme",
             thread_messages=self.thread_messages,
@@ -118,10 +123,8 @@ class TestSelectRepository:
         assert decision.repository == "posthog/posthog"
         assert decision.reason == "single_repo"
         assert decision.llm_called is False
-        mock_guess.assert_not_called()
 
-    @patch("products.slack_app.backend.api.guess_repository")
-    def test_explicit_repo_no_llm_call(self, mock_guess):
+    def test_explicit_repo_auto(self):
         decision = select_repository(
             event_text="fix posthog/posthog-js",
             thread_messages=self.thread_messages,
@@ -134,10 +137,8 @@ class TestSelectRepository:
         assert decision.repository == "posthog/posthog-js"
         assert decision.reason == "explicit_mention"
         assert decision.llm_called is False
-        mock_guess.assert_not_called()
 
-    @patch("products.slack_app.backend.api.guess_repository")
-    def test_explicit_repo_with_bot_tag_noise_no_llm_call(self, mock_guess):
+    def test_explicit_repo_with_bot_tag_noise_auto(self):
         decision = select_repository(
             event_text="<@U123> fix posthog/posthog-js",
             thread_messages=self.thread_messages,
@@ -150,11 +151,8 @@ class TestSelectRepository:
         assert decision.repository == "posthog/posthog-js"
         assert decision.reason == "explicit_mention"
         assert decision.llm_called is False
-        mock_guess.assert_not_called()
 
-    @patch("products.slack_app.backend.api.guess_repository")
-    def test_explicit_not_in_connected_repos_falls_back_to_llm(self, mock_guess):
-        mock_guess.return_value = ["posthog/posthog"]
+    def test_no_explicit_multi_repo_prefers_picker(self):
         decision = select_repository(
             event_text="fix other/repo",
             thread_messages=self.thread_messages,
@@ -163,22 +161,18 @@ class TestSelectRepository:
             all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
         )
 
-        assert decision.mode == "auto"
-        assert decision.repository == "posthog/posthog"
-        assert decision.reason == "llm_single"
-        assert decision.llm_called is True
-        mock_guess.assert_called_once()
+        assert decision.mode == "picker"
+        assert decision.repository is None
+        assert decision.reason == "no_explicit_multi_repo"
+        assert decision.llm_called is False
 
-    @parameterized.expand(
-        [
-            ("llm_single", ["posthog/posthog"], "auto", "llm_single"),
-            ("llm_ambiguous", ["posthog/posthog", "posthog/posthog-js"], "picker", "llm_ambiguous"),
-            ("llm_no_match", [], "picker", "llm_no_match"),
-        ]
-    )
-    @patch("products.slack_app.backend.api.guess_repository")
-    def test_llm_outcomes(self, _name, llm_result, expected_mode, expected_reason, mock_guess):
-        mock_guess.return_value = llm_result
+    def test_user_default_repo_auto(self):
+        SlackUserRepoPreference.objects.create(
+            team=self.team,
+            user=self.user,
+            repository="posthog/posthog-js",
+        )
+
         decision = select_repository(
             event_text="add yolo to readme",
             thread_messages=self.thread_messages,
@@ -187,13 +181,31 @@ class TestSelectRepository:
             all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
         )
 
-        assert decision.mode == expected_mode
-        assert decision.reason == expected_reason
-        assert decision.llm_called is True
-        mock_guess.assert_called_once()
+        assert decision.mode == "auto"
+        assert decision.repository == "posthog/posthog-js"
+        assert decision.reason == "user_default_repo"
+        assert decision.llm_called is False
 
-    @patch("products.slack_app.backend.api.guess_repository")
-    def test_no_repos_picker_without_llm(self, mock_guess):
+    def test_invalid_user_default_repo_is_cleared(self):
+        SlackUserRepoPreference.objects.create(
+            team=self.team,
+            user=self.user,
+            repository="posthog/deleted-repo",
+        )
+
+        decision = select_repository(
+            event_text="add yolo to readme",
+            thread_messages=self.thread_messages,
+            integration=self.slack_integration,
+            user=self.user,
+            all_repos=["posthog/posthog", "posthog/posthog-js"],
+        )
+
+        assert decision.mode == "picker"
+        assert decision.reason == "no_explicit_multi_repo"
+        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user).count() == 0
+
+    def test_no_repos_picker(self):
         decision = select_repository(
             event_text="add yolo to readme",
             thread_messages=self.thread_messages,
@@ -206,4 +218,3 @@ class TestSelectRepository:
         assert decision.repository is None
         assert decision.reason == "no_repos"
         assert decision.llm_called is False
-        mock_guess.assert_not_called()

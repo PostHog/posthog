@@ -3,7 +3,7 @@ import json
 import time
 import hashlib
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import TestCase
@@ -14,6 +14,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+
+from products.slack_app.backend.models import SlackUserRepoPreference
 
 
 def _sign_request(body: bytes, secret: str) -> tuple[str, str]:
@@ -188,6 +190,55 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         mock_delay.assert_called_once_with(payload)
 
+    @patch("products.slack_app.backend.tasks.process_twig_task_termination.delay")
+    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    def test_terminate_action_dispatches_celery_task(self, mock_config, mock_delay):
+        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "twig_terminate_task",
+                    "value": json.dumps(
+                        {
+                            "run_id": "run-1",
+                            "integration_id": self.twig_integration.id,
+                            "mentioning_slack_user_id": "U123",
+                        }
+                    ),
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+        response = self._post_interactivity(payload)
+        assert response.status_code == 200
+        mock_delay.assert_called_once_with(payload)
+
+    @patch("products.slack_app.backend.tasks.process_twig_repo_selection.delay")
+    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    def test_default_repo_submit_dispatches_celery_task(self, mock_config, mock_delay):
+        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "twig_default_repo_select",
+                    "block_id": f"twig_repo_picker_v1:{self.context_token}",
+                    "selected_option": {"value": "posthog/posthog"},
+                    "action_ts": "1700000000.124",
+                }
+            ],
+            "message": {"ts": "1234.9999"},
+        }
+        response = self._post_interactivity(payload)
+        assert response.status_code == 200
+        mock_delay.assert_called_once_with(payload)
+
 
 class TestProcessTwigRepoSelection(TestCase):
     def setUp(self):
@@ -229,6 +280,7 @@ class TestProcessTwigRepoSelection(TestCase):
         user_id: str = "U123",
         action_ts: str = "1700000000.123",
         context_token: str | None = None,
+        action_id: str = "twig_repo_select",
     ) -> dict:
         token = context_token or self.context_token
         return {
@@ -236,7 +288,7 @@ class TestProcessTwigRepoSelection(TestCase):
             "user": {"id": user_id},
             "actions": [
                 {
-                    "action_id": "twig_repo_select",
+                    "action_id": action_id,
                     "block_id": f"twig_repo_picker_v1:{token}",
                     "selected_option": {"value": repo},
                     "action_ts": action_ts,
@@ -329,3 +381,187 @@ class TestProcessTwigRepoSelection(TestCase):
         mock_create_task.reset_mock()
         process_twig_repo_selection(payload)
         mock_create_task.assert_not_called()
+
+    @patch("products.slack_app.backend.api._create_task_for_repo")
+    @patch("products.slack_app.backend.api._get_full_repo_names")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.WebClient")
+    def test_default_repo_selection_sets_preference_without_creating_task(
+        self, mock_webclient_class, mock_resolve, mock_get_repos, mock_create_task
+    ):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.auth_test.return_value = {"bot_id": "B001"}
+        mock_client.conversations_replies.return_value = {
+            "messages": [{"user": "U123", "text": "fix the bug", "ts": "1234.5678"}]
+        }
+        mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js"]
+
+        from products.slack_app.backend.api import SlackUserContext
+
+        mock_resolve.return_value = SlackUserContext(user=self.user, slack_email="dev@example.com")
+
+        from products.slack_app.backend.tasks import process_twig_repo_selection
+
+        process_twig_repo_selection(self._make_payload(action_id="twig_default_repo_select", repo="posthog/posthog-js"))
+
+        mock_create_task.assert_not_called()
+        preference = SlackUserRepoPreference.objects.get(team=self.team, user=self.user)
+        assert preference.repository == "posthog/posthog-js"
+
+    @patch("products.tasks.backend.models.TaskRun")
+    @patch("posthog.models.integration.Integration")
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_terminate_action_signals_workflow(
+        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
+    ):
+        from products.slack_app.backend.tasks import process_twig_task_termination
+
+        mock_run = MagicMock()
+        mock_run.id = "run-1"
+        mock_run.task_id = "task-1"
+        mock_run.team_id = self.team.id
+        mock_run.status = "in_progress"
+        mock_task_run_model.Status.COMPLETED = "completed"
+        mock_task_run_model.Status.FAILED = "failed"
+        mock_task_run_model.Status.CANCELLED = "cancelled"
+        mock_task_run_model.objects.select_related.return_value.get.return_value = mock_run
+
+        mock_integration = MagicMock()
+        mock_integration.team_id = self.team.id
+        mock_integration_model.objects.get.return_value = mock_integration
+
+        mock_handle = MagicMock()
+        mock_handle.signal = AsyncMock()
+        mock_client = MagicMock()
+        mock_client.get_workflow_handle.return_value = mock_handle
+        mock_sync_connect.return_value = mock_client
+
+        mock_slack_client = MagicMock()
+        mock_slack_integration.return_value.client = mock_slack_client
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "twig_terminate_task",
+                    "value": json.dumps(
+                        {
+                            "run_id": "run-1",
+                            "integration_id": self.twig_integration.id,
+                            "mentioning_slack_user_id": "U123",
+                        }
+                    ),
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+
+        process_twig_task_termination(payload)
+
+        mock_client.get_workflow_handle.assert_called_once_with("task-processing-task-1-run-1")
+        mock_handle.signal.assert_called_once()
+        mock_slack_client.chat_update.assert_called_once()
+
+    @patch("products.tasks.backend.models.TaskRun")
+    @patch("posthog.models.integration.Integration")
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_terminate_action_on_terminal_run_posts_feedback(
+        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
+    ):
+        from products.slack_app.backend.tasks import process_twig_task_termination
+
+        mock_run = MagicMock()
+        mock_run.id = "run-1"
+        mock_run.task_id = "task-1"
+        mock_run.team_id = self.team.id
+        mock_run.status = "completed"
+        mock_task_run_model.Status.COMPLETED = "completed"
+        mock_task_run_model.Status.FAILED = "failed"
+        mock_task_run_model.Status.CANCELLED = "cancelled"
+        mock_task_run_model.objects.select_related.return_value.get.return_value = mock_run
+
+        mock_integration = MagicMock()
+        mock_integration.team_id = self.team.id
+        mock_integration_model.objects.get.return_value = mock_integration
+        mock_slack_client = MagicMock()
+        mock_slack_integration.return_value.client = mock_slack_client
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "twig_terminate_task",
+                    "value": json.dumps(
+                        {
+                            "run_id": "run-1",
+                            "integration_id": self.twig_integration.id,
+                            "mentioning_slack_user_id": "U123",
+                            "thread_ts": "1234.5678",
+                        }
+                    ),
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+
+        process_twig_task_termination(payload)
+
+        mock_sync_connect.assert_not_called()
+        mock_slack_client.chat_postMessage.assert_called_once()
+
+    @patch("products.tasks.backend.models.TaskRun")
+    @patch("posthog.models.integration.Integration")
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_terminate_action_on_team_mismatch_posts_feedback(
+        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
+    ):
+        from products.slack_app.backend.tasks import process_twig_task_termination
+
+        mock_run = MagicMock()
+        mock_run.id = "run-1"
+        mock_run.task_id = "task-1"
+        mock_run.team_id = 999999
+        mock_run.status = "in_progress"
+        mock_task_run_model.Status.COMPLETED = "completed"
+        mock_task_run_model.Status.FAILED = "failed"
+        mock_task_run_model.Status.CANCELLED = "cancelled"
+        mock_task_run_model.objects.select_related.return_value.get.return_value = mock_run
+
+        mock_integration = MagicMock()
+        mock_integration.team_id = self.team.id
+        mock_integration_model.objects.get.return_value = mock_integration
+        mock_slack_client = MagicMock()
+        mock_slack_integration.return_value.client = mock_slack_client
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "twig_terminate_task",
+                    "value": json.dumps(
+                        {
+                            "run_id": "run-1",
+                            "integration_id": self.twig_integration.id,
+                            "mentioning_slack_user_id": "U123",
+                            "thread_ts": "1234.5678",
+                        }
+                    ),
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+
+        process_twig_task_termination(payload)
+
+        mock_sync_connect.assert_not_called()
+        mock_slack_client.chat_postMessage.assert_called_once()
