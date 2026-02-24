@@ -53,7 +53,17 @@ export const FEATURE_SUPPORT: Record<Feature, PlatformSupportConfig> = {
                 </>
             ),
         },
-        ios: { version: '3.26.0' },
+        ios: {
+            version: '3.26.0',
+            note: (
+                <>
+                    <Link to="https://posthog.com/docs/session-replay/console-log-recording?tab=iOS">
+                        Console log recording is supported on iOS
+                    </Link>{' '}
+                    and can be controlled remotely using this toggle when running SDK version 3.41.1 or higher.
+                </>
+            ),
+        },
         web: { version: '1.18.0' },
         reactNative: {
             version: '3.9.0',
@@ -91,7 +101,17 @@ export const FEATURE_SUPPORT: Record<Feature, PlatformSupportConfig> = {
                 </>
             ),
         },
-        ios: { version: '3.12.6' },
+        ios: {
+            version: '3.12.6',
+            note: (
+                <>
+                    <Link to="https://posthog.com/docs/session-replay/network-recording?tab=iOS">
+                        Network recording is supported on iOS
+                    </Link>{' '}
+                    and can be controlled remotely using this toggle when running SDK version 3.41.1 or higher.
+                </>
+            ),
+        },
         web: { version: '1.39.0' },
         reactNative: {
             version: '3.2.0',
