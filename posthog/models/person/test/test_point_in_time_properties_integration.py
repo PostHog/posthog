@@ -81,7 +81,23 @@ class TestPointInTimePropertiesIntegration(TestCase):
             ),
         ]
 
-        mock_sync_execute.return_value = mock_events
+        # Mock sync_execute to filter events based on timestamp parameter
+        def mock_query_with_timestamp_filter(query, params, settings=None):
+            from datetime import datetime
+
+            # Parse the timestamp parameter
+            timestamp_str = params["timestamp"]
+            query_timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+
+            # Filter events based on the timestamp
+            filtered_events = []
+            for event_props, event_timestamp, event_type in mock_events:
+                if event_timestamp <= query_timestamp:
+                    filtered_events.append((event_props, event_timestamp, event_type))
+
+            return filtered_events
+
+        mock_sync_execute.side_effect = mock_query_with_timestamp_filter
 
         # Test: What were Alice's properties at the end of Day 2?
         day_2_end = datetime(2023, 1, 2, 23, 59, 59, tzinfo=UTC)
@@ -172,7 +188,23 @@ class TestPointInTimePropertiesIntegration(TestCase):
             ),
         ]
 
-        mock_sync_execute.return_value = mock_events
+        # Mock sync_execute to filter events based on timestamp parameter
+        def mock_query_with_timestamp_filter_set_once(query, params, settings=None):
+            from datetime import datetime
+
+            # Parse the timestamp parameter
+            timestamp_str = params["timestamp"]
+            query_timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+
+            # Filter events based on the timestamp
+            filtered_events = []
+            for event_props, event_timestamp, event_type in mock_events:
+                if event_timestamp <= query_timestamp:
+                    filtered_events.append((event_props, event_timestamp, event_type))
+
+            return filtered_events
+
+        mock_sync_execute.side_effect = mock_query_with_timestamp_filter_set_once
 
         # Test the final state
         final_timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
