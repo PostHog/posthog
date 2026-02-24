@@ -112,6 +112,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             ['sortedMembers'],
             roleAccessControlLogic,
             ['roles'],
+            resourcesAccessControlLogic,
+            ['resources'],
         ],
     })),
 
@@ -205,14 +207,18 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         resourceKeys: [
-            (s) => [s.defaults],
-            (defaults): { key: APIScopeObject; label: string }[] => {
-                if (!defaults) {
-                    return []
+            (s) => [s.defaults, s.resources],
+            (defaults, resources): { key: APIScopeObject; label: string }[] => {
+                if (defaults) {
+                    return Object.keys(defaults.resource_access_levels).map((resource) => ({
+                        key: resource as APIScopeObject,
+                        label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
+                    }))
                 }
-                return Object.keys(defaults.resource_access_levels).map((resource) => ({
+                // Fallback to list of all resources while loading
+                return resources.map((resource) => ({
                     key: resource as APIScopeObject,
-                    label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
+                    label: toSentenceCase(pluralizeResource(resource)),
                 }))
             },
         ],
