@@ -1,4 +1,4 @@
-import { afterMount, beforeUnmount, connect, kea, path } from 'kea'
+import { afterMount, connect, kea, path } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -12,13 +12,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         actions: [teamLogic, ['loadCurrentTeam']],
     })),
     afterMount(({ actions, cache }) => {
-        cache.pollTimer = window.setInterval(() => {
+        const pollTimer = window.setInterval(() => {
             actions.loadCurrentTeam()
         }, POLL_INTERVAL_MS)
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.pollTimer) {
-            clearInterval(cache.pollTimer)
-        }
+        cache.disposables ??= new Set()
+        cache.disposables.add(() => clearInterval(pollTimer))
     }),
 ])
