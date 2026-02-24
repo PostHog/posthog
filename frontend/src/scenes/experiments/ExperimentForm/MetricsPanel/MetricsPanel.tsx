@@ -4,6 +4,7 @@ import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { isExperimentMetric } from '~/queries/utils'
+import { ExposureCriteriaModal } from '~/scenes/experiments/ExperimentView/ExposureCriteria'
 import { ExperimentMetricModal } from '~/scenes/experiments/Metrics/ExperimentMetricModal'
 import {
     METRIC_CONTEXTS,
@@ -109,6 +110,7 @@ export const MetricsPanel = ({
                     closeSharedMetricModal()
                 }}
             />
+            <ExposureCriteriaModal />
         </div>
     )
 }
