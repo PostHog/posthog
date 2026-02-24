@@ -48,13 +48,17 @@ export function ErrorDisplayContent(): JSX.Element {
     const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
     const [showAllFrames, setShowAllFrames] = useState(false)
     const [expandedFrameRawIds, setExpandedFrameRawIds] = useState(new Set<string>())
-    const toggleFrameExpanded = (rawId: string): void => {
+    const handleFrameExpandedChange = (rawId: string, expanded: boolean): void => {
         setExpandedFrameRawIds((prev) => {
+            const has = prev.has(rawId)
+            if (expanded === has) {
+                return prev
+            }
             const next = new Set(prev)
-            if (next.has(rawId)) {
-                next.delete(rawId)
-            } else {
+            if (expanded) {
                 next.add(rawId)
+            } else {
+                next.delete(rawId)
             }
             return next
         })
@@ -112,7 +116,7 @@ export function ErrorDisplayContent(): JSX.Element {
                 showAllFrames={showAllFrames}
                 setShowAllFrames={setShowAllFrames}
                 expandedFrameRawIds={expandedFrameRawIds}
-                onToggleFrameExpanded={toggleFrameExpanded}
+                onFrameExpandedChange={handleFrameExpandedChange}
             />
         </div>
     )

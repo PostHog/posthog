@@ -9,7 +9,7 @@ export interface CollapsibleFrameProps {
     record?: ErrorTrackingStackFrameRecord
     recordLoading: boolean
     expanded: boolean
-    onToggleExpanded: () => void
+    onExpandedChange: (expanded: boolean) => void
 }
 
 export function CollapsibleFrame({
@@ -17,10 +17,10 @@ export function CollapsibleFrame({
     record,
     recordLoading,
     expanded,
-    onToggleExpanded,
+    onExpandedChange,
 }: CollapsibleFrameProps): JSX.Element {
     return (
-        <CollapsiblePrimitive open={expanded} onOpenChange={onToggleExpanded}>
+        <CollapsiblePrimitive open={expanded} onOpenChange={onExpandedChange}>
             <CollapsibleFrameHeader frame={frame} expanded={expanded} record={record} recordLoading={recordLoading} />
             <CollapsibleFrameContent frame={frame} record={record} />
         </CollapsiblePrimitive>

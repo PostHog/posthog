@@ -19,12 +19,12 @@ export function CollapsibleExceptionList({
     setShowAllFrames,
     className,
     expandedFrameRawIds,
-    onToggleFrameExpanded,
+    onFrameExpandedChange,
 }: {
     showAllFrames: boolean
     setShowAllFrames: (value: boolean) => void
     expandedFrameRawIds: Set<string>
-    onToggleFrameExpanded: (rawId: string) => void
+    onFrameExpandedChange: (rawId: string, expanded: boolean) => void
     className?: string
 }): JSX.Element {
     const {
@@ -79,7 +79,7 @@ export function CollapsibleExceptionList({
                                             record={record}
                                             recordLoading={stackFrameRecordsLoading}
                                             expanded={expandedFrameRawIds.has(frame.raw_id)}
-                                            onToggleExpanded={() => onToggleFrameExpanded(frame.raw_id)}
+                                            onExpandedChange={(open) => onFrameExpandedChange(frame.raw_id, open)}
                                         />
                                     )}
                                 />

@@ -41,7 +41,7 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
 
 function StacktraceIssueDisplay({ className }: { className?: string }): JSX.Element | null {
     const { showAsText, loading, showAllFrames, expandedFrameRawIds } = useValues(exceptionCardLogic)
-    const { setShowAllFrames, toggleFrameExpanded } = useActions(exceptionCardLogic)
+    const { setShowAllFrames, setFrameExpanded } = useActions(exceptionCardLogic)
     const commonProps = { showAllFrames, setShowAllFrames, className }
 
     return match([loading, showAsText])
@@ -51,7 +51,7 @@ function StacktraceIssueDisplay({ className }: { className?: string }): JSX.Elem
             <CollapsibleExceptionList
                 {...commonProps}
                 expandedFrameRawIds={expandedFrameRawIds}
-                onToggleFrameExpanded={toggleFrameExpanded}
+                onFrameExpandedChange={setFrameExpanded}
             />
         ))
         .otherwise(() => null)

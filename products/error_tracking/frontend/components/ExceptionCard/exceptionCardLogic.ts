@@ -21,19 +21,23 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
         setLoading: (loading: boolean) => ({ loading }),
         setCurrentSessionTab: (tab: string) => ({ tab }),
         setCurrentTab: (tab: string) => ({ tab }),
-        toggleFrameExpanded: (rawId: string) => ({ rawId }),
+        setFrameExpanded: (rawId: string, expanded: boolean) => ({ rawId, expanded }),
     }),
 
     reducers({
         expandedFrameRawIds: [
             new Set<string>(),
             {
-                toggleFrameExpanded: (state, { rawId }) => {
+                setFrameExpanded: (state, { rawId, expanded }) => {
+                    const has = state.has(rawId)
+                    if (expanded === has) {
+                        return state
+                    }
                     const next = new Set(state)
-                    if (next.has(rawId)) {
-                        next.delete(rawId)
-                    } else {
+                    if (expanded) {
                         next.add(rawId)
+                    } else {
+                        next.delete(rawId)
                     }
                     return next
                 },
@@ -87,9 +91,9 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
         issueId: [(_, p) => [p.issueId], (issueId) => issueId],
     }),
 
-    listeners(({ values, props }) => ({
-        toggleFrameExpanded: () => {
-            if (values.expandedFrameRawIds.size === 1) {
+    listeners(({ props }) => ({
+        setFrameExpanded: ({ expanded }) => {
+            if (expanded) {
                 posthog.capture('error_tracking_stacktrace_explored', { issue_id: props.issueId })
             }
         },
