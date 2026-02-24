@@ -1,0 +1,205 @@
+# serializer version: 1
+# name: TestTrafficTypeSnapshot.test_filter_bots_sql_query
+  '''
+  -- ClickHouse
+  
+  SELECT
+      events.event AS event,
+      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS user_agent
+  
+  FROM
+      events
+  
+  WHERE
+      and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_1)s), not(or(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', ''), %(hogql_val_7)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_8)s), ''), 'null'), '^"|"$', ''), %(hogql_val_9)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_10)s), ''), 'null'), '^"|"$', ''), %(hogql_val_11)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_12)s), ''), 'null'), '^"|"$', ''), %(hogql_val_13)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_14)s), ''), 'null'), '^"|"$', ''), %(hogql_val_15)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_16)s), ''), 'null'), '^"|"$', ''), %(hogql_val_17)s))))
+  ORDER BY
+      user_agent ASC
+  
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT
+      event,
+      properties.$raw_user_agent AS user_agent
+  
+  FROM
+      events
+  
+  WHERE
+      and(equals(event, '$pageview'), not(or(match(properties.$raw_user_agent, 'GPTBot|ChatGPT-User|Claude|anthropic-ai|PerplexityBot|Google-Extended|CCBot|Applebot-Extended|cohere-ai|meta-externalagent|Bytespider'), match(properties.$raw_user_agent, 'Googlebot|Bingbot|Yandex|Baiduspider|DuckDuckBot|Slurp'), match(properties.$raw_user_agent, 'AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot'), match(properties.$raw_user_agent, 'facebookexternalhit|Twitterbot|LinkedInBot|Pinterest|Slackbot|TelegramBot|WhatsApp'), match(properties.$raw_user_agent, 'Pingdom|UptimeRobot|Site24x7|StatusCake|Datadog'), match(properties.$raw_user_agent, 'curl/|wget/|python-requests/|axios/|node-fetch/|Go-http-client/|Java/|okhttp/|Apache-HttpClient|libwww-perl|Scrapy'), match(properties.$raw_user_agent, 'PhantomJS|HeadlessChrome|Puppeteer|Playwright|Selenium'), match(properties.$raw_user_agent, '^$'))))
+  ORDER BY
+      user_agent ASC
+  
+  LIMIT 100
+  '''
+# ---
+# name: TestTrafficTypeSnapshot.test_get_bot_type
+  '''
+  -- ClickHouse
+  
+  SELECT
+      multiIf(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), %(hogql_val_2)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', ''), %(hogql_val_4)s), %(hogql_val_5)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', ''), %(hogql_val_7)s), %(hogql_val_8)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', ''), %(hogql_val_10)s), %(hogql_val_11)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_12)s), ''), 'null'), '^"|"$', ''), %(hogql_val_13)s), %(hogql_val_14)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_15)s), ''), 'null'), '^"|"$', ''), %(hogql_val_16)s), %(hogql_val_17)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_18)s), ''), 'null'), '^"|"$', ''), %(hogql_val_19)s), %(hogql_val_20)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_21)s), ''), 'null'), '^"|"$', ''), %(hogql_val_22)s), %(hogql_val_23)s, %(hogql_val_24)s) AS bot_type,
+      count() AS count
+  
+  FROM
+      events
+  
+  WHERE
+      and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_25)s))
+  
+  GROUP BY
+      bot_type
+  ORDER BY
+      bot_type ASC
+  
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT
+      multiIf(match(properties.$raw_user_agent, 'GPTBot|ChatGPT-User|Claude|anthropic-ai|PerplexityBot|Google-Extended|CCBot|Applebot-Extended|cohere-ai|meta-externalagent|Bytespider'), 'llm_crawler', match(properties.$raw_user_agent, 'Googlebot|Bingbot|Yandex|Baiduspider|DuckDuckBot|Slurp'), 'search_crawler', match(properties.$raw_user_agent, 'AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot'), 'seo_crawler', match(properties.$raw_user_agent, 'facebookexternalhit|Twitterbot|LinkedInBot|Pinterest|Slackbot|TelegramBot|WhatsApp'), 'social_crawler', match(properties.$raw_user_agent, 'Pingdom|UptimeRobot|Site24x7|StatusCake|Datadog'), 'monitoring', match(properties.$raw_user_agent, 'curl/|wget/|python-requests/|axios/|node-fetch/|Go-http-client/|Java/|okhttp/|Apache-HttpClient|libwww-perl|Scrapy'), 'http_client', match(properties.$raw_user_agent, 'PhantomJS|HeadlessChrome|Puppeteer|Playwright|Selenium'), 'headless_browser', match(properties.$raw_user_agent, '^$'), 'no_user_agent', '') AS bot_type,
+      count() AS count
+  
+  FROM
+      events
+  
+  WHERE
+      equals(event, '$pageview')
+  
+  GROUP BY
+      bot_type
+  ORDER BY
+      bot_type ASC
+  
+  LIMIT 100
+  '''
+# ---
+# name: TestTrafficTypeSnapshot.test_get_traffic_category
+  '''
+  -- ClickHouse
+  
+  SELECT
+      multiIf(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), %(hogql_val_2)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', ''), %(hogql_val_4)s), %(hogql_val_5)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', ''), %(hogql_val_7)s), %(hogql_val_8)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', ''), %(hogql_val_10)s), %(hogql_val_11)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_12)s), ''), 'null'), '^"|"$', ''), %(hogql_val_13)s), %(hogql_val_14)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_15)s), ''), 'null'), '^"|"$', ''), %(hogql_val_16)s), %(hogql_val_17)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_18)s), ''), 'null'), '^"|"$', ''), %(hogql_val_19)s), %(hogql_val_20)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_21)s), ''), 'null'), '^"|"$', ''), %(hogql_val_22)s), %(hogql_val_23)s, %(hogql_val_24)s) AS category,
+      count() AS count
+  
+  FROM
+      events
+  
+  WHERE
+      and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_25)s))
+  
+  GROUP BY
+      category
+  ORDER BY
+      category ASC
+  
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT
+      multiIf(match(properties.$raw_user_agent, 'GPTBot|ChatGPT-User|Claude|anthropic-ai|PerplexityBot|Google-Extended|CCBot|Applebot-Extended|cohere-ai|meta-externalagent|Bytespider'), 'llm_crawler', match(properties.$raw_user_agent, 'Googlebot|Bingbot|Yandex|Baiduspider|DuckDuckBot|Slurp'), 'search_crawler', match(properties.$raw_user_agent, 'AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot'), 'seo_crawler', match(properties.$raw_user_agent, 'facebookexternalhit|Twitterbot|LinkedInBot|Pinterest|Slackbot|TelegramBot|WhatsApp'), 'social_crawler', match(properties.$raw_user_agent, 'Pingdom|UptimeRobot|Site24x7|StatusCake|Datadog'), 'monitoring', match(properties.$raw_user_agent, 'curl/|wget/|python-requests/|axios/|node-fetch/|Go-http-client/|Java/|okhttp/|Apache-HttpClient|libwww-perl|Scrapy'), 'http_client', match(properties.$raw_user_agent, 'PhantomJS|HeadlessChrome|Puppeteer|Playwright|Selenium'), 'headless_browser', match(properties.$raw_user_agent, '^$'), 'no_user_agent', 'regular') AS category,
+      count() AS count
+  
+  FROM
+      events
+  
+  WHERE
+      equals(event, '$pageview')
+  
+  GROUP BY
+      category
+  ORDER BY
+      category ASC
+  
+  LIMIT 100
+  '''
+# ---
+# name: TestTrafficTypeSnapshot.test_get_traffic_type
+  '''
+  -- ClickHouse
+  
+  SELECT
+      multiIf(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), %(hogql_val_2)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', ''), %(hogql_val_4)s), %(hogql_val_5)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', ''), %(hogql_val_7)s), %(hogql_val_8)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', ''), %(hogql_val_10)s), %(hogql_val_11)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_12)s), ''), 'null'), '^"|"$', ''), %(hogql_val_13)s), %(hogql_val_14)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_15)s), ''), 'null'), '^"|"$', ''), %(hogql_val_16)s), %(hogql_val_17)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_18)s), ''), 'null'), '^"|"$', ''), %(hogql_val_19)s), %(hogql_val_20)s, match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_21)s), ''), 'null'), '^"|"$', ''), %(hogql_val_22)s), %(hogql_val_23)s, %(hogql_val_24)s) AS traffic_type,
+      count() AS count
+  
+  FROM
+      events
+  
+  WHERE
+      and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_25)s))
+  
+  GROUP BY
+      traffic_type
+  ORDER BY
+      traffic_type ASC
+  
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT
+      multiIf(match(properties.$raw_user_agent, 'GPTBot|ChatGPT-User|Claude|anthropic-ai|PerplexityBot|Google-Extended|CCBot|Applebot-Extended|cohere-ai|meta-externalagent|Bytespider'), 'AI Agent', match(properties.$raw_user_agent, 'Googlebot|Bingbot|Yandex|Baiduspider|DuckDuckBot|Slurp'), 'Bot', match(properties.$raw_user_agent, 'AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot'), 'Bot', match(properties.$raw_user_agent, 'facebookexternalhit|Twitterbot|LinkedInBot|Pinterest|Slackbot|TelegramBot|WhatsApp'), 'Bot', match(properties.$raw_user_agent, 'Pingdom|UptimeRobot|Site24x7|StatusCake|Datadog'), 'Bot', match(properties.$raw_user_agent, 'curl/|wget/|python-requests/|axios/|node-fetch/|Go-http-client/|Java/|okhttp/|Apache-HttpClient|libwww-perl|Scrapy'), 'Automation', match(properties.$raw_user_agent, 'PhantomJS|HeadlessChrome|Puppeteer|Playwright|Selenium'), 'Automation', match(properties.$raw_user_agent, '^$'), 'Automation', 'Regular') AS traffic_type,
+      count() AS count
+  
+  FROM
+      events
+  
+  WHERE
+      equals(event, '$pageview')
+  
+  GROUP BY
+      traffic_type
+  ORDER BY
+      traffic_type ASC
+  
+  LIMIT 100
+  '''
+# ---
+# name: TestTrafficTypeSnapshot.test_is_bot
+  '''
+  -- ClickHouse
+  
+  SELECT
+      or(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', ''), %(hogql_val_7)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_8)s), ''), 'null'), '^"|"$', ''), %(hogql_val_9)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_10)s), ''), 'null'), '^"|"$', ''), %(hogql_val_11)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_12)s), ''), 'null'), '^"|"$', ''), %(hogql_val_13)s), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_14)s), ''), 'null'), '^"|"$', ''), %(hogql_val_15)s)) AS is_bot,
+      count() AS count
+  
+  FROM
+      events
+  
+  WHERE
+      and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_16)s))
+  
+  GROUP BY
+      is_bot
+  ORDER BY
+      is_bot ASC
+  
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT
+      or(match(properties.$raw_user_agent, 'GPTBot|ChatGPT-User|Claude|anthropic-ai|PerplexityBot|Google-Extended|CCBot|Applebot-Extended|cohere-ai|meta-externalagent|Bytespider'), match(properties.$raw_user_agent, 'Googlebot|Bingbot|Yandex|Baiduspider|DuckDuckBot|Slurp'), match(properties.$raw_user_agent, 'AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot'), match(properties.$raw_user_agent, 'facebookexternalhit|Twitterbot|LinkedInBot|Pinterest|Slackbot|TelegramBot|WhatsApp'), match(properties.$raw_user_agent, 'Pingdom|UptimeRobot|Site24x7|StatusCake|Datadog'), match(properties.$raw_user_agent, 'curl/|wget/|python-requests/|axios/|node-fetch/|Go-http-client/|Java/|okhttp/|Apache-HttpClient|libwww-perl|Scrapy'), match(properties.$raw_user_agent, 'PhantomJS|HeadlessChrome|Puppeteer|Playwright|Selenium'), match(properties.$raw_user_agent, '^$')) AS is_bot,
+      count() AS count
+  
+  FROM
+      events
+  
+  WHERE
+      equals(event, '$pageview')
+  
+  GROUP BY
+      is_bot
+  ORDER BY
+      is_bot ASC
+  
+  LIMIT 100
+  '''
+# ---
