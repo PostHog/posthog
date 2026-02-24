@@ -221,7 +221,7 @@ export function OperatorValueSelect({
                             } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
                                 // If the new operator is range and the value is not a number, we want to set the new value to null
                                 onChange(newOperator, null)
-                            } else if (isOperatorDate(newOperator) && (Array.isArray(value) || !dayjs(value).isValid())) {
+                            } else if (isOperatorDate(newOperator) && (Array.isArray(value) || !dayjs(value as string).isValid())) {
                                 // If the new operator is date and the value is not a valid date, clear it
                                 onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
