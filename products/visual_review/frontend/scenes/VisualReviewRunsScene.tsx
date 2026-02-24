@@ -13,7 +13,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { RunStatusBadge } from '../components/RunStatusBadge'
 import { RunSummaryStats } from '../components/RunSummaryStats'
 import type { RunApi } from '../generated/api.schemas'
-import { RunFilterTab, visualReviewRunsSceneLogic } from './visualReviewRunsSceneLogic'
+import { ReviewState, visualReviewRunsSceneLogic } from './visualReviewRunsSceneLogic'
 
 export const scene: SceneExport = {
     component: VisualReviewRunsScene,
@@ -41,15 +41,23 @@ function BranchCell({ run, repoFullName }: { run: RunApi; repoFullName?: string 
     )
 }
 
-export function VisualReviewRunsScene(): JSX.Element {
-    const { filteredRuns, runsLoading, activeTab, tabCounts, repoFullName } = useValues(visualReviewRunsSceneLogic)
-    const { loadRuns, setActiveTab } = useActions(visualReviewRunsSceneLogic)
+const EMPTY_MESSAGES: Record<ReviewState, string> = {
+    needs_review: 'No runs need review. All caught up!',
+    clean: 'No clean runs yet.',
+    processing: 'No runs are currently processing.',
+    stale: 'No stale runs.',
+}
 
-    const emptyMessages: Record<RunFilterTab, string> = {
-        needs_review: 'No runs need review. All caught up!',
-        clean: 'No clean runs yet.',
-        processing: 'No runs are currently processing.',
-    }
+const TAB_STYLES: Record<ReviewState, string> = {
+    needs_review: 'bg-warning-highlight text-warning-dark',
+    clean: 'bg-success-highlight text-success-dark',
+    processing: 'bg-muted-alt text-muted',
+    stale: 'bg-muted-alt text-muted',
+}
+
+export function VisualReviewRunsScene(): JSX.Element {
+    const { runs, runsLoading, activeTab, counts, repoFullName } = useValues(visualReviewRunsSceneLogic)
+    const { loadRuns, loadCounts, setActiveTab } = useActions(visualReviewRunsSceneLogic)
 
     const columns: LemonTableColumns<RunApi> = [
         {
@@ -110,6 +118,13 @@ export function VisualReviewRunsScene(): JSX.Element {
         },
     ]
 
+    const tabs: { key: ReviewState; label: string }[] = [
+        { key: 'needs_review', label: 'Needs review' },
+        { key: 'clean', label: 'Clean' },
+        { key: 'processing', label: 'Processing' },
+        { key: 'stale', label: 'Stale' },
+    ]
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -120,7 +135,14 @@ export function VisualReviewRunsScene(): JSX.Element {
                         <LemonButton type="secondary" icon={<IconGear />} to="/visual_review/settings">
                             Settings
                         </LemonButton>
-                        <LemonButton type="secondary" onClick={loadRuns} loading={runsLoading}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                loadRuns()
+                                loadCounts()
+                            }}
+                            loading={runsLoading}
+                        >
                             Refresh
                         </LemonButton>
                     </div>
@@ -130,56 +152,28 @@ export function VisualReviewRunsScene(): JSX.Element {
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(key) => setActiveTab(key)}
-                tabs={[
-                    {
-                        key: 'needs_review' as RunFilterTab,
-                        label: (
-                            <span>
-                                Needs review
-                                {tabCounts.needs_review > 0 && (
-                                    <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-warning-highlight text-warning-dark">
-                                        {tabCounts.needs_review}
-                                    </span>
-                                )}
-                            </span>
-                        ),
-                    },
-                    {
-                        key: 'clean' as RunFilterTab,
-                        label: (
-                            <span>
-                                Clean
-                                {tabCounts.clean > 0 && (
-                                    <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-success-highlight text-success-dark">
-                                        {tabCounts.clean}
-                                    </span>
-                                )}
-                            </span>
-                        ),
-                    },
-                    {
-                        key: 'processing' as RunFilterTab,
-                        label: (
-                            <span>
-                                Processing
-                                {tabCounts.processing > 0 && (
-                                    <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-muted-alt text-muted">
-                                        {tabCounts.processing}
-                                    </span>
-                                )}
-                            </span>
-                        ),
-                    },
-                ]}
+                tabs={tabs.map(({ key, label }) => ({
+                    key,
+                    label: (
+                        <span>
+                            {label}
+                            {counts[key] > 0 && (
+                                <span className={`ml-1.5 px-1.5 py-0.5 text-xs rounded-full ${TAB_STYLES[key]}`}>
+                                    {counts[key]}
+                                </span>
+                            )}
+                        </span>
+                    ),
+                }))}
             />
 
             <LemonTable
-                dataSource={filteredRuns}
+                dataSource={runs}
                 columns={columns}
                 loading={runsLoading}
                 pagination={{ pageSize: 20 }}
                 nouns={['run', 'runs']}
-                emptyState={emptyMessages[activeTab]}
+                emptyState={EMPTY_MESSAGES[activeTab]}
                 onRow={(run) => ({
                     onClick: () => router.actions.push(`/visual_review/runs/${run.id}`),
                     className: 'cursor-pointer',

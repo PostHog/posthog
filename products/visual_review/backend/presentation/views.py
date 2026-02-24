@@ -111,9 +111,9 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(responses={200: RunSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
-        """List runs for the team, optionally filtered by tab."""
-        tab = request.query_params.get("tab")
-        runs = api.list_runs(self.team_id, tab=tab)
+        """List runs for the team, optionally filtered by review state."""
+        review_state = request.query_params.get("review_state")
+        runs = api.list_runs(self.team_id, review_state=review_state)
         page = self.paginate_queryset(runs)
         if page is not None:
             serializer = RunSerializer(instance=page, many=True)
@@ -122,8 +122,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(detail=False, methods=["get"])
     def counts(self, request: Request, **kwargs) -> Response:
-        """Tab counts for the runs list."""
-        return Response(api.get_run_tab_counts(self.team_id))
+        """Review state counts for the runs list."""
+        return Response(api.get_review_state_counts(self.team_id))
 
     @validated_request(
         request_serializer=CreateRunInputSerializer,

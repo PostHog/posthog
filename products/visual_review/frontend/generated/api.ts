@@ -18,6 +18,7 @@ import type {
     PaginatedSnapshotListApi,
     PatchedUpdateRepoRequestInputApi,
     RepoApi,
+    ReviewStateCounts,
     RunApi,
     VisualReviewReposListParams,
     VisualReviewRunsListParams,
@@ -256,14 +257,17 @@ export const visualReviewRunsSnapshotsList = async (
 }
 
 /**
- * Tab counts for the runs list.
+ * Review state counts for the runs list.
  */
 export const getVisualReviewRunsCountsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/visual_review/runs/counts/`
 }
 
-export const visualReviewRunsCountsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getVisualReviewRunsCountsRetrieveUrl(projectId), {
+export const visualReviewRunsCountsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewStateCounts> => {
+    return apiMutator<ReviewStateCounts>(getVisualReviewRunsCountsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

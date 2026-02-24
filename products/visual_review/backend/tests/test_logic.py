@@ -559,23 +559,23 @@ class TestRunSupersession:
         run_sb.refresh_from_db()
         assert run_sb.superseded_by is None
 
-    def test_tab_filter_excludes_superseded(self, repo, team):
+    def test_review_state_filter_excludes_superseded(self, repo, team):
         self._create_run(repo, commit_sha="old")
         self._create_run(repo, commit_sha="new")
 
-        current_runs = list(logic.list_runs_for_team(team.id, tab="needs_review"))
-        stale_runs = list(logic.list_runs_for_team(team.id, tab="stale"))
+        current_runs = list(logic.list_runs_for_team(team.id, review_state="needs_review"))
+        stale_runs = list(logic.list_runs_for_team(team.id, review_state="stale"))
 
         assert len(current_runs) == 1
         assert current_runs[0].commit_sha == "new"
         assert len(stale_runs) == 1
         assert stale_runs[0].commit_sha == "old"
 
-    def test_tab_counts(self, repo, team):
+    def test_review_state_counts(self, repo, team):
         self._create_run(repo, commit_sha="old")
         self._create_run(repo, commit_sha="new")
 
-        counts = logic.get_run_tab_counts(team.id)
+        counts = logic.get_review_state_counts(team.id)
 
         assert counts["stale"] == 1
         assert counts["needs_review"] == 1

@@ -185,11 +185,10 @@ def is_run_stale(run: Run) -> bool:
     return run.superseded_by_id is not None
 
 
-# Tab filters — superseded_by IS NULL = current, IS NOT NULL = stale
 _HAS_CHANGES = Q(changed_count__gt=0) | Q(new_count__gt=0) | Q(removed_count__gt=0)
 _CURRENT = Q(superseded_by__isnull=True)
 
-TAB_FILTERS: dict[str, Q] = {
+REVIEW_STATE_FILTERS: dict[str, Q] = {
     "needs_review": Q(status=RunStatus.COMPLETED) & _HAS_CHANGES & Q(approved=False) & _CURRENT,
     "clean": (Q(status=RunStatus.COMPLETED) & ~_HAS_CHANGES & _CURRENT) | (Q(approved=True) & _CURRENT),
     "processing": Q(status__in=[RunStatus.PENDING, RunStatus.PROCESSING]) & _CURRENT,
@@ -197,22 +196,20 @@ TAB_FILTERS: dict[str, Q] = {
 }
 
 
-def list_runs_for_team(team_id: int, tab: str | None = None) -> db_models.QuerySet[Run]:
-    """List runs for a team, optionally filtered by tab."""
+def list_runs_for_team(team_id: int, review_state: str | None = None) -> db_models.QuerySet[Run]:
     qs = Run.objects.filter(repo__team_id=team_id).select_related("repo").order_by("-created_at")
-    if tab and tab in TAB_FILTERS:
-        qs = qs.filter(TAB_FILTERS[tab])
+    if review_state and review_state in REVIEW_STATE_FILTERS:
+        qs = qs.filter(REVIEW_STATE_FILTERS[review_state])
     return qs
 
 
-def get_run_tab_counts(team_id: int) -> dict[str, int]:
-    """All tab counts in a single query via conditional aggregation."""
+def get_review_state_counts(team_id: int) -> dict[str, int]:
     qs = Run.objects.filter(repo__team_id=team_id)
     return qs.aggregate(
-        needs_review=Count("id", filter=TAB_FILTERS["needs_review"]),
-        clean=Count("id", filter=TAB_FILTERS["clean"]),
-        processing=Count("id", filter=TAB_FILTERS["processing"]),
-        stale=Count("id", filter=TAB_FILTERS["stale"]),
+        needs_review=Count("id", filter=REVIEW_STATE_FILTERS["needs_review"]),
+        clean=Count("id", filter=REVIEW_STATE_FILTERS["clean"]),
+        processing=Count("id", filter=REVIEW_STATE_FILTERS["processing"]),
+        stale=Count("id", filter=REVIEW_STATE_FILTERS["stale"]),
     )
 
 

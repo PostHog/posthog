@@ -134,14 +134,13 @@ def update_repo(input: contracts.UpdateRepoInput) -> contracts.Repo:
 # --- Run API ---
 
 
-def list_runs(team_id: int, tab: str | None = None) -> list[contracts.Run]:
-    """List runs for a team, optionally filtered by tab."""
-    runs = logic.list_runs_for_team(team_id, tab=tab)
+def list_runs(team_id: int, review_state: str | None = None) -> list[contracts.Run]:
+    runs = logic.list_runs_for_team(team_id, review_state=review_state)
     return [_to_run(r) for r in runs]
 
 
-def get_run_tab_counts(team_id: int) -> dict[str, int]:
-    return logic.get_run_tab_counts(team_id)
+def get_review_state_counts(team_id: int) -> dict[str, int]:
+    return logic.get_review_state_counts(team_id)
 
 
 def create_run(input: contracts.CreateRunInput) -> contracts.CreateRunResult:
