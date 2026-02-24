@@ -298,6 +298,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        setActiveTab: ({ activeTab }) => {
+            // Lazy load data for the tab
+            if (activeTab === 'roles' && !values.rolesData && !values.rolesDataLoading) {
+                actions.loadRoles()
+            } else if (activeTab === 'members' && !values.membersData && !values.membersDataLoading) {
+                actions.loadMembers()
+            }
+        },
+
         saveGroupedRules: async ({ scopeType, scopeId, projectLevel, resourceLevels }) => {
             // If the selected level equals the inherited level, we save null (clear override)
             // If the selected level differs from inherited, we save it as an override
@@ -420,27 +429,39 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
         updateAccessControlDefaultSuccess: () => {
             actions.loadDefaults()
-            actions.loadRoles()
-            actions.loadMembers()
+            // Only reload roles/members if they were already loaded
+            if (values.rolesData) {
+                actions.loadRoles()
+            }
+            if (values.membersData) {
+                actions.loadMembers()
+            }
         },
         updateAccessControlRolesSuccess: () => {
             actions.loadRoles()
-            actions.loadMembers()
+            // Members inherit from roles, so reload if already loaded
+            if (values.membersData) {
+                actions.loadMembers()
+            }
         },
         updateAccessControlMembersSuccess: () => {
             actions.loadMembers()
         },
         updateResourceAccessControlsSuccess: () => {
             actions.loadDefaults()
-            actions.loadRoles()
-            actions.loadMembers()
+            // Only reload roles/members if they were already loaded
+            if (values.rolesData) {
+                actions.loadRoles()
+            }
+            if (values.membersData) {
+                actions.loadMembers()
+            }
         },
     })),
 
     afterMount(({ actions }) => {
+        // Only load defaults, roles/members are lazy loaded when their tab is opened
         actions.loadDefaults()
-        actions.loadRoles()
-        actions.loadMembers()
     }),
 
     urlToAction(({ actions }) => ({
