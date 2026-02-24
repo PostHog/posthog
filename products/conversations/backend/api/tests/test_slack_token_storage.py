@@ -140,7 +140,7 @@ class TestSlackTokenStorage(BaseTest):
 
         assert get_support_slack_bot_token(self.team) == "xoxb-second"
         self.team.refresh_from_db()
-        assert self.team.conversations_settings["slack_team_id"] == "T_SECOND"
+        assert (self.team.conversations_settings or {}).get("slack_team_id") == "T_SECOND"
 
     def test_extension_auto_created_on_team_creation(self):
         config = get_or_create_team_extension(self.team, TeamConversationsSlackConfig)
