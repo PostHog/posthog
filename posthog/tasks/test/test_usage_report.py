@@ -243,7 +243,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
             FeatureFlag.objects.create(
                 team=self.org_1_team_1,
-                rollout_percentage=30,
                 name="Disabled",
                 key="disabled-flag",
                 created_by=self.user,
@@ -252,7 +251,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
             FeatureFlag.objects.create(
                 team=self.org_1_team_1,
-                rollout_percentage=30,
                 name="Enabled",
                 key="enabled-flag",
                 created_by=self.user,
