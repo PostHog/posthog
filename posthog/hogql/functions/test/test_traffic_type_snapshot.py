@@ -27,16 +27,7 @@ class TestTrafficTypeSnapshot(BaseTest):
             )
         flush_persons_and_events()
 
-    @pytest.mark.parametrize(
-        "function_name,alias",
-        [
-            ("__preview_getTrafficType", "traffic_type"),
-            ("__preview_getTrafficCategory", "category"),
-            ("__preview_isBot", "is_bot"),
-            ("__preview_getBotType", "bot_type"),
-        ],
-    )
-    def test_traffic_type_functions_sql_query(self, function_name: str, alias: str):
+    def _run_function_query(self, function_name: str, alias: str):
         self._create_test_events()
         response = execute_hogql_query(
             f"""
@@ -51,6 +42,18 @@ class TestTrafficTypeSnapshot(BaseTest):
             self.team,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    def test_get_traffic_type(self):
+        self._run_function_query("__preview_getTrafficType", "traffic_type")
+
+    def test_get_traffic_category(self):
+        self._run_function_query("__preview_getTrafficCategory", "category")
+
+    def test_is_bot(self):
+        self._run_function_query("__preview_isBot", "is_bot")
+
+    def test_get_bot_type(self):
+        self._run_function_query("__preview_getBotType", "bot_type")
 
     def test_filter_bots_sql_query(self):
         self._create_test_events()
