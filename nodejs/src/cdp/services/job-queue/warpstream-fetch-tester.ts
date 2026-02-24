@@ -4,7 +4,7 @@ import { Counter, Histogram } from 'prom-client'
 import { getKafkaConfigFromEnv } from '../../../kafka/config'
 import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
-import { fetch } from '../../../utils/request'
+import { internalFetch as fetch } from '../../../utils/request'
 
 export const cdpSeekLatencyMs = new Histogram({
     name: 'cdp_seek_latency_ms',
