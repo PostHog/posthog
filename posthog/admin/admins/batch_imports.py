@@ -36,8 +36,13 @@ class BatchImportAdminForm(forms.ModelForm):
         send_rate = self.cleaned_data.get("send_rate")
 
         if sink_type:
+            if not instance.import_config:
+                instance.import_config = {}
             existing_sink = instance.import_config.get("sink", {})
-            sink = {"type": sink_type, "send_rate": send_rate or existing_sink["send_rate"]}
+            sink = {
+                "type": sink_type,
+                "send_rate": send_rate if send_rate is not None else existing_sink.get("send_rate", 1000),
+            }
             if sink_type == "kafka":
                 sink["topic"] = existing_sink.get("topic", "historical")
                 sink["transaction_timeout_seconds"] = existing_sink.get("transaction_timeout_seconds", 60)
