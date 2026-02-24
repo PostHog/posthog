@@ -31,13 +31,13 @@ export function LLMProviderIcon({
     const Component = PROVIDER_COMPONENTS[provider]
     if (Component) {
         return (
-            <span className={`${className} inline-flex items-center justify-center [&_svg]:size-full`}>
+            <span className={`${className} inline-flex items-center justify-center`}>
                 <Component />
             </span>
         )
     }
 
-    return <img src={PROVIDER_IMAGES.fireworks!} className={className} alt={provider} />
+    return null as unknown as JSX.Element
 }
 
 export const LLM_PROVIDER_SELECT_OPTIONS = (Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]).map((provider) => ({

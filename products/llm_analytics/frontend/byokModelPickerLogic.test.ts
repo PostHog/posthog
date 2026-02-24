@@ -3,8 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { LLM_PROVIDER_SELECT_OPTIONS } from './LLMProviderIcon'
 import { byokModelPickerLogic } from './byokModelPickerLogic'
 import { ModelOption } from './llmAnalyticsPlaygroundLogic'
+import { LLM_PROVIDER_LABELS } from './settings/llmProviderKeysLogic'
 
 const BYOK_OPENAI_MODELS: Omit<ModelOption, 'providerKeyId'>[] = [
     { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '' },
@@ -14,6 +16,17 @@ const BYOK_OPENAI_MODELS: Omit<ModelOption, 'providerKeyId'>[] = [
 const BYOK_ANTHROPIC_MODELS: Omit<ModelOption, 'providerKeyId'>[] = [
     { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'Anthropic', description: '' },
 ]
+
+describe('LLM_PROVIDER_SELECT_OPTIONS', () => {
+    it('should have an entry for every provider in LLM_PROVIDER_LABELS', () => {
+        const providers = Object.keys(LLM_PROVIDER_LABELS)
+        expect(LLM_PROVIDER_SELECT_OPTIONS.map((o) => o.value)).toEqual(providers)
+        for (const option of LLM_PROVIDER_SELECT_OPTIONS) {
+            expect(option.label).toBe(LLM_PROVIDER_LABELS[option.value])
+            expect(option.icon).toBeTruthy()
+        }
+    })
+})
 
 describe('byokModelPickerLogic', () => {
     let logic: ReturnType<typeof byokModelPickerLogic.build>
@@ -280,6 +293,43 @@ describe('byokModelPickerLogic', () => {
 
             const labels = groups.map((g) => g.label).sort()
             expect(labels).toEqual(['OpenAI (Production)', 'OpenAI (Staging)'])
+        })
+    })
+
+    describe('selectedProviderForModel', () => {
+        it('should return the provider for a matching model and key', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [
+                            { id: 'key-1', provider: 'openai', name: 'Key', state: 'ok' },
+                            { id: 'key-2', provider: 'anthropic', name: 'Key', state: 'ok' },
+                        ],
+                    },
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/llm_proxy/models/': (req: any) => {
+                        const keyId = req.url.searchParams.get('provider_key_id')
+                        if (keyId === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        if (keyId === 'key-2') {
+                            return [200, BYOK_ANTHROPIC_MODELS]
+                        }
+                        return [200, []]
+                    },
+                },
+            })
+
+            logic = byokModelPickerLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.selectedProviderForModel('gpt-4.1', 'key-1')).toBe('openai')
+            expect(logic.values.selectedProviderForModel('claude-sonnet-4', 'key-2')).toBe('anthropic')
+            expect(logic.values.selectedProviderForModel('nonexistent', 'key-1')).toBeNull()
+            expect(logic.values.selectedProviderForModel('gpt-4.1', 'wrong-key')).toBeNull()
         })
     })
 

@@ -26,13 +26,11 @@ export function ByokModelPicker({
     'data-attr': dataAttr,
 }: ByokModelPickerProps): JSX.Element {
     useMountedLogic(byokModelPickerLogic)
-    const { search, filteredProviderModelGroups, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+    const { search, filteredProviderModelGroups, selectedProviderForModel, byokModelsLoading, providerKeysLoading } =
         useValues(byokModelPickerLogic)
     const { setSearch, clearSearch } = useActions(byokModelPickerLogic)
 
-    const selectedGroup = providerModelGroups.find(
-        (g) => g.providerKeyId === selectedProviderKeyId && g.models.some((m) => m.id === model)
-    )
+    const selectedProvider = selectedProviderForModel(model, selectedProviderKeyId)
 
     const handleVisibilityChange = (visible: boolean): void => {
         if (!visible) {
@@ -98,7 +96,7 @@ export function ByokModelPicker({
                 fullWidth
                 className="justify-between"
                 data-attr={dataAttr}
-                icon={selectedGroup ? <LLMProviderIcon provider={selectedGroup.provider} /> : undefined}
+                icon={selectedProvider ? <LLMProviderIcon provider={selectedProvider} /> : undefined}
             >
                 {selectedModelName ?? placeholder}
             </LemonButton>
