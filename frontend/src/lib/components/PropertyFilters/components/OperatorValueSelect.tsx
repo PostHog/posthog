@@ -309,16 +309,19 @@ export function OperatorSelect({
     const options: LemonSelectSection<PropertyOperator>[] | { label: JSX.Element; value: PropertyOperator }[] =
         hasSemver
             ? [
-                  { options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) },
+                  ...(operators.some((op) => !isOperatorSemver(op))
+                      ? [{ options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) }]
+                      : []),
                   {
-                      title: (
+                      title: 'Semver operators',
+                      footer: (
                           <div className="mx-2 my-1">
                               <Link
                                   to="https://posthog.com/docs/data/property-filters#semver-operators"
                                   target="_blank"
-                                  className="text-xs font-semibold uppercase"
+                                  className="text-xs"
                               >
-                                  Semver operators
+                                  Learn more
                               </Link>
                           </div>
                       ),
