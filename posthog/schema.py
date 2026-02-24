@@ -48,6 +48,7 @@ class AgentMode(StrEnum):
     ONBOARDING = "onboarding"
     RESEARCH = "research"
     FLAGS = "flags"
+    LLM_ANALYTICS = "llm_analytics"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -372,6 +373,7 @@ class AssistantTool(StrEnum):
     LIST_DATA = "list_data"
     FINALIZE_PLAN = "finalize_plan"
     RECOMMEND_PRODUCTS = "recommend_products"
+    SEARCH_LLM_TRACES = "search_llm_traces"
 
 
 class AssistantToolCall(BaseModel):

@@ -329,6 +329,7 @@ export const FEATURE_FLAGS = {
     NOTEBOOK_PYTHON: 'notebook-python', // owner: #team-data-tools
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PHAI_ERROR_TRACKING_MODE: 'posthog-ai-error-tracking-mode', // owner: #team-posthog-ai
+    PHAI_LLM_ANALYTICS_MODE: 'posthog-ai-llm-analytics-mode', // owner: #team-posthog-ai
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
     PHAI_SURVEY_MODE: 'posthog-ai-survey-mode', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array

@@ -958,6 +958,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Recommending products...'
         },
     },
+    search_llm_traces: {
+        name: 'Search LLM traces',
+        description: 'Search LLM traces to analyze model usage, costs, latency, and errors',
+        icon: iconForType('llm_analytics'),
+        modes: [AgentMode.LLMAnalytics],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched LLM traces'
+            }
+            return 'Searching LLM traces...'
+        },
+    },
 }
 
 export const MODE_DEFINITIONS: Record<
@@ -1019,6 +1031,21 @@ export const MODE_DEFINITIONS: Record<
             Scene.Experiments,
             Scene.ExperimentsSharedMetric,
             Scene.ExperimentsSharedMetrics,
+        ]),
+    },
+    [AgentMode.LLMAnalytics]: {
+        name: 'LLM analytics',
+        description: 'Analyzes LLM traces.',
+        icon: iconForType('llm_analytics'),
+        scenes: new Set([
+            Scene.LLMAnalytics,
+            Scene.LLMAnalyticsTrace,
+            Scene.LLMAnalyticsEvaluation,
+            Scene.LLMAnalyticsEvaluations,
+            Scene.LLMAnalyticsDataset,
+            Scene.LLMAnalyticsDatasets,
+            Scene.LLMAnalyticsPlayground,
+            Scene.LLMAnalyticsUsers,
         ]),
     },
 }
