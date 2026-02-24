@@ -52,6 +52,7 @@ import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
+import type { WebAnalyticsHealthStatus } from './health/webAnalyticsHealthLogic'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
@@ -63,8 +64,16 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const tiles = tilesFromProps ?? tilesFromLogic
     const { featureFlags } = useValues(featureFlagLogic)
+    const { webAnalyticsHealthStatus, webAnalyticsHealthStatusLoading } = useValues(webAnalyticsHealthLogic)
 
-    const emptyOnboardingContent = getEmptyOnboardingContent(featureFlags, currentTeamLoading, currentTeam, productTab)
+    const emptyOnboardingContent = getEmptyOnboardingContent(
+        featureFlags,
+        currentTeamLoading,
+        currentTeam,
+        productTab,
+        webAnalyticsHealthStatus,
+        webAnalyticsHealthStatusLoading
+    )
 
     return (
         <div
@@ -619,6 +628,60 @@ const WebAnalyticsTabs = (): JSX.Element => {
     )
 }
 
+const WebVitalsNotInstalledState = (): JSX.Element => {
+    return (
+        <div className="col-span-full w-full">
+            <ProductIntroduction
+                productName="Web Vitals"
+                productKey={ProductKey.WEB_ANALYTICS}
+                thingName="web vital"
+                isEmpty={true}
+                titleOverride="Install PostHog to get started"
+                description="Install PostHog on your site to start tracking Core Web Vitals like LCP, INP, and CLS. Head to the installation guide to get set up in just a few minutes."
+                docsURL="https://posthog.com/docs/web-analytics/web-vitals"
+                actionElementOverride={
+                    <LemonButton
+                        type="primary"
+                        to={urls.onboarding({
+                            productKey: ProductKey.WEB_ANALYTICS,
+                            stepKey: OnboardingStepKey.INSTALL,
+                        })}
+                        data-attr="web-vitals-onboarding-install"
+                    >
+                        Open installation guide
+                    </LemonButton>
+                }
+            />
+        </div>
+    )
+}
+
+const WebVitalsWaitingForDataState = (): JSX.Element => {
+    return (
+        <div className="col-span-full w-full">
+            <ProductIntroduction
+                productName="Web Vitals"
+                productKey={ProductKey.WEB_ANALYTICS}
+                thingName="web vital"
+                isEmpty={true}
+                titleOverride="Waiting for web vitals data"
+                description="Web vitals are enabled! Data should start appearing shortly as visitors browse your site. Core Web Vitals like LCP, INP, and CLS will be captured automatically."
+                docsURL="https://posthog.com/docs/web-analytics/web-vitals"
+                actionElementOverride={
+                    <LemonButton
+                        type="secondary"
+                        to="https://posthog.com/docs/web-analytics/web-vitals"
+                        targetBlank
+                        data-attr="web-vitals-waiting-docs"
+                    >
+                        Read the docs
+                    </LemonButton>
+                }
+            />
+        </div>
+    )
+}
+
 const WebVitalsEmptyState = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -654,7 +717,9 @@ const getEmptyOnboardingContent = (
     featureFlags: FeatureFlagsSet,
     currentTeamLoading: boolean,
     currentTeam: TeamType | TeamPublicType | null,
-    productTab: ProductTab
+    productTab: ProductTab,
+    webAnalyticsHealthStatus: WebAnalyticsHealthStatus | null,
+    webAnalyticsHealthStatusLoading: boolean
 ): JSX.Element | null => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]) {
         return null
@@ -697,8 +762,21 @@ const getEmptyOnboardingContent = (
         )
     }
 
+    if (productTab === ProductTab.WEB_VITALS && !currentTeam?.ingested_event) {
+        return <WebVitalsNotInstalledState />
+    }
+
     if (productTab === ProductTab.WEB_VITALS && !currentTeam?.autocapture_web_vitals_opt_in) {
         return <WebVitalsEmptyState />
+    }
+
+    if (productTab === ProductTab.WEB_VITALS && currentTeam?.autocapture_web_vitals_opt_in) {
+        if (webAnalyticsHealthStatusLoading && !webAnalyticsHealthStatus) {
+            return <LemonSkeleton className="col-span-full w-full" />
+        }
+        if (webAnalyticsHealthStatus && !webAnalyticsHealthStatus.isSendingWebVitals) {
+            return <WebVitalsWaitingForDataState />
+        }
     }
 
     return null

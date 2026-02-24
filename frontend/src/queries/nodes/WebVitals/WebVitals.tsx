@@ -1,5 +1,5 @@
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -69,6 +69,22 @@ export function WebVitals(props: {
         () => getMetric(webVitalsQueryResponse?.results, 'FCP', webVitalsPercentile),
         [webVitalsQueryResponse, webVitalsPercentile]
     )
+
+    useEffect(() => {
+        if (!webVitalsQueryResponse) {
+            return
+        }
+        const currentValue = { INP, LCP, FCP, CLS }[webVitalsTab]
+        if (currentValue !== undefined) {
+            return
+        }
+        const firstWithData = (['INP', 'LCP', 'FCP', 'CLS'] as const).find(
+            (m) => ({ INP, LCP, FCP, CLS })[m] !== undefined
+        )
+        if (firstWithData) {
+            setWebVitalsTab(firstWithData)
+        }
+    }, [webVitalsQueryResponse])
 
     return (
         <div className="flex flex-col flex-1 gap-4">
