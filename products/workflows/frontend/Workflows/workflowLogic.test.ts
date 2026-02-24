@@ -1,5 +1,5 @@
 import { HogFlow, HogFlowAction } from './hogflows/types'
-import { stripDeletedActions } from './workflowLogic'
+import { buildDraftData, hydrateDeletedActionIds, stripDeletedActions } from './workflowLogic'
 
 type Edge = HogFlow['edges'][0]
 const edge = (from: string, to: string, type: 'continue' | 'branch', index?: number): Edge => ({
@@ -228,5 +228,83 @@ describe('stripDeletedActions', () => {
 
         expect(actions).toEqual(originalActions)
         expect(edges).toEqual(originalEdges)
+    })
+})
+
+const mockWorkflow = (draft?: Record<string, unknown> | null): HogFlow =>
+    ({
+        id: 'flow-1',
+        name: 'Test',
+        status: 'active',
+        actions: [action('trigger', 'trigger'), action('A'), action('exit', 'exit')],
+        edges: [edge('trigger', 'A', 'continue'), edge('A', 'exit', 'continue')],
+        draft: draft ?? null,
+    }) as unknown as HogFlow
+
+describe('hydrateDeletedActionIds', () => {
+    it.each([
+        {
+            name: 'extracts deleted IDs from draft',
+            draft: { deleted_action_ids: ['A', 'B'] },
+            expected: new Set(['A', 'B']),
+        },
+        {
+            name: 'returns empty set when draft is null',
+            draft: null,
+            expected: new Set<string>(),
+        },
+        {
+            name: 'returns empty set when draft has no deleted_action_ids',
+            draft: { name: 'Draft Name' },
+            expected: new Set<string>(),
+        },
+        {
+            name: 'returns empty set when deleted_action_ids is not an array',
+            draft: { deleted_action_ids: 'not-an-array' },
+            expected: new Set<string>(),
+        },
+        {
+            name: 'returns empty set for null workflow',
+            draft: undefined,
+            expected: new Set<string>(),
+        },
+    ])('$name', ({ draft, expected }) => {
+        const workflow = draft === undefined ? null : mockWorkflow(draft)
+        expect(hydrateDeletedActionIds(workflow)).toEqual(expected)
+    })
+})
+
+describe('buildDraftData', () => {
+    it('copies content fields from workflow', () => {
+        const workflow = mockWorkflow()
+        const result = buildDraftData(workflow)
+
+        expect(result.name).toBe('Test')
+        expect(result.actions).toBe(workflow.actions)
+        expect(result.edges).toBe(workflow.edges)
+        expect((result as any).id).toBeUndefined()
+        expect((result as any).status).toBeUndefined()
+        expect((result as any).draft).toBeUndefined()
+    })
+
+    it('includes deleted_action_ids when provided', () => {
+        const workflow = mockWorkflow()
+        const result = buildDraftData(workflow, new Set(['A', 'B']))
+
+        expect((result as any).deleted_action_ids).toEqual(['A', 'B'])
+    })
+
+    it('omits deleted_action_ids when set is empty', () => {
+        const workflow = mockWorkflow()
+        const result = buildDraftData(workflow, new Set())
+
+        expect((result as any).deleted_action_ids).toBeUndefined()
+    })
+
+    it('omits deleted_action_ids when not provided', () => {
+        const workflow = mockWorkflow()
+        const result = buildDraftData(workflow)
+
+        expect((result as any).deleted_action_ids).toBeUndefined()
     })
 })
