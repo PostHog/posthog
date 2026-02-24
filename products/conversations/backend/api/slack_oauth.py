@@ -106,7 +106,10 @@ class SupportSlackDisconnectView(APIView):
         if not isinstance(user, User) or user.current_team is None:
             return Response({"error": "No current team selected"}, status=400)
 
-        user.current_team.clear_supporthog_slack_token_and_save(
+        from products.conversations.backend.support_slack import clear_supporthog_slack_token
+
+        clear_supporthog_slack_token(
+            team=user.current_team,
             user=user,
             is_impersonated_session=is_impersonated_session(request),
         )
@@ -195,7 +198,10 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
     if conflicting_team:
         return _error_response(next_path, "slack_workspace_already_connected", 409)
 
-    team.save_supporthog_slack_token_and_save(
+    from products.conversations.backend.support_slack import save_supporthog_slack_token
+
+    save_supporthog_slack_token(
+        team=team,
         user=user,
         is_impersonated_session=is_impersonated_session(request),
         bot_token=bot_token,
