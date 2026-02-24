@@ -25,7 +25,7 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 8
@@ -34,9 +34,7 @@ export function DashboardItems(): JSX.Element {
     const {
         dashboard,
         tiles,
-        layout,
         layouts,
-        sizeKey,
         dashboardMode,
         placement,
         isRefreshingQueued,
@@ -52,7 +50,6 @@ export function DashboardItems(): JSX.Element {
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
-        updateContainerWidth,
         updateTileColor,
         removeTile,
         duplicateTile,
@@ -94,6 +91,7 @@ export function DashboardItems(): JSX.Element {
     const { width: gridWrapperWidth, containerRef: gridWrapperRef, mounted } = useContainerWidth()
 
     const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
+    const dashboardLayoutSize: DashboardLayoutSize = isMobileView ? 'xs' : 'sm'
     const canEditLayout = dashboardMode === DashboardMode.Edit && !isMobileView
 
     return (
@@ -102,7 +100,7 @@ export function DashboardItems(): JSX.Element {
                 <ReactGridLayout
                     width={gridWrapperWidth}
                     gridConfig={{
-                        cols: BREAKPOINT_COLUMN_COUNTS[sizeKey ?? 'sm'],
+                        cols: BREAKPOINT_COLUMN_COUNTS[dashboardLayoutSize],
                         rowHeight: GRID_ROW_HEIGHT,
                         margin: [GRID_HORIZONTAL_MARGIN, GRID_VERTICAL_MARGIN],
                         containerPadding: [0, 0],
@@ -116,7 +114,7 @@ export function DashboardItems(): JSX.Element {
                         enabled: canEditLayout,
                         handles: ['s', 'e', 'se'],
                     }}
-                    layout={layouts[sizeKey ?? 'sm']}
+                    layout={layouts[dashboardLayoutSize]}
                     className={className}
                     onLayoutChange={(...rest) => {
                         console.debug('newLayout', rest)
@@ -194,9 +192,6 @@ export function DashboardItems(): JSX.Element {
                     }}
                     onResizeStop={() => {
                         setResizingItem(null)
-                    }}
-                    onWidthChange={(containerWidth, _, newCols) => {
-                        updateContainerWidth(containerWidth, newCols)
                     }}
                 >
                     {tiles?.map((tile) => {
