@@ -4,6 +4,7 @@ from typing import Any
 
 from django.conf import settings
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
@@ -12,7 +13,7 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
@@ -299,9 +300,9 @@ class ExportedAssetViewSet(
     serializer_class = ExportedAssetSerializer
 
     def safely_get_queryset(self, queryset):
-        if self.action == "list":
-            queryset = queryset.filter(created_by=self.request.user)
+        queryset = queryset.filter(created_by=self.request.user)
 
+        if self.action == "list":
             context_path_filter = self.request.query_params.get("context_path")
             if context_path_filter:
                 queryset = queryset.filter(export_context__path__icontains=context_path_filter)
@@ -312,6 +313,24 @@ class ExportedAssetViewSet(
                 queryset = queryset.filter(export_format=export_format_filter)
 
         return queryset
+
+    def safely_get_object(self, queryset):
+        instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
+
+        resource = instance.dashboard or instance.insight
+        if not resource and instance.export_context:
+            session_recording_id = instance.export_context.get("session_recording_id")
+            if session_recording_id:
+                from posthog.session_recordings.models.session_recording import SessionRecording
+
+                resource = SessionRecording.objects.filter(
+                    team_id=instance.team_id, session_id=session_recording_id
+                ).first()
+
+        if resource and not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+            raise NotFound()
+
+        return instance
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True, required_scopes=["export:read"])

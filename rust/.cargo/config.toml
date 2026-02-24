@@ -2,3 +2,8 @@
 # Force SQLX to run in offline mode for CI. Devs can change this if they want, to live code against the DB,
 # but we use it at the workspace level here to allow use of sqlx macros across all crates
 SQLX_OFFLINE = "true"
+# Disable CPU jitter entropy in aws-lc-sys to fix macOS build failures.
+# The jitterentropy C code includes CoreServices.h which pulls in hfs_format.h,
+# hitting a missing uuid_string_t type on macOS SDKs. OS entropy sources still work.
+# See: https://github.com/aws/aws-lc-rs/issues/912
+AWS_LC_SYS_NO_JITTER_ENTROPY = "1"

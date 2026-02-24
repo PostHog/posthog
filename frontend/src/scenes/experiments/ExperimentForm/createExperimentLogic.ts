@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { isExperimentMetric } from '~/queries/schema-guards'
 import {
     ExperimentExposureCriteria,
     ExperimentMetric,
@@ -23,6 +24,7 @@ import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { isExperimentCreationIncomplete } from '../experimentsLogic'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -315,6 +317,30 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             if (props.experiment || values.experiment.id !== 'new') {
                 return
             }
+
+            try {
+                const { searchParams } = router.values.currentLocation
+                const { metric, name } = searchParams
+
+                const parsedMetric = typeof metric === 'string' ? JSON.parse(metric) : metric
+
+                if (name && isExperimentMetric(parsedMetric)) {
+                    actions.setExperiment({
+                        ...NEW_EXPERIMENT,
+                        metrics: parsedMetric ? [parsedMetric] : [],
+                        name: name ?? '',
+                    })
+
+                    lemonToast.success('Metric added successfully!')
+
+                    return
+                }
+            } catch (error) {
+                console.error('Error parsing metric from URL', error)
+                lemonToast.error('Error parsing metric from URL')
+                // Continue to draft fallback
+            }
+
             const draft = readDraftFromStorage(props.tabId)
             if (draft) {
                 actions.setExperiment(draft)
@@ -459,7 +485,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         lemonToast.success('Experiment updated successfully!')
                     } else {
                         // Create flow
-                        actions.reportExperimentCreated(response)
+                        const isWizard = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]
+                        actions.reportExperimentCreated(response, {
+                            creation_source: isWizard ? 'wizard' : 'classic_form',
+                            has_linked_flag: !!response.feature_flag?.id,
+                        })
                         actions.addProductIntent({
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
@@ -473,7 +503,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.saveExperimentSuccess()
                     clearDraftStorage(props.tabId)
 
-                    if (props.tabId) {
+                    if (isExperimentCreationIncomplete(response)) {
+                        router.actions.push(urls.experiments())
+                    } else if (props.tabId) {
                         const sceneLogicInstance = experimentSceneLogic({ tabId: props.tabId })
                         sceneLogicInstance.actions.setSceneState(response.id, FORM_MODES.update)
                         const logicRef = sceneLogicInstance.values.experimentLogicRef
