@@ -109,7 +109,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 WORKFLOW_NAME,
                 workflow_input,
                 id=workflow_id,
-                task_queue=settings.LLMA_TASK_QUEUE,
+                task_queue=settings.LLMA_SENTIMENT_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 retry_policy=RetryPolicy(maximum_attempts=MAX_RETRY_ATTEMPTS),
                 task_timeout=timedelta(seconds=WORKFLOW_TIMEOUT_BATCH_SECONDS),

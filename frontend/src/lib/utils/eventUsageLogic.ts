@@ -446,6 +446,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ experiment, metadata }),
         reportExperimentUpdated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
+        reportExperimentInconsistencyWarningShown: (experiment: Experiment, warningKey: string) => ({
+            experiment,
+            warningKey,
+        }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -1270,6 +1274,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
                 duration,
+            })
+        },
+        reportExperimentInconsistencyWarningShown: ({ experiment, warningKey }) => {
+            posthog.capture('experiment inconsistency warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
+                warning_key: warningKey,
             })
         },
         reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
