@@ -94,35 +94,35 @@
         },
         {
             "path": "LLM analytics",
-            "category": "AI Analytics",
+            "category": "AI engineering",
             "iconType": null,
             "type": "llm_analytics",
             "intents": ["llm_analytics", "llm_evaluations", "llm_datasets", "llm_prompts", "llm_clusters"]
         },
         {
             "path": "Clusters",
-            "category": "AI Analytics",
+            "category": "AI engineering",
             "iconType": null,
             "type": "llm_clusters",
             "intents": ["llm_clusters"]
         },
         {
             "path": "Datasets",
-            "category": "AI Analytics",
+            "category": "AI engineering",
             "iconType": null,
             "type": "llm_datasets",
             "intents": ["llm_datasets"]
         },
         {
             "path": "Evaluations",
-            "category": "AI Analytics",
+            "category": "AI engineering",
             "iconType": null,
             "type": "llm_evaluations",
             "intents": ["llm_evaluations"]
         },
         {
             "path": "Prompts",
-            "category": "AI Analytics",
+            "category": "AI engineering",
             "iconType": null,
             "type": "llm_prompts",
             "intents": ["llm_prompts"]
