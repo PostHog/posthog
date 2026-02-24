@@ -22,6 +22,8 @@ import dataclasses
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+import psycopg
+
 from posthog.ducklake.common import (
     escape as ducklake_escape,
     get_config,
@@ -30,6 +32,8 @@ from posthog.ducklake.common import (
 
 if TYPE_CHECKING:
     import duckdb
+
+    from posthog.ducklake.models import DuckgresServer
 
 
 def _get_django_settings():
@@ -472,12 +476,123 @@ def get_deltalake_storage_options(
     return storage_config.to_deltalake_options()
 
 
+def compute_staging_uri(source_uri: str, staging_bucket: str) -> str:
+    """Replace source bucket with staging bucket, keeping the same key path."""
+    key_path = urlparse(source_uri).path.lstrip("/")
+    return f"s3://{staging_bucket}/{key_path}"
+
+
+def stage_delta_table(
+    source_uri: str,
+    staging_bucket: str,
+    role_arn: str,
+    external_id: str | None = None,
+) -> str:
+    """Copy Delta table files from source bucket to staging bucket.
+
+    Uses cross-account credentials to read from the source bucket (via bucket policy)
+    and write to the staging bucket.
+
+    Returns the staging URI for the Delta table.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    import boto3
+
+    parsed = urlparse(source_uri)
+    source_bucket = parsed.netloc
+    source_prefix = parsed.path.lstrip("/")
+    if not source_prefix.endswith("/"):
+        source_prefix += "/"
+
+    access_key, secret_key, session_token = _get_cross_account_credentials(role_arn, external_id)
+
+    s3 = boto3.client(
+        "s3",
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        aws_session_token=session_token,
+    )
+
+    objects_to_copy: list[str] = []
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=source_bucket, Prefix=source_prefix):
+        for obj in page.get("Contents", []):
+            objects_to_copy.append(obj["Key"])
+
+    def copy_one(key: str) -> None:
+        s3.copy_object(
+            Bucket=staging_bucket,
+            Key=key,
+            CopySource={"Bucket": source_bucket, "Key": key},
+        )
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        list(executor.map(copy_one, objects_to_copy))
+
+    return compute_staging_uri(source_uri, staging_bucket)
+
+
+def cleanup_staged_files(
+    staging_uri: str,
+    role_arn: str,
+    external_id: str | None = None,
+) -> None:
+    """Delete staged Delta files from the staging bucket."""
+    import boto3
+
+    parsed = urlparse(staging_uri)
+    bucket = parsed.netloc
+    prefix = parsed.path.lstrip("/")
+    if not prefix.endswith("/"):
+        prefix += "/"
+
+    access_key, secret_key, session_token = _get_cross_account_credentials(role_arn, external_id)
+
+    s3 = boto3.client(
+        "s3",
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        aws_session_token=session_token,
+    )
+
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+        if objects:
+            s3.delete_objects(Bucket=bucket, Delete={"Objects": objects})
+
+
+def setup_duckgres_session(conn: psycopg.Connection) -> None:  # type: ignore[type-arg]
+    """Install and load required extensions on a duckgres connection."""
+    for ext in ("ducklake", "httpfs", "delta"):
+        conn.execute(f"INSTALL {ext}")
+        conn.execute(f"LOAD {ext}")
+
+
+def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:  # type: ignore[type-arg]
+    """Open a psycopg connection to a duckgres server."""
+    return psycopg.connect(
+        host=server.host,
+        port=server.port,
+        dbname=server.database,
+        user=server.username,
+        password=server.password,
+        autocommit=True,
+    )
+
+
 __all__ = [
     "DuckLakeStorageConfig",
     "CrossAccountDestination",
+    "cleanup_staged_files",
+    "compute_staging_uri",
     "configure_connection",
     "configure_cross_account_connection",
+    "connect_to_duckgres",
     "ensure_ducklake_bucket_exists",
     "get_deltalake_storage_options",
     "normalize_endpoint",
+    "setup_duckgres_session",
+    "stage_delta_table",
 ]
