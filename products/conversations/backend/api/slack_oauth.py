@@ -118,11 +118,6 @@ class SupportSlackDisconnectView(APIView):
 
 @csrf_exempt
 def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
-    request_user = getattr(request, "user", None)
-    request_user_id = getattr(request_user, "id", None)
-    if not isinstance(request_user, User) or not isinstance(request_user_id, int):
-        return JsonResponse({"error": "Authentication required"}, status=401)
-
     state_raw = request.GET.get("state")
     code = request.GET.get("code")
     oauth_error = request.GET.get("error")
@@ -180,8 +175,6 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
         return _error_response(next_path, "missing_slack_team_id", 400)
     if not isinstance(user_id, int) or not isinstance(team_id, int):
         return _error_response(next_path, "invalid_state_payload", 400)
-    if request_user_id != user_id:
-        return _error_response(next_path, "oauth_user_mismatch", 403)
 
     try:
         user = User.objects.get(id=user_id)
@@ -203,7 +196,7 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
     save_supporthog_slack_token(
         team=team,
         user=user,
-        is_impersonated_session=is_impersonated_session(request),
+        is_impersonated_session=False,
         bot_token=bot_token,
         slack_team_id=slack_team_id,
     )

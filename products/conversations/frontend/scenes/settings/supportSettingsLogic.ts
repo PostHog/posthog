@@ -166,9 +166,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        connectSlack: ({ nextPath }) => {
+        connectSlack: async ({ nextPath }) => {
             const query = encodeURIComponent(nextPath)
-            window.location.href = `/api/conversations/v1/slack/authorize?next=${query}`
+            const response = await api.get(`api/conversations/v1/slack/authorize?next=${query}`)
+            window.location.href = response.url
         },
         generateNewToken: async () => {
             const response = await api.projects.generateConversationsPublicToken(values.currentTeam?.id)
