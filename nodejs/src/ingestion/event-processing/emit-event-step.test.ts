@@ -90,7 +90,7 @@ describe('emit-event-step', () => {
     describe('createEmitEventStep', () => {
         it('should emit event successfully when eventToEmit is present', async () => {
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
 
             const result = await step(input)
 
@@ -116,7 +116,7 @@ describe('emit-event-step', () => {
             mockKafkaProducer.produce.mockRejectedValue(messageSizeTooLargeError)
 
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
 
             const result = await step(input)
 
@@ -142,7 +142,7 @@ describe('emit-event-step', () => {
             mockKafkaProducer.produce.mockRejectedValue(genericError)
 
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
 
             const result = await step(input)
 
@@ -158,7 +158,7 @@ describe('emit-event-step', () => {
 
         it('should serialize event correctly for Kafka', async () => {
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
 
             await step(input)
 
@@ -176,7 +176,7 @@ describe('emit-event-step', () => {
                 clickhouseJsonEventsTopic: 'custom_topic',
             }
             const step = createEmitEventStep(customConfig)
-            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
 
             await step(input)
 
@@ -194,7 +194,7 @@ describe('emit-event-step', () => {
                 ...mockRawEvent,
                 uuid: 'different-uuid',
             }
-            const input = { eventToEmit: eventWithDifferentUuid, inputHeaders: mockHeaders, inputMessage: mockMessage }
+            const input = { eventToEmit: eventWithDifferentUuid, headers: mockHeaders, message: mockMessage }
 
             await step(input)
 
@@ -209,8 +209,8 @@ describe('emit-event-step', () => {
         it('should work with generic input types that have eventToEmit property', async () => {
             interface CustomInput {
                 eventToEmit: RawKafkaEvent
-                inputHeaders: EventHeaders
-                inputMessage: Message
+                headers: EventHeaders
+                message: Message
                 customProperty: string
                 lastStep: string
             }
@@ -218,8 +218,8 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep<CustomInput>(config)
             const input: CustomInput = {
                 eventToEmit: mockRawEvent,
-                inputHeaders: mockHeaders,
-                inputMessage: mockMessage,
+                headers: mockHeaders,
+                message: mockMessage,
                 customProperty: 'test',
                 lastStep: 'testStep',
             }
@@ -239,8 +239,8 @@ describe('emit-event-step', () => {
             interface EventPipelineResult {
                 lastStep: string
                 eventToEmit: RawKafkaEvent
-                inputHeaders: EventHeaders
-                inputMessage: Message
+                headers: EventHeaders
+                message: Message
                 error?: string
             }
 
@@ -248,8 +248,8 @@ describe('emit-event-step', () => {
             const input: EventPipelineResult = {
                 lastStep: 'createEventStep',
                 eventToEmit: mockRawEvent,
-                inputHeaders: mockHeaders,
-                inputMessage: mockMessage,
+                headers: mockHeaders,
+                message: mockMessage,
             }
 
             const result = await step(input)
@@ -266,7 +266,7 @@ describe('emit-event-step', () => {
         describe('metrics tracking', () => {
             it('should increment eventProcessedAndIngestedCounter when event is successfully emitted', async () => {
                 const step = createEmitEventStep(config)
-                const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+                const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
 
                 const result = await step(input)
 
@@ -285,7 +285,7 @@ describe('emit-event-step', () => {
                 mockKafkaProducer.produce.mockRejectedValue(kafkaError)
 
                 const step = createEmitEventStep(config)
-                const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+                const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
 
                 const result = await step(input)
 
@@ -301,11 +301,11 @@ describe('emit-event-step', () => {
 
             it('should increment metric only once per successful emit', async () => {
                 const step = createEmitEventStep(config)
-                const input1 = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+                const input1 = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
                 const input2 = {
                     eventToEmit: { ...mockRawEvent, uuid: 'different-uuid' },
-                    inputHeaders: mockHeaders,
-                    inputMessage: mockMessage,
+                    headers: mockHeaders,
+                    message: mockMessage,
                 }
 
                 // First emit
@@ -325,7 +325,7 @@ describe('emit-event-step', () => {
         it('should emit AI events with llma product track header', async () => {
             const aiEvent = { ...mockRawEvent, event: '$ai_generation' }
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: aiEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+            const input = { eventToEmit: aiEvent, headers: mockHeaders, message: mockMessage }
 
             await step(input)
 
@@ -395,13 +395,13 @@ describe('emit-event-step', () => {
             jest.useRealTimers()
         })
 
-        it('should record ingestion lag when inputHeaders.now and inputMessage are present', async () => {
+        it('should record ingestion lag when headers.now and message are present', async () => {
             const captureTime = new Date(FAKE_NOW_MS - 5432) // 5.432 seconds before fake now
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                inputHeaders: createHeaders({ now: captureTime }),
-                inputMessage: createMessage(),
+                headers: createHeaders({ now: captureTime }),
+                message: createMessage(),
             }
 
             await step(input)
@@ -415,12 +415,12 @@ describe('emit-event-step', () => {
             expect(mockSetFn).toHaveBeenCalledWith(5432)
         })
 
-        it('should not record ingestion lag when inputHeaders.now is missing', async () => {
+        it('should not record ingestion lag when headers.now is missing', async () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                inputHeaders: createHeaders(),
-                inputMessage: createMessage(),
+                headers: createHeaders(),
+                message: createMessage(),
             }
 
             await step(input)
@@ -429,12 +429,12 @@ describe('emit-event-step', () => {
             expect(mockSetFn).not.toHaveBeenCalled()
         })
 
-        it('should not record ingestion lag when inputMessage.topic is undefined', async () => {
+        it('should not record ingestion lag when message.topic is undefined', async () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                inputMessage: createMessage({ topic: undefined as unknown as string }),
+                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                message: createMessage({ topic: undefined as unknown as string }),
             }
 
             await step(input)
@@ -443,12 +443,12 @@ describe('emit-event-step', () => {
             expect(mockSetFn).not.toHaveBeenCalled()
         })
 
-        it('should not record ingestion lag when inputMessage.partition is undefined', async () => {
+        it('should not record ingestion lag when message.partition is undefined', async () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                inputMessage: createMessage({ partition: undefined as unknown as number }),
+                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                message: createMessage({ partition: undefined as unknown as number }),
             }
 
             await step(input)
@@ -462,8 +462,8 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(customConfig)
             const input = {
                 eventToEmit: mockRawEvent,
-                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                inputMessage: createMessage(),
+                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                message: createMessage(),
             }
 
             await step(input)
@@ -479,8 +479,8 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                inputMessage: createMessage({ partition: 0 }),
+                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                message: createMessage({ partition: 0 }),
             }
 
             await step(input)
@@ -498,8 +498,8 @@ describe('emit-event-step', () => {
                 const step = createEmitEventStep(config)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    inputHeaders: createHeaders({ now: captureTime }),
-                    inputMessage: createMessage(),
+                    headers: createHeaders({ now: captureTime }),
+                    message: createMessage(),
                 }
 
                 await step(input)
@@ -517,8 +517,8 @@ describe('emit-event-step', () => {
                 const step = createEmitEventStep(customConfig)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                    inputMessage: createMessage({ partition: 3 }),
+                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                    message: createMessage({ partition: 3 }),
                 }
 
                 await step(input)
@@ -530,12 +530,12 @@ describe('emit-event-step', () => {
                 expect(mockObserveFn).toHaveBeenCalledWith(1000)
             })
 
-            it('should not observe histogram when inputHeaders.now is missing', async () => {
+            it('should not observe histogram when headers.now is missing', async () => {
                 const step = createEmitEventStep(config)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    inputHeaders: createHeaders(),
-                    inputMessage: createMessage(),
+                    headers: createHeaders(),
+                    message: createMessage(),
                 }
 
                 await step(input)
@@ -544,12 +544,12 @@ describe('emit-event-step', () => {
                 expect(mockObserveFn).not.toHaveBeenCalled()
             })
 
-            it('should not observe histogram when inputMessage.partition is undefined', async () => {
+            it('should not observe histogram when message.partition is undefined', async () => {
                 const step = createEmitEventStep(config)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                    inputMessage: createMessage({ partition: undefined as unknown as number }),
+                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                    message: createMessage({ partition: undefined as unknown as number }),
                 }
 
                 await step(input)
@@ -562,8 +562,8 @@ describe('emit-event-step', () => {
                 const step = createEmitEventStep(config)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),
-                    inputMessage: createMessage({ partition: 0 }),
+                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),
+                    message: createMessage({ partition: 0 }),
                 }
 
                 await step(input)

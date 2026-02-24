@@ -1,7 +1,7 @@
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
 
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { logger } from '../../utils/logger'
+import { logger, serializeError } from '../../utils/logger'
 import { ValidRetentionPeriods } from '../shared/constants'
 import { createDeletionBlockMetadata } from '../shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
@@ -101,6 +101,16 @@ export class RecordingService {
             RecordingApiMetrics.observeGetBlock('success', (performance.now() - startTime) / 1000)
             return { ok: true, data: decrypted }
         } catch (error) {
+            if (error instanceof NoSuchKey) {
+                logger.warn('[RecordingService] S3 object not found (NoSuchKey)', {
+                    key,
+                    teamId,
+                    sessionId,
+                })
+                RecordingApiMetrics.observeGetBlock('not_found', (performance.now() - startTime) / 1000)
+                return { ok: false, error: 'not_found' }
+            }
+
             if (error instanceof SessionKeyDeletedError) {
                 logger.info('[RecordingService] Session key has been deleted', {
                     teamId,
@@ -135,8 +145,8 @@ export class RecordingService {
                 logger.error('[RecordingService] Post-deletion cleanup failed', {
                     sessionId,
                     teamId,
-                    metadataError: metadataError ?? null,
-                    postgresError: postgresError ?? null,
+                    metadataError: serializeError(metadataError) ?? null,
+                    postgresError: serializeError(postgresError) ?? null,
                 })
                 RecordingApiMetrics.observeDeleteRecording('cleanup_failed', (performance.now() - startTime) / 1000)
                 return { ok: false, error: 'cleanup_failed', metadataError, postgresError }
@@ -239,7 +249,7 @@ export class RecordingService {
                     sessionId,
                     teamId,
                     table: tables[i],
-                    error: result.reason,
+                    error: serializeError(result.reason),
                 })
             }
         }

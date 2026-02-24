@@ -23,8 +23,8 @@ import {
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
-import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
@@ -754,6 +754,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Pageview URL`,
                         minSearchQueryLength: 3,
+                        searchDescription: 'URLs seen on pageview events',
                     },
                     {
                         name: 'Pageview events',
@@ -765,6 +766,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Pageview event`,
                         minSearchQueryLength: 3,
+                        searchDescription: 'pageview events filtered by URL',
                     },
                     // Screens returns a screen name value, used in paths and property filters.
                     // ScreenEvents creates a $screen event with $screen_name property filter,
@@ -779,6 +781,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Screen`,
                         minSearchQueryLength: 3,
+                        searchDescription: 'screen names seen on screen events',
                     },
                     {
                         name: 'Screen events',
@@ -790,6 +793,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Screen event`,
                         minSearchQueryLength: 3,
+                        searchDescription: 'screen events filtered by screen name',
                     },
                     {
                         name: 'Email addresses',
@@ -801,6 +805,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Email address`,
                         minSearchQueryLength: 5,
+                        searchDescription: 'email addresses seen in person properties',
                     },
                     {
                         name: 'Autocapture events',
@@ -812,6 +817,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Autocapture event`,
                         minSearchQueryLength: 3,
+                        searchDescription: 'element text seen on autocapture events',
                     },
                     {
                         name: 'Custom Events',
@@ -1042,7 +1048,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_AUTOCAPTURE_EVENTS,
                 }
 
+                const mutuallyExclusivePairs: [TaxonomicFilterGroupType, TaxonomicFilterGroupType][] = [
+                    [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.PageviewEvents],
+                    [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.ScreenEvents],
+                ]
+                const excluded = new Set<TaxonomicFilterGroupType>()
+                for (const [a, b] of mutuallyExclusivePairs) {
+                    if (resolvedGroupTypes.includes(a) && resolvedGroupTypes.includes(b)) {
+                        console.warn(`TaxonomicFilter: ${a} and ${b} are mutually exclusive, ignoring ${b}`)
+                        excluded.add(b)
+                    }
+                }
+
                 return resolvedGroupTypes.filter((groupType) => {
+                    if (excluded.has(groupType)) {
+                        return false
+                    }
                     if (!availableGroupTypes.has(groupType)) {
                         return false
                     }

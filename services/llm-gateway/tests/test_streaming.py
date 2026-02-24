@@ -24,7 +24,13 @@ async def create_error_stream(chunks_before_error: int = 1) -> AsyncGenerator[An
 
 
 async def collect_stream(stream: AsyncGenerator[bytes, None]) -> list[bytes]:
-    return [chunk async for chunk in stream]
+    chunks: list[bytes] = []
+    try:
+        async for chunk in stream:
+            chunks.append(chunk)
+    except Exception:
+        pass
+    return chunks
 
 
 class TestFormatSseStream:

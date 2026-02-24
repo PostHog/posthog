@@ -14,11 +14,9 @@ import {
     useRef,
     useState,
 } from 'react'
-import { TextMorph } from 'torph/react'
 
-import { IconInfo, IconSearch, IconX } from '@posthog/icons'
+import { IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
-import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -37,6 +35,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RECENTS_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { shouldSkipAiHighlight } from './shouldSkipAiHighlight'
 import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -64,27 +63,42 @@ const PLACEHOLDER_OPTIONS = [
 
 const PLACEHOLDER_CYCLE_INTERVAL = 3000
 
+const ASK_AI_ITEM_ID = '__ask_posthog_ai__'
+
 // ============================================================================
 // Hooks
 // ============================================================================
 
-const useRotatingPlaceholder = (isActive: boolean): string => {
+const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: boolean } => {
     const [index, setIndex] = useState(0)
+    const [isVisible, setIsVisible] = useState(true)
 
     useEffect(() => {
         if (!isActive) {
             setIndex(0)
+            setIsVisible(true)
             return
         }
 
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+
         const interval = setInterval(() => {
-            setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
+            setIsVisible(false)
+            timeoutId = setTimeout(() => {
+                setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
+                setIsVisible(true)
+            }, 200)
         }, PLACEHOLDER_CYCLE_INTERVAL)
 
-        return () => clearInterval(interval)
+        return () => {
+            clearInterval(interval)
+            if (timeoutId !== undefined) {
+                clearTimeout(timeoutId)
+            }
+        }
     }, [isActive])
 
-    return PLACEHOLDER_OPTIONS[index]
+    return { text: PLACEHOLDER_OPTIONS[index], isVisible }
 }
 
 // ============================================================================
@@ -234,6 +248,8 @@ export interface SearchRootProps {
     className?: string
     /** Initial search value (useful for stories/tests) */
     defaultSearchValue?: string
+    /** Optional suggested items shown above recents/apps */
+    suggestedItems?: SearchItem[]
 }
 
 function SearchRoot({
@@ -245,6 +261,7 @@ function SearchRoot({
     onAskAiClick,
     className = '',
     defaultSearchValue = '',
+    suggestedItems = [],
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
@@ -264,9 +281,11 @@ function SearchRoot({
 
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
+        const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
+        let items: SearchItem[]
         if (searchValue.trim()) {
             const searchLower = searchValue.toLowerCase()
-            return allItems.filter((item) => {
+            items = allItems.filter((item) => {
                 // Filter recents and apps by name (client-side filtering)
                 if (item.category === 'recents' || item.category === 'apps') {
                     const name = (item.displayName || item.name || '').toLowerCase()
@@ -275,10 +294,26 @@ function SearchRoot({
                 // Other categories come from server search, keep all
                 return true
             })
+        } else {
+            // When not searching, show recents and apps
+            items = allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
         }
-        // When not searching, show recents and apps
-        return allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
-    }, [allItems, searchValue])
+
+        // Prepend "Ask PostHog AI" as the first result when there's a search query
+        if (showAskAiLink && searchValue.trim()) {
+            const askAiItem: SearchItem = {
+                id: ASK_AI_ITEM_ID,
+                name: `Ask PostHog AI: "${searchValue.trim()}"`,
+                displayName: `Ask PostHog AI: "${searchValue.trim()}"`,
+                category: 'ai',
+                href: urls.ai(undefined, searchValue.trim()),
+                icon: <IconSparkles className="text-ai" />,
+            }
+            items = [askAiItem, ...items]
+        }
+
+        return [...normalizedSuggestedItems, ...items]
+    }, [allItems, searchValue, showAskAiLink, suggestedItems])
 
     useEffect(() => {
         if (!isActive) {
@@ -302,15 +337,66 @@ function SearchRoot({
         }
     }, [isActive, setSearch])
 
+    // Auto-highlight first real result when heuristics determine high confidence match
+    const lastHighlightedQueryRef = useRef<string>('')
+    useEffect(() => {
+        if (!isActive || !showAskAiLink || !searchValue.trim() || filteredItems.length < 2) {
+            return
+        }
+
+        const trimmedQuery = searchValue.trim()
+
+        // Debounce to avoid triggering on every keystroke
+        const timeoutId = setTimeout(() => {
+            // Skip if we already highlighted for this exact query
+            if (lastHighlightedQueryRef.current === trimmedQuery) {
+                return
+            }
+
+            // filteredItems[0] is the AI item, filteredItems[1] is the first real result
+            const realItems = filteredItems.slice(1)
+            const skipAi = shouldSkipAiHighlight(trimmedQuery, realItems)
+
+            if (skipAi && inputRef.current) {
+                // Mark this query as highlighted to prevent re-triggering
+                lastHighlightedQueryRef.current = trimmedQuery
+
+                // Programmatically trigger a single ArrowDown to move highlight from AI (position 0) to first real result (position 1)
+                // Use requestAnimationFrame to ensure autocomplete has processed current state
+                requestAnimationFrame(() => {
+                    const arrowDownEvent = new KeyboardEvent('keydown', {
+                        key: 'ArrowDown',
+                        code: 'ArrowDown',
+                        keyCode: 40,
+                        which: 40,
+                        bubbles: true,
+                        cancelable: true,
+                    })
+                    inputRef.current?.dispatchEvent(arrowDownEvent)
+                })
+            } else {
+                // If we shouldn't skip AI, clear the last highlighted query
+                lastHighlightedQueryRef.current = ''
+            }
+        }, 150) // 150ms debounce
+
+        return () => clearTimeout(timeoutId)
+    }, [isActive, showAskAiLink, searchValue, filteredItems, inputRef])
+
     const handleItemClick = useCallback(
         (item: SearchItem) => {
+            if (item.id === ASK_AI_ITEM_ID) {
+                onAskAiClick?.()
+                router.actions.push(item.href!)
+                return
+            }
             if (onItemSelect) {
                 onItemSelect(item)
             } else if (item.href) {
                 router.actions.push(item.href)
             }
         },
-        [onItemSelect]
+        [onItemSelect, onAskAiClick]
     )
 
     const groupedItems = useMemo(() => {
@@ -332,8 +418,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: recents first, then apps, then create, then everything else
-        const orderedCategories = ['recents', 'apps', 'create']
+        // Fixed order: ai first (when searching), then recents, apps, create, then everything else
+        const orderedCategories = ['suggested', 'ai', 'recents', 'apps', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -342,10 +428,10 @@ function SearchRoot({
 
             // When searching: hide empty groups (unless still loading)
             // When not searching: always show recents/apps (with skeleton if loading)
-            // "create" is only shown when searching
+            // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
-                : category === 'recents' || category === 'apps'
+                : (category === 'suggested' && items.length > 0) || category === 'recents' || category === 'apps'
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
@@ -422,10 +508,9 @@ export interface SearchInputProps {
 }
 
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
-    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick, highlightedItemRef } =
-        useSearchContext()
+    const { searchValue, setSearchValue, isActive, inputRef, highlightedItemRef } = useSearchContext()
 
-    const placeholderText = useRotatingPlaceholder(isActive && !searchValue)
+    const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
 
     const handleInputChange = useCallback(
         (value: string) => {
@@ -433,10 +518,6 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
         },
         [setSearchValue]
     )
-
-    const handleAskAiLinkClick = useCallback(() => {
-        onAskAiClick?.()
-    }, [onAskAiClick])
 
     const handleInputKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -471,8 +552,13 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 />
                 {searchValue ? null : (
                     <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
-                        <span className="text-tertiary">Search for </span>
-                        <TextMorph as="span">{placeholderText}</TextMorph>
+                        <span className="text-tertiary">Ask PostHog AI or search </span>
+                        <span
+                            className="transition-opacity duration-200"
+                            style={{ opacity: placeholderVisible ? 1 : 0 }}
+                        >
+                            {placeholderText}
+                        </span>
                     </span>
                 )}
                 <Autocomplete.Input
@@ -484,21 +570,6 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                     id="app-autocomplete-search"
                     className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
                 />
-
-                {showAskAiLink && (
-                    <Link
-                        className="shrink-0 text-tertiary -mr-1"
-                        buttonProps={{
-                            size: 'sm',
-                            className: 'rounded-sm',
-                        }}
-                        onClick={handleAskAiLinkClick}
-                        to={urls.ai(undefined, searchValue || undefined)}
-                    >
-                        <KeyboardShortcut tab minimal />
-                        {searchValue ? 'Ask PostHog' : 'Open PostHog AI'}
-                    </Link>
-                )}
 
                 <Autocomplete.Clear
                     render={
@@ -523,9 +594,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
 // ============================================================================
 
 function SearchStatus(): JSX.Element {
-    const { isSearching, searchValue, filteredItems, logicKey } = useSearchContext()
-    const { showSearchDebug, includeCounts, searchElapsedMs, searchResultCount } = useValues(searchLogic({ logicKey }))
-    const { toggleIncludeCounts } = useActions(searchLogic({ logicKey }))
+    const { isSearching, searchValue, filteredItems, showAskAiLink } = useSearchContext()
 
     const statusMessage = useMemo(() => {
         if (isSearching) {
@@ -543,34 +612,17 @@ function SearchStatus(): JSX.Element {
             if (!searchValue.trim()) {
                 return 'Recents and apps'
             }
-            return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
+            // Subtract 1 if AI item is present (when searching with showAskAiLink enabled)
+            const hasAiItem = showAskAiLink && searchValue.trim()
+            const realResultCount = hasAiItem ? filteredItems.length - 1 : filteredItems.length
+            return `${realResultCount} result${realResultCount === 1 ? '' : 's'}`
         }
         return 'Type to search...'
-    }, [isSearching, searchValue, filteredItems.length])
+    }, [isSearching, searchValue, filteredItems.length, showAskAiLink])
 
     return (
         <Autocomplete.Status className="px-3 pt-1 pb-2 text-xs text-muted flex items-center">
             <span>{statusMessage}</span>
-            {showSearchDebug && (
-                <span className="ml-auto flex items-center gap-2 text-xs text-muted border border-dashed border-[#0cb762] rounded group">
-                    <LemonSwitch checked={includeCounts} onChange={toggleIncludeCounts} label="Counts" size="small" />
-                    <span>
-                        elapsed: {searchElapsedMs.toFixed(2)}ms, found: {searchResultCount} items
-                    </span>
-                    <ButtonPrimitive
-                        iconOnly
-                        size="sm"
-                        tooltip={
-                            <>
-                                Posthog ONLY: This is a flagged feature that shows the search debug information as we
-                                optimize search.
-                            </>
-                        }
-                    >
-                        <IconInfo className="size-4 text-tertiary group-hover:text-primary" />
-                    </ButtonPrimitive>
-                </span>
-            )}
         </Autocomplete.Status>
     )
 }
@@ -773,9 +825,6 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     </span>
                     <span>
                         <KeyboardShortcut shift enter /> to open in new tab
-                    </span>
-                    <span>
-                        <KeyboardShortcut tab /> to ask AI
                     </span>
                     <span>
                         <KeyboardShortcut escape /> to close

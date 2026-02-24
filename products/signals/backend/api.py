@@ -20,7 +20,7 @@ async def emit_signal(
     extra: dict | None = None,
 ) -> None:
     """
-    Emit a signal for clustering and potential summarization. Fire-and-forget.
+    Emit a signal for clustering and potential summarization, fire-and-forget.
 
     Uses signal-with-start to atomically create the per-team entity workflow
     if it doesn't exist, or send a signal to the running instance. This serializes

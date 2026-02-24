@@ -25,7 +25,9 @@ import { SidePanelTab } from '~/types'
 
 import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
 
-import { SidePanelNavigation } from './SidePanelNavigation'
+import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
+import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
+import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelChangelog } from './panels/SidePanelChangelog'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelHealth, SidePanelHealthIcon } from './panels/SidePanelHealth'
@@ -35,10 +37,8 @@ import { SidePanelSdkDoctor, SidePanelSdkDoctorIcon } from './panels/SidePanelSd
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
-import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
-import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
-import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
+import { SidePanelNavigation } from './SidePanelNavigation'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const SIDE_PANEL_TAB_KEYBINDS: Partial<Record<SidePanelTab, string[][]>> = {

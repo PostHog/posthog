@@ -9,20 +9,20 @@ import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconWarning } from '
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -516,7 +516,7 @@ export function InsightValidationError({
 }
 
 export interface InsightErrorStateProps {
-    title?: string | null
+    title?: string | JSX.Element | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
     excludeDetail?: boolean
@@ -657,11 +657,14 @@ const SAVED_INSIGHTS_COPY = {
 export function SavedInsightsEmptyState({
     filters,
     usingFilters,
+    onClearFilters,
+    onClearSearch,
 }: {
     filters: SavedInsightFilters
     usingFilters?: boolean
+    onClearFilters?: () => void
+    onClearSearch?: () => void
 }): JSX.Element {
-    // show the search string that was used to make the results, not what it currently is
     const searchString = filters?.search || null
     const { title, description } = SAVED_INSIGHTS_COPY[filters.tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
 
@@ -687,22 +690,34 @@ export function SavedInsightsEmptyState({
             ) : (
                 <p className="empty-state__description">{description}</p>
             )}
-            <div className="flex justify-center">
-                <Link to={urls.insightNew()}>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Insight}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<IconPlusSmall />}
-                            className="add-insight-button"
+            <div className="flex justify-center gap-2">
+                {onClearSearch && searchString && (
+                    <LemonButton type="secondary" size="small" onClick={onClearSearch}>
+                        Clear search
+                    </LemonButton>
+                )}
+                {onClearFilters && (
+                    <LemonButton type="secondary" size="small" onClick={onClearFilters}>
+                        Clear filters
+                    </LemonButton>
+                )}
+                {!usingFilters && (
+                    <Link to={urls.insightNew()}>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Insight}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            New insight
-                        </LemonButton>
-                    </AccessControlAction>
-                </Link>
+                            <LemonButton
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<IconPlusSmall />}
+                                className="add-insight-button"
+                            >
+                                New insight
+                            </LemonButton>
+                        </AccessControlAction>
+                    </Link>
+                )}
             </div>
         </div>
     )
