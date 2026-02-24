@@ -94,21 +94,6 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     return results
 }
 
-export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
-    const itemLayouts: Record<string, Record<DashboardLayoutSize, TileLayout>> = {}
-
-    Object.entries(layouts).forEach(([col, layout]) => {
-        layout?.forEach((layoutItem) => {
-            const i = String(layoutItem.i)
-            if (!itemLayouts[i]) {
-                itemLayouts[i] = {} as Record<DashboardLayoutSize, TileLayout>
-            }
-            itemLayouts[i][col as DashboardLayoutSize] = layoutItem
-        })
-    })
-    return itemLayouts
-}
-
 /**
  * Fetches an insight with a retry and polling mechanism.
  * It first attempts to fetch the insight synchronously. If rate-limited, it retries with exponential backoff.
