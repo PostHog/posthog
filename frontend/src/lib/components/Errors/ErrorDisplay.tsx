@@ -47,6 +47,18 @@ export function ErrorDisplayContent(): JSX.Element {
     const browserInfo = concatValues(exceptionAttributes, 'browser', 'browserVersion')
     const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
     const [showAllFrames, setShowAllFrames] = useState(false)
+    const [expandedFrameRawIds, setExpandedFrameRawIds] = useState(new Set<string>())
+    const toggleFrameExpanded = (rawId: string): void => {
+        setExpandedFrameRawIds((prev) => {
+            const next = new Set(prev)
+            if (next.has(rawId)) {
+                next.delete(rawId)
+            } else {
+                next.add(rawId)
+            }
+            return next
+        })
+    }
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
             <div className="flex justify-between gap-2 items-center">
@@ -96,7 +108,12 @@ export function ErrorDisplayContent(): JSX.Element {
                     </LemonBanner>
                 </>
             )}
-            <CollapsibleExceptionList showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} />
+            <CollapsibleExceptionList
+                showAllFrames={showAllFrames}
+                setShowAllFrames={setShowAllFrames}
+                expandedFrameRawIds={expandedFrameRawIds}
+                onToggleFrameExpanded={toggleFrameExpanded}
+            />
         </div>
     )
 }

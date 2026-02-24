@@ -145,12 +145,14 @@ function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JS
 }
 
 function StackTraceGenericDisplay({ className }: { className?: string }): JSX.Element {
-    const { showAllFrames } = useValues(exceptionCardLogic)
-    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    const { showAllFrames, expandedFrameRawIds } = useValues(exceptionCardLogic)
+    const { setShowAllFrames, toggleFrameExpanded } = useActions(exceptionCardLogic)
     return (
         <CollapsibleExceptionList
             showAllFrames={showAllFrames}
             setShowAllFrames={setShowAllFrames}
+            expandedFrameRawIds={expandedFrameRawIds}
+            onToggleFrameExpanded={toggleFrameExpanded}
             className={className}
         />
     )

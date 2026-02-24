@@ -1,4 +1,6 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
+import posthog from 'lib/posthog-typed'
 
 import type { exceptionCardLogicType } from './exceptionCardLogicType'
 
@@ -19,9 +21,24 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
         setLoading: (loading: boolean) => ({ loading }),
         setCurrentSessionTab: (tab: string) => ({ tab }),
         setCurrentTab: (tab: string) => ({ tab }),
+        toggleFrameExpanded: (rawId: string) => ({ rawId }),
     }),
 
     reducers({
+        expandedFrameRawIds: [
+            new Set<string>(),
+            {
+                toggleFrameExpanded: (state, { rawId }) => {
+                    const next = new Set(state)
+                    if (next.has(rawId)) {
+                        next.delete(rawId)
+                    } else {
+                        next.add(rawId)
+                    }
+                    return next
+                },
+            },
+        ],
         showJSONProperties: [
             false,
             {
@@ -69,4 +86,12 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
     selectors({
         issueId: [(_, p) => [p.issueId], (issueId) => issueId],
     }),
+
+    listeners(({ values, props }) => ({
+        toggleFrameExpanded: () => {
+            if (values.expandedFrameRawIds.size === 1) {
+                posthog.capture('error_tracking_stacktrace_explored', { issue_id: props.issueId })
+            }
+        },
+    })),
 ])
