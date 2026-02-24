@@ -405,7 +405,7 @@ impl EndpointYaml {
                     .query
                     .get("query")
                     .and_then(|q| q.as_str())
-                    .map(|s| s.replace("\r\n", "\n"));
+                    .map(|s| s.replace("\r\n", "\n").replace("\r", "\n"));
                 (query_str, None)
             } else {
                 // Complex query - store the full definition
