@@ -222,4 +222,5 @@ class TestStructuredOutputComplete:
 
         assert result.content == raw_json
         assert result.parsed is not None
+        assert isinstance(result.parsed, BooleanEvalResult)
         assert result.parsed.result is False
