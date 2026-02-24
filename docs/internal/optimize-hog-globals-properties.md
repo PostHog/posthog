@@ -1,4 +1,4 @@
-# Optimizing HogFunction/HogFlow Globals: Property Pruning
+# Optimizing HogFunction/HogFlow Globals: Property Pruning + Lazy Loading
 
 ## Problem Statement
 
@@ -271,7 +271,7 @@ This compounds across millions of invocations per day.
 | Performance overhead of bytecode analysis | One-time cost at save/compile, amortized over millions of invocations |
 | Functions that iterate over properties (`for key in event.properties`) | Detected by `GET_GLOBAL 2` pattern → mark as `'*'` |
 
-## Implementation Order
+## Step 1 Implementation Order
 
 1. **Bytecode analyzer utility** — new module that scans bytecode for `GET_GLOBAL` patterns
    and extracts property chains. Includes Liquid template scanning.
@@ -282,6 +282,259 @@ This compounds across millions of invocations per day.
 4. **Metrics** — add a metric comparing pre/post prune sizes to quantify savings.
 5. **Gradual rollout** — enable via feature flag per team, then globally.
 6. **HogFlow support** — extend to flows (union of all action requirements).
+
+## Step 2: Lazy-Load Person and Group Properties (Don't Store Them)
+
+### Motivation
+
+Step 1 prunes properties to only what the function needs,
+but we still store those properties in every invocation.
+For person and group properties specifically,
+we can go further: **don't store them at all** —
+store only the person ID / distinct ID and group keys,
+then load properties dynamically at execution time.
+
+This is the pattern HogFlows already use for person data.
+Extending it to HogFunctions (and to groups for both) would dramatically
+reduce Warpstream/Kafka throughput since person/group properties
+are often the largest part of the globals payload.
+
+### Current State
+
+| Path | HogFunctions | HogFlows |
+|------|-------------|----------|
+| Person properties | Stored in `globals.person.properties` | **Not stored** — loaded fresh via `PersonsManagerService` |
+| Group properties | Stored in `globals.groups.*.properties` | Not enriched (TODO comment in code) |
+| Event properties | Stored in `globals.event.properties` | Stored in `state.event.properties` |
+
+HogFlows already load person data fresh at execution via:
+```typescript
+// cdp-cyclotron-worker-hogflow.consumer.ts
+const dbPerson = await this.personsManager.get({
+    teamId: hogFlow.team_id,
+    distinctId: hogFlowInvocationState.event.distinct_id,
+})
+```
+
+The `PersonsManagerService` uses `LazyLoader` with:
+- **Batching**: multiple concurrent `.get()` calls batched into single DB query
+- **Caching**: 1-minute refresh age (person data changes frequently)
+- **Metrics**: cache hit rate, buffer usage, cache size
+
+Similarly, `GroupsManagerService` already supports batch loading via
+`fetchGroupProperties()` with 10-minute group type caching.
+
+### Proposed Changes
+
+#### 2a. Store only person ID + distinct_id in HogFunction globals
+
+Instead of storing the full person object with all properties:
+
+```typescript
+// Before (current)
+globals.person = {
+    id: personUUID,
+    properties: { email: '...', plan: '...', ...hundredsOfProps },
+    name: 'User Name',
+    url: '...',
+}
+
+// After
+globals.person = {
+    id: personUUID,
+    distinct_id: event.distinct_id,  // needed for DB lookup
+    name: 'User Name',  // pre-computed, cheap
+    url: '...',          // pre-computed, cheap
+    // properties omitted — loaded at execution time
+}
+```
+
+At execution time in the Cyclotron worker,
+before running the Hog VM, load person properties:
+
+```typescript
+// In cdp-cyclotron-worker.consumer.ts (or equivalent)
+if (invocation.globals.person?.distinct_id) {
+    const person = await this.personsManager.get({
+        teamId: invocation.globals.project.id,
+        distinctId: invocation.globals.person.distinct_id,
+    })
+    if (person) {
+        invocation.globals.person.properties = person.properties
+    }
+}
+```
+
+This uses the existing `PersonsManagerService` with its batching and caching —
+no new infrastructure needed.
+
+#### 2b. Store only group keys in HogFunction globals
+
+Similarly for groups:
+
+```typescript
+// Before (current)
+globals.groups = {
+    company: {
+        id: 'acme-corp',
+        index: 0,
+        type: 'company',
+        url: '...',
+        properties: { name: '...', plan: '...', ...manyProps },
+    }
+}
+
+// After
+globals.groups = {
+    company: {
+        id: 'acme-corp',
+        index: 0,
+        type: 'company',
+        url: '...',
+        // properties omitted — loaded at execution time
+    }
+}
+```
+
+At execution time, use `GroupsManagerService.enrichGroups()` or a similar
+method to batch-load group properties for the invocation.
+
+#### 2c. Move enrichment from event consumer to worker
+
+Currently `enrichGroups()` is called in the event consumer path
+(`cdp-events.consumer.ts` line 91) during invocation creation.
+This enrichment should move to the worker execution path:
+
+```
+Before:
+  Event Consumer → enrichGroups() → store full globals → Kafka → Worker → execute
+
+After:
+  Event Consumer → store minimal globals → Kafka → Worker → load person + groups → execute
+```
+
+This shifts the DB load from the event consumer to the worker,
+which is better because:
+- Workers can scale independently
+- Workers already do this for HogFlows
+- The event consumer becomes faster (less DB work per event)
+- Kafka/Warpstream payload sizes shrink dramatically
+
+#### 2d. Input building must happen at execution time too
+
+Currently, input templates are resolved in the event consumer
+using full globals (including person/group properties).
+If we defer property loading, input building must also be deferred.
+
+For HogFunctions with `type: 'destination'`, inputs are pre-built.
+This would need to change — inputs would be built at execution time
+after properties are loaded.
+
+**Alternative**: keep a hybrid approach where Step 1's pruned properties
+are still stored for input building, but person/group properties
+are loaded fresh. This avoids changing the input building flow.
+
+#### 2e. Filtering still needs properties at event consumer time
+
+The filtering step (`filterFunctionInstrumented()`) runs in the event consumer
+and needs person/group properties to evaluate filters.
+This **cannot** be deferred since filtering determines whether
+an invocation is created at all.
+
+Two approaches:
+1. **Keep full properties for filtering, strip before storing**:
+   Filter with full data, then remove person/group properties from globals
+   before queuing to Kafka. Properties are loaded fresh at execution time.
+2. **Accept the trade-off**: Person properties are already in the event payload
+   (from ClickHouse event's `person_properties` field), so the event consumer
+   has them for free. Groups require a DB lookup — this already happens.
+   The win is not avoiding the initial load, but avoiding storing/transmitting the data.
+
+Approach 1 is simpler and preserves the current filtering behavior exactly.
+
+### Interaction with Step 1
+
+Step 1 (static property extraction + pruning) and Step 2 (lazy loading)
+are complementary:
+
+- **Step 1 alone**: reduces properties from hundreds to a handful, stored in globals
+- **Step 2 alone**: removes person/group properties entirely from stored globals, loads fresh
+- **Step 1 + Step 2**: Step 1 still applies to **event** properties (which can't be lazy-loaded
+  since events are immutable and from ClickHouse).
+  Step 2 handles person/group properties (which are mutable and in Postgres).
+
+For event properties, lazy loading is not practical because:
+- Events live in ClickHouse, not Postgres (higher query latency)
+- Ingestion lag means the event may not be queryable yet
+- Event properties are immutable, so staleness isn't a concern — storing them is fine
+
+### Impact Estimate
+
+For a typical invocation with 100 event properties, 50 person properties, and 20 group properties:
+
+| Component | Before | After Step 1 | After Step 1 + Step 2 |
+|-----------|--------|-------------|----------------------|
+| Event properties | ~10 KB | ~0.2 KB (pruned) | ~0.2 KB (pruned) |
+| Person properties | ~5 KB | ~1 KB (pruned) | ~0.05 KB (ID only) |
+| Group properties | ~3 KB | ~0.5 KB (pruned) | ~0.05 KB (key only) |
+| **Total** | **~18 KB** | **~1.7 KB** | **~0.3 KB** |
+
+Step 2 brings an additional ~5-6x reduction on top of Step 1,
+for a combined ~60x reduction from baseline.
+On millions of invocations per day, this translates to massive Warpstream bandwidth savings.
+
+### Latency Trade-off
+
+Loading person/group data at execution time adds latency:
+
+| Operation | Estimated latency |
+|-----------|------------------|
+| Person lookup (cached in LazyLoader) | ~0 ms (cache hit) |
+| Person lookup (cache miss, batched) | ~10-50 ms |
+| Group properties lookup (batched) | ~10-50 ms |
+
+This is acceptable because:
+- `LazyLoader` batching amortizes cost across concurrent invocations
+- 1-minute caching means most lookups are cache hits for active persons
+- Workers already accept this latency for HogFlows
+- The bandwidth savings far outweigh the added latency
+
+### Freshness Consideration
+
+Loading person/group properties at execution time instead of storage time
+means the function sees **current** properties, not properties at trigger time.
+This is generally better (more accurate), but could surprise users
+if a person's properties changed between event capture and function execution.
+
+For most destinations (webhooks, CRMs) this is actually preferred —
+you want to send the current email, not the email from 5 minutes ago.
+
+### Risks and Mitigations
+
+| Risk | Mitigation |
+|------|-----------|
+| DB load increases on workers | LazyLoader batching + caching limits queries; read replicas available |
+| Person deleted between trigger and execution | Graceful handling: if person not found, use empty properties |
+| Input building needs properties | Hybrid approach: build inputs at execution time after loading properties |
+| Increased execution latency | Batching amortizes; 10-50ms acceptable for async destinations |
+| Group enrichment not yet enabled for HogFlows | This work would implement it properly for both paths |
+
+### Implementation Order
+
+1. **Refactor HogFunction worker to load person properties** —
+   follow the HogFlow pattern using `PersonsManagerService`.
+   Store only person ID + distinct_id in globals. Feature-flagged.
+2. **Refactor HogFunction worker to load group properties** —
+   use `GroupsManagerService` at execution time.
+   Store only group keys in globals. Feature-flagged.
+3. **Move input building to execution time** —
+   defer input template resolution to after property loading.
+   This is the largest change and requires careful testing.
+4. **Remove `enrichGroups()` from event consumer** —
+   once workers handle group loading, remove from the hot path.
+5. **Metrics and monitoring** —
+   track Kafka payload sizes, worker latency, cache hit rates.
+6. **Gradual rollout** — per team, then globally.
 
 ## Alternative Approaches Considered
 
@@ -294,15 +547,19 @@ are actually accessed, then only persist those.
 **Cons**: Runtime overhead per execution, still stores full globals initially
 (pruning only on re-queue), adds complexity to the hot path.
 
-### Lazy loading from event store
+### Lazy loading from ClickHouse event store (for event properties)
 
-Instead of storing properties in the invocation state,
-store only the event UUID and load properties from ClickHouse on demand.
+Instead of storing event properties in the invocation state,
+store only the event UUID and load event properties from ClickHouse on demand.
 
-**Pros**: Minimal storage.
+**Pros**: Minimal storage for event data too.
 **Cons**: Adds ClickHouse read latency to every invocation step,
 ClickHouse may not have the event yet (ingestion lag),
 significantly changes the architecture.
+
+**Note**: This is different from Step 2's approach which lazy-loads
+**person/group** properties from **Postgres** (low latency, already cached).
+Event properties remain in ClickHouse where lazy loading is impractical.
 
 ### Compression only
 
@@ -314,13 +571,19 @@ Already partially implemented (`CDP_CYCLOTRON_COMPRESS_KAFKA_DATA`).
 
 ## Conclusion
 
-The static analysis approach is feasible and offers the best tradeoff:
-- High impact (90%+ reduction in stored data for most functions)
-- Low risk (backward compatible, feature-flagged)
-- One-time cost (analysis at save time, not per invocation)
-- Well-scoped (bytecode format is simple and amenable to static analysis)
+The two-step approach provides compounding bandwidth savings:
 
-The main complexity is in the bytecode analyzer,
-but the `GET_GLOBAL` opcode structure makes static chain extraction straightforward.
-The `'*'` fallback for dynamic access patterns
-ensures correctness even when static analysis is incomplete.
+**Step 1 — Static property pruning** (event + person + group properties):
+- ~90% reduction in stored data for most functions
+- One-time analysis at save time, amortized over millions of invocations
+- Backward compatible with `'*'` fallback for dynamic access
+
+**Step 2 — Lazy-load person/group properties** (don't store them at all):
+- Additional ~5-6x reduction on top of Step 1
+- Reuses existing infrastructure (`PersonsManagerService`, `GroupsManagerService`, `LazyLoader`)
+- Follows the pattern HogFlows already use for person data
+- Shifts DB load from event consumer to workers (which scale better)
+
+Combined, these steps reduce a typical invocation payload from ~18 KB to ~0.3 KB —
+a ~60x reduction that compounds across millions of daily invocations,
+translating to massive Warpstream/Kafka bandwidth and storage savings.
