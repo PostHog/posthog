@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, report_user_action
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
@@ -228,7 +228,7 @@ class UpsertDashboardTool(MaxTool):
             event,
             {
                 **await database_sync_to_async(dashboard.get_analytics_metadata)(),
-                "source": "posthog_ai",
+                "source": EventSource.POSTHOG_AI,
             },
             team=self._team,
         )
@@ -243,7 +243,7 @@ class UpsertDashboardTool(MaxTool):
                     "insight created",
                     {
                         "insight_id": insight.short_id,
-                        "source": "posthog_ai",
+                        "source": EventSource.POSTHOG_AI,
                     },
                     team=self._team,
                 )
