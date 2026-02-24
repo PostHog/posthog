@@ -36,7 +36,6 @@ from posthog.temporal.ai.slack_conversation import (
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_instance_region
 
 from ee.models.assistant import Conversation
 
@@ -417,7 +416,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             )
         )
 
-        logger.warning(
+        logger.info(
             "slack_conversation_workflow_started",
             workflow_id=workflow_id,
             team_id=integration.team_id,
@@ -813,6 +812,14 @@ def _create_task_for_repo(
         mentioning_slack_user_id=slack_user_id,
     )
 
+    slack_thread_url = None
+    try:
+        permalink_resp = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts)
+        if permalink_resp.get("ok"):
+            slack_thread_url = permalink_resp["permalink"]
+    except Exception:
+        logger.warning("twig_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
+
     try:
         Task.create_and_run(
             team=integration.team,
@@ -822,6 +829,7 @@ def _create_task_for_repo(
             user_id=user_id,
             repository=repository,
             slack_thread_context=slack_thread_context,
+            slack_thread_url=slack_thread_url,
         )
     except Exception as e:
         logger.exception(

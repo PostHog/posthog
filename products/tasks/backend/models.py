@@ -118,13 +118,21 @@ class Task(DeletedMetaFields, models.Model):
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
-    def create_run(self, environment: Optional["TaskRun.Environment"] = None, mode: str = "background") -> "TaskRun":
+    def create_run(
+        self,
+        environment: Optional["TaskRun.Environment"] = None,
+        mode: str = "background",
+        extra_state: dict | None = None,
+    ) -> "TaskRun":
+        state: dict = {"mode": mode}
+        if extra_state:
+            state.update({k: v for k, v in extra_state.items() if k != "mode"})
         return TaskRun.objects.create(
             task=self,
             team=self.team,
             status=TaskRun.Status.QUEUED,
             environment=environment or TaskRun.Environment.CLOUD,
-            state={"mode": mode},
+            state=state,
         )
 
     def soft_delete(self):
@@ -147,13 +155,11 @@ class Task(DeletedMetaFields, models.Model):
         create_pr: bool = True,
         mode: str = "background",
         slack_thread_context: Optional["SlackThreadContext"] = None,
+        slack_thread_url: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
-
-        if not created_by:
-            raise ValueError(f"User {user_id} does not exist")
 
         github_integration = Integration.objects.filter(team=team, kind="github").first()
 
@@ -170,7 +176,11 @@ class Task(DeletedMetaFields, models.Model):
             repository=repository,
         )
 
-        task_run = task.create_run(mode=mode)
+        extra_state: dict | None = None
+        if slack_thread_url:
+            extra_state = {"slack_thread_url": slack_thread_url}
+
+        task_run = task.create_run(mode=mode, extra_state=extra_state)
 
         execute_task_processing_workflow(
             task_id=str(task.id),

@@ -298,16 +298,17 @@ def process_twig_task_termination(payload: dict) -> None:
     if channel and message_ts:
         try:
             slack_client = SlackIntegration(integration).client
+            progress_text = "*Working on task...* :hourglass_flowing_sand:\nTermination requested. Stopping run and cleaning up sandbox..."
             slack_client.chat_update(
                 channel=channel,
                 ts=message_ts,
-                text="Termination requested. Stopping run and cleaning up sandbox...",
+                text=progress_text,
                 blocks=[
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": "Termination requested. Stopping run and cleaning up sandbox...",
+                            "text": progress_text,
                         },
                     }
                 ],
