@@ -3,7 +3,7 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type RefObject, useEffect, useRef, useState } from 'react'
+import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import ReactGridLayout, { useContainerWidth } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
@@ -60,7 +60,10 @@ export function DashboardItems(): JSX.Element {
     const { renameInsight } = useActions(insightsModel)
     const { push } = useActions(router)
     const { nameSortedDashboards } = useValues(dashboardsModel)
-    const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
+    const otherDashboards = useMemo(
+        () => nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id),
+        [nameSortedDashboards, dashboard?.id]
+    )
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
@@ -93,6 +96,172 @@ export function DashboardItems(): JSX.Element {
     const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
     const dashboardLayoutSize: DashboardLayoutSize = isMobileView ? 'xs' : 'sm'
     const canEditLayout = dashboardMode === DashboardMode.Edit && !isMobileView
+    const dashboardId = dashboard?.id
+    const gridChildren = useMemo(
+        () =>
+            tiles?.map((tile) => {
+                const { insight, text } = tile
+                const smLayout = layouts['sm']?.find((l) => {
+                    return l.i == tile.id.toString()
+                })
+
+                const commonTileProps = {
+                    dashboardId,
+                    showResizeHandles: canEditLayout,
+                    showEditingControls: [
+                        DashboardPlacement.Dashboard,
+                        DashboardPlacement.ProjectHomepage,
+                        DashboardPlacement.Builtin,
+                    ].includes(placement),
+                    moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                        if (dashboardId == null) {
+                            throw new Error('must be on a dashboard to move this tile')
+                        }
+                        moveToDashboard(tile, dashboardId, id, name)
+                    },
+                    removeFromDashboard: () => removeTile(tile),
+                }
+
+                if (insight) {
+                    // Check if this insight has an error from the server
+                    const isErrorTile = !!tile.error
+                    const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
+                    const apiError = isErrorTile
+                        ? ({ status: 400, detail: `${tile.error!.type}: ${tile.error!.message}` } as any)
+                        : refreshStatus[insight.short_id]?.error
+                    const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
+                    const loading = isErrorTile ? false : isRefreshing(insight.short_id)
+
+                    return (
+                        <InsightCard
+                            key={tile.id}
+                            tile={tile}
+                            insight={insight}
+                            loadingQueued={loadingQueued}
+                            loading={loading}
+                            apiErrored={apiErrored}
+                            apiError={apiError}
+                            highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
+                            updateColor={(color) => updateTileColor(tile.id, color)}
+                            ribbonColor={tile.color}
+                            refresh={() => refreshDashboardItem({ tile })}
+                            refreshEnabled={!itemsLoading}
+                            rename={() => renameInsight(insight)}
+                            duplicate={() => duplicateTile(tile)}
+                            setOverride={() => setTileOverride(tile)}
+                            showDetailsControls={
+                                placement != DashboardPlacement.Export && !getCurrentExporterData()?.hideExtraDetails
+                            }
+                            placement={placement}
+                            loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                            filtersOverride={effectiveEditBarFilters}
+                            variablesOverride={effectiveDashboardVariableOverrides}
+                            // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
+                            breakdownColorOverride={temporaryBreakdownColors}
+                            dataColorThemeId={dataColorThemeId}
+                            surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                            {...commonTileProps}
+                            // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
+                        />
+                    )
+                } else if (text) {
+                    return (
+                        <TextCard
+                            key={tile.id}
+                            textTile={tile}
+                            placement={placement}
+                            moreButtonOverlay={
+                                <>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() =>
+                                            dashboardId && push(urls.dashboardTextTile(dashboardId, tile.id))
+                                        }
+                                        data-attr="edit-text"
+                                    >
+                                        Edit text
+                                    </LemonButton>
+
+                                    {commonTileProps.moveToDashboard && (
+                                        <LemonButtonWithDropdown
+                                            disabledReason={
+                                                otherDashboards.length > 0 ? undefined : 'No other dashboards'
+                                            }
+                                            dropdown={{
+                                                overlay: otherDashboards.map((otherDashboard) => (
+                                                    <LemonButton
+                                                        key={otherDashboard.id}
+                                                        onClick={() => {
+                                                            commonTileProps.moveToDashboard(otherDashboard)
+                                                        }}
+                                                        fullWidth
+                                                    >
+                                                        {otherDashboard.name || <i>Untitled</i>}
+                                                    </LemonButton>
+                                                )),
+                                                placement: 'right-start',
+                                                fallbackPlacements: ['left-start'],
+                                                actionable: true,
+                                                closeParentPopoverOnClickInside: true,
+                                            }}
+                                            fullWidth
+                                        >
+                                            Move to
+                                        </LemonButtonWithDropdown>
+                                    )}
+                                    <LemonButton
+                                        onClick={() => duplicateTile(tile)}
+                                        fullWidth
+                                        data-attr="duplicate-text-from-dashboard"
+                                    >
+                                        Duplicate
+                                    </LemonButton>
+                                    <LemonDivider />
+                                    {commonTileProps.removeFromDashboard && (
+                                        <LemonButton
+                                            status="danger"
+                                            onClick={() => commonTileProps.removeFromDashboard()}
+                                            fullWidth
+                                            data-attr="remove-text-tile-from-dashboard"
+                                        >
+                                            Delete
+                                        </LemonButton>
+                                    )}
+                                </>
+                            }
+                            {...commonTileProps}
+                            // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
+                        />
+                    )
+                }
+            }),
+        [
+            bestSurveyOpportunityFunnel?.id,
+            canEditLayout,
+            dashboardId,
+            dataColorThemeId,
+            duplicateTile,
+            effectiveDashboardVariableOverrides,
+            effectiveEditBarFilters,
+            highlightedInsightId,
+            isRefreshing,
+            isRefreshingQueued,
+            itemsLoading,
+            layouts,
+            moveToDashboard,
+            otherDashboards,
+            placement,
+            push,
+            refreshDashboardItem,
+            refreshStatus,
+            removeTile,
+            renameInsight,
+            setTileOverride,
+            temporaryBreakdownColors,
+            tiles,
+            updateTileColor,
+        ]
+    )
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef as RefObject<HTMLDivElement>}>
@@ -193,144 +362,7 @@ export function DashboardItems(): JSX.Element {
                         setResizingItem(null)
                     }}
                 >
-                    {tiles?.map((tile) => {
-                        const { insight, text } = tile
-                        const smLayout = layouts['sm']?.find((l) => {
-                            return l.i == tile.id.toString()
-                        })
-
-                        const commonTileProps = {
-                            dashboardId: dashboard?.id,
-                            showResizeHandles: canEditLayout,
-                            showEditingControls: [
-                                DashboardPlacement.Dashboard,
-                                DashboardPlacement.ProjectHomepage,
-                                DashboardPlacement.Builtin,
-                            ].includes(placement),
-                            moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                                if (!dashboard) {
-                                    throw new Error('must be on a dashboard to move this tile')
-                                }
-                                moveToDashboard(tile, dashboard.id, id, name)
-                            },
-                            removeFromDashboard: () => removeTile(tile),
-                        }
-
-                        if (insight) {
-                            // Check if this insight has an error from the server
-                            const isErrorTile = !!tile.error
-                            const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
-                            const apiError = isErrorTile
-                                ? ({ status: 400, detail: `${tile.error!.type}: ${tile.error!.message}` } as any)
-                                : refreshStatus[insight.short_id]?.error
-                            const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
-                            const loading = isErrorTile ? false : isRefreshing(insight.short_id)
-
-                            return (
-                                <InsightCard
-                                    key={tile.id}
-                                    tile={tile}
-                                    insight={insight}
-                                    loadingQueued={loadingQueued}
-                                    loading={loading}
-                                    apiErrored={apiErrored}
-                                    apiError={apiError}
-                                    highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
-                                    updateColor={(color) => updateTileColor(tile.id, color)}
-                                    ribbonColor={tile.color}
-                                    refresh={() => refreshDashboardItem({ tile })}
-                                    refreshEnabled={!itemsLoading}
-                                    rename={() => renameInsight(insight)}
-                                    duplicate={() => duplicateTile(tile)}
-                                    setOverride={() => setTileOverride(tile)}
-                                    showDetailsControls={
-                                        placement != DashboardPlacement.Export &&
-                                        !getCurrentExporterData()?.hideExtraDetails
-                                    }
-                                    placement={placement}
-                                    loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                                    filtersOverride={effectiveEditBarFilters}
-                                    variablesOverride={effectiveDashboardVariableOverrides}
-                                    // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                                    breakdownColorOverride={temporaryBreakdownColors}
-                                    dataColorThemeId={dataColorThemeId}
-                                    surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
-                                    {...commonTileProps}
-                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
-                                />
-                            )
-                        } else if (text) {
-                            return (
-                                <TextCard
-                                    key={tile.id}
-                                    textTile={tile}
-                                    placement={placement}
-                                    moreButtonOverlay={
-                                        <>
-                                            <LemonButton
-                                                fullWidth
-                                                onClick={() =>
-                                                    dashboard?.id &&
-                                                    push(urls.dashboardTextTile(dashboard?.id, tile.id))
-                                                }
-                                                data-attr="edit-text"
-                                            >
-                                                Edit text
-                                            </LemonButton>
-
-                                            {commonTileProps.moveToDashboard && (
-                                                <LemonButtonWithDropdown
-                                                    disabledReason={
-                                                        otherDashboards.length > 0 ? undefined : 'No other dashboards'
-                                                    }
-                                                    dropdown={{
-                                                        overlay: otherDashboards.map((otherDashboard) => (
-                                                            <LemonButton
-                                                                key={otherDashboard.id}
-                                                                onClick={() => {
-                                                                    commonTileProps.moveToDashboard(otherDashboard)
-                                                                }}
-                                                                fullWidth
-                                                            >
-                                                                {otherDashboard.name || <i>Untitled</i>}
-                                                            </LemonButton>
-                                                        )),
-                                                        placement: 'right-start',
-                                                        fallbackPlacements: ['left-start'],
-                                                        actionable: true,
-                                                        closeParentPopoverOnClickInside: true,
-                                                    }}
-                                                    fullWidth
-                                                >
-                                                    Move to
-                                                </LemonButtonWithDropdown>
-                                            )}
-                                            <LemonButton
-                                                onClick={() => duplicateTile(tile)}
-                                                fullWidth
-                                                data-attr="duplicate-text-from-dashboard"
-                                            >
-                                                Duplicate
-                                            </LemonButton>
-                                            <LemonDivider />
-                                            {commonTileProps.removeFromDashboard && (
-                                                <LemonButton
-                                                    status="danger"
-                                                    onClick={() => commonTileProps.removeFromDashboard()}
-                                                    fullWidth
-                                                    data-attr="remove-text-tile-from-dashboard"
-                                                >
-                                                    Delete
-                                                </LemonButton>
-                                            )}
-                                        </>
-                                    }
-                                    {...commonTileProps}
-                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
-                                />
-                            )
-                        }
-                    })}
+                    {gridChildren}
                 </ReactGridLayout>
             )}
             {dashboardStreaming && (
