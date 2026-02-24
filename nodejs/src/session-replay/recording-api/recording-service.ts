@@ -19,16 +19,13 @@ export interface GetBlockParams {
 export type GetBlockResult =
     | { ok: true; data: Buffer }
     | { ok: false; error: 'not_found' }
-    | { ok: false; error: 'deleted'; deletedAt?: number }
+    | { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
 
 export type DeleteRecordingResult =
-    | { ok: true; deletedAt: number }
-    | { ok: false; error: 'cleanup_failed'; metadataError?: unknown; postgresError?: unknown }
-
-export type BulkDeleteRecordingsResult = {
-    deleted: string[]
-    failed: { session_id: string; error: string }[]
-}
+    | { sessionId: string; ok: true; status: 'deleted'; deletedAt: number; deletedBy: string }
+    | { sessionId: string; ok: true; status: 'already_deleted'; deletedAt: number; deletedBy: string }
+    | { sessionId: string; ok: false; error: 'shred_failed' }
+    | { sessionId: string; ok: false; error: 'cleanup_failed'; deletedAt: number; deletedBy: string }
 
 export class RecordingService {
     constructor(
@@ -79,7 +76,7 @@ export class RecordingService {
 
             if (!response.Body) {
                 logger.debug('[RecordingService] S3 returned no body', { key })
-                RecordingApiMetrics.observeGetBlock('not_found', (performance.now() - startTime) / 1000)
+                RecordingApiMetrics.observeGetBlock('not_found', (performance.now() - startTime) / 1000, 'unknown')
                 return { ok: false, error: 'not_found' }
             }
 
@@ -89,17 +86,22 @@ export class RecordingService {
                 bytesReceived: bodyContents.length,
             })
 
-            const decrypted = await this.decryptor.decryptBlock(sessionId, teamId, Buffer.from(bodyContents))
+            const { data, sessionState } = await this.decryptor.decryptBlock(
+                sessionId,
+                teamId,
+                Buffer.from(bodyContents)
+            )
 
             logger.debug('[RecordingService] Decrypted block', {
                 sessionId,
                 teamId,
                 inputSize: bodyContents.length,
-                outputSize: decrypted.length,
+                outputSize: data.length,
+                sessionState,
             })
 
-            RecordingApiMetrics.observeGetBlock('success', (performance.now() - startTime) / 1000)
-            return { ok: true, data: decrypted }
+            RecordingApiMetrics.observeGetBlock('success', (performance.now() - startTime) / 1000, sessionState)
+            return { ok: true, data }
         } catch (error) {
             if (error instanceof NoSuchKey) {
                 logger.warn('[RecordingService] S3 object not found (NoSuchKey)', {
@@ -107,7 +109,7 @@ export class RecordingService {
                     teamId,
                     sessionId,
                 })
-                RecordingApiMetrics.observeGetBlock('not_found', (performance.now() - startTime) / 1000)
+                RecordingApiMetrics.observeGetBlock('not_found', (performance.now() - startTime) / 1000, 'unknown')
                 return { ok: false, error: 'not_found' }
             }
 
@@ -116,106 +118,98 @@ export class RecordingService {
                     teamId,
                     sessionId,
                     deleted_at: error.deletedAt,
+                    deleted_by: error.deletedBy,
                 })
-                RecordingApiMetrics.observeGetBlock('deleted', (performance.now() - startTime) / 1000)
-                return { ok: false, error: 'deleted', deletedAt: error.deletedAt }
+                RecordingApiMetrics.observeGetBlock('deleted', (performance.now() - startTime) / 1000, 'unknown')
+                return { ok: false, error: 'deleted', deletedAt: error.deletedAt, deletedBy: error.deletedBy }
             }
 
-            RecordingApiMetrics.observeGetBlock('error', (performance.now() - startTime) / 1000)
+            RecordingApiMetrics.observeGetBlock('error', (performance.now() - startTime) / 1000, 'unknown')
             throw error
         }
     }
 
-    async deleteRecording(sessionId: string, teamId: number): Promise<DeleteRecordingResult> {
+    async deleteRecordings(sessionIds: string[], teamId: number, deletedBy: string): Promise<DeleteRecordingResult[]> {
         const startTime = performance.now()
-        logger.debug('[RecordingService] deleteRecording request', { teamId, sessionId })
+        logger.debug('[RecordingService] deleteRecordings request', { teamId, count: sessionIds.length, deletedBy })
 
-        const result = await this.keyStore.deleteKey(sessionId, teamId)
-        logger.debug('[RecordingService] deleteKey result', { teamId, sessionId, result })
-
-        if (result.deleted) {
-            const deletedAt = result.deletedAt
-            const [metadataResult, postgresResult] = await Promise.allSettled([
-                this.emitDeletionEvent(sessionId, teamId),
-                this.deletePostgresRecords(sessionId, teamId),
-            ])
-            const metadataError = metadataResult.status === 'rejected' ? metadataResult.reason : undefined
-            const postgresError = postgresResult.status === 'rejected' ? postgresResult.reason : undefined
-            if (metadataError || postgresError) {
-                logger.error('[RecordingService] Post-deletion cleanup failed', {
-                    sessionId,
-                    teamId,
-                    metadataError: serializeError(metadataError) ?? null,
-                    postgresError: serializeError(postgresError) ?? null,
-                })
-                RecordingApiMetrics.observeDeleteRecording('cleanup_failed', (performance.now() - startTime) / 1000)
-                return { ok: false, error: 'cleanup_failed', metadataError, postgresError }
-            }
-            RecordingApiMetrics.observeDeleteRecording('success', (performance.now() - startTime) / 1000)
-            return { ok: true, deletedAt }
-        }
-
-        // already_deleted
-        logger.info('[RecordingService] Recording already deleted', {
-            teamId,
-            sessionId,
-            deleted_at: result.deletedAt,
-        })
-        RecordingApiMetrics.observeDeleteRecording('success', (performance.now() - startTime) / 1000)
-        return { ok: true, deletedAt: result.deletedAt }
-    }
-
-    async bulkDeleteRecordings(sessionIds: string[], teamId: number): Promise<BulkDeleteRecordingsResult> {
-        logger.debug('[RecordingService] bulkDeleteRecordings request', { teamId, count: sessionIds.length })
-
-        const results = await Promise.allSettled(sessionIds.map((sid) => this.deleteRecording(sid, teamId)))
-
-        const deleted: string[] = []
-        const failed: { session_id: string; error: string }[] = []
-
-        for (let i = 0; i < results.length; i++) {
-            const result = results[i]
-            const sessionId = sessionIds[i]
-            if (result.status === 'fulfilled') {
-                if (result.value.ok) {
-                    deleted.push(sessionId)
-                } else {
-                    failed.push({ session_id: sessionId, error: result.value.error })
-                }
-            } else {
-                failed.push({ session_id: sessionId, error: 'unexpected_error' })
-            }
-        }
-
-        logger.info('[RecordingService] bulkDeleteRecordings complete', {
-            teamId,
-            deletedCount: deleted.length,
-            failedCount: failed.length,
-        })
-
-        return { deleted, failed }
-    }
-
-    private async emitDeletionEvent(sessionId: string, teamId: number): Promise<void> {
-        if (!this.metadataStore) {
-            logger.warn('[RecordingService] No metadata store configured, skipping deletion event', {
+        // Phase 1: Shred encryption keys — the irreversible step that makes recordings unreadable
+        const shredResults = await Promise.all(
+            sessionIds.map(async (sessionId) => ({
                 sessionId,
-                teamId,
-            })
+                shredResult: await this.keyStore.deleteKey(sessionId, teamId, deletedBy).catch((): null => null),
+            }))
+        )
+
+        const newlyDeletedIds = shredResults.filter((r) => r.shredResult?.deleted).map((r) => r.sessionId)
+
+        // Phase 2: Best-effort cleanup for newly shredded sessions (kafka + postgres in parallel)
+        let cleanupOk = true
+        if (newlyDeletedIds.length > 0) {
+            const [kafkaResult, postgresResult] = await Promise.allSettled([
+                this.emitDeletionEvents(newlyDeletedIds, teamId),
+                this.deletePostgresRecords(newlyDeletedIds, teamId),
+            ])
+            for (const result of [kafkaResult, postgresResult]) {
+                if (result.status === 'rejected') {
+                    cleanupOk = false
+                    logger.error('[RecordingService] Cleanup step failed', {
+                        teamId,
+                        error: serializeError(result.reason),
+                    })
+                }
+            }
+
+            try {
+                await this.logActivity(newlyDeletedIds, teamId, deletedBy)
+            } catch (error) {
+                cleanupOk = false
+                logger.error('[RecordingService] Failed to log activity', { teamId, error: serializeError(error) })
+            }
+        }
+
+        // Build results
+        const results = shredResults.map(({ sessionId, shredResult }): DeleteRecordingResult => {
+            if (!shredResult) {
+                return { sessionId, ok: false, error: 'shred_failed' }
+            }
+            if (!shredResult.deleted) {
+                return {
+                    sessionId,
+                    ok: true,
+                    status: 'already_deleted',
+                    deletedAt: shredResult.deletedAt,
+                    deletedBy: shredResult.deletedBy,
+                }
+            }
+            if (!cleanupOk) {
+                return { sessionId, ok: false, error: 'cleanup_failed', deletedAt: shredResult.deletedAt, deletedBy }
+            }
+            return { sessionId, ok: true, status: 'deleted', deletedAt: shredResult.deletedAt, deletedBy }
+        })
+
+        const deletedCount = results.filter((r) => r.ok).length
+        const failedCount = sessionIds.length - deletedCount
+        RecordingApiMetrics.observeDeleteRecordings(
+            failedCount > 0 ? 'partial' : 'success',
+            (performance.now() - startTime) / 1000
+        )
+        logger.info('[RecordingService] deleteRecordings complete', { teamId, deletedCount, failedCount })
+
+        return results
+    }
+
+    private async emitDeletionEvents(sessionIds: string[], teamId: number): Promise<void> {
+        if (!this.metadataStore) {
             return
         }
-
-        await this.metadataStore.storeSessionBlocks([createDeletionBlockMetadata(sessionId, teamId)])
-
-        logger.info('[RecordingService] Deletion event emitted', { sessionId, teamId })
+        await this.metadataStore.storeSessionBlocks(
+            sessionIds.map((sessionId) => createDeletionBlockMetadata(sessionId, teamId))
+        )
     }
 
-    private async deletePostgresRecords(sessionId: string, teamId: number): Promise<void> {
-        if (!this.postgres) {
-            logger.warn('[RecordingService] No postgres configured, skipping record deletion', {
-                sessionId,
-                teamId,
-            })
+    private async deletePostgresRecords(sessionIds: string[], teamId: number): Promise<void> {
+        if (sessionIds.length === 0 || !this.postgres) {
             return
         }
 
@@ -223,20 +217,20 @@ export class RecordingService {
         const results = await Promise.allSettled([
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `DELETE FROM ee_single_session_summary WHERE team_id = $1 AND session_id = $2`,
-                [teamId, sessionId],
-                'deleteSessionSummary'
+                `DELETE FROM ee_single_session_summary WHERE team_id = $1 AND session_id = ANY($2)`,
+                [teamId, sessionIds],
+                'deleteSessionSummaries'
             ),
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `DELETE FROM posthog_exportedrecording WHERE team_id = $1 AND session_id = $2`,
-                [teamId, sessionId],
-                'deleteExportedRecording'
+                `DELETE FROM posthog_exportedrecording WHERE team_id = $1 AND session_id = ANY($2)`,
+                [teamId, sessionIds],
+                'deleteExportedRecordings'
             ),
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `DELETE FROM posthog_comment WHERE team_id = $1 AND scope = 'recording' AND item_id = $2`,
-                [teamId, sessionId],
+                `DELETE FROM posthog_comment WHERE team_id = $1 AND scope = 'recording' AND item_id = ANY($2)`,
+                [teamId, sessionIds],
                 'deleteRecordingComments'
             ),
         ])
@@ -245,12 +239,6 @@ export class RecordingService {
         for (const [i, result] of results.entries()) {
             if (result.status === 'rejected') {
                 failures.push(tables[i])
-                logger.error('[RecordingService] Postgres deletion failed', {
-                    sessionId,
-                    teamId,
-                    table: tables[i],
-                    error: serializeError(result.reason),
-                })
             }
         }
 
@@ -258,6 +246,21 @@ export class RecordingService {
             throw new Error(`Failed to delete from: ${failures.join(', ')}`)
         }
 
-        logger.info('[RecordingService] PostgreSQL records deleted', { sessionId, teamId })
+        logger.info('[RecordingService] PostgreSQL records deleted', { teamId, sessionCount: sessionIds.length })
+    }
+
+    private async logActivity(sessionIds: string[], teamId: number, deletedBy: string): Promise<void> {
+        if (sessionIds.length === 0 || !this.postgres) {
+            return
+        }
+
+        const detail = JSON.stringify({ type: 'recording_shredded', deleted_by: deletedBy })
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_activitylog (id, team_id, is_system, activity, item_id, scope, detail, created_at)
+             SELECT gen_random_uuid(), $1, true, 'deleted', unnest($2::text[]), 'Replay', $3::jsonb, now()`,
+            [teamId, sessionIds, detail],
+            'logRecordingDeletion'
+        )
     }
 }
