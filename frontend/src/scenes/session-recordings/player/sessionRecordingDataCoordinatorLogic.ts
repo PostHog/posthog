@@ -107,6 +107,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'getWindowId',
                     'isRecordingDeleted',
                     'recordingDeletedAt',
+                    'recordingDeletedBy',
                 ],
                 eventsLogic,
                 [
