@@ -40,6 +40,36 @@ interface FeatureFlagOverviewV2Props {
     onGetFeedback?: (variantKey?: string) => void
 }
 
+interface TagsDisplayProps {
+    tags: string[]
+    evaluationTags: string[]
+    flagId: number | null
+    hasEvaluationTags: boolean
+}
+
+function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDisplayProps): JSX.Element {
+    const hasTags = tags.length > 0 || evaluationTags.length > 0
+
+    if (hasEvaluationTags && hasTags) {
+        return (
+            <FeatureFlagEvaluationTags tags={tags} evaluationTags={evaluationTags} flagId={flagId} context="static" />
+        )
+    }
+
+    if (tags.length > 0) {
+        return <ObjectTags tags={tags} staticOnly />
+    }
+
+    return <span className="text-muted">No tags</span>
+}
+
+/**
+ * V2 readonly overview for feature flags, gated behind FEATURE_FLAGS_V2.
+ *
+ * NOTE: This component is currently rendered conditionally in FeatureFlag.tsx
+ * based on the useFormUI flag. If other entry points need to render this overview,
+ * ensure the gate is checked there as well.
+ */
 export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFlagOverviewV2Props): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { recordingFilterForFlag } = useValues(featureFlagLogic)
@@ -52,9 +82,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
     const multivariateEnabled = !!featureFlag.filters?.multivariate
     const variants = featureFlag.filters?.multivariate?.variants || []
     const hasPayload = !!featureFlag.filters?.payloads?.['true']
-    const hasTags =
-        (featureFlag.tags && featureFlag.tags.length > 0) ||
-        (featureFlag.evaluation_tags && featureFlag.evaluation_tags.length > 0)
 
     const reportViewRecordingsClicked = (): void => {
         posthog.capture('viewed recordings from feature flag', {
@@ -134,7 +161,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
     return (
         <div className="flex flex-col gap-6">
             <div className="flex gap-4 flex-wrap items-start">
-                <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
+                <div className="flex-1 min-w-64 flex flex-col gap-4">
                     <div className="rounded border p-4 bg-bg-light flex flex-col gap-3">
                         {featureFlag.deleted ? (
                             <div className="flex items-center justify-between">
@@ -161,18 +188,12 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <label className="text-sm font-medium">
                                 {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
                             </label>
-                            {hasEvaluationTags && hasTags ? (
-                                <FeatureFlagEvaluationTags
-                                    tags={featureFlag.tags || []}
-                                    evaluationTags={featureFlag.evaluation_tags || []}
-                                    flagId={featureFlag.id}
-                                    context="static"
-                                />
-                            ) : featureFlag.tags && featureFlag.tags.length > 0 ? (
-                                <ObjectTags tags={featureFlag.tags} staticOnly />
-                            ) : (
-                                <span className="text-muted">No tags</span>
-                            )}
+                            <TagsDisplay
+                                tags={featureFlag.tags || []}
+                                evaluationTags={featureFlag.evaluation_tags || []}
+                                flagId={featureFlag.id}
+                                hasEvaluationTags={hasEvaluationTags}
+                            />
                         </div>
 
                         {hasEvaluationRuntimes && (
@@ -261,7 +282,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                     )}
                 </div>
 
-                <div className="flex-2 min-w-[30rem] flex flex-col gap-4">
+                <div className="flex-[2] min-w-80 flex flex-col gap-4">
                     <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
                         <div className="flex flex-col gap-2">
                             <label className="text-sm font-semibold">Flag type</label>
