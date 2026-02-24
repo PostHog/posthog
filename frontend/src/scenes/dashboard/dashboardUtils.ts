@@ -1,5 +1,3 @@
-import { ResponsiveLayouts } from 'react-grid-layout'
-
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
@@ -16,7 +14,6 @@ import {
     DashboardLayoutSize,
     InsightModel,
     QueryBasedInsightModel,
-    TileLayout,
 } from '~/types'
 
 // Layout related constants
