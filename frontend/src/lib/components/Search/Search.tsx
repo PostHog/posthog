@@ -19,6 +19,7 @@ import {
 import { IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
@@ -613,16 +614,19 @@ function SearchStatus(): JSX.Element {
             if (!searchValue.trim()) {
                 return 'Recents and apps'
             }
-            // Subtract 1 if AI item is present (when searching with showAskAiLink enabled)
             const hasAiItem = showAskAiLink && searchValue.trim()
             const realResultCount = hasAiItem ? filteredItems.length - 1 : filteredItems.length
-            return `${realResultCount} result${realResultCount === 1 ? '' : 's'}`
+            if (realResultCount === 0 && hasAiItem) {
+                return 'No matching items · 1 AI answer'
+            }
+            const resultText = `${realResultCount} result${realResultCount === 1 ? '' : 's'}`
+            return hasAiItem ? `${resultText} · 1 AI answer` : resultText
         }
         return 'Type to search...'
     }, [isSearching, searchValue, filteredItems.length, showAskAiLink])
 
     return (
-        <Autocomplete.Status className="px-3 pt-1 pb-2 text-xs text-muted flex items-center">
+        <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center">
             <span>{statusMessage}</span>
         </Autocomplete.Status>
     )
@@ -699,6 +703,17 @@ function SearchResults({
                                 ) : (
                                     <Autocomplete.Collection>
                                         {(item: SearchItem) => {
+                                            if (item.id === ASK_AI_ITEM_ID) {
+                                                return (
+                                                    <AiSearchItem
+                                                        key={item.id}
+                                                        item={item}
+                                                        handleItemClick={handleItemClick}
+                                                        highlightedItemRef={highlightedItemRef}
+                                                    />
+                                                )
+                                            }
+
                                             const typeLabel = getItemTypeDisplayName(item.itemType)
                                             const icon = getIconForItem(item)
 
@@ -795,7 +810,6 @@ function SearchResults({
                                     </Autocomplete.Collection>
                                 )}
                             </Autocomplete.Group>
-                            {group.category === 'ai' && <SearchAiPreview />}
                         </Fragment>
                     )
                 })}
@@ -805,39 +819,78 @@ function SearchResults({
 }
 
 // ============================================================================
-// Search.AiPreview (internal, not exported)
+// AiSearchItem (internal, not exported)
 // ============================================================================
 
-function SearchAiPreview(): JSX.Element | null {
-    const { logicKey, searchValue } = useSearchContext()
-    const { showPreview, truncatedPreviewText, streamingState, aiConversationUrl } = useValues(
+function AiSearchItem({
+    item,
+    handleItemClick,
+    highlightedItemRef,
+}: {
+    item: SearchItem
+    handleItemClick: (item: SearchItem) => void
+    highlightedItemRef: MutableRefObject<SearchItem | null>
+}): JSX.Element {
+    const { logicKey } = useSearchContext()
+    const { showPreview, truncatedPreviewText, streamingState, conversationId } = useValues(
         searchAiPreviewLogic({ logicKey })
     )
 
-    if (!showPreview || !searchValue.trim()) {
-        return null
-    }
-
     return (
-        <div className="px-3 py-2 mx-2 mb-2 rounded border border-ai/20 bg-ai/5">
-            <div className="flex items-start gap-2">
-                <IconSparkles className="text-ai size-4 mt-0.5 shrink-0" />
-                <div className="flex-1 min-w-0">
-                    <div className="text-sm text-primary line-clamp-4 whitespace-pre-wrap">
-                        {truncatedPreviewText}
-                        {streamingState === 'streaming' && (
-                            <span className="inline-block w-1.5 h-3.5 bg-ai/60 ml-0.5 animate-pulse" />
-                        )}
+        <Autocomplete.Item
+            value={item}
+            onClick={(e) => {
+                e.preventDefault()
+                handleItemClick(item)
+            }}
+            render={(props) => {
+                const isHighlighted = (props as Record<string, unknown>)['data-highlighted'] === ''
+                if (isHighlighted) {
+                    highlightedItemRef.current = item
+                }
+                return (
+                    <div className="px-2">
+                        <Link
+                            to={item.href}
+                            buttonProps={{
+                                fullWidth: true,
+                                autoHeight: true,
+                            }}
+                            {...props}
+                            tabIndex={-1}
+                            className={cn(
+                                'flex-col items-start gap-0',
+                                showPreview && 'shadow border-primary -mx-3 p-4 text-sm select-auto hover:border-ai'
+                            )}
+                            data-attr="ai-search-item"
+                        >
+                            {showPreview ? (
+                                <>
+                                    <IconSparkles className="text-ai size-4.5 shrink-0 mb-4" />
+                                    <div className="text-secondary line-clamp-3">
+                                        <LemonMarkdown lowKeyHeadings className="text-xs">
+                                            {truncatedPreviewText}
+                                        </LemonMarkdown>
+                                        {streamingState === 'streaming' && (
+                                            <span className="inline-block w-1.5 h-3 bg-ai/60 ml-0.5 animate-pulse" />
+                                        )}
+                                    </div>
+                                    <span className="text-xs text-ai inline-flex items-center gap-1 mt-3">
+                                        Continue in PostHog AI
+                                        {conversationId && <span className="text-ai/70"> · Conversation saved</span>}
+                                    </span>
+                                </>
+                            ) : (
+                                <div className="flex items-center gap-2 w-full">
+                                    <IconSparkles className="text-ai size-4 shrink-0" />
+                                    <span className="truncate">{item.displayName || item.name}</span>
+                                </div>
+                            )}
+                        </Link>
                     </div>
-                    <Link
-                        to={aiConversationUrl}
-                        className="text-xs text-ai mt-1 inline-flex items-center gap-1 hover:underline"
-                    >
-                        Continue in PostHog AI
-                    </Link>
-                </div>
-            </div>
-        </div>
+                )
+            }}
+        />
     )
 }
 

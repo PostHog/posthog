@@ -22,13 +22,6 @@ export interface SearchAiPreviewLogicProps {
 
 const PREVIEW_MAX_LENGTH = 300
 
-// --- DUMMY MODE: Remove this block to restore real AI streaming ---
-const USE_DUMMY_RESPONSE = true
-const DUMMY_RESPONSE = `Based on your query, here's what I found in your PostHog data. You have several dashboards and insights that might be relevant. Try checking your product analytics dashboard for trends, or create a new insight to explore further.`
-const DUMMY_CONVERSATION_ID = 'dummy-conversation-id'
-const DUMMY_STREAM_INTERVAL_MS = 30
-// --- END DUMMY MODE ---
-
 export const searchAiPreviewLogic = kea<searchAiPreviewLogicType>([
     path((key) => ['lib', 'components', 'Search', 'searchAiPreviewLogic', key]),
     props({} as SearchAiPreviewLogicProps),
@@ -130,27 +123,6 @@ export const searchAiPreviewLogic = kea<searchAiPreviewLogicType>([
 
             await breakpoint(800)
 
-            // --- DUMMY MODE: Remove this block and uncomment real streaming below ---
-            if (USE_DUMMY_RESPONSE) {
-                let cancelled = false
-                cache.abortController = new AbortController()
-                cache.abortController.signal.addEventListener('abort', () => {
-                    cancelled = true
-                })
-                actions.setConversationId(DUMMY_CONVERSATION_ID)
-                for (let i = 1; i <= DUMMY_RESPONSE.length; i++) {
-                    if (cancelled) {
-                        return
-                    }
-                    actions.setPreviewContent(DUMMY_RESPONSE.substring(0, i))
-                    await new Promise((r) => setTimeout(r, DUMMY_STREAM_INTERVAL_MS))
-                }
-                actions.setStreamingState('done')
-                cache.abortController = undefined
-                return
-            }
-            // --- END DUMMY MODE ---
-
             cache.abortController = new AbortController()
             const traceId = uuid()
 
@@ -226,9 +198,9 @@ export const searchAiPreviewLogic = kea<searchAiPreviewLogicType>([
 
     subscriptions(({ actions, values }) => ({
         search: (search: string) => {
-            // if (!values.featureFlags[FEATURE_FLAGS.SEARCH_AI_PREVIEW]) {
-            //     return
-            // }
+            if (!values.featureFlags[FEATURE_FLAGS.SEARCH_AI_PREVIEW]) {
+                return
+            }
             if (!search.trim()) {
                 actions.resetPreview()
                 return
