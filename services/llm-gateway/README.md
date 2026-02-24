@@ -16,7 +16,7 @@ uv run uvicorn llm_gateway.main:app --reload
 
 ```bash
 curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer phx_your_personal_api_key" \
+  -H "Authorization: Bearer phx_dev_local_test_api_key_1234567890abcdef" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4.1-mini",
@@ -36,24 +36,25 @@ The gateway supports two authentication methods:
 
 **Required Scope**: `llm_gateway:read`
 
-### Generating a personal API key for local development
+### Local development key
 
-Use the `setup_local_api_key` management command to create a deterministic personal API key with the required scope:
+When running via mprocs, a personal API key with the `llm_gateway:read` scope is **automatically provisioned** on startup.
+The key is deterministic and survives database resets:
+
+```
+phx_dev_local_test_api_key_1234567890abcdef
+```
+
+You can also create or update it manually:
 
 ```bash
 python manage.py setup_local_api_key --scopes llm_gateway:read
 ```
 
-This creates a key with a fixed value (`phx_dev_local_test_api_key_1234567890abcdef`) that survives database resets. The command only works when `DEBUG=True` and `CLOUD_DEPLOYMENT` is unset.
-
-Options:
-
-| Flag       | Default              | Description                            |
-| ---------- | -------------------- | -------------------------------------- |
-| `--email`  | `test@posthog.com`   | User to create the key for             |
-| `--scopes` | None                 | Space-separated list of scopes to grant |
-
-To update scopes on an existing key, re-run the command with the new `--scopes` value.
+| Flag       | Default            | Description                             |
+| ---------- | ------------------ | --------------------------------------- |
+| `--email`  | `test@posthog.com` | User to create the key for              |
+| `--scopes` | None               | Space-separated list of scopes to grant |
 
 ## User attribution
 
