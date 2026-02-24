@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter=@posthog/frontend", "start"],
+      "port": 8234,
+      "autoPort": true
+    }
+  ]
+}
