@@ -927,3 +927,17 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
         hc.clear_cache(42, kinds=["redis"])
 
         mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, "42")
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_removes_expiry_tracking_despite_cache_deletion_failure(self, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache(token_based=False)
+        hc.cache_client = Mock()
+        hc.cache_client.delete.side_effect = ConnectionError("Redis unavailable")
+
+        with pytest.raises(ConnectionError):
+            hc.clear_cache(42)
+
+        mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, "42")

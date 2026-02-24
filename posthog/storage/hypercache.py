@@ -376,14 +376,15 @@ class HyperCache:
         Only meant for use in tests
         """
         kinds = kinds or ["redis", "s3"]
-        if "redis" in kinds:
-            self.cache_client.delete(self.get_cache_key(key))
-            # Always delete ETag key to clean up stale ETags from when enable_etag was True
-            self.cache_client.delete(self.get_etag_key(key))
-        if "s3" in kinds:
-            object_storage.delete(self.get_cache_key(key))
-
-        self._remove_expiry_tracking(key)
+        try:
+            if "redis" in kinds:
+                self.cache_client.delete(self.get_cache_key(key))
+                # Always delete ETag key to clean up stale ETags from when enable_etag was True
+                self.cache_client.delete(self.get_etag_key(key))
+            if "s3" in kinds:
+                object_storage.delete(self.get_cache_key(key))
+        finally:
+            self._remove_expiry_tracking(key)
 
     def _set_cache_value_redis(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
