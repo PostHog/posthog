@@ -123,6 +123,9 @@ class TestSurvey(APIBaseTest):
                 "payload_count": 0,
                 "creation_context": "surveys",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
