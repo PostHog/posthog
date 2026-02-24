@@ -59,9 +59,7 @@ class RestoreRequestSerializer(serializers.Serializer):
 
 class RestoreRedeemSerializer(serializers.Serializer):
     restore_token = serializers.CharField(min_length=40, max_length=50)  # 43 chars expected
-    widget_session_id = serializers.CharField(min_length=1, max_length=64)
-    distinct_id = serializers.CharField(max_length=400, required=False)
-    current_url = serializers.URLField(max_length=2048, required=False)
+    widget_session_id = serializers.UUIDField()
 
 
 class WidgetRestoreRequestView(APIView):
@@ -98,7 +96,9 @@ class WidgetRestoreRequestView(APIView):
 
         # Validate request_url domain against team's allowlist to prevent phishing
         if not validate_url_domain(request_url, team):
-            logger.warning(f"Restore request_url domain not in allowlist: {request_url}")
+            logger.warning(
+                "Restore request_url domain not in allowlist", extra={"domain": urlparse(request_url).netloc}
+            )
             return Response({"error": "URL domain not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
         # Request restore link (may return None if no tickets found)
@@ -146,7 +146,7 @@ class WidgetRestoreRedeemView(APIView):
             )
 
         raw_token = serializer.validated_data["restore_token"]
-        widget_session_id = serializer.validated_data["widget_session_id"]
+        widget_session_id = str(serializer.validated_data["widget_session_id"])
 
         # Redeem token
         result = RestoreService.redeem_token(

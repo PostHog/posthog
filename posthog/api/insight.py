@@ -17,7 +17,11 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
-from pydantic import BaseModel
+from pydantic import (
+    BaseModel,
+    Field as PydanticField,
+    RootModel,
+)
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
@@ -50,7 +54,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import groups
+from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -309,22 +313,20 @@ class InsightBasicSerializer(
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "example": {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview", "version": 1}
-                ],
-                "version": 1,
-            },
-            "version": 1,
-        },
-    }
-)
+class _InsightQuerySchema(RootModel):
+    """The query definition for this insight. The `kind` field determines the query type:
+    - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
+    - `DataVisualizationNode` — SQL insights using HogQL
+    - `DataTableNode` — raw data tables
+    - `HogQuery` — Hog language queries
+    """
+
+    root: schema.InsightVizNode | schema.DataTableNode | schema.DataVisualizationNode | schema.HogQuery = PydanticField(
+        discriminator="kind"
+    )
+
+
+@extend_schema_field(_InsightQuerySchema)  # type: ignore[arg-type]
 class QueryFieldSerializer(serializers.Serializer):
     def to_representation(self, value):
         return self.parent._query_variables_mapping(value)  # type: ignore
@@ -453,8 +455,6 @@ class InsightSerializer(InsightBasicSerializer):
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
-        current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
 
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
@@ -479,10 +479,6 @@ class InsightSerializer(InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
-        properties = {}
-        properties["$current_url"] = current_url
-        properties["$session_id"] = session_id
-
         log_and_report_insight_activity(
             activity="created",
             insight=insight,
@@ -492,7 +488,7 @@ class InsightSerializer(InsightBasicSerializer):
             team_id=team_id,
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
-            properties=properties,
+            properties=get_request_analytics_properties(request),
         )
 
         return insight
@@ -500,8 +496,6 @@ class InsightSerializer(InsightBasicSerializer):
     @transaction.atomic()
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
-        current_url = self.context["request"].headers.get("Referer")
-        session_id = self.context["request"].headers.get("X-Posthog-Session-Id")
         dashboards_before_change: list[Union[str, dict]] = []
         try:
             # since it is possible to be restoring a soft deleted insight
@@ -536,7 +530,7 @@ class InsightSerializer(InsightBasicSerializer):
         if not updated_insight.are_alerts_supported:
             instance.alertconfiguration_set.all().delete()
 
-        self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
+        self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
@@ -547,8 +541,6 @@ class InsightSerializer(InsightBasicSerializer):
         before_update,
         dashboards_before_change,
         updated_insight,
-        current_url,
-        session_id,
     ):
         """
         KLUDGE: Automatic detection of insight dashboard updates is flaky
@@ -562,10 +554,6 @@ class InsightSerializer(InsightBasicSerializer):
         ]
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
         changes = detected_changes + synthetic_dashboard_changes
-
-        properties = {}
-        properties["$current_url"] = current_url
-        properties["$session_id"] = session_id
 
         activity = "updated"
         deleted_change = next((change for change in changes if change.field == "deleted"), None)
@@ -585,7 +573,7 @@ class InsightSerializer(InsightBasicSerializer):
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
             changes=changes,
-            properties=properties,
+            properties=get_request_analytics_properties(self.context["request"]),
         )
 
     def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:

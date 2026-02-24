@@ -9,8 +9,8 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
-import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
@@ -162,7 +162,8 @@ function PlayerWrapper({
         totalFiltersCount,
         nextSessionRecording,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, setSelectedRecordingId } = useActions(sessionRecordingsPlaylistLogic)
+    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
+        useActions(sessionRecordingsPlaylistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
 
@@ -196,8 +197,8 @@ function PlayerWrapper({
                     matchingEventsMatchType={matchingEventsMatchType}
                     autoPlay={props.autoPlay}
                     onRecordingDeleted={() => {
-                        sessionRecordingsPlaylistLogic.actions.loadAllRecordings()
-                        sessionRecordingsPlaylistLogic.actions.setSelectedRecordingId(null)
+                        loadAllRecordings()
+                        setSelectedRecordingId(null)
                     }}
                     pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
                     setPinned={

@@ -878,8 +878,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
+                "source": "web",
                 "tags_count": 0,
                 "template_key": "DEFAULT_APP",
+                "was_impersonated": False,
             },
         )
 
@@ -1558,8 +1560,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 1,
                 "pinned": False,
+                "source": "web",
                 "tags_count": 0,
                 "template_key": valid_template["template_name"],
+                "was_impersonated": False,
             },
         )
 

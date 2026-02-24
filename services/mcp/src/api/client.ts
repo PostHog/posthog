@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { USER_AGENT } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import {
@@ -145,6 +146,7 @@ export class ApiClient {
         return {
             Authorization: `Bearer ${this.config.apiToken}`,
             'Content-Type': 'application/json',
+            'User-Agent': USER_AGENT,
         }
     }
 

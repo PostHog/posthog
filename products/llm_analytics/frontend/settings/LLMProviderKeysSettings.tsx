@@ -14,12 +14,11 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 import {
     AlternativeKey,
     DependentConfigsResponse,
@@ -30,6 +29,7 @@ import {
     LLM_PROVIDER_LABELS,
     llmProviderKeysLogic,
 } from './llmProviderKeysLogic'
+import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
     const tagProps: { type: 'success' | 'danger' | 'warning' | 'default'; children: string } = {
@@ -614,13 +614,6 @@ export function LLMProviderKeysSettings(): JSX.Element {
                 ) : (
                     <>
                         <div className="flex justify-between items-start">
-                            <div>
-                                <h2 className="text-xl font-semibold">API keys</h2>
-                                <p className="text-muted">
-                                    Add your API keys to run evaluations with your own account. Supports OpenAI,
-                                    Anthropic, Google Gemini, OpenRouter, and Fireworks.
-                                </p>
-                            </div>
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.LlmAnalytics}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -644,9 +637,9 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <IconKey className="text-muted text-4xl mb-4" />
                                 <h3 className="font-semibold mb-2">No API keys configured</h3>
                                 <p className="text-muted mb-4 text-center">
-                                    Add your API key to run evaluations with your own account.
+                                    Add your API key for LLM analytics features with your own account.
                                     <br />
-                                    Supports OpenAI, Anthropic, Google Gemini, OpenRouter, and Fireworks.
+                                    Used for evaluations and the playground.
                                 </p>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmAnalytics}

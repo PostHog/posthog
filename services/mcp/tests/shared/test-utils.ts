@@ -1,7 +1,7 @@
 import { ApiClient } from '@/api/client'
+import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { MemoryCache } from '@/lib/cache/MemoryCache'
 import type { InsightQuery } from '@/schema/query'
 import type { Context } from '@/tools/types'
 

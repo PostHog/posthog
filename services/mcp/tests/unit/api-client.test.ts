@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiClient } from '@/api/client'
+import { USER_AGENT } from '@/lib/constants'
 
 describe('ApiClient', () => {
     it('should create ApiClient with required config', () => {
@@ -33,6 +34,7 @@ describe('ApiClient', () => {
         expect(headers).toEqual({
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
+            'User-Agent': USER_AGENT,
         })
     })
 })
