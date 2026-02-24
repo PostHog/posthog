@@ -312,7 +312,6 @@ function SearchRoot({
             items = [askAiItem, ...items]
         }
 
-        return items
         return [...normalizedSuggestedItems, ...items]
     }, [allItems, searchValue, showAskAiLink, suggestedItems])
 
