@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ApproveRunRequestInputApi,
     CreateRepoInputApi,
@@ -18,7 +18,6 @@ import type {
     PaginatedSnapshotListApi,
     PatchedUpdateRepoRequestInputApi,
     RepoApi,
-    ReviewStateCounts,
     RunApi,
     VisualReviewReposListParams,
     VisualReviewRunsListParams,
@@ -115,7 +114,7 @@ export const visualReviewReposPartialUpdate = async (
 }
 
 /**
- * List runs for the team, optionally filtered by tab.
+ * List runs for the team, optionally filtered by review state.
  */
 export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualReviewRunsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -263,11 +262,8 @@ export const getVisualReviewRunsCountsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/visual_review/runs/counts/`
 }
 
-export const visualReviewRunsCountsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<ReviewStateCounts> => {
-    return apiMutator<ReviewStateCounts>(getVisualReviewRunsCountsRetrieveUrl(projectId), {
+export const visualReviewRunsCountsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getVisualReviewRunsCountsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -188,18 +188,7 @@ export type VisualReviewReposListParams = {
     offset?: number
 }
 
-export type ReviewStateCounts = {
-    needs_review: number
-    clean: number
-    processing: number
-    stale: number
-}
-
 export type VisualReviewRunsListParams = {
-    /**
-     * Filter by review state.
-     */
-    review_state?: 'needs_review' | 'clean' | 'processing' | 'stale'
     /**
      * Number of results to return per page.
      */
