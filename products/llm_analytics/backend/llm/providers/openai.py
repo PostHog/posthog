@@ -65,6 +65,23 @@ class OpenAIConfig:
         "gpt-5-mini",
     ]
 
+    # Models shown prominently in the picker UI, newest first.
+    # Other models from the API are shown in a collapsed section.
+    RECOMMENDED_MODELS: list[str] = [
+        "gpt-5-nano",
+        "gpt-5-mini",
+        "gpt-5",
+        "o3-pro",
+        "o4-mini",
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
+        "o3",
+        "o3-mini",
+        "gpt-4o-mini",
+        "gpt-4o",
+    ]
+
 
 class OpenAIAdapter:
     """OpenAI provider implementing the unified Client interface."""
@@ -338,6 +355,10 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         except Exception as e:
             logger.exception(f"OpenAI key validation error: {e}")
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
+
+    @staticmethod
+    def recommended_models() -> set[str]:
+        return set(OpenAIConfig.RECOMMENDED_MODELS)
 
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:

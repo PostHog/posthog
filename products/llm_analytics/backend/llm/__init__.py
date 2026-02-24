@@ -10,17 +10,26 @@ SUPPORTED_MODELS_WITH_THINKING = (
 )
 
 
-def get_default_models() -> list[dict[str, str]]:
+def get_default_models() -> list[dict]:
     """Returns the default static list of models for all providers."""
-    models: list[dict[str, str]] = []
+    models: list[dict] = []
     models.extend(
-        [{"id": m, "name": m, "provider": "OpenAI", "description": ""} for m in OpenAIConfig.SUPPORTED_MODELS]
+        [
+            {"id": m, "name": m, "provider": "OpenAI", "description": "", "is_recommended": True}
+            for m in OpenAIConfig.SUPPORTED_MODELS
+        ]
     )
     models.extend(
-        [{"id": m, "name": m, "provider": "Anthropic", "description": ""} for m in AnthropicConfig.SUPPORTED_MODELS]
+        [
+            {"id": m, "name": m, "provider": "Anthropic", "description": "", "is_recommended": True}
+            for m in AnthropicConfig.SUPPORTED_MODELS
+        ]
     )
     models.extend(
-        [{"id": m, "name": m, "provider": "Gemini", "description": ""} for m in GeminiConfig.SUPPORTED_MODELS]
+        [
+            {"id": m, "name": m, "provider": "Gemini", "description": "", "is_recommended": True}
+            for m in GeminiConfig.SUPPORTED_MODELS
+        ]
     )
     return models
 

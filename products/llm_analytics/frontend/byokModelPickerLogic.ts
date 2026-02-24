@@ -18,10 +18,20 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
     actions({
         setSearch: (search: string) => ({ search }),
         clearSearch: true,
+        toggleProviderExpanded: (providerKeyId: string) => ({ providerKeyId }),
     }),
 
     reducers({
         search: ['' as string, { setSearch: (_, { search }) => search, clearSearch: () => '' }],
+        expandedProviders: [
+            {} as Record<string, boolean>,
+            {
+                toggleProviderExpanded: (state, { providerKeyId }) => ({
+                    ...state,
+                    [providerKeyId]: !state[providerKeyId],
+                }),
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -35,10 +45,19 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                 const results = await Promise.all(
                     validKeys.map(async (key: LLMProviderKey) => {
                         try {
-                            const models = (await api.get(
+                            const rawModels = (await api.get(
                                 `/api/llm_proxy/models/?provider_key_id=${encodeURIComponent(key.id)}`
-                            )) as Omit<ModelOption, 'providerKeyId'>[]
-                            return models.map((m) => ({ ...m, providerKeyId: key.id }))
+                            )) as (Omit<ModelOption, 'providerKeyId' | 'isRecommended'> & {
+                                is_recommended?: boolean
+                            })[]
+                            return rawModels.map((m) => ({
+                                id: m.id,
+                                name: m.name,
+                                provider: m.provider,
+                                description: m.description,
+                                isRecommended: m.is_recommended ?? false,
+                                providerKeyId: key.id,
+                            }))
                         } catch {
                             return []
                         }
@@ -136,6 +155,18 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                     }))
                     .filter((group) => group.models.length > 0)
             },
+        ],
+        isProviderExpanded: [
+            (s) => [s.expandedProviders],
+            (expandedProviders: Record<string, boolean>) =>
+                (providerKeyId: string): boolean =>
+                    !!expandedProviders[providerKeyId],
+        ],
+        hasExplicitExpandState: [
+            (s) => [s.expandedProviders],
+            (expandedProviders: Record<string, boolean>) =>
+                (providerKeyId: string): boolean =>
+                    providerKeyId in expandedProviders,
         ],
     }),
 ])

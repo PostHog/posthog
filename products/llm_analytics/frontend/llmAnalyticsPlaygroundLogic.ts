@@ -22,6 +22,7 @@ export interface ModelOption {
     provider: string
     description: string
     providerKeyId?: string
+    isRecommended?: boolean
 }
 
 export interface ProviderModelGroup {

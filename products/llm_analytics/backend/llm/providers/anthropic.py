@@ -69,6 +69,18 @@ class AnthropicConfig:
         "claude-3-7-sonnet-latest",
     ]
 
+    # Models shown prominently in the picker UI, newest first.
+    # Other models from the API are shown in a collapsed section.
+    RECOMMENDED_MODELS: list[str] = [
+        "claude-opus-4-5",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+        "claude-opus-4-1",
+        "claude-opus-4-0",
+        "claude-sonnet-4-0",
+        "claude-3-7-sonnet-latest",
+    ]
+
 
 class AnthropicAdapter:
     """Anthropic provider implementing the unified Client interface."""
@@ -306,6 +318,10 @@ class AnthropicAdapter:
         except Exception as e:
             logger.exception(f"Anthropic key validation error: {e}")
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
+
+    @staticmethod
+    def recommended_models() -> set[str]:
+        return set(AnthropicConfig.RECOMMENDED_MODELS)
 
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:

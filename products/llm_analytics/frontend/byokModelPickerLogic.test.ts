@@ -4,15 +4,15 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { byokModelPickerLogic } from './byokModelPickerLogic'
-import { ModelOption } from './llmAnalyticsPlaygroundLogic'
 
-const BYOK_OPENAI_MODELS: Omit<ModelOption, 'providerKeyId'>[] = [
-    { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '' },
-    { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI', description: '' },
+// API responses use snake_case is_recommended
+const BYOK_OPENAI_MODELS = [
+    { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '', is_recommended: true },
+    { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI', description: '', is_recommended: true },
 ]
 
-const BYOK_ANTHROPIC_MODELS: Omit<ModelOption, 'providerKeyId'>[] = [
-    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'Anthropic', description: '' },
+const BYOK_ANTHROPIC_MODELS = [
+    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'Anthropic', description: '', is_recommended: true },
 ]
 
 describe('byokModelPickerLogic', () => {
@@ -49,7 +49,16 @@ describe('byokModelPickerLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.byokModels).toEqual(BYOK_OPENAI_MODELS.map((m) => ({ ...m, providerKeyId: 'key-1' })))
+            expect(logic.values.byokModels).toEqual(
+                BYOK_OPENAI_MODELS.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    provider: m.provider,
+                    description: m.description,
+                    isRecommended: true,
+                    providerKeyId: 'key-1',
+                }))
+            )
         })
 
         it('should return empty array when no valid keys exist', async () => {
@@ -137,7 +146,14 @@ describe('byokModelPickerLogic', () => {
 
             // key-1 failed, but key-2 models should still be present
             expect(logic.values.byokModels).toEqual(
-                BYOK_ANTHROPIC_MODELS.map((m) => ({ ...m, providerKeyId: 'key-2' }))
+                BYOK_ANTHROPIC_MODELS.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    provider: m.provider,
+                    description: m.description,
+                    isRecommended: true,
+                    providerKeyId: 'key-2',
+                }))
             )
         })
     })
