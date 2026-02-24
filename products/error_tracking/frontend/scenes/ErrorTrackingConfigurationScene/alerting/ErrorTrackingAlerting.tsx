@@ -1,7 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useFeatureFlagEnabled } from 'posthog-js/react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { AlertWizard } from 'scenes/hog-functions/AlertWizard/AlertWizard'
 import {
     AlertWizardLogicProps,
@@ -101,8 +104,9 @@ export function ErrorTrackingAlerting(): JSX.Element {
 function ErrorTrackingAlertingInner(): JSX.Element {
     const { alertCreationView, subTemplateIds } = useValues(alertWizardLogic)
     const { setAlertCreationView, resetWizard } = useActions(alertWizardLogic)
+    const isWizardEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.ERROR_TRACKING_ALERTS_WIZARD)
 
-    if (alertCreationView === 'wizard') {
+    if (isWizardEnabled && alertCreationView === 'wizard') {
         return (
             <AlertWizard
                 onCancel={() => {
@@ -110,6 +114,9 @@ function ErrorTrackingAlertingInner(): JSX.Element {
                     resetWizard()
                 }}
                 onSwitchToTraditional={() => {
+                    posthog.capture('error_tracking_alert_creation_switched_to_traditional', {
+                        source: 'wizard',
+                    })
                     setAlertCreationView('traditional')
                     resetWizard()
                 }}
@@ -117,7 +124,7 @@ function ErrorTrackingAlertingInner(): JSX.Element {
         )
     }
 
-    if (alertCreationView === 'traditional') {
+    if (alertCreationView === 'traditional' || (!isWizardEnabled && alertCreationView === 'wizard')) {
         return (
             <HogFunctionTemplateList
                 type="destination"
@@ -137,7 +144,17 @@ function ErrorTrackingAlertingInner(): JSX.Element {
             forceFilterGroups={HOG_FUNCTION_FILTER_LIST}
             type="internal_destination"
             extraControls={
-                <LemonButton type="primary" size="small" onClick={() => setAlertCreationView('wizard')}>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => {
+                        const source = isWizardEnabled ? 'wizard_button' : 'traditional_button'
+                        posthog.capture('error_tracking_alert_creation_started', {
+                            source,
+                        })
+                        setAlertCreationView(isWizardEnabled ? 'wizard' : 'traditional')
+                    }}
+                >
                     New notification
                 </LemonButton>
             }
