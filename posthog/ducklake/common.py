@@ -8,7 +8,7 @@ import psycopg
 from psycopg import sql
 
 if TYPE_CHECKING:
-    from posthog.ducklake.models import DuckLakeCatalog
+    from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
 
 DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_HOST": "localhost",
@@ -84,6 +84,22 @@ def get_ducklake_catalog_for_team(team_id: int) -> DuckLakeCatalog | None:
     try:
         return DuckLakeCatalog.objects.get(team_id=team_id)
     except DuckLakeCatalog.DoesNotExist:
+        return None
+
+
+def get_duckgres_server_for_team(team_id: int) -> DuckgresServer | None:
+    """Look up DuckgresServer for a team.
+
+    Returns None if no team-specific server is configured or in dev mode.
+    """
+    if is_dev_mode():
+        return None
+
+    from posthog.ducklake.models import DuckgresServer
+
+    try:
+        return DuckgresServer.objects.get(team_id=team_id)
+    except DuckgresServer.DoesNotExist:
         return None
 
 
@@ -251,6 +267,7 @@ __all__ = [
     "escape",
     "get_config",
     "get_ducklake_connection_string",
+    "get_duckgres_server_for_team",
     "get_team_config",
     "get_ducklake_data_path",
     "ensure_ducklake_catalog",

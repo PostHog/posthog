@@ -25,7 +25,7 @@ from .core_event import CoreEvent
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
-from ..ducklake.models import DuckLakeCatalog
+from ..ducklake.models import DuckgresServer, DuckLakeCatalog
 from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
@@ -64,6 +64,7 @@ from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
+from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
@@ -128,6 +129,7 @@ __all__ = [
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
+    "DuckgresServer",
     "DuckLakeCatalog",
     "Element",
     "ElementGroup",
@@ -173,6 +175,7 @@ __all__ = [
     "Notebook",
     "MigrationStatus",
     "NotificationViewed",
+    "ObjectMediaPreview",
     "Organization",
     "OrganizationDomain",
     "OrganizationIntegration",
