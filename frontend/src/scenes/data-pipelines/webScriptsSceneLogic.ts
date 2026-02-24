@@ -3,10 +3,10 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { Breadcrumb } from '~/types'
 
-import type { snippetsSceneLogicType } from './snippetsSceneLogicType'
+import type { webScriptsSceneLogicType } from './webScriptsSceneLogicType'
 
-export const snippetsSceneLogic = kea<snippetsSceneLogicType>([
-    path(['scenes', 'data-pipelines', 'snippetsSceneLogic']),
+export const webScriptsSceneLogic = kea<webScriptsSceneLogicType>([
+    path(['scenes', 'data-pipelines', 'webScriptsSceneLogic']),
     actions({
         setActiveTab: (tab: 'all' | 'history') => ({ tab }),
     }),

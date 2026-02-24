@@ -16,17 +16,17 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
-import { snippetsSceneLogic } from './snippetsSceneLogic'
+import { webScriptsSceneLogic } from './webScriptsSceneLogic'
 
 export const scene: SceneExport = {
-    component: SnippetsScene,
-    logic: snippetsSceneLogic,
+    component: WebScriptsScene,
+    logic: webScriptsSceneLogic,
     productKey: ProductKey.SITE_APPS,
 }
 
-export function SnippetsScene(): JSX.Element {
-    const { activeTab } = useValues(snippetsSceneLogic)
-    const { setActiveTab } = useActions(snippetsSceneLogic)
+export function WebScriptsScene(): JSX.Element {
+    const { activeTab } = useValues(webScriptsSceneLogic)
+    const { setActiveTab } = useActions(webScriptsSceneLogic)
 
     const action = (
         <AppShortcut
