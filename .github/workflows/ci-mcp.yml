@@ -315,6 +315,8 @@ jobs:
                       user=user,
                       label='mcp_ci_api_key_phx',
                       secure_value=hash_key_value('phx_e2e_demo_api_key'),
+                      scoped_teams=[],
+                      scoped_organizations=[],
                   )
                   print(f'TEST_ORG_ID={org.id}')
                   print(f'TEST_PROJECT_ID={team.id}')
