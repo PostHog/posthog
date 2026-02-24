@@ -358,11 +358,14 @@ class ConsumerGroup(typing.Protocol[_C]):
     settings: ConsumerGroupSettings
 
     # Tracking state
-    records_completed: int = 0
     bytes_exported: int = 0
     bytes_exported_window: int = 0
     time_elapsed: int | float = 0
     time_elapsed_window: int | float = 0
+
+    # Tracking results
+    accumulated_bytes_exported: int = 0
+    accumulated_records_completed: int = 0
 
     # Internal state management
     _consumers: set[_C] | None = None
@@ -429,7 +432,9 @@ class ConsumerGroup(typing.Protocol[_C]):
     def result(self) -> BatchExportResult:
         """Accumulated result of all consumers in this group."""
         return BatchExportResult(
-            records_completed=self.records_completed, bytes_exported=self.bytes_exported, error=self.errors or None
+            records_completed=self.accumulated_records_completed,
+            bytes_exported=self.accumulated_bytes_exported,
+            error=self.errors or None,
         )
 
     @property
@@ -604,10 +609,10 @@ class ConsumerGroup(typing.Protocol[_C]):
         result = task.result()
 
         if result.records_completed is not None:
-            self.records_completed += result.records_completed
+            self.accumulated_records_completed += result.records_completed
 
         if result.bytes_exported is not None:
-            self.bytes_exported += result.bytes_exported
+            self.accumulated_bytes_exported += result.bytes_exported
 
         if result.error is not None:
             # TODO: Consolidate errors of the same type into one
