@@ -16,11 +16,11 @@ import {
     ExperimentExposureTimeSeries,
 } from '~/queries/schema/schema-general'
 
-import { exposureCriteriaModalLogic } from '../ExperimentForm/exposureCriteriaModalLogic'
 import { experimentLogic } from '../experimentLogic'
 import { useChartColors } from '../MetricsView/shared/colors'
 import { filterLowMultipleVariant, getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
+import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
 const srmFailureTooltipText =
     "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."

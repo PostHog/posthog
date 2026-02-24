@@ -13,9 +13,9 @@ import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-ge
 import { FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
-import { exposureCriteriaModalLogic } from '../ExperimentForm/exposureCriteriaModalLogic'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
 type ExposureCriteriaModalProps = {
     onSave: (exposureCriteria: ExperimentExposureCriteria) => void

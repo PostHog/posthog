@@ -5,8 +5,8 @@ import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@p
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
-import { exposureCriteriaModalLogic } from '../ExperimentForm/exposureCriteriaModalLogic'
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
+import { exposureCriteriaModalLogic } from '../ExperimentView/exposureCriteriaModalLogic'
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
 export function ExperimentMetricModal({
