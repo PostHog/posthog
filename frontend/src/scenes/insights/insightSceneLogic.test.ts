@@ -143,6 +143,80 @@ describe('insightSceneLogic', () => {
         expect(logic.values.insightLogicRef?.logic.values.insight.dashboards).toEqual([6])
     })
 
+    it('updates itemId when navigating from subscriptions list to new subscription', async () => {
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+
+        // Navigate to the subscriptions list for an insight
+        router.actions.push(urls.insightSubcriptions(Insight42))
+        await expectLogic(logic).toMatchValues({
+            insightId: Insight42,
+            insightMode: ItemMode.Subscriptions,
+            itemId: null,
+        })
+
+        // Simulate the Insight scene being active so the early-return guard fires
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightSubcriptions',
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} }
+        )
+        sceneLogic.actions.setScene(
+            Scene.Insight,
+            'insightSubcriptions',
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} },
+            false
+        )
+
+        // Navigate to "new subscription" - this is what the "Add subscription" button does
+        router.actions.push(urls.insightSubcription(Insight42, 'new'))
+        await expectLogic(logic).toMatchValues({
+            insightId: Insight42,
+            insightMode: ItemMode.Subscriptions,
+            itemId: 'new',
+        })
+    })
+
+    it('updates itemId when navigating from subscriptions list to a specific subscription', async () => {
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+
+        // Navigate to the subscriptions list for an insight
+        router.actions.push(urls.insightSubcriptions(Insight42))
+        await expectLogic(logic).toMatchValues({
+            insightId: Insight42,
+            insightMode: ItemMode.Subscriptions,
+            itemId: null,
+        })
+
+        // Simulate the Insight scene being active so the early-return guard fires
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightSubcriptions',
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} }
+        )
+        sceneLogic.actions.setScene(
+            Scene.Insight,
+            'insightSubcriptions',
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} },
+            false
+        )
+
+        // Navigate to a specific subscription
+        router.actions.push(urls.insightSubcription(Insight42, '5'))
+        await expectLogic(logic).toMatchValues({
+            insightId: Insight42,
+            insightMode: ItemMode.Subscriptions,
+            itemId: 5,
+        })
+    })
+
     it('does not reload insight when only the URL hash changes', async () => {
         const insightApiCall = jest
             .fn()
