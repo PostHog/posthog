@@ -54,6 +54,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
@@ -197,6 +198,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
@@ -298,6 +300,7 @@ jobs:
                   django.setup()
                   from posthog.models import Organization, Team, User
                   from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+                  from posthog.models.event_definition import EventDefinition
                   org = Organization.objects.first()
                   team = Team.objects.first()
                   user = User.objects.first()
@@ -306,6 +309,9 @@ jobs:
                       label='mcp_ci_api_key',
                       secure_value=hash_key_value('e2e_demo_api_key'),
                   )
+                  # Ensure common event definitions exist for MCP integration tests
+                  for event_name in ['\$pageview', '\$pageleave', '\$autocapture', '\$screen']:
+                      EventDefinition.objects.get_or_create(name=event_name, team=team)
                   print(f'TEST_ORG_ID={org.id}')
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV

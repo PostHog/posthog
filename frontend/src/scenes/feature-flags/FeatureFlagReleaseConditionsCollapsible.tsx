@@ -9,10 +9,10 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
@@ -96,14 +96,12 @@ function ConditionHeader({
             : null
 
     return (
-        <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-2">
-                <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5">{index + 1}</span>
-                <span className="text-sm truncate max-w-[300px]" title={summary}>
-                    {summary}
-                </span>
+        <div className="flex items-start justify-between w-full gap-2">
+            <div className="flex items-start gap-2 min-w-0">
+                <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5 shrink-0">{index + 1}</span>
+                <span className="text-sm break-all">{summary}</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
                 <span className="text-sm text-muted mr-2">
                     ({rollout}%{group.variant && ` · ${group.variant}`}
                     {actualUserCount !== null &&

@@ -31,7 +31,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                             language: 'jsx',
                             file: 'React Native',
                             code: dedent`
-                              export const posthog = new PostHog('<ph_project_api_key>', {
+                              export const posthog = new PostHog('<ph_project_token>', {
                                 errorTracking: {
                                   autocapture: {
                                     uncaughtExceptions: true,
@@ -80,7 +80,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
 
                                 const App = () => {
                                   return (
-                                    <PostHogProvider apiKey="<ph_project_api_key>">
+                                    <PostHogProvider apiKey="<ph_project_token>">
                                       <PostHogErrorBoundary
                                         fallback={YourFallbackComponent}
                                         additionalProperties={{ screen: "home" }}

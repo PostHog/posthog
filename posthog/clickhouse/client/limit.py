@@ -111,6 +111,15 @@ class RateLimit:
         elif limit_value := kwargs.get("limit", None):
             max_concurrency = int(limit_value)
 
+        if not TEST:
+            from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+
+            kill_switch_level = get_kill_switch_level()
+            if kill_switch_level == KillSwitchLevel.LIGHT:
+                max_concurrency = max(1, max_concurrency // 2)
+            elif kill_switch_level == KillSwitchLevel.FULL:
+                max_concurrency = max(1, max_concurrency // 4)
+
         # p80 is below 1.714ms, therefore max retry is 1.714s
         backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
         count = 1
