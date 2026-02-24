@@ -15,6 +15,7 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
+import { preprocessParams } from '@/lib/preprocessParams'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -186,13 +187,17 @@ export class MCP extends McpAgent<Env> {
         handler: (params: z.infer<z.ZodObject<TSchema>>) => Promise<any>
     ): void {
         const wrappedHandler = async (params: z.infer<z.ZodObject<TSchema>>): Promise<any> => {
-            const validation = tool.schema.safeParse(params)
+            // Some MCP clients serialize nested objects as JSON strings instead of inline
+            // objects. Attempt to parse any top-level string values that look like JSON.
+            const preprocessed = preprocessParams(params as Record<string, unknown>)
+
+            const validation = tool.schema.safeParse(preprocessed)
 
             if (!validation.success) {
                 await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
                     tool: tool.name,
                     valid_input: false,
-                    input: params,
+                    input: preprocessed,
                 })
                 return [
                     {
@@ -208,7 +213,7 @@ export class MCP extends McpAgent<Env> {
             })
 
             try {
-                const result = await handler(params)
+                const result = await handler(validation.data)
                 await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, {
                     tool: tool.name,
                 })

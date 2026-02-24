@@ -30,11 +30,11 @@ export const DashboardCreateSchema = z.object({
 })
 
 export const DashboardDeleteSchema = z.object({
-    dashboardId: z.number(),
+    dashboardId: z.coerce.number(),
 })
 
 export const DashboardGetSchema = z.object({
-    dashboardId: z.number(),
+    dashboardId: z.coerce.number(),
 })
 
 export const DashboardGetAllSchema = z.object({
@@ -42,7 +42,7 @@ export const DashboardGetAllSchema = z.object({
 })
 
 export const DashboardUpdateSchema = z.object({
-    dashboardId: z.number(),
+    dashboardId: z.coerce.number(),
     data: UpdateDashboardInputSchema,
 })
 
@@ -59,23 +59,23 @@ export const ErrorTrackingListSchema = ListErrorsSchema
 export const ExperimentGetAllSchema = z.object({
     data: z
         .object({
-            limit: z.number().int().positive().optional(),
-            offset: z.number().int().min(0).optional(),
+            limit: z.coerce.number().int().positive().optional(),
+            offset: z.coerce.number().int().min(0).optional(),
         })
         .optional(),
 })
 
 export const ExperimentGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to retrieve'),
+    experimentId: z.coerce.number().describe('The ID of the experiment to retrieve'),
 })
 
 export const ExperimentResultsGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to get comprehensive results for'),
+    experimentId: z.coerce.number().describe('The ID of the experiment to get comprehensive results for'),
     refresh: z.boolean().describe('Force refresh of results instead of using cached values'),
 })
 
 export const ExperimentDeleteSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to delete'),
+    experimentId: z.coerce.number().describe('The ID of the experiment to delete'),
 })
 
 /**
@@ -133,7 +133,7 @@ export const ExperimentUpdateInputSchema = z.object({
         .optional()
         .describe('Update secondary metrics'),
 
-    minimum_detectable_effect: z.number().optional().describe('Update minimum detectable effect in percentage'),
+    minimum_detectable_effect: z.coerce.number().optional().describe('Update minimum detectable effect in percentage'),
 
     // Experiment state management
     launch: z.boolean().optional().describe('Launch experiment (set start_date) or keep as draft'),
@@ -151,7 +151,7 @@ export const ExperimentUpdateInputSchema = z.object({
 })
 
 export const ExperimentUpdateSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to update'),
+    experimentId: z.coerce.number().describe('The ID of the experiment to update'),
     data: ExperimentUpdateInputSchema.describe('The experiment data to update using user-friendly format'),
 })
 
@@ -249,7 +249,11 @@ export const ExperimentCreateSchema = z.object({
             z.object({
                 key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
                 name: z.string().optional().describe('Human-readable variant name'),
-                rollout_percentage: z.number().min(0).max(100).describe('Percentage of users to show this variant'),
+                rollout_percentage: z.coerce
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .describe('Percentage of users to show this variant'),
             })
         )
         .optional()
@@ -301,14 +305,14 @@ export const FeatureFlagDeleteSchema = z.object({
 export const FeatureFlagGetAllSchema = z.object({
     data: z
         .object({
-            limit: z.number().int().positive().optional(),
-            offset: z.number().int().min(0).optional(),
+            limit: z.coerce.number().int().positive().optional(),
+            offset: z.coerce.number().int().min(0).optional(),
         })
         .optional(),
 })
 
 export const FeatureFlagGetDefinitionSchema = z.object({
-    flagId: z.number().int().positive().optional(),
+    flagId: z.coerce.number().int().positive().optional(),
     flagKey: z.string().optional(),
 })
 
@@ -350,8 +354,8 @@ export const InsightUpdateSchema = z.object({
 })
 
 export const LLMAnalyticsGetCostsSchema = z.object({
-    projectId: z.number().int().positive(),
-    days: z.number().optional(),
+    projectId: z.coerce.number().int().positive(),
+    days: z.coerce.number().optional(),
 })
 
 export const OrganizationGetDetailsSchema = z.object({})
@@ -366,8 +370,8 @@ export const ProjectGetAllSchema = z.object({})
 
 export const ProjectEventDefinitionsSchema = z.object({
     q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
+    limit: z.coerce.number().int().positive().optional(),
+    offset: z.coerce.number().int().min(0).optional(),
 })
 
 export const EventDefinitionUpdateInputSchema = z.object({
@@ -397,12 +401,12 @@ export const ProjectPropertyDefinitionsInputSchema = z.object({
     type: z.enum(['event', 'person']).describe('Type of properties to get'),
     eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
     includePredefinedProperties: z.boolean().optional().describe('Whether to include predefined properties'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
+    limit: z.coerce.number().int().positive().optional(),
+    offset: z.coerce.number().int().min(0).optional(),
 })
 
 export const ProjectSetActiveSchema = z.object({
-    projectId: z.number().int().positive(),
+    projectId: z.coerce.number().int().positive(),
 })
 
 export const SurveyCreateSchema = CreateSurveyInputSchema
@@ -437,11 +441,11 @@ export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeV
 export const ActionCreateSchema = CreateActionInputSchema
 
 export const ActionDeleteSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to delete'),
+    actionId: z.coerce.number().int().positive().describe('The ID of the action to delete'),
 })
 
 export const ActionGetSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to retrieve'),
+    actionId: z.coerce.number().int().positive().describe('The ID of the action to retrieve'),
 })
 
 export const ActionGetAllSchema = z.object({
@@ -449,7 +453,7 @@ export const ActionGetAllSchema = z.object({
 })
 
 export const ActionUpdateSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to update'),
+    actionId: z.coerce.number().int().positive().describe('The ID of the action to update'),
     data: UpdateActionInputSchema,
 })
 
@@ -513,7 +517,7 @@ const ReadEntityPropertiesQuerySchema = z.object({
 
 const ReadActionPropertiesQuerySchema = z.object({
     kind: z.literal('action_properties'),
-    action_id: z.number().int().describe('The ID of the action that you want to retrieve properties for.'),
+    action_id: z.coerce.number().int().describe('The ID of the action that you want to retrieve properties for.'),
 })
 
 const ReadEntitySamplePropertyValuesQuerySchema = z.object({
@@ -530,7 +534,7 @@ const ReadEventSamplePropertyValuesQuerySchema = z.object({
 
 const ReadActionSamplePropertyValuesQuerySchema = z.object({
     kind: z.literal('action_property_values'),
-    action_id: z.number().int().describe('Verified action ID'),
+    action_id: z.coerce.number().int().describe('Verified action ID'),
     property_name: z.string().describe('Verified property name of an action.'),
 })
 

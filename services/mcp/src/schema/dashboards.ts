@@ -81,14 +81,14 @@ export const ListDashboardsSchema = z.object({
 // Input schema for adding insight to dashboard
 export const AddInsightToDashboardSchema = z.object({
     insightId: z.string(),
-    dashboardId: z.number().int().positive(),
+    dashboardId: z.coerce.number().int().positive(),
 })
 
 // Input schema for reordering dashboard tiles
 export const ReorderDashboardTilesSchema = z.object({
-    dashboardId: z.number().int().positive().describe('The ID of the dashboard to reorder tiles on'),
+    dashboardId: z.coerce.number().int().positive().describe('The ID of the dashboard to reorder tiles on'),
     tileOrder: z
-        .array(z.number().int().positive())
+        .array(z.coerce.number().int().positive())
         .min(1)
         .describe('Array of tile IDs in the desired order from top to bottom'),
 })
