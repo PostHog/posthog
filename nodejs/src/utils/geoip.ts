@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { PluginsServerConfig } from '../types'
+import { CommonConfig } from '../common/config'
 import { isTestEnv } from './env-utils'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
@@ -36,7 +36,7 @@ export class GeoIPService {
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
 
-    constructor(private config: PluginsServerConfig) {
+    constructor(private config: Pick<CommonConfig, 'MMDB_FILE_LOCATION'>) {
         logger.info('🌎', 'GeoIPService created')
         // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
         // We should rely on that instead

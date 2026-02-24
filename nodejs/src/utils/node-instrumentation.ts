@@ -1,7 +1,7 @@
 import { EventLoopUtilization, performance } from 'perf_hooks'
 import { Gauge } from 'prom-client'
 
-import { PluginsServerConfig } from '~/types'
+import { CommonConfig } from '~/common/config'
 
 const eventLoopUtilizationGauge = new Gauge({
     name: 'event_loop_utilization',
@@ -12,7 +12,7 @@ export class NodeInstrumentation {
     private threadPerformanceInterval?: NodeJS.Timeout
     private lastEventLoopUtilization?: EventLoopUtilization
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(private config: Pick<CommonConfig, 'INSTRUMENT_THREAD_PERFORMANCE'>) {}
 
     setupThreadPerformanceInterval(): void {
         if (!this.config.INSTRUMENT_THREAD_PERFORMANCE) {

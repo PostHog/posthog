@@ -2,7 +2,7 @@ import { ClickHouseClient, createClient as createClickhouseClient } from '@click
 
 import { withSpan } from '~/common/tracing/tracing-utils'
 
-import { PluginsServerConfig } from '../../types'
+import { CommonConfig } from '../../common/config'
 import { logger } from '../logger'
 import { timeoutGuard } from './utils'
 
@@ -39,7 +39,16 @@ function createClickHouseClient(config: ClickHouseConnectionConfig): ClickHouseC
 export class ClickHouseRouter {
     private client: ClickHouseClient | null = null
 
-    constructor(private hub: PluginsServerConfig) {}
+    constructor(
+        private hub: Pick<
+            CommonConfig,
+            | 'CLICKHOUSE_HOST'
+            | 'CLICKHOUSE_PORT'
+            | 'CLICKHOUSE_USERNAME'
+            | 'CLICKHOUSE_PASSWORD'
+            | 'CLICKHOUSE_DATABASE'
+        >
+    ) {}
 
     initialize(): void {
         if (this.client) {

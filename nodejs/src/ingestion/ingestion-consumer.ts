@@ -4,15 +4,10 @@ import { Gauge } from 'prom-client'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { CommonConfig } from '../common/config'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import {
-    HealthCheckResult,
-    HealthCheckResultError,
-    PluginServerService,
-    PluginsServerConfig,
-    RedisPool,
-} from '../types'
+import { HealthCheckResult, HealthCheckResultError, PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
@@ -45,7 +40,7 @@ import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redi
 import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
-    Pick<PluginsServerConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>
+    Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>
 
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
@@ -101,7 +96,7 @@ export class IngestionConsumer {
         private deps: IngestionConsumerDeps,
         overrides: Partial<
             Pick<
-                PluginsServerConfig,
+                IngestionConsumerConfig,
                 | 'INGESTION_CONSUMER_GROUP_ID'
                 | 'INGESTION_CONSUMER_CONSUME_TOPIC'
                 | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
