@@ -95,9 +95,20 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // Whether images are masked. Default is true.
                                             config.sessionReplayConfig.maskAllImages = true
 
+                                            // Whether logs are captured in recordings. Default is false.
+                                            //
+                                            // Support for remote configuration 
+                                            // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
+                                            // requires SDK version 3.41.1 or higher.
+                                            config.sessionReplayConfig.captureLogs = false
+
                                             // Whether network requests are captured in recordings. Default is true
                                             // Only metric-like data like speed, size, and response code are captured.
                                             // No data is captured from the request or response body.
+                                            //
+                                            // Support for remote configuration 
+                                            // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-network)
+                                            // requires SDK version 3.41.1 or higher.
                                             config.sessionReplayConfig.captureNetworkTelemetry = true
 
                                             // Whether replays are created using high quality screenshots. Default is false.

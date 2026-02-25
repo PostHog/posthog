@@ -85,6 +85,46 @@ function validateUrl(url: string): URL {
     return parsedUrl
 }
 
+/**
+ * Validate IP literal hostnames directly. Undici skips the DNS lookup callback
+ * for IP literals (both IPv4 and IPv6), so staticLookupAsync never runs for them.
+ * We must check these before passing the URL to undici.
+ */
+function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void {
+    if (allowUnsafe) {
+        return
+    }
+
+    // Strip brackets from IPv6 literals — URL.hostname includes them for IPv6
+    const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
+
+    let parsed: ipaddr.IPv4 | ipaddr.IPv6
+    try {
+        parsed = ipaddr.parse(bare)
+    } catch {
+        // Not an IP literal (it's a regular hostname) — DNS lookup will handle validation
+        return
+    }
+
+    let ipv4: ipaddr.IPv4 | null = null
+    if (isIPv4(parsed)) {
+        ipv4 = parsed
+    } else if (parsed.isIPv4MappedAddress()) {
+        ipv4 = parsed.toIPv4Address()
+    } else {
+        if (!isGlobalIPv6(parsed)) {
+            unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+            throw new SecureRequestError('Hostname is not allowed')
+        }
+        return
+    }
+
+    if (!isGlobalIPv4(ipv4)) {
+        unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+        throw new SecureRequestError('Hostname is not allowed')
+    }
+}
+
 function isGlobalIPv4(ip: ipaddr.IPv4): boolean {
     const [a, b, c, d] = ip.octets
     if (a === 0) {
@@ -103,6 +143,12 @@ function isGlobalIPv4(ip: ipaddr.IPv4): boolean {
         return false // Broadcast
     }
     return true
+}
+
+function isGlobalIPv6(ip: ipaddr.IPv6): boolean {
+    const range = ip.range()
+    // Only allow globally routable unicast IPv6 addresses
+    return range === 'unicast'
 }
 
 function isIPv4(addr: ipaddr.IPv4 | ipaddr.IPv6): addr is ipaddr.IPv4 {
@@ -127,7 +173,13 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
             // IPv6-mapped IPv4 (e.g. ::ffff:169.254.169.254) must be unwrapped and validated
             ipv4 = parsed.toIPv4Address()
         } else {
-            // Pure IPv6 — skip for now
+            // Pure IPv6 — validate directly
+            const allowUnsafe = !isProdEnv()
+            if (!allowUnsafe && !isGlobalIPv6(parsed)) {
+                unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+                throw new SecureRequestError('Hostname is not allowed')
+            }
+            validAddrinfo.push(addrInfo)
             continue
         }
 
@@ -163,6 +215,7 @@ export const httpStaticLookup: net.LookupFunction = async (hostname, _options, c
  */
 export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
     const parsedUrl = validateUrl(url)
+    validateHostnameIPLiteral(parsedUrl.hostname, !isProdEnv())
     await staticLookupAsync(parsedUrl.hostname)
 }
 
@@ -255,6 +308,8 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
 }
 
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    const parsed = new URL(url)
+    validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     return await _fetch(url, options, sharedSecureAgent)
 }
 
@@ -270,6 +325,8 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
     if (!parsed.hostname || !(parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
         throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
     }
+
+    validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
 
     const requestOptions = options ?? {}
     requestOptions.dispatcher = sharedSecureAgent

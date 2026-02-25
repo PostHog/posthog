@@ -612,6 +612,11 @@ export interface ConversationsSettings {
     widget_identification_form_description?: string
     widget_placeholder_text?: string
     widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
+    slack_enabled?: boolean
+    slack_team_id?: string | null
+    slack_channel_id?: string | null
+    slack_channel_name?: string | null
+    slack_ticket_emoji?: string | null
 }
 
 export interface LogsSettings {
@@ -2631,6 +2636,7 @@ export enum FunnelVizType {
     Steps = 'steps',
     TimeToConvert = 'time_to_convert',
     Trends = 'trends',
+    Flow = 'flow',
 }
 
 export type RetentionType =
@@ -5404,6 +5410,7 @@ export interface IncrementalField {
     type: IncrementalFieldType // the field type shown in the UI
     field: string // the actual database field name
     field_type: IncrementalFieldType // the actual database field type
+    nullable?: boolean // whether the field allows null values
 }
 
 export interface ExternalDataSourceSyncSchema {

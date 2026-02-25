@@ -11,6 +11,7 @@ import { ChartParams, FunnelVizType } from '~/types'
 import { FunnelBarHorizontal } from './FunnelBarHorizontal/FunnelBarHorizontal'
 import { FunnelBarVertical } from './FunnelBarVertical/FunnelBarVertical'
 import { funnelDataLogic } from './funnelDataLogic'
+import { FunnelFlowGraph } from './FunnelFlowGraph/FunnelFlowGraph'
 import { FunnelHistogram } from './FunnelHistogram'
 
 export function Funnel(props: ChartParams): JSX.Element {
@@ -23,6 +24,8 @@ export function Funnel(props: ChartParams): JSX.Element {
         viz = <FunnelLineGraph {...props} />
     } else if (funnelVizType == FunnelVizType.TimeToConvert) {
         viz = <FunnelHistogram />
+    } else if (funnelVizType === FunnelVizType.Flow) {
+        viz = <FunnelFlowGraph />
     } else if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
         viz = <FunnelBarVertical {...props} />
     } else {

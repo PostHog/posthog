@@ -2,22 +2,24 @@ import { convertHogToJS } from '@posthog/hogvm'
 
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { CyclotronInputType } from '~/schema/cyclotron'
-import { Hub } from '~/types'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
+import { IntegrationManagerService } from './managers/integration-manager.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
-
-export type HogInputsServiceHub = Pick<Hub, 'integrationManager' | 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'>
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 export class HogInputsService {
     private recipientTokensService: RecipientTokensService
 
-    constructor(private hub: HogInputsServiceHub) {
-        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+    constructor(
+        private integrationManager: IntegrationManagerService,
+        encryptionSaltKeys: string,
+        siteUrl: string
+    ) {
+        this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
     }
 
     public async buildInputs(
@@ -121,7 +123,7 @@ export class HogInputsService {
             return {}
         }
 
-        const integrations = await this.hub.integrationManager.getMany(Object.values(inputsToLoad))
+        const integrations = await this.integrationManager.getMany(Object.values(inputsToLoad))
         const returnInputs: Record<string, { value: Record<string, any> | null }> = {}
 
         Object.entries(inputsToLoad).forEach(([key, value]) => {

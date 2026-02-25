@@ -44,7 +44,7 @@ describe('Hog Inputs', () => {
             },
         })
 
-        hogInputsService = new HogInputsService(hub)
+        hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
     })
 
     afterEach(async () => {

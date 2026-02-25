@@ -107,6 +107,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
     )
+    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
@@ -148,6 +149,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/backfill-precalculated-person-properties/",
             admin.site.admin_view(backfill_precalculated_person_properties_view),
             name="backfill-precalculated-person-properties",
+        ),
+        path(
+            "admin/distinct-id-usage/",
+            admin.site.admin_view(distinct_id_usage_view),
+            name="distinct-id-usage",
         ),
         path(
             "admin/tophog/",

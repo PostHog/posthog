@@ -116,6 +116,7 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
             trackCostOutcome(totalCost)
         }
 
+        event.properties['$ai_cost_model_source'] = CostModelSource.Passthrough
         return event
     }
 

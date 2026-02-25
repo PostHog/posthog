@@ -8,6 +8,7 @@ from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
@@ -1054,6 +1055,37 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("where", query_sql)
             self.assertIn("event_name", query_sql)
             self.assertIn("$pageview", query_sql)
+
+    @parameterized.expand(
+        [
+            ("completed_hides_stale_error", DataWarehouseSavedQuery.Status.COMPLETED, "Previous error", ""),
+            ("failed_shows_error", DataWarehouseSavedQuery.Status.FAILED, "Query failed", "Query failed"),
+            ("running_shows_error", DataWarehouseSavedQuery.Status.RUNNING, "Previous error", "Previous error"),
+            ("completed_no_error", DataWarehouseSavedQuery.Status.COMPLETED, None, ""),
+        ],
+    )
+    def test_materialization_error_visibility_by_status(self, _name, sq_status, latest_error, expected_error):
+        endpoint = create_endpoint_with_version(
+            name=f"test_error_visibility_{_name}",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            format="json",
+        )
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        saved_query = version.saved_query
+        saved_query.status = sq_status
+        saved_query.latest_error = latest_error
+        saved_query.save()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["materialization"]["error"], expected_error)
 
 
 @pytest.mark.asyncio
