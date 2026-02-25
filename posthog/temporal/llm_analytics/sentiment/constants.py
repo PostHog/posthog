@@ -28,7 +28,7 @@ MAX_RETRY_ATTEMPTS = 2  # retry policy for both workflow and activity
 
 # API config
 CACHE_TTL = 60 * 60 * 24  # 24 hours — events are immutable once ingested
-BATCH_MAX_TRACE_IDS = 10
+BATCH_MAX_TRACE_IDS = 5
 
 # HogQL query template for fetching $ai_generation events.
 # Uses a window function to cap rows per trace at the ClickHouse level,
