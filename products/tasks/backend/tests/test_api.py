@@ -618,11 +618,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        self.client.post(
+        response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
             {"entries": [{"type": "info", "message": "hello"}]},
             format="json",
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         mock_heartbeat.assert_called_once()
 
