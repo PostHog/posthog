@@ -3,7 +3,7 @@ import './SessionRecordingPlayer.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -48,7 +48,12 @@ export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysIn
 }
 
 export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps): JSX.Element {
-    const playerRef = useRef<HTMLDivElement>(null)
+    const playerRef = useRef<HTMLDivElement | null>(null)
+    const [playerContainer, setPlayerContainer] = useState<HTMLDivElement | null>(null)
+    const playerCallbackRef = useCallback((el: HTMLDivElement | null) => {
+        playerRef.current = el
+        setPlayerContainer(el)
+    }, [])
     const {
         incrementClickCount,
         setIsFullScreen,
@@ -239,7 +244,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
 
     return (
         <div
-            ref={playerRef}
+            ref={playerCallbackRef}
             className={clsx(
                 'SessionRecordingPlayer',
                 {
@@ -253,7 +258,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             onMouseMove={() => setPlayNextAnimationInterrupted(true)}
             onMouseOut={() => setPlayNextAnimationInterrupted(false)}
         >
-            <FloatingContainerContext.Provider value={playerRef}>
+            <FloatingContainerContext.Provider value={playerContainer}>
                 {explorerMode ? (
                     <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                 ) : (

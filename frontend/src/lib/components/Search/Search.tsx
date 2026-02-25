@@ -251,6 +251,8 @@ export interface SearchRootProps {
     className?: string
     /** Initial search value (useful for stories/tests) */
     defaultSearchValue?: string
+    /** Optional suggested items shown above recents/apps */
+    suggestedItems?: SearchItem[]
 }
 
 function SearchRoot({
@@ -262,6 +264,7 @@ function SearchRoot({
     onAskAiClick,
     className = '',
     defaultSearchValue = '',
+    suggestedItems = [],
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
@@ -282,6 +285,7 @@ function SearchRoot({
 
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
+        const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
         let items: SearchItem[]
         if (searchValue.trim()) {
             const searchLower = searchValue.toLowerCase()
@@ -314,8 +318,8 @@ function SearchRoot({
             items = [askAiItem, ...items]
         }
 
-        return items
-    }, [allItems, searchValue, showAskAiLink, aiPreviewConversationId])
+        return [...normalizedSuggestedItems, ...items]
+    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId])
 
     useEffect(() => {
         if (!isActive) {
@@ -421,7 +425,7 @@ function SearchRoot({
         }
 
         // Fixed order: ai first (when searching), then recents, apps, create, then everything else
-        const orderedCategories = ['ai', 'recents', 'apps', 'create']
+        const orderedCategories = ['suggested', 'ai', 'recents', 'apps', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -433,7 +437,7 @@ function SearchRoot({
             // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
-                : category === 'recents' || category === 'apps'
+                : (category === 'suggested' && items.length > 0) || category === 'recents' || category === 'apps'
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
@@ -732,7 +736,7 @@ function SearchResults({
                                                             render={(props) => {
                                                                 const isHighlighted =
                                                                     (props as Record<string, unknown>)[
-                                                                        'data-highlighted'
+                                                                    'data-highlighted'
                                                                     ] === ''
                                                                 if (isHighlighted) {
                                                                     highlightedItemRef.current = item
@@ -757,8 +761,8 @@ function SearchResults({
                                                                                     <span className="text-xs text-tertiary shrink-0 mt-[2px]">
                                                                                         {capitalizeFirstLetter(
                                                                                             item.groupNoun ||
-                                                                                                typeLabel ||
-                                                                                                ''
+                                                                                            typeLabel ||
+                                                                                            ''
                                                                                         )}
                                                                                     </span>
                                                                                 )}
@@ -774,8 +778,8 @@ function SearchResults({
                                                                                         tag === 'alpha'
                                                                                             ? 'completion'
                                                                                             : tag === 'beta'
-                                                                                              ? 'warning'
-                                                                                              : 'success'
+                                                                                                ? 'warning'
+                                                                                                : 'success'
                                                                                     }
                                                                                     size="small"
                                                                                     className="shrink-0"
@@ -863,7 +867,7 @@ function AiSearchItem({
                                 className: cn(
                                     'flex-col items-start gap-0 bg-surface-primary',
                                     showPreview &&
-                                        'shadow border-primary @2xl/main-content:-ml-3 @2xl/main-content:w-[calc(100%+(var(--spacing)*6))] max-w-none p-4 text-sm select-auto hover:border-ai not(:hover):[&[data-highlighted]:not(:hover)]:outline-ai',
+                                    'shadow border-primary @2xl/main-content:-ml-3 @2xl/main-content:w-[calc(100%+(var(--spacing)*6))] max-w-none p-4 text-sm select-auto hover:border-ai not(:hover):[&[data-highlighted]:not(:hover)]:outline-ai',
                                     isModal && 'm-0'
                                 ),
                             }}

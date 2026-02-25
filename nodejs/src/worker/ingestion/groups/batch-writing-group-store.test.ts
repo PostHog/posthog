@@ -105,11 +105,11 @@ describe('BatchWritingGroupStore', () => {
         clickhouseGroupRepository = {
             upsertGroup: jest.fn().mockResolvedValue(undefined),
         } as unknown as ClickhouseGroupRepository
-        groupStore = new BatchWritingGroupStore({
-            kafkaProducer: {} as unknown as KafkaProducerWrapper,
+        groupStore = new BatchWritingGroupStore(
+            {} as unknown as KafkaProducerWrapper,
             groupRepository,
-            clickhouseGroupRepository,
-        })
+            clickhouseGroupRepository
+        )
     })
 
     afterEach(() => {
