@@ -452,7 +452,7 @@ def resolve_and_validate_url(url: str) -> None:
 
     host = parsed.hostname
     if not host:
-        raise ValueError(f"URL has no hostname")
+        raise ValueError("URL has no hostname")
 
     resolve_and_validate_host(host)
 
@@ -465,7 +465,7 @@ def resolve_and_validate_host(host: str) -> None:
     # Host may already be an IP literal
     try:
         if is_ip_internal(host):
-            raise ValueError(f"Host resolved to internal IP")
+            raise ValueError("Host resolved to internal IP")
         return
     except ValueError:
         # Not an IP literal, requires DNS
@@ -478,11 +478,11 @@ def resolve_and_validate_host(host: str) -> None:
         raise ValueError(f"Could not resolve '{host}': {e}") from e
 
     # Keeps only unique ips from the result tuple
-    resolved_ips = {r[4][0] for r in results}
+    resolved_ips = {str(r[4][0]) for r in results}
 
     for ip in resolved_ips:
         if is_ip_internal(ip):
-            raise ValueError(f"Host resolved to internal IP: {ip}")
+            raise ValueError("Host resolved to internal IP")
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
