@@ -162,7 +162,7 @@ class InlineOverrides:
     """Resolved overrides to apply when executing inline (non-materialized) queries."""
 
     variables_override: builtins.list[HogQLVariable] | None = None
-    filters_override: object | None = None  # DashboardFilter instance
+    filters_override: DashboardFilter | None = None
     deprecation_headers: dict[str, str] | None = None
 
 
@@ -193,7 +193,7 @@ class QueryKindHandler:
         self,
         query: dict,
         data_variables: dict[str, str] | None,
-        data_filters_override: object | None,
+        data_filters_override: DashboardFilter | None,
     ) -> InlineOverrides:
         return InlineOverrides()
 
@@ -289,7 +289,7 @@ class InsightQueryHandler(QueryKindHandler):
         self,
         query: dict,
         data_variables: dict[str, str] | None,
-        data_filters_override: object | None,
+        data_filters_override: DashboardFilter | None,
     ) -> InlineOverrides:
         if data_filters_override is not None:
             return InlineOverrides(
@@ -549,7 +549,7 @@ class HogQLQueryHandler(QueryKindHandler):
         self,
         query: dict,
         data_variables: dict[str, str] | None,
-        data_filters_override: object | None,
+        data_filters_override: DashboardFilter | None,
     ) -> InlineOverrides:
         if data_variables:
             return InlineOverrides(variables_override=_parse_variables(query, data_variables))
