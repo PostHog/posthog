@@ -191,6 +191,20 @@ def get_run_snapshots(run_id: UUID) -> list[contracts.Snapshot]:
     return [_to_snapshot(s, repo_id) for s in snapshots]
 
 
+def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.SnapshotHistoryEntry]:
+    entries = logic.get_snapshot_history(repo_id, identifier)
+    return [
+        contracts.SnapshotHistoryEntry(
+            run_id=e["run_id"],
+            result=e["result"],
+            branch=e["branch"],
+            commit_sha=e["commit_sha"],
+            created_at=e["created_at"],
+        )
+        for e in entries
+    ]
+
+
 def complete_run(run_id: UUID) -> contracts.Run:
     """
     Complete a run: verify uploads, create artifacts, trigger diff processing.

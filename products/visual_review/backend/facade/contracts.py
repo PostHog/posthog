@@ -176,6 +176,17 @@ class UpdateRepoInput:
 
 
 @dataclass(frozen=True)
+class SnapshotHistoryEntry:
+    """A single entry in a snapshot's change history across runs."""
+
+    run_id: UUID
+    result: str
+    branch: str
+    commit_sha: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class Repo:
     """A visual review repo."""
 

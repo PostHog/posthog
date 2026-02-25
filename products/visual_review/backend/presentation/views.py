@@ -13,7 +13,7 @@ No business logic here - that belongs in logic.py via the facade.
 from typing import cast
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -30,7 +30,9 @@ from .serializers import (
     CreateRunInputSerializer,
     CreateRunResultSerializer,
     RepoSerializer,
+    ReviewStateCountsSerializer,
     RunSerializer,
+    SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     UpdateRepoInputSerializer,
 )
@@ -56,6 +58,10 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, **kwargs) -> Response:
         """List all projects for the team."""
         projects = api.list_repos(self.team_id)
+        page = self.paginate_queryset(projects)
+        if page is not None:
+            serializer = RepoSerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
         return Response(RepoSerializer(instance=projects, many=True).data)
 
     @validated_request(
@@ -109,7 +115,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_write_actions = ["create", "complete", "approve"]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
 
-    @extend_schema(responses={200: RunSerializer(many=True)})
+    @extend_schema(
+        parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
+        responses={200: RunSerializer(many=True)},
+    )
     def list(self, request: Request, **kwargs) -> Response:
         """List runs for the team, optionally filtered by review state."""
         review_state = request.query_params.get("review_state")
@@ -120,6 +129,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(RunSerializer(instance=runs, many=True).data)
 
+    @extend_schema(responses={200: ReviewStateCountsSerializer})
     @action(detail=False, methods=["get"])
     def counts(self, request: Request, **kwargs) -> Response:
         """Review state counts for the runs list."""
@@ -156,6 +166,25 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             serializer = SnapshotSerializer(instance=page, many=True)
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        responses={200: SnapshotHistoryEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="snapshot-history")
+    def snapshot_history(self, request: Request, pk: str, **kwargs) -> Response:
+        """Recent change history for a snapshot identifier across runs."""
+        identifier = request.query_params.get("identifier")
+        if not identifier:
+            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            run = api.get_run(UUID(pk))
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        history = api.get_snapshot_history(run.repo_id, identifier)
+        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
     @extend_schema(responses={200: RunSerializer})
     @action(detail=True, methods=["post"])

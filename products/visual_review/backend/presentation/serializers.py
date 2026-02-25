@@ -4,6 +4,7 @@ DRF serializers for visual_review.
 Converts DTOs to/from JSON using DataclassSerializer.
 """
 
+from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
@@ -17,12 +18,20 @@ from ..facade.contracts import (
     Run,
     RunSummary,
     Snapshot,
+    SnapshotHistoryEntry,
     SnapshotManifestItem,
     UpdateRepoRequestInput,
     UploadTarget,
 )
 
 # --- Output Serializers ---
+
+
+class ReviewStateCountsSerializer(serializers.Serializer):
+    needs_review = serializers.IntegerField()
+    clean = serializers.IntegerField()
+    processing = serializers.IntegerField()
+    stale = serializers.IntegerField()
 
 
 class RunSummarySerializer(DataclassSerializer):
@@ -91,6 +100,11 @@ class ApproveSnapshotInputSerializer(DataclassSerializer):
 class ApproveRunInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = ApproveRunRequestInput
+
+
+class SnapshotHistoryEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SnapshotHistoryEntry
 
 
 class CreateRepoInputSerializer(DataclassSerializer):

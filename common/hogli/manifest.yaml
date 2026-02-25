@@ -597,6 +597,14 @@ tools:
         bin_script: start-custom
         description: 'TODO: add description for start-custom'
         hidden: true
+    build:bazel:wheels:
+        bin_script: build-bazel-wheels
+        description: 'TODO: add description for build-bazel-wheels'
+        hidden: true
+    update:requirements:lock:
+        bin_script: update-requirements-lock
+        description: 'TODO: add description for update-requirements-lock'
+        hidden: true
 utilities:
     nuke:
         steps:

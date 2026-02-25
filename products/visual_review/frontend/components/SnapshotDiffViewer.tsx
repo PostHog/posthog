@@ -1,10 +1,14 @@
 import { IconCheck, IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import type { SnapshotApi } from '../generated/api.schemas'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+
+import type { SnapshotApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 
 interface SnapshotDiffViewerProps {
     snapshot: SnapshotApi
+    snapshotHistory?: SnapshotHistoryEntryApi[]
+    snapshotHistoryLoading?: boolean
     onApprove?: () => void
     onPrevious?: () => void
     onNext?: () => void
@@ -16,6 +20,8 @@ interface SnapshotDiffViewerProps {
 
 export function SnapshotDiffViewer({
     snapshot,
+    snapshotHistory,
+    snapshotHistoryLoading,
     onApprove,
     onPrevious,
     onNext,
@@ -190,6 +196,49 @@ export function SnapshotDiffViewer({
                             </p>
                         </div>
                     )}
+
+                    {/* Recent activity */}
+                    <div>
+                        <h4 className="text-xs font-semibold text-muted uppercase mb-2">Recent activity</h4>
+                        {snapshotHistoryLoading ? (
+                            <div className="space-y-2">
+                                <LemonSkeleton className="h-4 w-full" />
+                                <LemonSkeleton className="h-4 w-3/4" />
+                                <LemonSkeleton className="h-4 w-full" />
+                            </div>
+                        ) : snapshotHistory && snapshotHistory.length > 0 ? (
+                            <div className="space-y-1.5">
+                                {snapshotHistory.map((entry) => (
+                                    <div key={entry.run_id} className="text-xs flex flex-col gap-0.5">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-mono text-muted">{entry.commit_sha.slice(0, 7)}</span>
+                                            <span
+                                                className={`font-medium capitalize ${
+                                                    entry.result === 'changed'
+                                                        ? 'text-warning-dark'
+                                                        : entry.result === 'new'
+                                                          ? 'text-primary-dark'
+                                                          : entry.result === 'removed'
+                                                            ? 'text-danger'
+                                                            : 'text-muted'
+                                                }`}
+                                            >
+                                                {entry.result}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-muted">
+                                            <span className="truncate max-w-[80px]">{entry.branch}</span>
+                                            <span>
+                                                {humanFriendlyDetailedTime(entry.created_at, 'MMM D', 'h:mm A')}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-xs text-muted">No history yet</p>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { Breadcrumb } from '~/types'
 
 import { visualReviewReposList, visualReviewRunsCountsRetrieve, visualReviewRunsList } from '../generated/api'
-import type { RepoApi, ReviewStateCounts, RunApi } from '../generated/api.schemas'
+import type { RepoApi, ReviewStateCountsApi, RunApi } from '../generated/api.schemas'
 import type { visualReviewRunsSceneLogicType } from './visualReviewRunsSceneLogicType'
 
 export type ReviewState = 'needs_review' | 'clean' | 'processing' | 'stale'
@@ -38,7 +38,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             },
         ],
         counts: [
-            { needs_review: 0, clean: 0, processing: 0, stale: 0 } as ReviewStateCounts,
+            { needs_review: 0, clean: 0, processing: 0, stale: 0 } as ReviewStateCountsApi,
             {
                 loadCounts: async () => {
                     return await visualReviewRunsCountsRetrieve('@current')

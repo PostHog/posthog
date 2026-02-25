@@ -750,6 +750,28 @@ def get_run_snapshots(run_id: UUID) -> list[RunSnapshot]:
     )
 
 
+def get_snapshot_history(repo_id: UUID, identifier: str, limit: int = 15) -> list[dict]:
+    """Recent runs where this snapshot identifier appeared, most recent first."""
+    entries = (
+        RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            identifier=identifier,
+        )
+        .select_related("run")
+        .order_by("-run__created_at")[:limit]
+    )
+    return [
+        {
+            "run_id": entry.run_id,
+            "result": entry.result,
+            "branch": entry.run.branch,
+            "commit_sha": entry.run.commit_sha,
+            "created_at": entry.run.created_at,
+        }
+        for entry in entries
+    ]
+
+
 def update_snapshot_diff(
     snapshot_id: UUID,
     diff_artifact: Artifact,

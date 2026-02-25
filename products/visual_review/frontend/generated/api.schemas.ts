@@ -137,6 +137,23 @@ export interface ApproveRunRequestInputApi {
     commit_to_github?: boolean
 }
 
+export interface SnapshotHistoryEntryApi {
+    run_id: string
+    result: string
+    branch: string
+    commit_sha: string
+    created_at: string
+}
+
+export interface PaginatedSnapshotHistoryEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SnapshotHistoryEntryApi[]
+}
+
 export interface ArtifactApi {
     id: string
     content_hash: string
@@ -177,6 +194,13 @@ export interface PaginatedSnapshotListApi {
     results: SnapshotApi[]
 }
 
+export interface ReviewStateCountsApi {
+    needs_review: number
+    clean: number
+    processing: number
+    stale: number
+}
+
 export type VisualReviewReposListParams = {
     /**
      * Number of results to return per page.
@@ -189,6 +213,25 @@ export type VisualReviewReposListParams = {
 }
 
 export type VisualReviewRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by review state
+     */
+    review_state?: string
+}
+
+export type VisualReviewRunsSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
     /**
      * Number of results to return per page.
      */

@@ -9,9 +9,10 @@ import { Breadcrumb } from '~/types'
 import {
     visualReviewRunsApproveCreate,
     visualReviewRunsRetrieve,
+    visualReviewRunsSnapshotHistoryList,
     visualReviewRunsSnapshotsList,
 } from '../generated/api'
-import type { ApproveSnapshotInputApi, RunApi, SnapshotApi } from '../generated/api.schemas'
+import type { ApproveSnapshotInputApi, RunApi, SnapshotApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
 export interface VisualReviewRunSceneLogicProps {
@@ -53,6 +54,17 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        snapshotHistory: [
+            [] as SnapshotHistoryEntryApi[],
+            {
+                loadSnapshotHistory: async (identifier: string) => {
+                    const response = await visualReviewRunsSnapshotHistoryList('@current', props.runId, {
+                        identifier,
+                    })
+                    return response.results
+                },
+            },
+        ],
     })),
     selectors({
         selectedSnapshot: [
@@ -89,6 +101,18 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        setSelectedSnapshotId: () => {
+            const snapshot = values.selectedSnapshot
+            if (snapshot) {
+                actions.loadSnapshotHistory(snapshot.identifier)
+            }
+        },
+        loadSnapshotsSuccess: () => {
+            const snapshot = values.selectedSnapshot
+            if (snapshot) {
+                actions.loadSnapshotHistory(snapshot.identifier)
+            }
+        },
         approveChanges: async () => {
             const { changedSnapshots, run } = values
             if (!run || changedSnapshots.length === 0) {

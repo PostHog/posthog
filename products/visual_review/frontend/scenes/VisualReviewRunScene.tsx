@@ -106,6 +106,8 @@ export function VisualReviewRunScene(): JSX.Element {
         hasChanges,
         unapprovedChangesCount,
         changedSnapshots,
+        snapshotHistory,
+        snapshotHistoryLoading,
     } = useValues(visualReviewRunSceneLogic)
     const { loadRun, loadSnapshots, setSelectedSnapshotId, approveChanges, approveSnapshot } =
         useActions(visualReviewRunSceneLogic)
@@ -204,6 +206,8 @@ export function VisualReviewRunScene(): JSX.Element {
                 {selectedSnapshot ? (
                     <SnapshotDiffViewer
                         snapshot={selectedSnapshot}
+                        snapshotHistory={snapshotHistory}
+                        snapshotHistoryLoading={snapshotHistoryLoading}
                         onApprove={handleApproveSnapshot}
                         onPrevious={goToPrevious}
                         onNext={goToNext}
