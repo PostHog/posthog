@@ -168,6 +168,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/login/user/<str:user_id>/", loginas_user, name="loginas-user-login"),
         path("admin/impersonation/upgrade/", upgrade_impersonation, name="impersonation-upgrade"),
         path("admin/", include("loginas.urls")),
+        path("admin/dj-control-room/", include("dj_control_room.urls")),
         path("admin/", admin.site.urls),
     ]
 else:
