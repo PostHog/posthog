@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { getCookie } from 'lib/api'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -74,7 +75,10 @@ export function VercelConnect(): JSX.Element {
 
         fetch('/api/vercel/connect/complete', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+            },
             body: JSON.stringify({
                 session: sessionKey,
                 organization_id: selectedOrg,
