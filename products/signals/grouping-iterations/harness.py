@@ -96,9 +96,13 @@ class EmbeddingCache:
 
     def _load(self):
         if self._cache_path.exists():
-            with open(self._cache_path) as f:
-                self._cache = json.load(f)
-            logger.info("Loaded %d cached embeddings", len(self._cache))
+            try:
+                with open(self._cache_path) as f:
+                    self._cache = json.load(f)
+                logger.info("Loaded %d cached embeddings", len(self._cache))
+            except (json.JSONDecodeError, ValueError):
+                logger.warning("Cache file corrupted (likely from concurrent writes), starting fresh")
+                self._cache = {}
 
     def _save(self):
         os.makedirs(self._cache_path.parent, exist_ok=True)
@@ -330,7 +334,7 @@ async def call_llm_standalone(
         timeout=100.0,
     )
 
-    messages: list[dict] = [
+    messages: list[anthropic.types.MessageParam] = [
         {"role": "user", "content": user_prompt},
         {"role": "assistant", "content": "{"},
     ]

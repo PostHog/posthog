@@ -60,6 +60,14 @@ Each copied prompt has a comment pointing to its source file — keep them in sy
   ANTHROPIC_API_KEY=sk-ant-... # for LLM calls (claude-sonnet-4-5)
   ```
 
+## Development
+
+After any code change, lint before committing:
+
+```bash
+ruff check products/signals/grouping-iterations/ --fix && ruff format products/signals/grouping-iterations/
+```
+
 ## Running
 
 ```bash
