@@ -286,6 +286,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         )
         data["billable_action_types"] = billable_action_types
 
+        if data.get("conversion", {}).get("filters", None) is not None:
+            filters = data["conversion"]["filters"]
+            serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
+            if self.context.get("is_draft"):
+                if serializer.is_valid():
+                    data["conversion"]["filters"] = serializer.validated_data
+            else:
+                serializer.is_valid(raise_exception=True)
+                data["conversion"]["filters"] = serializer.validated_data
+
         return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:

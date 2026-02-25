@@ -579,18 +579,34 @@ describe('Hogflow Executor', () => {
             it('should exit early if exit condition is exit_on_conversion', async () => {
                 hogFlow.exit_condition = 'exit_on_conversion'
                 hogFlow.conversion = {
+                    filters: [
+                        {
+                            key: 'apple',
+                            type: 'person',
+                            value: ['green'],
+                            operator: 'exact',
+                        },
+                    ],
                     window_minutes: 10,
-                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
                 }
 
-                // Simulate a non-conversion event
-                const invocation = createExampleHogFlowInvocation(hogFlow, {
-                    event: {
-                        ...createHogExecutionGlobals().event,
-                        event: '$not-a-pageview',
-                        properties: { name: 'John Doe', $current_url: 'https://posthog.com', conversion: true },
+                // Person does not match conversion filters yet
+                const invocation = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
                     },
-                })
+                    {
+                        properties: {
+                            name: 'John Doe',
+                            apple: 'red',
+                        },
+                    }
+                )
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
@@ -601,13 +617,22 @@ describe('Hogflow Executor', () => {
                     'succeeded',
                 ])
 
-                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
-                    event: {
-                        ...createHogExecutionGlobals().event,
-                        event: '$pageview',
-                        properties: { name: 'John Doe', $current_url: 'https://posthog.com', conversion: true },
+                const invocation2 = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
                     },
-                })
+                    {
+                        properties: {
+                            name: 'John Doe',
+                            apple: 'green',
+                        },
+                    }
+                )
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
@@ -660,7 +685,7 @@ describe('Hogflow Executor', () => {
             })
 
             it('should exit early if exit condition is exit_on_trigger_not_matched_or_conversion', async () => {
-                // Setup: exit if person no longer matches trigger filters or conversion event is seen
+                // Setup: exit if person no longer matches trigger filters or person matches conversion filters
                 hogFlow.exit_condition = 'exit_on_trigger_not_matched_or_conversion'
                 hogFlow.trigger = {
                     type: 'event',
@@ -668,17 +693,33 @@ describe('Hogflow Executor', () => {
                 }
                 hogFlow.conversion = {
                     window_minutes: 10,
-                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                    filters: [
+                        {
+                            key: 'apple',
+                            type: 'person',
+                            value: ['green'],
+                            operator: 'exact',
+                        },
+                    ],
                 }
 
-                // Simulate person data changing so they no longer match the trigger filter
-                const invocation = createExampleHogFlowInvocation(hogFlow, {
-                    event: {
-                        ...createHogExecutionGlobals().event,
-                        event: '$not-a-pageview',
-                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                // Person does not match conversion filters yet
+                const invocation = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$not-a-pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
                     },
-                })
+                    {
+                        properties: {
+                            name: 'John Doe',
+                            apple: 'red',
+                        },
+                    }
+                )
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
@@ -689,13 +730,22 @@ describe('Hogflow Executor', () => {
                     'succeeded',
                 ])
 
-                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
-                    event: {
-                        ...createHogExecutionGlobals().event,
-                        event: '$pageview',
-                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                const invocation2 = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$not-a-pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
                     },
-                })
+                    {
+                        properties: {
+                            name: 'John Doe',
+                            apple: 'green',
+                        },
+                    }
+                )
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)

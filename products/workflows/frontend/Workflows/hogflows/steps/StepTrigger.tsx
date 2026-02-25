@@ -726,7 +726,6 @@ function ConversionGoalSection(): JSX.Element {
                             propertyFilters={workflow.conversion?.filters ?? []}
                             taxonomicGroupTypes={[
                                 TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.Cohorts,
                                 TaxonomicFilterGroupType.HogQLExpression,
                             ]}
                             onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
@@ -770,6 +769,7 @@ function ConversionGoalSection(): JSX.Element {
                             placeholder="No conversion window"
                             allowClear
                             options={[
+                                { value: null, label: 'No conversion window' },
                                 { value: 24 * 60 * 60, label: '24 hours' },
                                 { value: 7 * 24 * 60 * 60, label: '7 days' },
                                 { value: 14 * 24 * 60 * 60, label: '14 days' },
