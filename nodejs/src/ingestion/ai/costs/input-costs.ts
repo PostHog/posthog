@@ -1,6 +1,6 @@
 import bigDecimal from 'js-big-decimal'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../../utils/logger'
 import { ResolvedModelCost } from './providers/types'

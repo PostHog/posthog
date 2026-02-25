@@ -1055,7 +1055,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         subquery = self.visit(ctx.selectSetStmt())
         name = self.visit(ctx.identifier())
         materialized = None if not ctx.MATERIALIZED() else ctx.NOT() is None
-        return ast.CTE(name=name, expr=subquery, cte_type="subquery", materialized=materialized)
+        columns = None
+        if column_name_list := ctx.withExprColumnNameList():
+            columns = [self.visit(ident) for ident in column_name_list.identifier()]
+        return ast.CTE(
+            name=name,
+            expr=subquery,
+            columns=columns,
+            cte_type="subquery",
+            materialized=materialized,
+        )
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())

@@ -10,7 +10,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -75,7 +74,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        to={urls.sqlEditor({ outputTab: OutputTab.Endpoint })}
+                                        to={urls.sqlEditor({ source: 'endpoint' })}
                                         sideAction={{
                                             dropdown: {
                                                 placement: 'bottom-end',
@@ -130,7 +129,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             docsURL="https://posthog.com/docs/endpoints"
                             customHog={BigLeaguesHog}
                             isEmpty={false}
-                            action={() => router.actions.push(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))}
+                            action={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
                         />
                         <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
                         <InsightPickerEndpointModal tabId={tabId || ''} />

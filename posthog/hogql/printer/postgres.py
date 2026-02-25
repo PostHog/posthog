@@ -175,6 +175,9 @@ class PostgresPrinter(HogQLPrinter):
         )
 
         if node.cte_type == "subquery":
-            return f"{node.name} AS {materialization_hint}{self.visit(node.expr)}"
+            columns_sql = (
+                "" if node.columns is None else f"({', '.join(self._print_identifier(col) for col in node.columns)})"
+            )
+            return f"{self._print_identifier(node.name)}{columns_sql} AS {materialization_hint}{self.visit(node.expr)}"
 
-        return f"{self.visit(node.expr)} AS {node.name}"
+        return super().visit_cte(node)

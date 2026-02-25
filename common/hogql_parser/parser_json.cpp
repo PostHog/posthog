@@ -1799,6 +1799,13 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (ctx->MATERIALIZED()) {
       json["materialized"] = ctx->NOT() ? false : true;
     }
+    json["columns"] = Json::Null();
+    if (const auto& columnNameList = ctx->withExprColumnNameList()) {
+      json["columns"] = Json::array();
+      for (const auto& ident : columnNameList->identifier()) {
+        json["columns"].pushBack(visitAsString(ident));
+      }
+    }
     return json;
   }
 
