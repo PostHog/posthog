@@ -27,7 +27,7 @@ export function RecentFeatureFlagInsights(): JSX.Element {
         },
     }
     return (
-        <div className="max-w-prose">
+        <div className="w-full">
             <CompactList
                 loading={relatedInsightsLoading}
                 emptyMessage={{

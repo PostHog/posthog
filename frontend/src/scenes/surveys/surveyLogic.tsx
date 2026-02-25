@@ -86,8 +86,8 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
-import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import { getSurveyStatus, surveysLogic } from './surveysLogic'
+import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import {
     DATE_FORMAT,
     buildPartialResponsesFilter,
@@ -972,12 +972,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Initialize dataCollectionType from survey data (using selector pattern for consistency)
                 actions.setDataCollectionType(values.derivedDataCollectionType)
 
-                // Trigger stats loading after survey loads
+                if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
+                    // Load archived UUIDs first — stats are triggered by loadArchivedResponseUuidsSuccess
+                    // so that the archivedResponsesFilter is populated before stats queries run
+                    actions.loadArchivedResponseUuids()
+                }
+            },
+            loadArchivedResponseUuidsSuccess: () => {
                 if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
                     actions.loadSurveyBaseStats()
                     actions.loadSurveyDismissedAndSentCount()
-                    // Load archived response UUIDs when survey loads
-                    actions.loadArchivedResponseUuids()
                 }
             },
             loadSurveyBaseStatsSuccess: () => {

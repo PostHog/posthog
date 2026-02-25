@@ -28,9 +28,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
     SessionRecordingDataCoordinatorLogicProps,
@@ -1366,7 +1366,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: ({ player }) => {
             if (player) {
                 if (values.currentTimestamp !== undefined) {
-                    actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                    actions.seekToTimestamp(values.currentTimestamp)
                 }
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
@@ -1409,7 +1409,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                actions.seekToTimestamp(values.currentTimestamp)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1435,7 +1435,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                actions.seekToTimestamp(values.currentTimestamp)
             }
         },
         initializePlayerFromStart: () => {
@@ -1509,14 +1509,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.initializePlayerFromStart()
             }
             actions.checkBufferingCompleted()
-
-            // If snapshot data arrived but the replayer hasn't been created yet,
-            // try initializing it now. This handles the race condition where
-            // setRootFrame fired before data was available (e.g. in modals where
-            // the DOM is ready before network requests complete).
-            if (!values.player && values.rootFrame) {
-                actions.tryInitReplayer()
-            }
 
             breakpoint()
         },
@@ -1787,10 +1779,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
 
             // Detect when the replayer is stuck (same timestamp for consecutive frames).
-            // This happens in gap segments (no events) and in window segments where
-            // the replayer has no events at the current offset (e.g. inactive segments
-            // deep into a window's timeline). After a few stuck frames, advance time
-            // manually so playback doesn't freeze.
+            // This happens in window segments where the replayer has no events at the
+            // current offset (e.g. inactive segments deep into a window's timeline).
+            // After a few stuck frames, advance time manually so playback doesn't freeze.
             if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
                 cache._stuckFrames = (cache._stuckFrames || 0) + 1
             } else {
@@ -1799,7 +1790,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache._lastAnimTimestamp = newTimestamp
 
             const isStuck = cache._stuckFrames >= 5
-            const shouldManuallyAdvance = values.currentSegment?.kind === 'gap' || isStuck
+            // Only manually advance when rrweb can't provide a timestamp (gap with no
+            // replayer for this windowId) or when truly stuck. Don't override rrweb's
+            // timestamp unconditionally for gaps — rrweb may still be playing at high
+            // speed (e.g. skip inactivity) and overriding causes PostHog's tracked
+            // position to diverge from rrweb's actual playback position.
+            const shouldManuallyAdvance =
+                (newTimestamp == undefined && values.currentSegment?.kind === 'gap') || isStuck
             if (shouldManuallyAdvance && values.currentTimestamp) {
                 newTimestamp = values.currentTimestamp + values.roughAnimationFPS
             }

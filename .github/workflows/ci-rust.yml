@@ -88,6 +88,7 @@ jobs:
                       "kafka-assigner": 30,
                       "kafka-deduplicator": 239,
                       "limiters": 23,
+                      "lifecycle": 10,
                       "personhog-coordination": 30,
                       "personhog-replica": 49,
                       "personhog-router": 10,
