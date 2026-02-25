@@ -8,10 +8,9 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { OutputTab } from './outputPaneLogic'
-import { getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -148,43 +147,6 @@ describe('sqlEditorLogic', () => {
             window.history.replaceState({}, '', `${urls.sqlEditor()}?open_insight=${MOCK_INSIGHT_SHORT_ID}`)
 
             expect(logic.values.titleSectionProps.name).toEqual('Loading insight...')
-        })
-    })
-
-    describe('getDisplayTypeToSaveInsight', () => {
-        it.each([
-            {
-                name: 'saves table when results tab is selected',
-                outputTab: OutputTab.Results,
-                sourceQueryDisplay: ChartDisplayType.Auto,
-                effectiveVisualizationType: ChartDisplayType.ActionsBar,
-                expected: ChartDisplayType.ActionsTable,
-            },
-            {
-                name: 'saves explicit display from source query when not auto',
-                outputTab: OutputTab.Visualization,
-                sourceQueryDisplay: ChartDisplayType.ActionsAreaGraph,
-                effectiveVisualizationType: ChartDisplayType.ActionsBar,
-                expected: ChartDisplayType.ActionsAreaGraph,
-            },
-            {
-                name: 'saves effective visualization when source query is auto',
-                outputTab: OutputTab.Visualization,
-                sourceQueryDisplay: ChartDisplayType.Auto,
-                effectiveVisualizationType: ChartDisplayType.BoldNumber,
-                expected: ChartDisplayType.BoldNumber,
-            },
-            {
-                name: 'falls back to line graph when there is no effective visualization',
-                outputTab: OutputTab.Visualization,
-                sourceQueryDisplay: ChartDisplayType.Auto,
-                effectiveVisualizationType: undefined,
-                expected: ChartDisplayType.ActionsLineGraph,
-            },
-        ])('$name', ({ outputTab, sourceQueryDisplay, effectiveVisualizationType, expected }) => {
-            expect(getDisplayTypeToSaveInsight(outputTab, sourceQueryDisplay, effectiveVisualizationType)).toEqual(
-                expected
-            )
         })
     })
 

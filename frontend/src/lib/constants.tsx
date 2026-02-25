@@ -4,7 +4,6 @@ import { ChartDisplayCategory, ChartDisplayType, Region, SDKKey, SSOProvider } f
 
 // Sync with backend DISPLAY_TYPES_TO_CATEGORIES
 export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayCategory> = {
-    [ChartDisplayType.Auto]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsBar]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayCategory.TimeSeries,

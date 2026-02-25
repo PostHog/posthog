@@ -207,7 +207,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                               ? undefined
                               : {
                                     label: 'Set up reverse proxy',
-                                    to: 'https://posthog.com/docs/advanced/proxy',
+                                    to: urls.settings('organization-proxy'),
                                 },
                           docsUrl: 'https://posthog.com/docs/advanced/proxy',
                           urgent: true,
