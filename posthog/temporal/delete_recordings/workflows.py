@@ -250,7 +250,7 @@ class DeleteRecordingsWithSessionIdsWorkflow(PostHogWorkflow):
 
         offset = progress.total_found
         while offset < len(input.session_ids):
-            chunk = input.session_ids[offset : offset + 10_000]
+            chunk = input.session_ids[offset : offset + input.page_size]
             page = LoadRecordingsPage(session_ids=chunk)
             await _delete_page(page, input.team_id, input.config, progress)
             offset = progress.total_found

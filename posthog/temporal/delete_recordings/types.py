@@ -54,6 +54,7 @@ class RecordingsWithSessionIdsInput(BaseModel):
     session_ids: list[str]
     team_id: int
     config: DeletionConfig = DeletionConfig()
+    page_size: int = 10_000
     source_filename: str | None = None
     progress: DeletionProgress | None = None
 
