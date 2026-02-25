@@ -318,8 +318,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             client = sync_connect()
-            workflow_id = f"task-processing-{task_run.task_id}-{task_run.id}"
-            handle = client.get_workflow_handle(workflow_id)
+            handle = client.get_workflow_handle(task_run.workflow_id)
 
             import asyncio
 

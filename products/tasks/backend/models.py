@@ -252,6 +252,16 @@ class TaskRun(models.Model):
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
 
+    @staticmethod
+    def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
+        """Get the Temporal workflow ID for a task run."""
+        return f"task-processing-{task_id}-{run_id}"
+
+    @property
+    def workflow_id(self) -> str:
+        """Get the Temporal workflow ID for this task run."""
+        return self.get_workflow_id(self.task_id, self.id)
+
     def heartbeat_workflow(self) -> None:
         if self.mode != "background":
             return
@@ -270,8 +280,7 @@ class TaskRun(models.Model):
 
         try:
             client = sync_connect()
-            workflow_id = f"task-processing-{self.task_id}-{self.id}"
-            handle = client.get_workflow_handle(workflow_id)
+            handle = client.get_workflow_handle(self.workflow_id)
             asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))

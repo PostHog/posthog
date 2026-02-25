@@ -11,6 +11,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect, sync_connect
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 
 if TYPE_CHECKING:
@@ -82,7 +83,7 @@ async def execute_task_processing_workflow_async(
             logger.warning(f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled")
             return
 
-        workflow_id = f"task-processing-{task_id}-{run_id}"
+        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(
@@ -160,7 +161,7 @@ def execute_task_processing_workflow(
             logger.warning(f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled")
             return
 
-        workflow_id = f"task-processing-{task_id}-{run_id}"
+        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(
