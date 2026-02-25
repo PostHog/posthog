@@ -62,7 +62,7 @@ export function getEntryId(entry: AccessControlSettingsEntry): string {
     throw new Error('Unknown entry type')
 }
 
-export function getInheritedReasonTooltip(reason: InheritedReason | null): string | undefined {
+export function getInheritedReasonTooltip(reason: InheritedReason): string | undefined {
     switch (reason) {
         case 'project_default':
             return 'Based on project default permissions'
@@ -75,7 +75,7 @@ export function getInheritedReasonTooltip(reason: InheritedReason | null): strin
 
 export function getMinLevelDisabledReason(
     inheritedLevel: AccessControlLevel | null,
-    inheritedReason: InheritedReason | null,
+    inheritedReason: InheritedReason,
     minimum: AccessControlLevel | null,
     resourceLabel: string
 ): string | undefined {

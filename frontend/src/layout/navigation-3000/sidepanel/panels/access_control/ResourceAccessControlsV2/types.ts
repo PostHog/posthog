@@ -8,7 +8,7 @@ import {
 
 export type ScopeType = 'default' | 'role' | 'member'
 
-export type InheritedReason = 'project_default' | 'role_override' | 'organization_admin' | null | undefined
+export type InheritedReason = 'project_default' | 'role_override' | 'organization_admin' | null
 
 export type AccessControlRoleEntry = AccessControlRolesResponse['results'][number]
 export type AccessControlMemberEntry = AccessControlMembersResponse['results'][number]

@@ -54,10 +54,9 @@ describe('groupedAccessControlRuleModalLogic', () => {
             ['project_default' as const, 'Based on project default permissions'],
             ['role_override' as const, 'Based on role permissions'],
             [null, undefined],
-            [undefined, undefined],
             ['organization_admin' as const, undefined],
         ])('reason=%s returns %s', (reason, expected) => {
-            expect(getInheritedReasonTooltip(reason ?? null)).toBe(expected)
+            expect(getInheritedReasonTooltip(reason)).toBe(expected)
         })
     })
 
