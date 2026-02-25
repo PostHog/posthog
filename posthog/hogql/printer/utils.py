@@ -13,6 +13,7 @@ from posthog.hogql.printer.base import HogQLPrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
+from posthog.hogql.transforms.eval_time_freeze import EvalTimeFreezeVisitor
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -84,6 +85,15 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
+
+    from django.conf import settings as django_settings
+
+    eval_snapshot_date = getattr(django_settings, "EVAL_SNAPSHOT_DATE", None)
+    if eval_snapshot_date:
+        from datetime import datetime
+
+        with context.timings.measure("eval_time_freeze"):
+            node = EvalTimeFreezeVisitor(datetime.fromisoformat(eval_snapshot_date)).visit(node)
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(

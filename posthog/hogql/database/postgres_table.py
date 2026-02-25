@@ -24,32 +24,35 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
 
     table = add_param(postgres_table_name)
 
-    if settings.DEBUG or settings.TEST:
-        databases = settings.DATABASES
-        # Determine which database to use based on table name
-        # Extract model name from postgres table name (e.g., "posthog_group" -> "group")
-        model_name = postgres_table_name.replace("posthog_", "")
-        db_name = "persons_db_writer" if model_name in PERSONS_DB_MODELS else "default"
-        database = databases[db_name]
-
-        address = add_param("db:5432")  # docker container for postgres from clickhouse
-        db = add_param(database["NAME"])
-        user = add_param(database["USER"])
-        password = add_param(database["PASSWORD"])
-    else:
-        host_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST
+    # Prefer explicit RDSPROXY config when available (production + eval environments).
+    # In online eval mode, RDSPROXY vars point to Aurora even though DEBUG=1 or
+    # TEST is auto-detected from pytest — this check must come first.
+    host_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST
+    if host_var:
         port_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT
         database_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE
         user_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_USER
         password_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD
 
-        if not host_var or not port_var or not database_var or not user_var or not password_var:
-            raise ValueError("CLICKHOUSE_HOGQL_RDSPROXY env vars missing to create postgresql link from clickhouse")
+        if not port_var or not database_var or not user_var or not password_var:
+            raise ValueError("CLICKHOUSE_HOGQL_RDSPROXY env vars partially configured")
 
         address = add_param(f"{host_var}:{port_var}")
         db = add_param(database_var)
         user = add_param(user_var)
         password = add_param(password_var)
+    elif settings.DEBUG or settings.TEST:
+        databases = settings.DATABASES
+        model_name = postgres_table_name.replace("posthog_", "")
+        db_name = "persons_db_writer" if model_name in PERSONS_DB_MODELS else "default"
+        database = databases[db_name]
+
+        address = add_param("db:5432")
+        db = add_param(database["NAME"])
+        user = add_param(database["USER"])
+        password = add_param(database["PASSWORD"])
+    else:
+        raise ValueError("CLICKHOUSE_HOGQL_RDSPROXY env vars missing to create postgresql link from clickhouse")
 
     return f"postgresql({address}, {db}, {table}, {user}, {password})"
 

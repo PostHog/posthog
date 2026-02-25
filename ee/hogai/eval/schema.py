@@ -223,3 +223,9 @@ class EvalsDockerImageConfig(BaseModel):
     """
     Parsed dataset.
     """
+    snapshot_date: str | None = None
+    """
+    ISO date (YYYY-MM-DDTHH:MM:SSZ) when snapshots were captured.
+    Used by freezegun (Python-side) and HogQL AST rewrite (ClickHouse-side)
+    to freeze time-relative expressions to the snapshot date.
+    """

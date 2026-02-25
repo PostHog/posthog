@@ -40,6 +40,17 @@ CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE: str | None = os.getenv("CLICKHOUSE_HOGQ
 CLICKHOUSE_HOGQL_RDSPROXY_READ_USER: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_USER")
 CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD")
 
+# Eval Aurora settings (for online eval mode with production ClickHouse)
+EVAL_AURORA_HOST: str | None = os.getenv("EVAL_AURORA_HOST")
+EVAL_AURORA_PORT: str = os.getenv("EVAL_AURORA_PORT", "5432")
+EVAL_AURORA_ADMIN_USER: str | None = os.getenv("EVAL_AURORA_ADMIN_USER")
+EVAL_AURORA_ADMIN_PASSWORD: str | None = os.getenv("EVAL_AURORA_ADMIN_PASSWORD")
+EVAL_AURORA_ADMIN_DATABASE: str = os.getenv("EVAL_AURORA_ADMIN_DATABASE", "postgres")
+
+# ISO datetime for freezing time in eval mode (e.g., "2025-06-15T00:00:00Z").
+# Applied via freezegun (Python-side) and HogQL AST rewrite (ClickHouse-side).
+EVAL_SNAPSHOT_DATE: str | None = os.getenv("EVAL_SNAPSHOT_DATE")
+
 WAREHOUSE_PIPELINES_KAFKA_HOSTS: list[str] = _parse_kafka_hosts(
     os.getenv("WAREHOUSE_PIPELINES_KAFKA_HOSTS", "") or "kafka:9092"
 )
