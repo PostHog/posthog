@@ -701,6 +701,8 @@ pub async fn get_feature_flag_hash_key_overrides(
     #[cfg(test)]
     increment_hash_key_override_lookup_count();
 
+    // Retries are handled at the personhog-router service level; the tonic channel
+    // also handles transport reconnection automatically via connect_lazy + keepalives.
     if let Some(client) = personhog_client {
         let timer = common_metrics::timing_guard(FLAG_PERSONHOG_HASH_KEY_QUERY_TIME, &[]);
         let result = client
@@ -916,6 +918,8 @@ pub async fn set_feature_flag_hash_key_overrides(
     hash_key_override: String,
     personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<bool, FlagError> {
+    // Retries are handled at the personhog-router service level; the tonic channel
+    // also handles transport reconnection automatically via connect_lazy + keepalives.
     if let Some(client) = personhog_client {
         let feature_flag_keys =
             get_active_eec_flag_keys(router, team_id, "set_hash_key_overrides_personhog").await?;

@@ -180,8 +180,14 @@ impl FlagError {
             // Data parsing errors (500) - internal errors, not service unavailability
             FlagError::DataParsingErrorWithContext(_) => ("flag_data_parsing_error", 500),
 
-            // Personhog gRPC errors (503) - transient, service may recover
-            FlagError::PersonhogError { .. } => ("personhog_error", 503),
+            // Personhog gRPC errors - transient codes get 503, bug/data codes get 500
+            FlagError::PersonhogError { code, .. } => match code {
+                tonic::Code::Unavailable
+                | tonic::Code::DeadlineExceeded
+                | tonic::Code::ResourceExhausted
+                | tonic::Code::Aborted => ("personhog_error", 503),
+                _ => ("personhog_error", 500),
+            },
 
             // Service unavailable errors (503) - transient issues, retry may help
             FlagError::RedisUnavailable => ("redis_unavailable", 503),
@@ -318,8 +324,15 @@ impl FlagError {
             | FlagError::CacheMiss
             | FlagError::PersonNotFound
             | FlagError::PropertiesNotInCache
-            | FlagError::StaticCohortMatchesNotCached
-            | FlagError::PersonhogError { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            | FlagError::StaticCohortMatchesNotCached => StatusCode::SERVICE_UNAVAILABLE,
+
+            FlagError::PersonhogError { ref code, .. } => match code {
+                tonic::Code::Unavailable
+                | tonic::Code::DeadlineExceeded
+                | tonic::Code::ResourceExhausted
+                | tonic::Code::Aborted => StatusCode::SERVICE_UNAVAILABLE,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            },
 
             FlagError::CookielessError(
                 CookielessManagerError::HashError(_)
@@ -800,6 +813,40 @@ mod tests {
         assert_eq!(FlagError::PersonNotFound.status_code(), 503);
         assert_eq!(FlagError::PropertiesNotInCache.status_code(), 503);
         assert_eq!(FlagError::StaticCohortMatchesNotCached.status_code(), 503);
+
+        // Personhog errors: transient gRPC codes -> 503, bug/data codes -> 500
+        assert_eq!(
+            FlagError::PersonhogError {
+                code: tonic::Code::Unavailable,
+                message: "test".into()
+            }
+            .status_code(),
+            503
+        );
+        assert_eq!(
+            FlagError::PersonhogError {
+                code: tonic::Code::DeadlineExceeded,
+                message: "test".into()
+            }
+            .status_code(),
+            503
+        );
+        assert_eq!(
+            FlagError::PersonhogError {
+                code: tonic::Code::Internal,
+                message: "test".into()
+            }
+            .status_code(),
+            500
+        );
+        assert_eq!(
+            FlagError::PersonhogError {
+                code: tonic::Code::InvalidArgument,
+                message: "test".into()
+            }
+            .status_code(),
+            500
+        );
     }
 
     #[test]
