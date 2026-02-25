@@ -370,20 +370,26 @@ describe('createExperimentLogic', () => {
             const propsLogic = createExperimentLogic({ experiment: existingExperiment })
             propsLogic.mount()
 
-            await expectLogic(propsLogic, () => {
-                propsLogic.actions.setExperiment({
-                    ...existingExperiment,
-                    name: 'Modified Name',
-                    description: 'Modified Description',
-                })
-            })
+            // afterMount syncs props.experiment — wait for that first
+            await expectLogic(propsLogic)
                 .toDispatchActions(['setExperiment'])
                 .toMatchValues({
-                    experiment: partial({
-                        name: 'Modified Name',
-                        description: 'Modified Description',
-                    }),
+                    experiment: partial({ id: 456, name: 'Original Experiment' }),
                 })
+
+            // Now modify the experiment
+            propsLogic.actions.setExperiment({
+                ...existingExperiment,
+                name: 'Modified Name',
+                description: 'Modified Description',
+            })
+
+            await expectLogic(propsLogic).toMatchValues({
+                experiment: partial({
+                    name: 'Modified Name',
+                    description: 'Modified Description',
+                }),
+            })
 
             await expectLogic(propsLogic, () => {
                 propsLogic.actions.resetExperiment()
@@ -402,8 +408,190 @@ describe('createExperimentLogic', () => {
         })
     })
 
-    describe('unmount/remount resets stale state', () => {
-        it('starts fresh after unmount and remount with no draft', async () => {
+    describe('form navigation scenarios', () => {
+        const TAB_ID = 'test-tab'
+
+        const incompleteDraft: Experiment = {
+            ...NEW_EXPERIMENT,
+            id: 100,
+            name: 'Incomplete Draft',
+            description: 'Saved without metrics',
+            feature_flag_key: 'incomplete-draft',
+        }
+
+        const anotherDraft: Experiment = {
+            ...NEW_EXPERIMENT,
+            id: 200,
+            name: 'Another Draft',
+            description: 'A different experiment',
+            feature_flag_key: 'another-draft',
+        }
+
+        beforeEach(() => {
+            sessionStorage.clear()
+        })
+
+        it('visiting an incomplete draft populates the form with its data', async () => {
+            const draftLogic = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            draftLogic.mount()
+
+            await expectLogic(draftLogic).toMatchValues({
+                experiment: partial({
+                    id: 100,
+                    name: 'Incomplete Draft',
+                    feature_flag_key: 'incomplete-draft',
+                }),
+            })
+
+            draftLogic.unmount()
+        })
+
+        it('revisiting the same incomplete draft still shows its data', async () => {
+            const firstVisit = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            firstVisit.mount()
+
+            await expectLogic(firstVisit).toMatchValues({
+                experiment: partial({ id: 100, name: 'Incomplete Draft' }),
+            })
+
+            firstVisit.unmount()
+
+            const secondVisit = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            secondVisit.mount()
+
+            await expectLogic(secondVisit).toMatchValues({
+                experiment: partial({
+                    id: 100,
+                    name: 'Incomplete Draft',
+                    feature_flag_key: 'incomplete-draft',
+                }),
+            })
+
+            secondVisit.unmount()
+        })
+
+        it('navigating from one draft to a different draft shows the new draft data', async () => {
+            const firstDraft = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            firstDraft.mount()
+
+            await expectLogic(firstDraft).toMatchValues({
+                experiment: partial({ id: 100, name: 'Incomplete Draft' }),
+            })
+
+            firstDraft.unmount()
+
+            const secondDraft = createExperimentLogic({ experiment: anotherDraft, tabId: TAB_ID })
+            secondDraft.mount()
+
+            await expectLogic(secondDraft).toMatchValues({
+                experiment: partial({
+                    id: 200,
+                    name: 'Another Draft',
+                    feature_flag_key: 'another-draft',
+                }),
+            })
+
+            secondDraft.unmount()
+        })
+
+        it('creating new experiment after visiting a draft starts with a clean form', async () => {
+            const draftLogic = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            draftLogic.mount()
+
+            await expectLogic(draftLogic).toMatchValues({
+                experiment: partial({ id: 100, name: 'Incomplete Draft' }),
+            })
+
+            draftLogic.unmount()
+
+            const newLogic = createExperimentLogic({ tabId: TAB_ID })
+            newLogic.mount()
+
+            await expectLogic(newLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            newLogic.unmount()
+        })
+
+        it('draft from sessionStorage is loaded when creating a new experiment', async () => {
+            const storedDraft: Experiment = {
+                ...NEW_EXPERIMENT,
+                name: 'Stored Draft',
+                feature_flag_key: 'stored-draft',
+            }
+
+            sessionStorage.setItem(
+                `experiment-draft-${TAB_ID}`,
+                JSON.stringify({ experiment: storedDraft, timestamp: Date.now() })
+            )
+
+            const newLogic = createExperimentLogic({ tabId: TAB_ID })
+            newLogic.mount()
+
+            await expectLogic(newLogic).toMatchValues({
+                experiment: partial({
+                    id: 'new',
+                    name: 'Stored Draft',
+                    feature_flag_key: 'stored-draft',
+                }),
+            })
+
+            newLogic.unmount()
+        })
+
+        it('sessionStorage draft is ignored when opening an existing experiment', async () => {
+            const storedDraft: Experiment = {
+                ...NEW_EXPERIMENT,
+                name: 'Stored Draft',
+                feature_flag_key: 'stored-draft',
+            }
+
+            sessionStorage.setItem(
+                `experiment-draft-${TAB_ID}`,
+                JSON.stringify({ experiment: storedDraft, timestamp: Date.now() })
+            )
+
+            const draftLogic = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            draftLogic.mount()
+
+            await expectLogic(draftLogic).toMatchValues({
+                experiment: partial({
+                    id: 100,
+                    name: 'Incomplete Draft',
+                    feature_flag_key: 'incomplete-draft',
+                }),
+            })
+
+            draftLogic.unmount()
+        })
+
+        it('form state does not leak between new experiment sessions in the same tab', async () => {
+            const firstNew = createExperimentLogic({ tabId: TAB_ID })
+            firstNew.mount()
+
+            firstNew.actions.setExperimentValue('name', 'First Attempt')
+            firstNew.actions.setExperimentValue('feature_flag_key', 'first-attempt')
+
+            await expectLogic(firstNew).toMatchValues({
+                experiment: partial({ name: 'First Attempt', feature_flag_key: 'first-attempt' }),
+            })
+
+            firstNew.unmount()
+
+            sessionStorage.clear()
+
+            const secondNew = createExperimentLogic({ tabId: TAB_ID })
+            secondNew.mount()
+
+            await expectLogic(secondNew).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            secondNew.unmount()
+        })
+
+        it('unmount/remount with no draft starts fresh', async () => {
             logic.actions.setExperiment({
                 ...NEW_EXPERIMENT,
                 id: 123,
@@ -421,6 +609,69 @@ describe('createExperimentLogic', () => {
             })
 
             freshLogic.unmount()
+        })
+
+        it('two in-app tabs with new experiment forms maintain independent state', async () => {
+            const tab1Logic = createExperimentLogic({ tabId: 'tab-1' })
+            const tab2Logic = createExperimentLogic({ tabId: 'tab-2' })
+            tab1Logic.mount()
+            tab2Logic.mount()
+
+            // Type into tab 1
+            tab1Logic.actions.setExperimentValue('name', 'Tab 1 Experiment')
+            tab1Logic.actions.setExperimentValue('feature_flag_key', 'tab-1-flag')
+
+            // Type into tab 2
+            tab2Logic.actions.setExperimentValue('name', 'Tab 2 Experiment')
+            tab2Logic.actions.setExperimentValue('feature_flag_key', 'tab-2-flag')
+
+            // Both tabs retain their own data
+            await expectLogic(tab1Logic).toMatchValues({
+                experiment: partial({ name: 'Tab 1 Experiment', feature_flag_key: 'tab-1-flag' }),
+            })
+            await expectLogic(tab2Logic).toMatchValues({
+                experiment: partial({ name: 'Tab 2 Experiment', feature_flag_key: 'tab-2-flag' }),
+            })
+
+            // Modify tab 1 again — tab 2 is unaffected
+            tab1Logic.actions.setExperimentValue('name', 'Tab 1 Updated')
+
+            await expectLogic(tab1Logic).toMatchValues({
+                experiment: partial({ name: 'Tab 1 Updated', feature_flag_key: 'tab-1-flag' }),
+            })
+            await expectLogic(tab2Logic).toMatchValues({
+                experiment: partial({ name: 'Tab 2 Experiment', feature_flag_key: 'tab-2-flag' }),
+            })
+
+            tab1Logic.unmount()
+            tab2Logic.unmount()
+        })
+
+        it('two in-app tabs with different drafts maintain independent state', async () => {
+            const tab1Logic = createExperimentLogic({ experiment: incompleteDraft, tabId: 'tab-1' })
+            const tab2Logic = createExperimentLogic({ experiment: anotherDraft, tabId: 'tab-2' })
+            tab1Logic.mount()
+            tab2Logic.mount()
+
+            await expectLogic(tab1Logic).toMatchValues({
+                experiment: partial({ id: 100, name: 'Incomplete Draft' }),
+            })
+            await expectLogic(tab2Logic).toMatchValues({
+                experiment: partial({ id: 200, name: 'Another Draft' }),
+            })
+
+            // Edit in tab 1 does not affect tab 2
+            tab1Logic.actions.setExperimentValue('name', 'Edited in Tab 1')
+
+            await expectLogic(tab1Logic).toMatchValues({
+                experiment: partial({ id: 100, name: 'Edited in Tab 1' }),
+            })
+            await expectLogic(tab2Logic).toMatchValues({
+                experiment: partial({ id: 200, name: 'Another Draft' }),
+            })
+
+            tab1Logic.unmount()
+            tab2Logic.unmount()
         })
     })
 

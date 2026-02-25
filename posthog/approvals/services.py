@@ -27,6 +27,8 @@ class RequestContext:
         self.user = user
         self.data = data
         self.session: dict[str, Any] = {}
+        self.META: dict[str, str] = {}
+        self.headers: dict[str, str] = {}
 
 
 def apply_change_request(change_request: ChangeRequest) -> Any:
