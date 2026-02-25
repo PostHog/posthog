@@ -3,7 +3,16 @@ import { useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCollapse,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -26,6 +35,7 @@ import {
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
+    isDisabled?: boolean
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -168,6 +178,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onChange,
     readOnly,
     variants,
+    isDisabled,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -268,6 +279,13 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 Target users or groups for this flag. Conditions are evaluated top to bottom – the first match wins. A
                 condition matches when all property filters pass AND the target falls within the rollout percentage.
             </p>
+
+            {isDisabled && (
+                <LemonBanner type="info" className="mb-3">
+                    This flag is currently <b>disabled</b>. These release conditions won't take effect until you enable
+                    it.
+                </LemonBanner>
+            )}
 
             {/* Match by selector */}
             {showGroupsOptions && (

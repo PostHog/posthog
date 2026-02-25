@@ -107,9 +107,6 @@ pub struct EventFormData {
     pub lib_version: Option<String>,
 }
 
-pub const GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL: &str = "global";
-pub const GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM: &str = "custom";
-
 #[cfg(test)]
 mod tests {
     use super::*;

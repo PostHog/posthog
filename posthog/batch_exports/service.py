@@ -150,8 +150,8 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_access_key_id: str
+    aws_secret_access_key: str
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None

@@ -111,14 +111,13 @@ describe('processEvent', () => {
             new PostgresPersonRepository(hub.postgres),
             hub.kafkaProducer
         )
-
         const person = createTestPerson({ team_id: teamId })
 
-        const groupStoreForBatch = new BatchWritingGroupStore({
-            kafkaProducer: hub.kafkaProducer,
-            groupRepository: hub.groupRepository,
-            clickhouseGroupRepository: hub.clickhouseGroupRepository,
-        })
+        const groupStoreForBatch = new BatchWritingGroupStore(
+            hub.kafkaProducer,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const eventsProcessor = new EventsProcessor(
             hub.teamManager,
             hub.groupTypeManager,

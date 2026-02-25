@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonCollapse, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -86,8 +86,8 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 }
 
 export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
-    useMountedLogic(workflowsLogic)
-    const { filteredWorkflows, archivedWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
+    const logic = workflowsLogic()
+    const { filteredWorkflows, archivedWorkflows, workflowsLoading, filters } = useValues(logic)
     const {
         loadWorkflows,
         toggleWorkflowStatus,
@@ -98,13 +98,16 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         setSearchTerm,
         setCreatedBy,
         setStatus,
-    } = useActions(workflowsLogic)
+    } = useActions(logic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
 
     useOnMountEffect(() => {
         // Tricky: unmount the new workflow logic when leaving the new workflow scene
         // We can't just reset state within the logic's unmount as that would trigger when switching tabs
-        const newWorkflowLogic = workflowLogic.findMounted({ id: 'new', tabId: props.tabId })
+        const newWorkflowLogic = workflowLogic.findMounted({
+            id: 'new',
+            tabId: props.tabId,
+        })
         newWorkflowLogic?.unmount()
 
         // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows

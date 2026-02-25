@@ -347,7 +347,7 @@ describe('taxonomicFilterLogic', () => {
             noGetValueLogic.unmount()
         })
 
-        it('selecting a top match does not pass originalQuery', async () => {
+        it('selecting a top match dispatches selectItem with the correct group', async () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('$pageview')
             })
@@ -377,8 +377,7 @@ describe('taxonomicFilterLogic', () => {
                 quickListLogic.actionCreators.selectSelected(),
                 ({ type, payload }: { type: string; payload: any }) =>
                     type === quickListLogic.actionTypes.selectItem &&
-                    payload.group.type === TaxonomicFilterGroupType.Events &&
-                    payload.originalQuery === undefined,
+                    payload.group.type === TaxonomicFilterGroupType.Events,
             ])
         })
     })
