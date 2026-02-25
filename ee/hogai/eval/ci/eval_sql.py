@@ -1,7 +1,6 @@
 import pytest
 
 from asgiref.sync import sync_to_async
-from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 from langchain_core.runnables import RunnableConfig
@@ -12,7 +11,7 @@ from posthog.models import Team
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.eval.scorers.sql import evaluate_sql_query
+from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, evaluate_sql_query
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -72,72 +71,15 @@ class HogQLQuerySyntaxCorrectness(Scorer):
         return evaluate_sql_query(self._name(), query, team)
 
 
-class SQLSemanticCorrectness(LLMClassifier):
-    """LLM judge comparing generated SQL against expected SQL."""
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="sql_semantic_correctness",
-            prompt_template="""
-<system>
-You are an expert ClickHouse SQL auditor.
-Your job is to decide whether two ClickHouse SQL queries are **semantically equivalent for every possible valid database state**, given the same task description.
-
-HogQL is an SQL flavor derived from ClickHouse SQL, with some PostHog-specific syntax:
-- Easy access to JSON properties using `.`, like: `SELECT properties.$browser FROM events`
-- Access to nested tables: `SELECT person.properties.foo FROM events`
-- The `sessions` table contains session data related to events
-
-When you respond, think step-by-step **internally**, but reveal **nothing** except the final verdict:
-- Output **Pass** if the candidate query would always return the same result set (ignoring column aliases, ordering, or trivial formatting) as the reference query.
-- Output **Fail** otherwise, or if you are uncertain.
-Respond with a single word — **Pass** or **Fail** — and no additional text.
-</system>
-
-<input>
-Task / natural-language question:
-```
-{{input}}
-```
-
-Reference (human-labelled) SQL:
-```sql
-{{expected}}
-```
-
-Candidate (generated) SQL:
-```sql
-{{output}}
-```
-</input>
-
-<reminder>
-Think through edge cases: NULL handling, grouping, filters, joins, HAVING clauses, aggregations, sub-queries, limits, and data-type quirks.
-If any logical difference could yield different outputs under some data scenario, the queries are *not* equivalent.
-Important: The generated query should use `person_id` or `person.id` for any aggregation on unique users, not `distinct_id`.
-For session duration, `session.$session_duration` should be used instead of `properties.$session_duration`.
-</reminder>
-
-When ready, output your verdict — **Pass** or **Fail** — with absolutely no extra characters.
-""".strip(),
-            choice_scores={
-                "Pass": 1.0,
-                "Fail": 0.0,
-            },
-            model="gpt-4.1",
-            **kwargs,
-        )
+class CISQLSemanticsCorrectness(SQLSemanticsCorrectness):
+    """Wraps the shared scorer to extract `query` from the CI eval output dict."""
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
         query = output.get("query") if output else None
-        if not query or query.strip() == "":
-            return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
         return await super()._run_eval_async(query, expected, **kwargs)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
         query = output.get("query") if output else None
-        if not query or query.strip() == "":
-            return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
         return super()._run_eval_sync(query, expected, **kwargs)
 
 
@@ -580,7 +522,7 @@ WHERE properties.interests IS NOT NULL
         scores=[
             ExecuteSQLToolCalled(),
             HogQLQuerySyntaxCorrectness(),
-            SQLSemanticCorrectness(),
+            CISQLSemanticsCorrectness(),
         ],
         data=all_cases,
         pytestconfig=pytestconfig,
