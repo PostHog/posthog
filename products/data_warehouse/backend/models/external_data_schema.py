@@ -366,7 +366,7 @@ def sync_old_schemas_with_new_schemas(
 
     for schema in schemas_to_create:
         obj, created = ExternalDataSchema.objects.get_or_create(
-            team_id=team_id, source_id=source_id, name=schema, defaults={"should_sync": False}
+            team_id=team_id, source_id=source_id, name=schema, deleted=False, defaults={"should_sync": False}
         )
         if created:
             actually_created.append(schema)
