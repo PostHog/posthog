@@ -416,6 +416,7 @@ export const ExperimentUpdateTransformSchema = ToolExperimentUpdateInputSchema.t
     }
 
     if (input.restart === true) {
+        updatePayload.start_date = null
         updatePayload.end_date = null
         updatePayload.conclusion = null
         updatePayload.conclusion_comment = null
