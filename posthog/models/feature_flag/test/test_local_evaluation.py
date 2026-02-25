@@ -970,9 +970,10 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(4):
-            # Expected queries: survey flag IDs, flags, evaluation tags,
-            # and group type mappings. No cohort query should be issued.
+        with self.assertNumQueries(3):
+            # Expected queries: survey flag IDs, flags (with evaluation
+            # tags via ArrayAgg), and group type mappings. No cohort
+            # query should be issued.
             results = _get_flags_response_for_local_evaluation_batch([team], True)
 
         assert results[team.id]["cohorts"] == {}
