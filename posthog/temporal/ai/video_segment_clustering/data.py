@@ -50,7 +50,6 @@ def fetch_video_segment_metadata_rows(team: Team, lookback_hours: int):
                     AND product = {product}
                     AND document_type = {document_type}
                     AND rendering = {rendering}
-                    AND length(embedding) > 0
                 ORDER BY timestamp ASC
                 LIMIT {max_segments_returned}"""
             ),

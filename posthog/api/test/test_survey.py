@@ -123,6 +123,9 @@ class TestSurvey(APIBaseTest):
                 "payload_count": 0,
                 "creation_context": "surveys",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -1523,6 +1526,7 @@ class TestSurvey(APIBaseTest):
                     "response_sampling_interval": None,
                     "response_sampling_limit": None,
                     "response_sampling_daily_limits": None,
+                    "form_content": None,
                     "user_access_level": "manager",
                 }
             ],

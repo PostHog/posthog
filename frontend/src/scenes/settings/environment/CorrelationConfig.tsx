@@ -6,8 +6,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { IconSelectEvents, IconSelectProperties } from 'lib/lemon-ui/icons'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function CorrelationConfig(): JSX.Element {

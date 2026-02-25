@@ -3,8 +3,8 @@ import posthog from 'posthog-js'
 
 import { IconChevronRight } from '@posthog/icons'
 
-import { StoriesModal } from './StoriesModal'
 import { storiesLogic } from './storiesLogic'
+import { StoriesModal } from './StoriesModal'
 
 export const PosthogStoriesContainer = (): JSX.Element => {
     const { stories, isStoryViewed, storiesCollapsed } = useValues(storiesLogic)
