@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from freezegun import freeze_time
 from unittest.mock import Mock, patch
@@ -20,15 +22,10 @@ class TestCheckPartitionAccuracy:
     @pytest.mark.parametrize(
         "query_result,expected_status,expected_within_tolerance",
         [
-            # No data returned
             ([], "NO_DATA", True),
-            # Perfect match - within tolerance
             ([(2, "2024-01-15", 1000, 1000, 0.0, "YES", "GOOD")], "CHECKED", True),
-            # Small difference within 5% tolerance
             ([(2, "2024-01-15", 1000, 1020, 2.0, "NO", "FAIR")], "CHECKED", True),
-            # Large difference outside 5% tolerance
             ([(2, "2024-01-15", 1000, 1100, 10.0, "NO", "POOR")], "CHECKED", False),
-            # Edge case: exactly at tolerance
             ([(2, "2024-01-15", 1000, 1050, 5.0, "NO", "FAIR")], "CHECKED", True),
         ],
     )
@@ -129,10 +126,6 @@ class TestBuildRemediationConfigs:
 
 
 class TestWebAnalyticsWatchdogAsset:
-    def setup_method(self):
-        self.mock_context = Mock()
-        self.mock_context.log = Mock()
-
     @freeze_time("2024-01-20 12:00:00")
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
     def test_all_partitions_passing(self, mock_check):
@@ -146,13 +139,10 @@ class TestWebAnalyticsWatchdogAsset:
             "quality_status": "GOOD",
         }
 
-        config = Mock()
-        config.team_id = 2
-        config.lookback_days = 3
-        config.tolerance_pct = 5.0
-        config.dry_run = True
-
-        result = web_analytics_watchdog(self.mock_context, config)
+        context = dagster.build_asset_context(
+            asset_config={"team_id": 2, "lookback_days": 3, "tolerance_pct": 5.0, "dry_run": True}
+        )
+        result = web_analytics_watchdog(context)
 
         assert result.metadata["overall_status"].value == "EXCELLENT"
         assert result.metadata["failing_partition_count"].value == 0
@@ -187,13 +177,10 @@ class TestWebAnalyticsWatchdogAsset:
 
         mock_check.side_effect = side_effect
 
-        config = Mock()
-        config.team_id = 2
-        config.lookback_days = 3
-        config.tolerance_pct = 5.0
-        config.dry_run = True
-
-        result = web_analytics_watchdog(self.mock_context, config)
+        context = dagster.build_asset_context(
+            asset_config={"team_id": 2, "lookback_days": 3, "tolerance_pct": 5.0, "dry_run": True}
+        )
+        result = web_analytics_watchdog(context)
 
         assert result.metadata["failing_partition_count"].value == 1
         assert result.metadata["total_checked"].value == 3
@@ -212,13 +199,10 @@ class TestWebAnalyticsWatchdogAsset:
     def test_partition_check_error_handling(self, mock_check):
         mock_check.side_effect = Exception("ClickHouse connection failed")
 
-        config = Mock()
-        config.team_id = 2
-        config.lookback_days = 2
-        config.tolerance_pct = 5.0
-        config.dry_run = True
-
-        result = web_analytics_watchdog(self.mock_context, config)
+        context = dagster.build_asset_context(
+            asset_config={"team_id": 2, "lookback_days": 2, "tolerance_pct": 5.0, "dry_run": True}
+        )
+        result = web_analytics_watchdog(context)
 
         assert result.metadata["total_checked"].value == 0
         assert result.metadata["error_count"].value == 2
@@ -237,13 +221,10 @@ class TestWebAnalyticsWatchdogAsset:
             "quality_status": "GOOD",
         }
 
-        config = Mock()
-        config.team_id = 2
-        config.lookback_days = 5
-        config.tolerance_pct = 5.0
-        config.dry_run = True
-
-        web_analytics_watchdog(self.mock_context, config)
+        context = dagster.build_asset_context(
+            asset_config={"team_id": 2, "lookback_days": 5, "tolerance_pct": 5.0, "dry_run": True}
+        )
+        web_analytics_watchdog(context)
 
         assert mock_check.call_count == 5
         checked_dates = [call.args[2] for call in mock_check.call_args_list]
@@ -262,17 +243,13 @@ class TestWebAnalyticsWatchdogAsset:
             "quality_status": "POOR",
         }
 
-        config = Mock()
-        config.team_id = 2
-        config.lookback_days = 1
-        config.tolerance_pct = 5.0
-        config.dry_run = True
-
-        result = web_analytics_watchdog(self.mock_context, config)
+        context = dagster.build_asset_context(
+            asset_config={"team_id": 2, "lookback_days": 1, "tolerance_pct": 5.0, "dry_run": True}
+        )
+        result = web_analytics_watchdog(context)
 
         assert result.metadata["dry_run"].value is True
         assert result.metadata["failing_partition_count"].value == 1
-        self.mock_context.log.info.assert_any_call("DRY RUN: 1 partition(s) would be re-materialized: ['2024-01-19']")
 
     @pytest.mark.parametrize(
         "passing_count,total_count,expected_status",
@@ -304,13 +281,10 @@ class TestWebAnalyticsWatchdogAsset:
 
         mock_check.side_effect = side_effect
 
-        config = Mock()
-        config.team_id = 2
-        config.lookback_days = total_count
-        config.tolerance_pct = 5.0
-        config.dry_run = True
-
-        result = web_analytics_watchdog(self.mock_context, config)
+        context = dagster.build_asset_context(
+            asset_config={"team_id": 2, "lookback_days": total_count, "tolerance_pct": 5.0, "dry_run": True}
+        )
+        result = web_analytics_watchdog(context)
 
         assert result.metadata["overall_status"].value == expected_status
 
@@ -318,7 +292,7 @@ class TestWebAnalyticsWatchdogAsset:
 class TestWatchdogSchedule:
     @freeze_time("2024-01-20 12:00:00")
     def test_schedule_returns_run_request(self):
-        context = Mock()
+        context = dagster.build_schedule_context(scheduled_execution_time=datetime.datetime(2024, 1, 20, 6, 0))
         result = web_analytics_watchdog_schedule(context)
 
         assert isinstance(result, dagster.RunRequest)

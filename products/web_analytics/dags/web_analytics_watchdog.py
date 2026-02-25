@@ -15,6 +15,8 @@ from products.web_analytics.dags.web_preaggregated_utils import (
     WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
 )
 
+# Schedule runs daily at 6 AM UTC, after the pre-aggregation job completes (which runs at 5 AM UTC).
+# Starts STOPPED by default for safe rollout - must be manually enabled after validation.
 WATCHDOG_CRON_SCHEDULE = os.getenv("WEB_ANALYTICS_WATCHDOG_CRON_SCHEDULE", "0 6 * * *")
 DEFAULT_LOOKBACK_DAYS = int(os.getenv("WEB_ANALYTICS_WATCHDOG_LOOKBACK_DAYS", "7"))
 DEFAULT_TOLERANCE_PCT = float(os.getenv("WEB_ANALYTICS_WATCHDOG_TOLERANCE_PCT", "5.0"))
@@ -33,6 +35,8 @@ class WatchdogConfig(dagster.Config):
         default=DEFAULT_TOLERANCE_PCT,
         description="Maximum acceptable percentage difference before flagging a partition",
     )
+    # dry_run defaults to True for safe initial deployment. This allows monitoring accuracy
+    # without automatically triggering remediation jobs until we've validated the thresholds.
     dry_run: bool = pydantic.Field(
         default=True,
         description="When True, only logs findings without triggering remediation",
@@ -66,6 +70,10 @@ def check_partition_accuracy(
     pct_difference = float(row[4])
     within_tolerance = pct_difference <= tolerance_pct
 
+    # Quality status thresholds for individual partitions:
+    # - GOOD: ≤1% difference - pre-aggregation is highly accurate
+    # - FAIR: ≤5% difference - acceptable for most use cases
+    # - POOR: >5% difference - significant precision loss, may need remediation
     quality_status: str
     if pct_difference <= 1:
         quality_status = "GOOD"
@@ -169,6 +177,11 @@ def web_analytics_watchdog(context: AssetExecutionContext, config: WatchdogConfi
     total_passing = total_checked - len(failing_partitions)
     accuracy_rate = (total_passing / max(total_checked, 1)) * 100
 
+    # Overall status based on percentage of partitions within tolerance:
+    # - EXCELLENT: ≥95% passing - system is healthy
+    # - GOOD: ≥90% passing - minor issues, likely transient
+    # - FAIR: ≥80% passing - needs attention
+    # - POOR: <80% passing - significant problems requiring investigation
     if accuracy_rate >= 95:
         overall_status = "EXCELLENT"
     elif accuracy_rate >= 90:
