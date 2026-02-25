@@ -3469,12 +3469,15 @@ class TestPrinter(BaseTest):
             ("in_with_non_uuid", "$session_id IN ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'not-a-uuid')"),
             # SQL injection attempts — none of these are valid UUIDs, so the optimization is
             # skipped and values go through the normal parameterized query path (%(hogql_val_N)s)
-            ("sqli_quote_escape", '$session_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890\' OR 1=1 --"'),
             ("sqli_uuid_with_suffix", "$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890; DROP TABLE events'"),
             ("sqli_uuid_with_parens", "$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef123456789()'"),
             ("sqli_overlong_hex", "$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef12345678901'"),
             ("sqli_short_hex", "$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef123456789'"),
-            ("sqli_embedded_sql", "$session_id = '00000000-0000-0000-0000-00000000000\\' OR \\'1\\'=\\'1'"),
+            ("sqli_non_hex_chars", "$session_id = 'g1b2c3d4-e5f6-7890-abcd-ef1234567890'"),
+            (
+                "sqli_in_with_injection",
+                "$session_id IN ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', '1; DROP TABLE events')",
+            ),
         ]
     )
     def test_session_id_uuid_optimization_skipped(self, _name, expr):
