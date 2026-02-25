@@ -11,6 +11,8 @@ import { APIScopeObject } from '~/types'
 import { getEntryId, isMemberEntry, isRoleEntry } from './helpers'
 import { AccessControlSettingsEntry, AccessControlsTab } from './types'
 
+const MAX_VISIBLE_RESOURCE_TAGS = 3
+
 function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<AccessControlSettingsEntry> {
     switch (activeTab) {
         case 'roles':
@@ -111,7 +113,6 @@ function AccessSummary({ entry }: { entry: AccessControlSettingsEntry }): JSX.El
 
     const projectTag = tags.find((t) => t.resource === 'project')
     const resourceTags = tags.filter((t) => t.resource !== 'project')
-    const MAX_VISIBLE_RESOURCE_TAGS = 3
     const visibleResourceTags = resourceTags.slice(0, MAX_VISIBLE_RESOURCE_TAGS)
     const hiddenCount = resourceTags.length - MAX_VISIBLE_RESOURCE_TAGS
 
