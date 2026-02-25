@@ -15,8 +15,17 @@ import { CyclotronJobInputType, HogFunctionSubTemplateIdType, HogFunctionTemplat
 
 import type { alertWizardLogicType } from './alertWizardLogicType'
 
-export type WizardStep = 'destination' | 'trigger' | 'configure'
-export type AlertCreationView = 'none' | 'wizard' | 'traditional'
+export enum WizardStep {
+    Destination = 'destination',
+    Trigger = 'trigger',
+    Configure = 'configure',
+}
+
+export enum AlertCreationView {
+    None = 'none',
+    Wizard = 'wizard',
+    Traditional = 'traditional',
+}
 
 export interface WizardDestination {
     key: string
@@ -91,20 +100,20 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         triggers: [logicProps.triggers as WizardTrigger[], {}],
         allDestinations: [logicProps.destinations as WizardDestination[], {}],
         alertCreationView: [
-            'none' as AlertCreationView,
+            AlertCreationView.None as AlertCreationView,
             {
                 setAlertCreationView: (_, { view }) => view,
-                restoreWizardState: () => 'wizard' as AlertCreationView,
-                createAlertSuccess: () => 'none' as AlertCreationView,
+                restoreWizardState: () => AlertCreationView.Wizard as AlertCreationView,
+                createAlertSuccess: () => AlertCreationView.None as AlertCreationView,
             },
         ],
         currentStep: [
-            'destination' as WizardStep,
+            WizardStep.Destination as WizardStep,
             {
                 setStep: (_, { step }) => step,
-                setDestinationKey: () => 'trigger' as WizardStep,
+                setDestinationKey: () => WizardStep.Trigger as WizardStep,
                 restoreWizardState: (_, { state }) => state.step,
-                resetWizard: () => 'destination' as WizardStep,
+                resetWizard: () => WizardStep.Destination as WizardStep,
             },
         ],
         selectedDestinationKey: [
@@ -282,7 +291,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         },
 
         setAlertCreationView: ({ view }) => {
-            if (view === 'wizard') {
+            if (view === AlertCreationView.Wizard) {
                 actions.loadExistingAlerts()
             }
         },
@@ -303,7 +312,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 const destination = values.allDestinations.find((d) => d.key === destinationKey)!
                 actions.loadTemplate(destination.templateId)
             }
-            actions.setStep('configure')
+            actions.setStep(WizardStep.Configure)
         },
 
         testConfiguration: async (_, breakpoint) => {
@@ -440,7 +449,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
 
-            if (values.alertCreationView === 'wizard') {
+            if (values.alertCreationView === AlertCreationView.Wizard) {
                 searchParams.wizard_step = values.currentStep
                 if (values.selectedDestinationKey) {
                     searchParams.wizard_dest = values.selectedDestinationKey
@@ -477,7 +486,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             const wizardDest = searchParams.wizard_dest as string | undefined
             const wizardTrigger = searchParams.wizard_trigger as HogFunctionSubTemplateIdType | undefined
 
-            if (wizardStep && values.alertCreationView !== 'wizard') {
+            if (wizardStep && values.alertCreationView !== AlertCreationView.Wizard) {
                 actions.restoreWizardState({
                     step: wizardStep,
                     destinationKey: wizardDest ?? null,

@@ -10,15 +10,15 @@ interface Step {
 }
 
 const STEPS: Step[] = [
-    { key: 'destination', label: 'Destination' },
-    { key: 'trigger', label: 'Trigger' },
-    { key: 'configure', label: 'Configure' },
+    { key: WizardStep.Destination, label: 'Destination' },
+    { key: WizardStep.Trigger, label: 'Trigger' },
+    { key: WizardStep.Configure, label: 'Configure' },
 ]
 
 const STEP_ORDER: Record<WizardStep, number> = {
-    destination: 0,
-    trigger: 1,
-    configure: 2,
+    [WizardStep.Destination]: 0,
+    [WizardStep.Trigger]: 1,
+    [WizardStep.Configure]: 2,
 }
 
 interface AlertWizardStepperProps {

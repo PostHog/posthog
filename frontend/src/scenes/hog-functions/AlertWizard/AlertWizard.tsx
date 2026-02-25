@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { alertWizardLogic } from './alertWizardLogic'
+import { WizardStep, alertWizardLogic } from './alertWizardLogic'
 import { AlertWizardStepper } from './AlertWizardStepper'
 import { ConfigureStep } from './steps/ConfigureStep'
 import { DestinationStep } from './steps/DestinationStep'
@@ -34,9 +34,9 @@ export function AlertWizard({ onCancel, onSwitchToTraditional }: AlertWizardProp
             </div>
 
             <div className="max-w-lg mx-auto flex-1 w-full mt-4">
-                {currentStep === 'destination' && <DestinationStep />}
-                {currentStep === 'trigger' && <TriggerStep />}
-                {currentStep === 'configure' && <ConfigureStep />}
+                {currentStep === WizardStep.Destination && <DestinationStep />}
+                {currentStep === WizardStep.Trigger && <TriggerStep />}
+                {currentStep === WizardStep.Configure && <ConfigureStep />}
             </div>
 
             <p className="text-center text-xs text-muted mt-6">
