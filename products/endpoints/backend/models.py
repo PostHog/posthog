@@ -183,31 +183,22 @@ class EndpointVersion(models.Model):
 
         Returns: (can_materialize: bool, reason: str)
         """
+        from products.endpoints.backend.query_handlers import _HANDLER_REGISTRY, get_query_handler
+
         query_kind = self.query.get("kind") if self.query else None
 
-        MATERIALIZABLE_QUERY_TYPES = {
-            "HogQLQuery",
-            "TrendsQuery",
-            "FunnelsQuery",
-            "LifecycleQuery",
-            "RetentionQuery",
-            "PathsQuery",
-            "StickinessQuery",
-        }
-
-        if query_kind not in MATERIALIZABLE_QUERY_TYPES:
-            supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
+        try:
+            handler = get_query_handler(query_kind)
+        except ValueError:
+            supported = ", ".join(sorted(_HANDLER_REGISTRY))
             return (
                 False,
                 f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
             )
 
-        # Check for multiple breakdowns in insight queries
-        if query_kind != "HogQLQuery":
-            breakdown_filter = self.query.get("breakdownFilter") or {}
-            breakdowns = breakdown_filter.get("breakdowns") or []
-            if len(breakdowns) > 1:
-                return False, "Multiple breakdowns not supported for materialization"
+        type_ok, type_reason = handler.can_materialize(self.query)
+        if not type_ok:
+            return False, type_reason
 
         if self.query.get("variables"):
             from products.endpoints.backend.materialization import analyze_variables_for_materialization
@@ -216,11 +207,6 @@ class EndpointVersion(models.Model):
 
             if not can_materialize:
                 return False, f"Variables not supported: {reason}"
-
-        if query_kind == "HogQLQuery":
-            hogql_query = self.query.get("query")
-            if not hogql_query or not isinstance(hogql_query, str):
-                return False, "Query is empty or invalid."
 
         return True, ""
 

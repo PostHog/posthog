@@ -2,17 +2,10 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
-from posthog.models.insight_variable import InsightVariable
-
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-
-INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
-    InsightVariable.Type.STRING: {"type": "string"},
-    InsightVariable.Type.NUMBER: {"type": "number"},
-    InsightVariable.Type.BOOLEAN: {"type": "boolean"},
-    InsightVariable.Type.LIST: {"type": "array", "items": {"type": "string"}},
-    InsightVariable.Type.DATE: {"type": "string", "format": "date"},
-}
+from products.endpoints.backend.query_handlers import (
+    INSIGHT_VARIABLE_TYPE_TO_OPENAPI,  # noqa: F401 (re-exported for backwards compat)
+)
 
 
 def generate_openapi_spec(
@@ -226,78 +219,16 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_
     return schemas
 
 
-def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
-    """Extract breakdown property from either legacy or new format."""
-    breakdown = breakdown_filter.get("breakdown")
-    if breakdown:
-        return breakdown
-    breakdowns = breakdown_filter.get("breakdowns") or []
-    if len(breakdowns) == 1:
-        return breakdowns[0].get("property")
-    return None
-
-
-# Query types that support user-configurable breakdown filtering
-BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
-
-
 def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:
     """Build schema for variables based on query type and materialization state."""
-    query_kind = query.get("kind")
-    properties: dict = {}
+    from products.endpoints.backend.query_handlers import get_query_handler
 
-    if query_kind == "HogQLQuery":
-        # HogQL: variables from query definition, with types from InsightVariable model
-        variables = query.get("variables", {})
-        if variables:
-            variable_ids = list(variables.keys())
-            variable_types = {
-                str(uid): vtype
-                for uid, vtype in InsightVariable.objects.filter(team_id=team_id, id__in=variable_ids).values_list(
-                    "id", "type"
-                )
-            }
+    try:
+        handler = get_query_handler(query.get("kind"))
+    except ValueError:
+        return None
 
-            for var_id, var_data in variables.items():
-                code_name = var_data.get("code_name", var_id)
-                default_value = var_data.get("value")
-                var_type = variable_types.get(var_id)
-                type_schema = (
-                    INSIGHT_VARIABLE_TYPE_TO_OPENAPI.get(var_type, {"type": "string"})
-                    if var_type
-                    else {"type": "string"}
-                )
-                properties[code_name] = {
-                    **type_schema,
-                    "description": f"Variable: {code_name}",
-                }
-                if default_value is not None:
-                    properties[code_name]["example"] = default_value
-    else:
-        # Insight queries - only include breakdown for supported query types
-        if query_kind in BREAKDOWN_SUPPORTED_QUERY_TYPES:
-            breakdown_filter = query.get("breakdownFilter") or {}
-            breakdown = _get_single_breakdown_property(breakdown_filter)
-            if breakdown:
-                properties[breakdown] = {
-                    "type": "string",
-                    "description": f"Filter by {breakdown} breakdown value",
-                    "example": "Chrome",
-                }
-
-        if not is_materialized:
-            # Non-materialized also supports date variables
-            properties["date_from"] = {
-                "type": "string",
-                "description": "Filter results from this date (ISO format or relative like '-7d')",
-                "example": "2024-01-01",
-            }
-            properties["date_to"] = {
-                "type": "string",
-                "description": "Filter results until this date (ISO format or relative like 'now')",
-                "example": "2024-01-31",
-            }
-
+    properties = handler.get_openapi_variables_schema_properties(query, is_materialized, team_id)
     if not properties:
         return None
 
