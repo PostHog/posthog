@@ -14,6 +14,7 @@ import structlog
 from posthog.models.integration import SlackIntegrationError
 from posthog.models.team import Team
 
+from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.support_slack import validate_support_request
 from products.conversations.backend.tasks import process_supporthog_event
 
@@ -33,10 +34,12 @@ if settings.DEBUG:
 
 
 def _team_for_slack_workspace(slack_team_id: str) -> Team | None:
-    return Team.objects.filter(
-        conversations_settings__slack_team_id=slack_team_id,
-        conversations_settings__slack_enabled=True,
-    ).first()
+    config = (
+        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
+        .select_related("team")
+        .first()
+    )
+    return config.team if config else None
 
 
 def _route_event_to_relevant_region(request: HttpRequest, data: dict) -> None:

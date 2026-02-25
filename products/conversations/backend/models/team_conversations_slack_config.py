@@ -13,6 +13,7 @@ class TeamConversationsSlackConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     slack_bot_token = EncryptedTextField(max_length=500, null=True, blank=True)
+    slack_team_id = models.CharField(max_length=64, null=True, blank=True, db_index=True)
 
     class Meta:
         app_label = "conversations"

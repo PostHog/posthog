@@ -11,6 +11,8 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import SlackIntegrationError
 
+from products.conversations.backend.models import TeamConversationsSlackConfig
+
 
 class TestSupportSlackEventsAPI(BaseTest):
     client: APIClient
@@ -18,8 +20,12 @@ class TestSupportSlackEventsAPI(BaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.conversations_settings = {"slack_enabled": True, "slack_team_id": "T123"}
+        self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
+        TeamConversationsSlackConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"slack_team_id": "T123", "slack_bot_token": "xoxb-test"},
+        )
         self.client = APIClient()
         cache.clear()
 
@@ -38,6 +44,21 @@ class TestSupportSlackEventsAPI(BaseTest):
         response = self._post({"type": "event_callback"})
 
         assert response.status_code == 403
+
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.validate_support_request")
+    def test_slack_retry_returns_200_without_processing(self, mock_validate: MagicMock, mock_process: MagicMock):
+        mock_validate.return_value = None
+
+        response = self.client.post(
+            "/api/conversations/v1/slack/events",
+            data=json.dumps({"type": "event_callback", "team_id": "T123", "event": {"type": "message"}}),
+            content_type="application/json",
+            HTTP_X_SLACK_RETRY_NUM="1",
+        )
+
+        assert response.status_code == 200
+        mock_process.delay.assert_not_called()
 
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_invalid_json_returns_400(self, mock_validate: MagicMock):
