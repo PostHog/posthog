@@ -541,6 +541,8 @@ class ClickHousePrinter(HogQLPrinter):
 
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""
+        from posthog.hogql.database.schema.events import EventsTable
+
         expr_type = resolve_field_type(node)
 
         if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
@@ -554,15 +556,11 @@ class ClickHousePrinter(HogQLPrinter):
         else:
             return None
 
-        while True:
-            if isinstance(table_type, ast.TableType):
-                if table_type.table.to_printed_hogql() == "events":
-                    return table_type
-                return None
-            elif isinstance(table_type, ast.TableAliasType):
-                table_type = table_type.table_type
-            else:
-                return None
+        if isinstance(table_type, ast.TableAliasType):
+            table_type = table_type.table_type
+        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+            return table_type
+        return None
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
