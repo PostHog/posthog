@@ -62,7 +62,6 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     url = models.URLField(max_length=2048, default="")
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="none")
-    configuration = models.JSONField(default=dict, blank=True)
     sensitive_configuration = EncryptedJSONField(default=dict, blank=True)
 
     class Meta:

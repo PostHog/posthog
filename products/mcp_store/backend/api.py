@@ -4,6 +4,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.http import HttpResponse
 
 import requests
@@ -22,7 +23,7 @@ from posthog.rate_limit import MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle
 from posthog.security.url_validation import is_url_allowed
 
 from .models import RECOMMENDED_SERVERS, MCPServer, MCPServerInstallation, SensitiveConfig
-from .oauth import discover_oauth_metadata, generate_pkce, register_dcr_client
+from .oauth import TIMEOUT, discover_oauth_metadata, generate_pkce, register_dcr_client
 
 logger = structlog.get_logger(__name__)
 
@@ -55,7 +56,6 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "url",
             "description",
             "auth_type",
-            "configuration",
             "needs_reauth",
             "pending_oauth",
             "created_at",
@@ -114,7 +114,6 @@ class OAuthCallbackRequestSerializer(serializers.Serializer):
 class MCPServerInstallationUpdateSerializer(serializers.Serializer):
     display_name = serializers.CharField(required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
-    configuration = serializers.DictField(required=False)
 
 
 class OAuthRedirectResponseSerializer(serializers.Serializer):
@@ -156,14 +155,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         installation = self.get_object()
         data = request.validated_data
 
-        config = data.get("configuration")
-        if config is not None and "api_key" in config:
-            api_key = config.pop("api_key")
-            if api_key:
-                sensitive = dict(installation.sensitive_configuration or {})
-                sensitive["api_key"] = api_key
-                installation.sensitive_configuration = sensitive
-
         for field, value in data.items():
             setattr(installation, field, value)
         installation.save()
@@ -194,27 +185,29 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         description = data.get("description", "")
         oauth_provider_kind = data.get("oauth_provider_kind", "")
 
+        # If the auth type is OAuth, we need to authorize the user for the custom server
         if auth_type == "oauth":
             return self._authorize_for_custom(
                 request, name=name, mcp_url=url, description=description, oauth_provider_kind=oauth_provider_kind
             )
-
         sensitive_config: SensitiveConfig = {}
         if auth_type == "api_key" and api_key:
             sensitive_config["api_key"] = api_key
 
-        if MCPServerInstallation.objects.filter(team_id=self.team_id, user=request.user, url=url).exists():
-            return Response({"detail": "This server URL is already installed."}, status=status.HTTP_400_BAD_REQUEST)
-
-        installation = MCPServerInstallation.objects.create(
+        installation, created = MCPServerInstallation.objects.get_or_create(
             team_id=self.team_id,
             user=request.user,
-            display_name=name,
             url=url,
-            description=description,
-            auth_type=auth_type,
-            sensitive_configuration=sensitive_config,
+            defaults={
+                "display_name": name,
+                "description": description,
+                "auth_type": auth_type,
+                "sensitive_configuration": sensitive_config,
+            },
         )
+
+        if not created:
+            return Response({"detail": "This server URL is already installed."}, status=status.HTTP_400_BAD_REQUEST)
 
         result_serializer = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
         return Response(result_serializer.data, status=status.HTTP_201_CREATED)
@@ -315,38 +308,48 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             cached_redirect_uri = existing_server.oauth_metadata.get("dcr_redirect_uri", "")
             if cached_redirect_uri == redirect_uri:
                 return existing_server
+
             try:
                 client_id = register_dcr_client(metadata, redirect_uri)
+                metadata["dcr_redirect_uri"] = redirect_uri
+                existing_server.oauth_metadata = metadata
+                existing_server.oauth_client_id = client_id
+                existing_server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
+                return existing_server
             except Exception as e:
                 logger.exception("DCR registration failed", error=str(e))
                 return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
-            metadata["dcr_redirect_uri"] = redirect_uri
-            existing_server.oauth_metadata = metadata
-            existing_server.oauth_client_id = client_id
-            existing_server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
-            return existing_server
 
         try:
             client_id = register_dcr_client(metadata, redirect_uri)
         except Exception as e:
             logger.exception("DCR registration failed", error=str(e))
             return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+
         metadata["dcr_redirect_uri"] = redirect_uri
+        try:
+            server, created = MCPServer.objects.get_or_create(
+                url=issuer_url,
+                defaults={
+                    "name": name,
+                    "oauth_provider_kind": oauth_provider_kind,
+                    "oauth_metadata": metadata,
+                    "oauth_client_id": client_id,
+                    "created_by": request.user,
+                },
+            )
+        except IntegrityError:
+            server = MCPServer.objects.filter(url=issuer_url).first()
+            if not server:
+                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+            created = False
 
-        if existing_server:
-            existing_server.oauth_metadata = metadata
-            existing_server.oauth_client_id = client_id
-            existing_server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
-            return existing_server
+        if not created and not server.oauth_client_id:
+            server.oauth_metadata = metadata
+            server.oauth_client_id = client_id
+            server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
 
-        return MCPServer.objects.create(
-            name=name,
-            url=issuer_url,
-            oauth_provider_kind=oauth_provider_kind,
-            oauth_metadata=metadata,
-            oauth_client_id=client_id,
-            created_by=request.user,
-        )
+        return server
 
     @validated_request(query_serializer=AuthorizeQuerySerializer)
     @action(
@@ -535,6 +538,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "redirect_uri": OauthIntegration.redirect_uri(kind),
                 "grant_type": "authorization_code",
             },
+            timeout=TIMEOUT,
         )
 
         if token_response.status_code != 200:
@@ -563,6 +567,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "grant_type": "authorization_code",
                 "code_verifier": code_verifier,
             },
+            timeout=TIMEOUT,
         )
 
         if token_response.status_code != 200:

@@ -27,7 +27,6 @@ export interface MCPServerInstallation {
     url: string
     description: string
     auth_type: 'none' | 'api_key' | 'oauth'
-    configuration: Record<string, any>
     needs_reauth: boolean
     pending_oauth: boolean
     created_at: string

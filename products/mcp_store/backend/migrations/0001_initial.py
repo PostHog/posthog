@@ -89,7 +89,6 @@ class Migration(migrations.Migration):
                         max_length=20,
                     ),
                 ),
-                ("configuration", models.JSONField(blank=True, default=dict)),
                 (
                     "sensitive_configuration",
                     posthog.helpers.encrypted_fields.EncryptedJSONField(blank=True, default=dict),
