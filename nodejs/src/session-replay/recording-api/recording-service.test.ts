@@ -201,7 +201,7 @@ describe('RecordingService', () => {
 
         it('returns ok for all when all succeed', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: true,
+                status: 'deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'test@example.com',
             })
@@ -228,10 +228,9 @@ describe('RecordingService', () => {
 
         it('emits kafka events for newly deleted sessions only', async () => {
             mockKeyStore.deleteKey
-                .mockResolvedValueOnce({ deleted: true, deletedAt: 1700000000, deletedBy: 'test@example.com' })
+                .mockResolvedValueOnce({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
                 .mockResolvedValueOnce({
-                    deleted: false,
-                    reason: 'already_deleted',
+                    status: 'already_deleted',
                     deletedAt: 1700000000,
                     deletedBy: 'original@example.com',
                 })
@@ -246,7 +245,7 @@ describe('RecordingService', () => {
 
         it('batches postgres deletes for all shredded sessions', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: true,
+                status: 'deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'test@example.com',
             })
@@ -265,10 +264,9 @@ describe('RecordingService', () => {
 
         it('excludes already_deleted sessions from postgres batch', async () => {
             mockKeyStore.deleteKey
-                .mockResolvedValueOnce({ deleted: true, deletedAt: 1700000000, deletedBy: 'test@example.com' })
+                .mockResolvedValueOnce({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
                 .mockResolvedValueOnce({
-                    deleted: false,
-                    reason: 'already_deleted',
+                    status: 'already_deleted',
                     deletedAt: 1700000000,
                     deletedBy: 'original@example.com',
                 })
@@ -285,9 +283,9 @@ describe('RecordingService', () => {
             )
         })
 
-        it('returns shred_failed for sessions where key shred throws', async () => {
+        it('returns delete_failed for sessions where key shred throws', async () => {
             mockKeyStore.deleteKey
-                .mockResolvedValueOnce({ deleted: true, deletedAt: 1700000000, deletedBy: 'test@example.com' })
+                .mockResolvedValueOnce({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
                 .mockRejectedValueOnce(new Error('DynamoDB error'))
 
             const result = await service.deleteRecordings(['session-1', 'session-2'], 1, 'test@example.com')
@@ -300,13 +298,13 @@ describe('RecordingService', () => {
                     deletedAt: 1700000000,
                     deletedBy: 'test@example.com',
                 },
-                { sessionId: 'session-2', ok: false, error: 'shred_failed' },
+                { sessionId: 'session-2', ok: false, status: 'delete_failed' },
             ])
         })
 
-        it('returns cleanup_failed when kafka emission fails', async () => {
+        it('reports success when kafka emission fails after shred', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: true,
+                status: 'deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'test@example.com',
             })
@@ -317,8 +315,8 @@ describe('RecordingService', () => {
             expect(result).toEqual([
                 {
                     sessionId: 'session-1',
-                    ok: false,
-                    error: 'cleanup_failed',
+                    ok: true,
+                    status: 'deleted',
                     deletedAt: 1700000000,
                     deletedBy: 'test@example.com',
                 },
@@ -327,7 +325,7 @@ describe('RecordingService', () => {
 
         it('inserts activity log entries for newly deleted sessions', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: true,
+                status: 'deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'test@example.com',
             })
@@ -344,8 +342,7 @@ describe('RecordingService', () => {
 
         it('does not insert activity log when all sessions were already deleted', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: false,
-                reason: 'already_deleted',
+                status: 'already_deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'original@example.com',
             })
@@ -355,9 +352,9 @@ describe('RecordingService', () => {
             expect(mockPostgres.query).not.toHaveBeenCalled()
         })
 
-        it('returns cleanup_failed when logActivity fails', async () => {
+        it('reports success when logActivity fails after shred', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: true,
+                status: 'deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'test@example.com',
             })
@@ -374,8 +371,8 @@ describe('RecordingService', () => {
             expect(result).toEqual([
                 {
                     sessionId: 'session-1',
-                    ok: false,
-                    error: 'cleanup_failed',
+                    ok: true,
+                    status: 'deleted',
                     deletedAt: 1700000000,
                     deletedBy: 'test@example.com',
                 },
@@ -390,9 +387,9 @@ describe('RecordingService', () => {
             expect(mockPostgres.query).not.toHaveBeenCalled()
         })
 
-        it('returns cleanup_failed when postgres batch fails', async () => {
+        it('reports success when postgres cleanup fails after shred', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: true,
+                status: 'deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'test@example.com',
             })
@@ -403,17 +400,17 @@ describe('RecordingService', () => {
             expect(result).toEqual([
                 {
                     sessionId: 'session-1',
-                    ok: false,
-                    error: 'cleanup_failed',
+                    ok: true,
+                    status: 'deleted',
                     deletedAt: 1700000000,
                     deletedBy: 'test@example.com',
                 },
             ])
         })
 
-        it('kafka and postgres failures are independent', async () => {
+        it('reports success even when all cleanup steps fail', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: true,
+                status: 'deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'test@example.com',
             })
@@ -425,8 +422,8 @@ describe('RecordingService', () => {
             expect(result).toEqual([
                 {
                     sessionId: 'session-1',
-                    ok: false,
-                    error: 'cleanup_failed',
+                    ok: true,
+                    status: 'deleted',
                     deletedAt: 1700000000,
                     deletedBy: 'test@example.com',
                 },

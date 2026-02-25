@@ -29,7 +29,7 @@ export class CleartextKeyStore implements KeyStore {
         // Cleartext sessions have no encryption key to shred, but we return success
         // so the recording-api continues with the rest of the delete pipeline
         // (Kafka deletion event + Postgres cleanup).
-        return Promise.resolve({ deleted: true, deletedAt: Math.floor(Date.now() / 1000), deletedBy })
+        return Promise.resolve({ status: 'deleted', deletedAt: Math.floor(Date.now() / 1000), deletedBy })
     }
 
     stop(): void {}

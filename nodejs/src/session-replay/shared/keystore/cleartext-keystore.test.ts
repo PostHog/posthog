@@ -36,7 +36,7 @@ describe('CleartextKeyStore', () => {
     describe('deleteKey', () => {
         it('should return success with deletedAt timestamp', async () => {
             const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
-            expect(result).toEqual({ deleted: true, deletedAt: expect.any(Number), deletedBy: 'test@example.com' })
+            expect(result).toEqual({ status: 'deleted', deletedAt: expect.any(Number), deletedBy: 'test@example.com' })
         })
     })
 

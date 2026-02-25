@@ -164,8 +164,7 @@ export class DynamoDBKeyStore implements KeyStore {
                     throw new Error(`Key for session ${sessionId} is deleted but has no deleted_at timestamp`)
                 }
                 return {
-                    deleted: false,
-                    reason: 'already_deleted',
+                    status: 'already_deleted',
                     deletedAt: parseInt(existingItem.Item.deleted_at.N, 10),
                     deletedBy: existingItem.Item.deleted_by?.S ?? '',
                 }
@@ -205,7 +204,7 @@ export class DynamoDBKeyStore implements KeyStore {
             )
         }
 
-        return { deleted: true, deletedAt, deletedBy }
+        return { status: 'deleted', deletedAt, deletedBy }
     }
 
     stop(): void {

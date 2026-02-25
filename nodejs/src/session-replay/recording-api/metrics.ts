@@ -1,4 +1,4 @@
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 export class RecordingApiMetrics {
     private static readonly getBlockDuration = new Histogram({
@@ -19,7 +19,17 @@ export class RecordingApiMetrics {
         this.getBlockDuration.labels({ result, session_state: sessionState }).observe(seconds)
     }
 
+    private static readonly cleanupFailures = new Counter({
+        name: 'recording_api_delete_cleanup_failures_total',
+        help: 'Cleanup step failures after successful key shred',
+        labelNames: ['step'],
+    })
+
     public static observeDeleteRecordings(result: string, seconds: number): void {
         this.deleteRecordingsDuration.labels({ result }).observe(seconds)
+    }
+
+    public static incrementCleanupFailure(step: 'kafka' | 'postgres' | 'activity_log'): void {
+        this.cleanupFailures.labels({ step }).inc()
     }
 }

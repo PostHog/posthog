@@ -460,7 +460,7 @@ describe('RecordingApi', () => {
                         deletedAt: 1700000000,
                         deletedBy: 'original@example.com',
                     },
-                    { sessionId: 'session-3', ok: false, error: 'shred_failed' },
+                    { sessionId: 'session-3', ok: false, status: 'delete_failed' },
                 ])
 
                 const res = await supertest(app)
@@ -483,7 +483,7 @@ describe('RecordingApi', () => {
                         deletedAt: 1700000000,
                         deletedBy: 'original@example.com',
                     },
-                    { sessionId: 'session-3', ok: false, error: 'shred_failed' },
+                    { sessionId: 'session-3', ok: false, status: 'delete_failed' },
                 ])
                 expect(mockService.deleteRecordings).toHaveBeenCalledWith(
                     ['session-1', 'session-2', 'session-3'],

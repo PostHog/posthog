@@ -52,8 +52,8 @@ export interface SerializedSessionKey {
  * Implementations include DynamoDB (cloud) and cleartext (self-hosted).
  */
 export type DeleteKeyResult =
-    | { deleted: true; deletedAt: number; deletedBy: string }
-    | { deleted: false; reason: 'already_deleted'; deletedAt: number; deletedBy: string }
+    | { status: 'deleted'; deletedAt: number; deletedBy: string }
+    | { status: 'already_deleted'; deletedAt: number; deletedBy: string }
 
 export interface KeyStore {
     start(): Promise<void>

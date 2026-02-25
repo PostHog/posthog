@@ -52,8 +52,7 @@ export class MemoryKeyStore implements KeyStore {
         const existing = this.deletedKeys.get(`${teamId}:${sessionId}`)
         if (existing) {
             return Promise.resolve({
-                deleted: false,
-                reason: 'already_deleted',
+                status: 'already_deleted',
                 deletedAt: existing.deletedAt,
                 deletedBy: existing.deletedBy,
             })
@@ -61,7 +60,7 @@ export class MemoryKeyStore implements KeyStore {
         this.keystore.delete(`${teamId}:${sessionId}`)
         const deletedAt = Math.floor(Date.now() / 1000)
         this.deletedKeys.set(`${teamId}:${sessionId}`, { deletedAt, deletedBy })
-        return Promise.resolve({ deleted: true, deletedAt, deletedBy })
+        return Promise.resolve({ status: 'deleted', deletedAt, deletedBy })
     }
 
     stop(): void {}

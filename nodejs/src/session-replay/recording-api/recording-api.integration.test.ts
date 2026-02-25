@@ -243,7 +243,7 @@ describe('Recording API encryption integration', () => {
                 // Delete the key
                 const deleteResult = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
                 expect(deleteResult).toEqual({
-                    deleted: true,
+                    status: 'deleted',
                     deletedAt: expect.any(Number),
                     deletedBy: 'test@example.com',
                 })
@@ -297,7 +297,7 @@ describe('Recording API encryption integration', () => {
                 const keyStore = getKeyStore()
 
                 const result = await keyStore.deleteKey(`non-existent-${Date.now()}`, 999, 'test@example.com')
-                expect(result.deleted).toBe(true)
+                expect(result.status).toBe('deleted')
                 expect(result.deletedAt).toBeDefined()
             })
 
@@ -607,9 +607,8 @@ describe('Recording API encryption integration', () => {
                 await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
 
                 const result = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
-                expect(result.deleted).toBe(false)
-                expect((result as any).reason).toBe('already_deleted')
-                expect((result as any).deletedAt).toBeDefined()
+                expect(result.status).toBe('already_deleted')
+                expect(result.deletedAt).toBeDefined()
             })
 
             it('should isolate keys between teams', async () => {

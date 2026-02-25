@@ -13,7 +13,7 @@ export function createMockKeyStore(): jest.Mocked<KeyStore> {
             encryptedKey: Buffer.alloc(0),
             sessionState: 'cleartext',
         }),
-        deleteKey: jest.fn().mockResolvedValue({ deleted: true }),
+        deleteKey: jest.fn().mockResolvedValue({ status: 'deleted', deletedAt: 0, deletedBy: '' }),
         stop: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<KeyStore>
 }

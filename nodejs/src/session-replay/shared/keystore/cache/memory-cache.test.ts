@@ -18,7 +18,7 @@ describe('MemoryCachedKeyStore', () => {
             getKey: jest.fn().mockResolvedValue(mockSessionKey),
             deleteKey: jest
                 .fn()
-                .mockResolvedValue({ deleted: true, deletedAt: 1700000000, deletedBy: 'test@example.com' }),
+                .mockResolvedValue({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' }),
             stop: jest.fn(),
         } as unknown as jest.Mocked<KeyStore>
 
@@ -129,7 +129,7 @@ describe('MemoryCachedKeyStore', () => {
             const result = await cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')
 
             expect(mockDelegate.deleteKey).toHaveBeenCalledWith('session-123', 1, 'test@example.com')
-            expect(result).toEqual({ deleted: true, deletedAt: 1700000000, deletedBy: 'test@example.com' })
+            expect(result).toEqual({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
 
             // Cache should be cleared, so next getKey should call delegate
             await cachedKeyStore.getKey('session-123', 1)
@@ -142,8 +142,7 @@ describe('MemoryCachedKeyStore', () => {
             mockDelegate.getKey.mockClear()
 
             mockDelegate.deleteKey.mockResolvedValue({
-                deleted: false,
-                reason: 'already_deleted',
+                status: 'already_deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'original@example.com',
             })
@@ -151,8 +150,7 @@ describe('MemoryCachedKeyStore', () => {
             const result = await cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')
 
             expect(result).toEqual({
-                deleted: false,
-                reason: 'already_deleted',
+                status: 'already_deleted',
                 deletedAt: 1700000000,
                 deletedBy: 'original@example.com',
             })

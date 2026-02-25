@@ -280,7 +280,7 @@ describe('DynamoDBKeyStore', () => {
                 'SET session_state = :deleted, deleted_at = :deleted_at, deleted_by = :deleted_by REMOVE encrypted_key'
             )
             expect(result).toEqual({
-                deleted: true,
+                status: 'deleted',
                 deletedAt: Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000),
                 deletedBy: 'test@example.com',
             })
@@ -300,7 +300,7 @@ describe('DynamoDBKeyStore', () => {
             const deletedAt = Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000)
             const expiresAt = parseInt(putCall.input.Item.expires_at.N, 10)
             expect(expiresAt).toBe(deletedAt + 30 * 24 * 60 * 60)
-            expect(result).toEqual({ deleted: true, deletedAt, deletedBy: 'test@example.com' })
+            expect(result).toEqual({ status: 'deleted', deletedAt, deletedBy: 'test@example.com' })
         })
 
         it('should return already_deleted with deletedAt if key is already deleted', async () => {
@@ -316,7 +316,7 @@ describe('DynamoDBKeyStore', () => {
 
             const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
-            expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: 1700000000, deletedBy: '' })
+            expect(result).toEqual({ status: 'already_deleted', deletedAt: 1700000000, deletedBy: '' })
         })
 
         it('should throw if deleted key has no deleted_at timestamp', async () => {

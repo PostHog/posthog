@@ -24,8 +24,7 @@ export type GetBlockResult =
 export type DeleteRecordingResult =
     | { sessionId: string; ok: true; status: 'deleted'; deletedAt: number; deletedBy: string }
     | { sessionId: string; ok: true; status: 'already_deleted'; deletedAt: number; deletedBy: string }
-    | { sessionId: string; ok: false; error: 'shred_failed' }
-    | { sessionId: string; ok: false; error: 'cleanup_failed'; deletedAt: number; deletedBy: string }
+    | { sessionId: string; ok: false; status: 'delete_failed' }
 
 export class RecordingService {
     constructor(
@@ -133,70 +132,77 @@ export class RecordingService {
         const startTime = performance.now()
         logger.debug('[RecordingService] deleteRecordings request', { teamId, count: sessionIds.length, deletedBy })
 
-        // Phase 1: Shred encryption keys — the irreversible step that makes recordings unreadable
-        const shredResults = await Promise.all(
-            sessionIds.map(async (sessionId) => ({
-                sessionId,
-                shredResult: await this.keyStore.deleteKey(sessionId, teamId, deletedBy).catch((): null => null),
-            }))
+        const results = await Promise.all(
+            sessionIds.map((sessionId) => this.deleteRecording(sessionId, teamId, deletedBy))
         )
 
-        const newlyDeletedIds = shredResults.filter((r) => r.shredResult?.deleted).map((r) => r.sessionId)
+        const deleted = results.filter((r) => r.ok && r.status === 'deleted')
+        const failed = results.filter((r) => !r.ok)
 
-        // Phase 2: Best-effort cleanup for newly shredded sessions (kafka + postgres in parallel)
-        let cleanupOk = true
-        if (newlyDeletedIds.length > 0) {
-            const [kafkaResult, postgresResult] = await Promise.allSettled([
-                this.emitDeletionEvents(newlyDeletedIds, teamId),
-                this.deletePostgresRecords(newlyDeletedIds, teamId),
-            ])
-            for (const result of [kafkaResult, postgresResult]) {
-                if (result.status === 'rejected') {
-                    cleanupOk = false
-                    logger.error('[RecordingService] Cleanup step failed', {
-                        teamId,
-                        error: serializeError(result.reason),
-                    })
-                }
-            }
+        await this.propagateDeletion(
+            deleted.map((r) => r.sessionId),
+            teamId,
+            deletedBy
+        )
 
-            try {
-                await this.logActivity(newlyDeletedIds, teamId, deletedBy)
-            } catch (error) {
-                cleanupOk = false
-                logger.error('[RecordingService] Failed to log activity', { teamId, error: serializeError(error) })
-            }
-        }
-
-        // Build results
-        const results = shredResults.map(({ sessionId, shredResult }): DeleteRecordingResult => {
-            if (!shredResult) {
-                return { sessionId, ok: false, error: 'shred_failed' }
-            }
-            if (!shredResult.deleted) {
-                return {
-                    sessionId,
-                    ok: true,
-                    status: 'already_deleted',
-                    deletedAt: shredResult.deletedAt,
-                    deletedBy: shredResult.deletedBy,
-                }
-            }
-            if (!cleanupOk) {
-                return { sessionId, ok: false, error: 'cleanup_failed', deletedAt: shredResult.deletedAt, deletedBy }
-            }
-            return { sessionId, ok: true, status: 'deleted', deletedAt: shredResult.deletedAt, deletedBy }
+        const outcome = failed.length === 0 ? 'success' : failed.length === sessionIds.length ? 'failure' : 'partial'
+        RecordingApiMetrics.observeDeleteRecordings(outcome, (performance.now() - startTime) / 1000)
+        logger.info('[RecordingService] deleteRecordings complete', {
+            teamId,
+            deleted: deleted.length,
+            failed: failed.length,
         })
 
-        const deletedCount = results.filter((r) => r.ok).length
-        const failedCount = sessionIds.length - deletedCount
-        RecordingApiMetrics.observeDeleteRecordings(
-            failedCount > 0 ? 'partial' : 'success',
-            (performance.now() - startTime) / 1000
-        )
-        logger.info('[RecordingService] deleteRecordings complete', { teamId, deletedCount, failedCount })
-
         return results
+    }
+
+    private async deleteRecording(
+        sessionId: string,
+        teamId: number,
+        deletedBy: string
+    ): Promise<DeleteRecordingResult> {
+        const result = await this.keyStore.deleteKey(sessionId, teamId, deletedBy).catch((): null => null)
+        if (result === null) {
+            return { sessionId, ok: false, status: 'delete_failed' }
+        }
+        return { sessionId, ok: true, ...result }
+    }
+
+    /**
+     * Propagate a successful key shred to Kafka, Postgres, and the activity log.
+     * Failures are non-fatal — the key shred already makes the recording unplayable (410).
+     * Stale metadata from failed propagation is harmless but won't be automatically cleaned up.
+     */
+    private async propagateDeletion(sessionIds: string[], teamId: number, deletedBy: string): Promise<void> {
+        if (sessionIds.length === 0) {
+            return
+        }
+        const [kafka, postgres, activity] = await Promise.allSettled([
+            this.emitDeletionEvents(sessionIds, teamId),
+            this.deletePostgresRecords(sessionIds, teamId),
+            this.logActivity(sessionIds, teamId, deletedBy),
+        ])
+        if (kafka.status === 'rejected') {
+            RecordingApiMetrics.incrementCleanupFailure('kafka')
+            logger.error('[RecordingService] Failed to emit deletion events to Kafka', {
+                teamId,
+                error: serializeError(kafka.reason),
+            })
+        }
+        if (postgres.status === 'rejected') {
+            RecordingApiMetrics.incrementCleanupFailure('postgres')
+            logger.error('[RecordingService] Failed to delete Postgres records', {
+                teamId,
+                error: serializeError(postgres.reason),
+            })
+        }
+        if (activity.status === 'rejected') {
+            RecordingApiMetrics.incrementCleanupFailure('activity_log')
+            logger.error('[RecordingService] Failed to log activity', {
+                teamId,
+                error: serializeError(activity.reason),
+            })
+        }
     }
 
     private async emitDeletionEvents(sessionIds: string[], teamId: number): Promise<void> {
