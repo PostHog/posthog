@@ -246,9 +246,14 @@ class GeminiAdapter:
             client = genai.Client(api_key=api_key)
             api_models = list(client.models.list())
             other = sorted(
-                m.name.removeprefix("models/")
-                for m in api_models
-                if m.name and m.name.removeprefix("models/") not in supported and m.name.startswith("models/gemini-")
+                (
+                    m.name.removeprefix("models/")
+                    for m in api_models
+                    if m.name
+                    and m.name.removeprefix("models/") not in supported
+                    and m.name.startswith("models/gemini-")
+                ),
+                reverse=True,
             )
             return list(GeminiConfig.SUPPORTED_MODELS) + other
         except Exception:

@@ -27,8 +27,8 @@ class TestAnthropicListModels:
 
         models = AnthropicAdapter.list_models("sk-ant-test-key")
 
-        # Supported models first in their defined order, then new API models sorted alphabetically
-        assert models == [*AnthropicConfig.SUPPORTED_MODELS, "claude-3-haiku-20240307", "claude-5-opus"]
+        # Supported models first in their defined order, then new API models sorted reverse alphabetically
+        assert models == [*AnthropicConfig.SUPPORTED_MODELS, "claude-5-opus", "claude-3-haiku-20240307"]
 
     @patch("products.llm_analytics.backend.llm.providers.anthropic.anthropic.Anthropic")
     def test_list_models_filters_non_claude_models(self, mock_anthropic):

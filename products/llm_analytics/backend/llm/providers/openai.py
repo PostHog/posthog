@@ -376,9 +376,12 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
             api_models = client.models.list()
             other = sorted(
-                m.id
-                for m in api_models
-                if m.id not in supported and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
+                (
+                    m.id
+                    for m in api_models
+                    if m.id not in supported and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
+                ),
+                reverse=True,
             )
             return list(OpenAIConfig.SUPPORTED_MODELS) + other
         except Exception:

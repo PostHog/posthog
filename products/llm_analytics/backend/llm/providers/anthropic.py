@@ -338,7 +338,10 @@ class AnthropicAdapter:
         try:
             client = anthropic.Anthropic(api_key=api_key, timeout=AnthropicConfig.TIMEOUT)
             api_models = client.models.list(limit=1000)
-            other = sorted(m.id for m in api_models.data if m.id not in supported and m.id.startswith("claude-"))
+            other = sorted(
+                (m.id for m in api_models.data if m.id not in supported and m.id.startswith("claude-")),
+                reverse=True,
+            )
             return list(AnthropicConfig.SUPPORTED_MODELS) + other
         except Exception:
             logger.exception("Error fetching Anthropic models from API")
