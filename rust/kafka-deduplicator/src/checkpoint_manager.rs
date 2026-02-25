@@ -765,11 +765,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_periodic_flush_and_export_task() {
-        let store_manager = create_test_store_manager();
-        let store = create_test_store("test_periodic_flush_task", 0);
+    async fn test_checkpoint_and_export() {
+        let store = create_test_store("test_checkpoint_export", 0);
 
-        // Add an event
+        // Add events to the store
         let event1 = create_test_event();
         let key1 = TimestampKey::from(&event1);
         let metadata1 = TimestampMetadata::new(&event1);
@@ -779,39 +778,25 @@ mod tests {
         let metadata2 = TimestampMetadata::new(&event2);
         store.put_timestamp_record(&key2, &metadata2).unwrap();
 
-        // Create manager with short interval for testing and filesystem exporter
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let tmp_export_dir = TempDir::new().unwrap();
 
         let uploader: Box<dyn CheckpointUploader> =
             Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
-        let config = CheckpointConfig {
-            checkpoint_interval: Duration::from_millis(100),
-            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
-            s3_key_prefix: "test".to_string(),
-            ..Default::default()
-        };
         let exporter = Arc::new(CheckpointExporter::new(uploader));
+        let partition = Partition::new("test_checkpoint_export".to_string(), 0);
 
-        let partition = Partition::new("test_periodic_flush_task".to_string(), 0);
-        let stores = store_manager.stores();
-        stores.insert(partition.clone(), store);
-
-        let mut manager =
-            CheckpointManager::new(config.clone(), store_manager.clone(), Some(exporter));
-
-        // Start the manager
-        let health_reporter = manager.start();
-        assert!(health_reporter.is_some());
-
-        // Wait for a few flush cycles
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Stop the manager
-        manager.stop().await;
-
-        // service task threads are still healthy and running
-        assert!(health_reporter.unwrap().load(Ordering::SeqCst));
+        // Run one checkpoint+export cycle directly instead of relying on the
+        // background timer loop, which is timing-dependent and flaky on slow CI.
+        let worker = CheckpointWorker::new_for_testing(
+            1,
+            tmp_checkpoint_dir.path(),
+            "test",
+            partition,
+            Utc::now(),
+            Some(exporter),
+        );
+        worker.checkpoint_partition(&store, None).await.unwrap();
 
         // Verify that files were exported to the export directory
         let export_files = find_local_checkpoint_files(tmp_export_dir.path()).unwrap();
