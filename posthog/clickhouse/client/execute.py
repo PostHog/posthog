@@ -263,6 +263,7 @@ def sync_execute(
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
         overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
+        tags.kill_switch = kill_switch_level.value
 
     tags.query_settings = core_settings
     query_type = tags.query_type or "Other"
