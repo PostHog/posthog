@@ -286,6 +286,9 @@ class InMemorySignalStore:
     def get_signals_for_report(self, report_id: str) -> list[StoredSignal]:
         return [sig for sig in self._signals if sig.report_id == report_id]
 
+    def get_report_title(self, report_id: str) -> str | None:
+        return self._report_titles.get(report_id)
+
     @property
     def signal_count(self) -> int:
         return len(self._signals)

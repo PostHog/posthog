@@ -30,8 +30,12 @@ def get_strategy(name: str):
         from current_strategy import CurrentStrategy
 
         return CurrentStrategy()
+    elif name == "group_aware":
+        from group_aware_strategy import GroupAwareStrategy
+
+        return GroupAwareStrategy()
     else:
-        raise ValueError(f"Unknown strategy: {name}. Available: current")
+        raise ValueError(f"Unknown strategy: {name}. Available: current, group_aware")
 
 
 def save_run(
