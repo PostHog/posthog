@@ -65,21 +65,24 @@ class TestFireworksListModels:
         assert FireworksAdapter.list_models(None) == []
 
     @patch("products.llm_analytics.backend.llm.providers.fireworks.openai.OpenAI")
-    def test_list_models_with_key_returns_sorted_ids(self, mock_openai):
-        model_b = MagicMock()
-        model_b.id = "accounts/fireworks/models/llama-v3p3-70b-instruct"
-        model_a = MagicMock()
-        model_a.id = "accounts/fireworks/models/deepseek-r1"
+    def test_list_models_with_key_returns_newest_first(self, mock_openai):
+        model_older = MagicMock()
+        model_older.id = "accounts/fireworks/models/deepseek-r1"
+        model_older.created = 1700000000
+
+        model_newer = MagicMock()
+        model_newer.id = "accounts/fireworks/models/llama-v3p3-70b-instruct"
+        model_newer.created = 1710000000
 
         mock_client = MagicMock()
-        mock_client.models.list.return_value = [model_b, model_a]
+        mock_client.models.list.return_value = [model_older, model_newer]
         mock_openai.return_value = mock_client
 
         models = FireworksAdapter.list_models("fw-test-key")
 
         assert models == [
-            "accounts/fireworks/models/deepseek-r1",
             "accounts/fireworks/models/llama-v3p3-70b-instruct",
+            "accounts/fireworks/models/deepseek-r1",
         ]
 
     @patch("products.llm_analytics.backend.llm.providers.fireworks.openai.OpenAI", side_effect=Exception("API error"))

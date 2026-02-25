@@ -9,7 +9,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import type { FeatureFlagType } from '~/types'
+import type { Experiment, FeatureFlagType } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
@@ -612,6 +612,139 @@ describe('experimentWizardLogic', () => {
             renderVariantsStep()
 
             expect(screen.queryByText(/For linked feature flags, this step is read-only/)).not.toBeInTheDocument()
+        })
+    })
+
+    describe('navigation between experiments', () => {
+        const incompleteDraft: Experiment = {
+            ...NEW_EXPERIMENT,
+            id: 100,
+            name: 'Incomplete Draft',
+            description: 'Saved without metrics',
+            feature_flag_key: 'incomplete-draft',
+        }
+
+        const anotherDraft: Experiment = {
+            ...NEW_EXPERIMENT,
+            id: 200,
+            name: 'Another Draft',
+            description: 'A different experiment',
+            feature_flag_key: 'another-draft',
+        }
+
+        beforeEach(() => {
+            localStorage.clear()
+            sessionStorage.clear()
+            useMocks(apiMocks)
+            initKeaTests()
+
+            featureFlagsLogic.mount()
+            experimentsLogic.mount()
+        })
+
+        afterEach(() => {
+            experimentsLogic.unmount()
+            featureFlagsLogic.unmount()
+        })
+
+        it('navigating from a draft to new experiment shows a clean form', async () => {
+            // Step 1: visit an incomplete draft (ExperimentView path)
+            const draftCreateLogic = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            draftCreateLogic.mount()
+
+            const draftWizardLogic = experimentWizardLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            draftWizardLogic.mount()
+
+            await expectLogic(draftWizardLogic).toMatchValues({
+                experiment: partial({ id: 100, name: 'Incomplete Draft' }),
+            })
+
+            draftWizardLogic.unmount()
+            draftCreateLogic.unmount()
+
+            // Step 2: navigate to new experiment (ExperimentCreateMode path)
+            const newCreateLogic = createExperimentLogic({ tabId: TAB_ID })
+            newCreateLogic.mount()
+
+            const newWizardLogic = experimentWizardLogic({ tabId: TAB_ID })
+            newWizardLogic.mount()
+
+            await expectLogic(newWizardLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            newWizardLogic.unmount()
+            newCreateLogic.unmount()
+        })
+
+        it('navigating from new experiment to a draft shows the draft data', async () => {
+            // Step 1: create a new experiment
+            const newCreateLogic = createExperimentLogic({ tabId: TAB_ID })
+            newCreateLogic.mount()
+
+            const newWizardLogic = experimentWizardLogic({ tabId: TAB_ID })
+            newWizardLogic.mount()
+
+            newCreateLogic.actions.setExperimentValue('name', 'Typed Name')
+
+            await expectLogic(newWizardLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: 'Typed Name' }),
+            })
+
+            newWizardLogic.unmount()
+            newCreateLogic.unmount()
+
+            // Step 2: navigate to an incomplete draft
+            const draftCreateLogic = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            draftCreateLogic.mount()
+
+            const draftWizardLogic = experimentWizardLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            draftWizardLogic.mount()
+
+            await expectLogic(draftWizardLogic).toMatchValues({
+                experiment: partial({
+                    id: 100,
+                    name: 'Incomplete Draft',
+                    feature_flag_key: 'incomplete-draft',
+                }),
+            })
+
+            draftWizardLogic.unmount()
+            draftCreateLogic.unmount()
+        })
+
+        it('navigating between two different drafts shows the correct data', async () => {
+            // Step 1: visit first draft
+            const firstCreateLogic = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            firstCreateLogic.mount()
+
+            const firstWizardLogic = experimentWizardLogic({ experiment: incompleteDraft, tabId: TAB_ID })
+            firstWizardLogic.mount()
+
+            await expectLogic(firstWizardLogic).toMatchValues({
+                experiment: partial({ id: 100, name: 'Incomplete Draft' }),
+            })
+
+            firstWizardLogic.unmount()
+            firstCreateLogic.unmount()
+
+            // Step 2: visit second draft
+            const secondCreateLogic = createExperimentLogic({ experiment: anotherDraft, tabId: TAB_ID })
+            secondCreateLogic.mount()
+
+            const secondWizardLogic = experimentWizardLogic({ experiment: anotherDraft, tabId: TAB_ID })
+            secondWizardLogic.mount()
+
+            await expectLogic(secondWizardLogic).toMatchValues({
+                experiment: partial({
+                    id: 200,
+                    name: 'Another Draft',
+                    feature_flag_key: 'another-draft',
+                }),
+            })
+
+            secondWizardLogic.unmount()
+            secondCreateLogic.unmount()
         })
     })
 })

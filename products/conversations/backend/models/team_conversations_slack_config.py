@@ -13,10 +13,14 @@ class TeamConversationsSlackConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     slack_bot_token = EncryptedTextField(max_length=500, null=True, blank=True)
+    slack_team_id = models.CharField(max_length=64, null=True, blank=True)
 
     class Meta:
         app_label = "conversations"
         db_table = "posthog_conversations_slack_config"
+        indexes = [
+            models.Index(fields=["slack_team_id"], name="conv_slack_cfg_team_id_idx"),
+        ]
 
 
 register_team_extension_signal(TeamConversationsSlackConfig, logger=logger)
