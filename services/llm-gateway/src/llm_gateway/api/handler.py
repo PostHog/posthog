@@ -23,6 +23,8 @@ from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
     RequestContext,
     get_request_id,
+    get_wizard_flags,
+    get_wizard_metadata,
     set_auth_user,
     set_request_context,
     set_time_to_first_token,
@@ -56,7 +58,14 @@ async def handle_llm_request(
     settings = get_settings()
     start_time = time.monotonic()
 
-    set_request_context(RequestContext(request_id=get_request_id(), product=product))
+    set_request_context(
+        RequestContext(
+            request_id=get_request_id(),
+            product=product,
+            wizard_metadata=get_wizard_metadata(),
+            wizard_flags=get_wizard_flags(),
+        )
+    )
     set_auth_user(user)
 
     structlog.contextvars.bind_contextvars(
