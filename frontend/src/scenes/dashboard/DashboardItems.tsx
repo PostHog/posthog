@@ -79,6 +79,8 @@ export function DashboardItems(): JSX.Element {
     const scrollContainerRef = useRef<HTMLElement | null>(null)
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
 
+    const { width: gridWrapperWidth, containerRef: gridWrapperRef, mounted } = useContainerWidth()
+
     useEffect(() => {
         return () => {
             if (scrollAnimationRef.current) {
@@ -86,12 +88,82 @@ export function DashboardItems(): JSX.Element {
             }
         }
     }, [])
+
+    useEffect(() => {
+        const scrollContainer = document.getElementById('main-content')
+        const scenceStickyBarContainer = document.getElementsByClassName('scene-sticky-bar')[0]
+        const gridWrapper = gridWrapperRef.current
+
+        if (!scrollContainer || !gridWrapper) {
+            // setVisibleRows(null)
+            return
+        }
+
+        let animationFrame: number | null = null
+        const updateVisibleRows = (): void => {
+            // ~container padding 16px~
+            // scene-title-section 51px
+            // scene-description 38px
+            // gap 16px
+            // scene-sticky-bar 51px
+            // 156 calculated
+            // 157px
+
+            const containerRect = scrollContainer.getBoundingClientRect() // outer rect
+            const wrapperRect = gridWrapper.getBoundingClientRect() // inner rect
+            const stickyBarRect = scenceStickyBarContainer.getBoundingClientRect()
+            console.debug('containerRect', containerRect)
+            console.debug('wrapperRect', wrapperRect)
+            console.debug('stickyBarRect', stickyBarRect)
+            //wrapperRect.y or top - (stickyBarRect.y or top + stickyBarRect.height) = 0
+            const hidden = stickyBarRect.y + stickyBarRect.height
+            const top = -(wrapperRect.y - hidden)
+            console.debug('calc top', top)
+            // console.debug('clientHeight', scrollContainer.clientHeight)
+            console.debug('calc bottom', top + scrollContainer.clientHeight - stickyBarRect.y)
+
+            // scene-sticky-bar
+
+            const gridOffsetTop = wrapperRect.top - containerRect.top + scrollContainer.scrollTop
+            const visibleTopPx = scrollContainer.scrollTop - gridOffsetTop
+            const visibleBottomPx = visibleTopPx + scrollContainer.clientHeight
+            // const rowSize = GRID_ROW_HEIGHT + GRID_VERTICAL_MARGIN
+            // console.debug('visibleTopPx', visibleTopPx)
+            // console.debug('visibleBottomPx', visibleBottomPx)
+
+            // setVisibleRows({
+            //     start: Math.max(0, Math.floor(visibleTopPx / rowSize) - VIRTUALIZATION_OVERSCAN_ROWS),
+            //     end: Math.max(1, Math.ceil(visibleBottomPx / rowSize) + VIRTUALIZATION_OVERSCAN_ROWS),
+            // })
+        }
+
+        const scheduleUpdate = (): void => {
+            if (animationFrame !== null) {
+                return
+            }
+            animationFrame = requestAnimationFrame(() => {
+                animationFrame = null
+                updateVisibleRows()
+            })
+        }
+
+        updateVisibleRows()
+        scrollContainer.addEventListener('scroll', scheduleUpdate, { passive: true })
+        window.addEventListener('resize', scheduleUpdate)
+
+        return () => {
+            if (animationFrame !== null) {
+                cancelAnimationFrame(animationFrame)
+            }
+            scrollContainer.removeEventListener('scroll', scheduleUpdate)
+            window.removeEventListener('resize', scheduleUpdate)
+        }
+    }, [gridWrapperWidth])
+
     const className = clsx({
         'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
         'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
     })
-
-    const { width: gridWrapperWidth, containerRef: gridWrapperRef, mounted } = useContainerWidth()
 
     const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
     const dashboardLayoutSize: DashboardLayoutSize = isMobileView ? 'xs' : 'sm'
