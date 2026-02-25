@@ -126,19 +126,21 @@ Compare runs by looking at the Metrics table in each file — they're sorted chr
 
 ## Strategies and results
 
-| Strategy                               | Overall | Weighted coherence | Groups (multi/single) | Weak-chain | Misplaced | Under-grouping |
-| -------------------------------------- | ------- | ------------------ | --------------------- | ---------- | --------- | -------------- |
-| `current` (production baseline)        | 2/5     | 1.97–2.65          | 15–18 (5–6 / 9–12)    | 2–3        | 13–18     | 1–4            |
-| `group_aware` (full report context)    | 2–3/5   | 2.86–3.71          | 31–33 (4–6 / 25–28)   | 1–2        | 4–6       | 1–12           |
-| `verification_gate` (LLM verification) | 2/5     | 2.87–3.36          | 29–30 (10–11 / 18–20) | 3–5        | 6–10      | 1–2            |
-| `multilink` (transitive verification)  | 2/5     | 2.53–2.87          | 16–18 (6–7 / 10–11)   | 3          | 13–18     | 0–1            |
-| `pr_specificity` (PR-title gate)       | 2/5     | 2.64–2.92          | 27–29 (9–11 / 16–20)  | 5–6        | 8–11      | 1              |
+| Strategy                                             | Overall | Weighted coherence | Groups (multi/single) | Weak-chain | Misplaced | Under-grouping |
+| ---------------------------------------------------- | ------- | ------------------ | --------------------- | ---------- | --------- | -------------- |
+| `current` (production baseline)                      | 2/5     | 1.97–2.65          | 15–18 (5–6 / 9–12)    | 2–3        | 13–18     | 1–4            |
+| `group_aware` (full report context)                  | 2–3/5   | 2.86–3.71          | 31–33 (4–6 / 25–28)   | 1–2        | 4–6       | 1–12           |
+| `verification_gate` (LLM verification)               | 2/5     | 2.87–3.36          | 29–30 (10–11 / 18–20) | 3–5        | 6–10      | 1–2            |
+| `multilink` (transitive verification)                | 2/5     | 2.53–2.87          | 16–18 (6–7 / 10–11)   | 3          | 13–18     | 0–1            |
+| `pr_specificity` v1 (PR-title gate, cold-start skip) | 2/5     | 2.64–2.92          | 27–29 (9–11 / 16–20)  | 5–6        | 8–11      | 1              |
+| `pr_specificity` v2 (no cold-start, tighter prompt)  | 2–3/5   | 3.23–4.21          | 33–34 (5–6 / 27–29)   | 1–2        | 2–5       | 1–4            |
 
 - **current**: Good at discovery, no filtering. Chains unrelated signals through shared keywords.
 - **group_aware**: Shows LLM full report context. Too conservative — over-splits into singletons.
 - **verification_gate**: Adds LLM "does this fit?" check. Subjective, doesn't reliably catch bridges.
 - **multilink**: Current discovery + embedding-based transitive verification. Fails because embeddings can't distinguish "same domain" from "same work item" — signals sharing product vocabulary pass the check.
-- **pr_specificity**: Current discovery + one LLM call asking "write a PR title for all signals; is it specific enough for one engineer?" Forces synthesis over judgment — weak-chained groups can't produce a specific PR title.
+- **pr_specificity v1**: Current discovery + one LLM call asking "write a PR title for all signals; is it specific enough for one engineer?" Forces synthesis over judgment. Cold-start skip (only checks groups with 2+ signals) leaves initial weak pairings unchecked.
+- **pr_specificity v2**: Same as v1 but runs the PR-specificity check on ALL matches (no cold-start skip) + tighter prompt with more red flags. Best results so far: 70–85% reduction in misplaced signals vs baseline. Trade-off: more singletons, but multi-signal groups are high quality.
 
 ## Adding a new strategy
 

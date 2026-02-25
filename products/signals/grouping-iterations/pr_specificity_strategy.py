@@ -11,11 +11,10 @@ specific PR title — "Fix various PostHog AI issues" is obviously too broad.
 
 Flow:
 1. Generate queries, embed, cosine search, LLM match — same as current_strategy
-2. If matched to a group with 2+ signals → PR-specificity check:
+2. If matched to any existing group → PR-specificity check:
    - One LLM call: "write a PR title covering all signals + new one; is it specific enough?"
    - If specific_enough: true → confirm match
    - If specific_enough: false → reject, create new group
-3. If matched to a 1-signal group → skip verification (cold-start tolerance)
 """
 
 import json
@@ -76,7 +75,13 @@ A VAGUE PR title is a catch-all that no single engineer would take on:
 - "Multiple workflow and integration improvements" — VAGUE (different systems)
 - "Address feature flag and authentication concerns" — VAGUE (unrelated domains)
 
-IMPORTANT: Err on the side of REJECTING. If you have to use words like "various", "multiple", "and" (connecting unrelated things), or "improvements", the group is too broad. A good PR addresses ONE concern, even if that concern has multiple symptoms.
+IMPORTANT: Err on the side of REJECTING. A good PR addresses ONE concern, even if that concern has multiple symptoms.
+
+Red flags that the group is too broad:
+- You need words like "various", "multiple", "and" (connecting unrelated things), or "improvements"
+- The signals share a keyword (e.g. "workflows", "flags", "Next.js") but address different problems
+- You'd assign the signals to different engineers based on expertise
+- The PR touches multiple unrelated systems or components
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
@@ -212,51 +217,48 @@ class PRSpecificityStrategy:
             temperature=0.2,
         )
 
-        # Step 4: PR-specificity verification (only for existing matches to 2+ signal groups)
+        # Step 4: PR-specificity verification (all existing matches, no cold-start skip)
         if not decision.is_new:
             group_signals = store.get_signals_for_report(decision.report_id)
-            if len(group_signals) >= 2:
-                logger.info(
-                    "    PR-specificity check: group has %d signals, verifying scope...",
-                    len(group_signals),
+            logger.info(
+                "    PR-specificity check: group has %d signals, verifying scope...",
+                len(group_signals),
+            )
+
+            group_title = store.get_report_title(decision.report_id)
+            specificity_prompt = _build_specificity_prompt(
+                new_signal=signal,
+                group_title=group_title,
+                group_signals=group_signals,
+            )
+
+            def validate_specificity(text: str) -> SpecificityResult:
+                data = json.loads(text)
+                return SpecificityResult.model_validate(data)
+
+            specificity = await call_llm_standalone(
+                system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
+                user_prompt=specificity_prompt,
+                validate=validate_specificity,
+                temperature=0.2,
+            )
+
+            logger.info(
+                '    PR title: "%s" | specific_enough: %s | reason: %s',
+                specificity.pr_title,
+                specificity.specific_enough,
+                specificity.reason,
+            )
+
+            if not specificity.specific_enough:
+                logger.info("    REJECTED: PR title too broad, creating new group")
+                return GroupingDecision(
+                    report_id=str(uuid.uuid4()),
+                    is_new=True,
+                    title=signal.content[:75],
+                    reason=f'PR-specificity rejected: "{specificity.pr_title}" — {specificity.reason}',
                 )
-
-                group_title = store.get_report_title(decision.report_id)
-                specificity_prompt = _build_specificity_prompt(
-                    new_signal=signal,
-                    group_title=group_title,
-                    group_signals=group_signals,
-                )
-
-                def validate_specificity(text: str) -> SpecificityResult:
-                    data = json.loads(text)
-                    return SpecificityResult.model_validate(data)
-
-                specificity = await call_llm_standalone(
-                    system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
-                    user_prompt=specificity_prompt,
-                    validate=validate_specificity,
-                    temperature=0.2,
-                )
-
-                logger.info(
-                    '    PR title: "%s" | specific_enough: %s | reason: %s',
-                    specificity.pr_title,
-                    specificity.specific_enough,
-                    specificity.reason,
-                )
-
-                if not specificity.specific_enough:
-                    logger.info("    REJECTED: PR title too broad, creating new group")
-                    return GroupingDecision(
-                        report_id=str(uuid.uuid4()),
-                        is_new=True,
-                        title=signal.content[:75],
-                        reason=f'PR-specificity rejected: "{specificity.pr_title}" — {specificity.reason}',
-                    )
-                else:
-                    logger.info("    CONFIRMED: PR title is specific enough")
             else:
-                logger.info("    Skipping verification: group has only %d signal(s)", len(group_signals))
+                logger.info("    CONFIRMED: PR title is specific enough")
 
         return decision
