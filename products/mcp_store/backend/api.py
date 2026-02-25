@@ -6,7 +6,7 @@ from urllib.parse import quote, urlencode
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import QuerySet
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 
 import requests
 import structlog
@@ -199,11 +199,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         required_scopes=["project:read"],
         renderer_classes=[MCPProxyRenderer],
     )
-    def proxy(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+    def proxy(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse | StreamingHttpResponse:
         installation = self.get_object()
 
         ok, error_response = validate_installation_auth(installation)
-        if not ok:
+        if not ok and error_response is not None:
             return error_response
 
         return proxy_mcp_request(request, installation)

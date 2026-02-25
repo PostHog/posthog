@@ -128,7 +128,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == 200
         assert "text/event-stream" in response["Content-Type"]
-        content = b"".join(response.streaming_content)
+        content = b"".join(response.streaming_content)  # type: ignore[attr-defined]
         assert content == b"event: message\ndata: {}\n\n"
         mock_response.iter_bytes.assert_called_once_with(4096)
 
