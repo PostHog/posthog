@@ -562,19 +562,19 @@ def cleanup_staged_files(
 
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+        objects: list[dict[str, str]] = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
         if objects:
-            s3.delete_objects(Bucket=bucket, Delete={"Objects": objects})
+            s3.delete_objects(Bucket=bucket, Delete={"Objects": objects})  # type: ignore[typeddict-item]
 
 
-def setup_duckgres_session(conn: psycopg.Connection) -> None:  # type: ignore[type-arg]
+def setup_duckgres_session(conn: psycopg.Connection) -> None:
     """Install and load required extensions on a duckgres connection."""
     for ext in ("ducklake", "httpfs", "delta"):
         conn.execute(f"INSTALL {ext}")
         conn.execute(f"LOAD {ext}")
 
 
-def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:  # type: ignore[type-arg]
+def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
     """Open a psycopg connection to a duckgres server."""
     return psycopg.connect(
         host=server.host,
