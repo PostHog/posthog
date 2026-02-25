@@ -1,11 +1,11 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import clsx from 'clsx'
+import { useState } from 'react'
 
 import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -144,17 +144,25 @@ Loading.parameters = {
 }
 
 export const LoadingViaOnClick = (): JSX.Element => {
-    const { loading, onEvent } = useAsyncHandler(async () => await delay(1000))
+    const [loading, setLoading] = useState(false)
+    const handleClick = async (): Promise<void> => {
+        setLoading(true)
+        try {
+            await delay(1000)
+        } finally {
+            setLoading(false)
+        }
+    }
 
     return (
         <div className="deprecated-space-y-2">
             <p>
                 For simple use-cases, you may want to use a button click to trigger something async and show a loading
-                state. Generally speaking this should exist in a <code>kea logic</code> but for simple cases you can use
-                the <code>useAsyncHandler</code>
+                state. Generally speaking this should exist in a <code>kea logic</code> but for simple cases you can use{' '}
+                <code>useState</code>
             </p>
             <div className="flex items-center gap-2">
-                <LemonButton type="secondary" loading={loading} onClick={onEvent}>
+                <LemonButton type="secondary" loading={loading} onClick={handleClick}>
                     I load for one second
                 </LemonButton>
             </div>
