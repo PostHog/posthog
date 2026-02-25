@@ -3,9 +3,6 @@ from __future__ import annotations
 import time
 from typing import Literal, Self
 
-from django.core.cache import caches
-
-import httpx
 import structlog
 from pydantic import BaseModel, Field, ValidationError
 
@@ -20,18 +17,10 @@ from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
-from .installations import (
-    _build_server_headers,
-    _get_installations,
-    _mark_needs_reauth_sync,
-    _refresh_token_sync,
-    _session_cache_key,
-)
+from .installations import _build_server_headers, _get_installations, _mark_needs_reauth_sync, _refresh_token_sync
 from .mcp_client import MCPClient, MCPClientError
 
 logger = structlog.get_logger(__name__)
-
-SESSION_CACHE_TTL = 3600  # 1 hour
 
 
 class MCPToolProperty(BaseModel, extra="ignore"):
@@ -125,7 +114,6 @@ class CallMCPServerTool(MaxTool):
         instance._installations = installations
         instance._installations_by_url = {inst["url"]: inst for inst in installations}
         instance._server_headers = server_headers
-        instance._session_cache: dict[str, str] = {}
         return instance
 
     async def _arun_impl(self, server_url: str, tool_name: str, arguments: dict | None = None) -> tuple[str, None]:
@@ -137,45 +125,23 @@ class CallMCPServerTool(MaxTool):
             return result, None
         except MCPClientError as e:
             raise MaxToolRetryableError(f"MCP server error: {e}")
-        except httpx.HTTPStatusError as e:
-            raise MaxToolRetryableError(f"MCP server returned HTTP {e.response.status_code}: {e.response.text[:500]}")
-        except httpx.TimeoutException:
-            raise MaxToolRetryableError(f"MCP server at {server_url} timed out. The server may be unavailable.")
-        except httpx.ConnectError:
-            raise MaxToolRetryableError(f"Could not connect to MCP server at {server_url}. The server may be down.")
 
     async def _call_server(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
-        had_session = self._get_cached_session(server_url) is not None
-
         try:
             return await self._attempt_call(server_url, tool_name, arguments)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                # Token may have expired, so we refresh before the retry
-                await self._refresh_auth_or_mark_reauth(server_url)
-            elif not had_session:
-                raise
         except MCPClientError:
-            if not had_session:
+            if not self._has_auth_configured(server_url):
                 raise
-
-        # If we refreshed auth or our session was stale, we retry with a fresh session
-        self._clear_cached_session(server_url)
-        return await self._attempt_call(server_url, tool_name, arguments)
+            await self._refresh_auth_or_mark_reauth(server_url)
+            return await self._attempt_call(server_url, tool_name, arguments)
 
     async def _attempt_call(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
         headers = self._server_headers.get(server_url)
-        session_id = self._get_cached_session(server_url)
-        client = MCPClient(server_url, headers=headers, session_id=session_id)
+        client = MCPClient(server_url, headers=headers)
 
         try:
-            # Init a new session if we don't have one cached
-            if not session_id:
-                await client.initialize()
-
-            result = await self._execute_mcp_call(client, server_url, tool_name, arguments)
-            self._cache_session(server_url, client.session_id)
-            return result
+            await client.initialize()
+            return await self._execute_mcp_call(client, server_url, tool_name, arguments)
         finally:
             await client.close()
 
@@ -210,14 +176,13 @@ class CallMCPServerTool(MaxTool):
             )
         allowed, error = is_url_allowed(server_url)
         if not allowed:
-            raise MaxToolFatalError(f"MCP server URL blocked by security policy: {error}")
+            raise MaxToolFatalError(f"MCP server URL blocked by security policy")
 
     async def _try_proactive_token_refresh(self, server_url: str) -> None:
         if not self._is_token_expiring(server_url):
             return
         try:
             await self._refresh_token_for_server(server_url)
-            self._clear_cached_session(server_url)
         except Exception:
             logger.warning("Proactive token refresh failed, continuing with current token", server_url=server_url)
 
@@ -275,32 +240,8 @@ class CallMCPServerTool(MaxTool):
             return
         await database_sync_to_async(_mark_needs_reauth_sync)(inst["id"])
 
-    def _get_cached_session(self, server_url: str) -> str | None:
-        if sid := self._session_cache.get(server_url):
-            return sid
-        conversation_id = self._get_conversation_id()
-        if not conversation_id:
-            return None
-        key = _session_cache_key(conversation_id, self._user.id, server_url)
-        sid = caches["default"].get(key)
-        if sid:
-            self._session_cache[server_url] = sid
-        return sid
-
-    def _cache_session(self, server_url: str, session_id: str | None) -> None:
-        if not session_id:
-            return
-        self._session_cache[server_url] = session_id
-        conversation_id = self._get_conversation_id()
-        if not conversation_id:
-            return
-        key = _session_cache_key(conversation_id, self._user.id, server_url)
-        caches["default"].set(key, session_id, timeout=SESSION_CACHE_TTL)
-
-    def _clear_cached_session(self, server_url: str) -> None:
-        self._session_cache.pop(server_url, None)
-        conversation_id = self._get_conversation_id()
-        if not conversation_id:
-            return
-        key = _session_cache_key(conversation_id, self._user.id, server_url)
-        caches["default"].delete(key)
+    def _has_auth_configured(self, server_url: str) -> bool:
+        inst = self._installations_by_url.get(server_url)
+        if not inst:
+            return False
+        return inst.get("auth_type") in ("oauth", "api_key")

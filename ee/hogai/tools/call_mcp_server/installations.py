@@ -8,10 +8,6 @@ if TYPE_CHECKING:
 from posthog.models import Team, User
 
 
-def _session_cache_key(conversation_id: str, user_id: int, server_url: str) -> str:
-    return f"mcp_session:{conversation_id}:{user_id}:{server_url}"
-
-
 def _get_installations(team: Team, user: User) -> list[dict]:
     from products.mcp_store.backend.models import MCPServerInstallation
 
@@ -26,7 +22,6 @@ def _get_installations(team: Team, user: User) -> list[dict]:
             "server__oauth_provider_kind",
             "server__oauth_metadata",
             "server__oauth_client_id",
-            "configuration",
             "sensitive_configuration",
         )
     )
