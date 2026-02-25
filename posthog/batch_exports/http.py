@@ -1,6 +1,8 @@
+import socket
 import typing
 import builtins
 import datetime as dt
+import ipaddress
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
@@ -414,6 +416,39 @@ class _SubqueryFinder(TraversingVisitor):
         self.found = True
 
 
+INTERNAL_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+
+def resolve_and_validate_host(host: str) -> None:
+    """Ensure provided hosts point to a non-internal IP."""
+    try:
+        # getaddrinfo supports both ipv4 and ipv6
+        results = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Could not resolve '{host}': {e}") from e
+
+    resolved_ips = {r[4][0] for r in results}  # Keep only unique values
+
+    for ip in resolved_ips:
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            raise ValueError("Could not parse IP")
+
+        if any(addr in network for network in INTERNAL_NETWORKS):
+            raise ValueError(f"'{host}' resolved to internal IP: {ip}")
+
+
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
@@ -634,6 +669,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
             # if someone is trying to reset the endpoint url, then we need to convert empty string to None
             if merged_config.get("endpoint_url") == "":
                 destination_attrs["config"]["endpoint_url"] = None
+
+            if merged_config.get("endpoint_url") is not None:
+                try:
+                    resolve_and_validate_host(merged_config["endpoint_url"])
+                except ValueError:
+                    raise serializers.ValidationError(f"Invalid endpoint_url: '{merged_config['endpoint_url']}'")
 
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
             team_id = self.context["team_id"]

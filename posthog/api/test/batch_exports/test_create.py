@@ -1603,3 +1603,54 @@ def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
 
     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
     assert "Backfilling Workflows is not enabled for this team." in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "endpoint_url",
+    [
+        "https://192.168.1.1",
+        "http://127.0.0.1",
+        "http://[::1]/",
+        "http://10.0.0.1:9000/",
+        "http://169.254.0.0:8080/data",
+    ],
+)
+def test_creating_S3_batch_export_fails_if_using_invalid_endpoint_url(
+    client: HttpClient, temporal, organization, team, user, endpoint_url
+):
+    """Test that creating an S3 batch export fails if passing an internal IP as endpoint URL.
+
+    Last time I checked, we are not S3.
+    """
+
+    interval = "hour"
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+            "use_virtual_style_addressing": True,
+            "endpoint_url": endpoint_url,
+        },
+        "integration": None,
+    }
+
+    batch_export_data: dict[str, t.Any] = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": interval,
+    }
+    client.force_login(user)
+
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert f"Invalid endpoint_url: '{endpoint_url}'" in response.json()["detail"]
