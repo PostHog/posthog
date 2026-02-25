@@ -17,24 +17,22 @@ export interface EmitEventStepConfig {
 
 export interface EmitEventStepInput {
     eventToEmit: RawKafkaEvent
-    inputHeaders: EventHeaders
-    inputMessage: Message
+    headers: EventHeaders
+    message: Message
 }
 
 export function createEmitEventStep<T extends EmitEventStepInput>(
     config: EmitEventStepConfig
 ): ProcessingStep<T, void> {
     return function emitEventStep(input: T): Promise<PipelineResult<void>> {
-        const { eventToEmit, inputHeaders, inputMessage } = input
+        const { eventToEmit, headers, message } = input
         const { kafkaProducer, clickhouseJsonEventsTopic, groupId } = config
 
         // Record ingestion lag metric if we have the required data
-        if (inputHeaders?.now && inputMessage?.topic !== undefined && inputMessage?.partition !== undefined) {
-            const lag = Date.now() - inputHeaders.now.getTime()
-            ingestionLagGauge
-                .labels({ topic: inputMessage.topic, partition: String(inputMessage.partition), groupId })
-                .set(lag)
-            ingestionLagHistogram.labels({ groupId, partition: String(inputMessage.partition) }).observe(lag)
+        if (headers?.now && message?.topic !== undefined && message?.partition !== undefined) {
+            const lag = Date.now() - headers.now.getTime()
+            ingestionLagGauge.labels({ topic: message.topic, partition: String(message.partition), groupId }).set(lag)
+            ingestionLagHistogram.labels({ groupId, partition: String(message.partition) }).observe(lag)
         }
 
         // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here

@@ -9,9 +9,9 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { DisableSurvey } from './DisableSurvey'
+import { disableSurveyLogic } from './disableSurveyLogic'
 import { ErrorTrackingIngestionControls } from './IngestionControls'
 import { ErrorTrackingClientSuppression } from './SuppressionRules'
-import { disableSurveyLogic } from './disableSurveyLogic'
 
 export function ExceptionAutocaptureToggle(): JSX.Element {
     const { userLoading } = useValues(userLogic)

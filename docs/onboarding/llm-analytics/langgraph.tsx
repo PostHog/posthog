@@ -76,7 +76,7 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
+                        Initialize PostHog with your project token and host from [your project
                         settings](https://app.posthog.com/settings/project), then create a LangChain `CallbackHandler`.
                     </Markdown>
 
@@ -90,7 +90,7 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     from posthog import Posthog
 
                                     posthog = Posthog(
-                                        "<ph_project_api_key>",
+                                        "<ph_project_token>",
                                         host="<ph_client_api_host>"
                                     )
 
@@ -112,7 +112,7 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     import { LangChainCallbackHandler } from '@posthog/ai';
 
                                     const phClient = new PostHog(
-                                      '<ph_project_api_key>',
+                                      '<ph_project_token>',
                                       { host: '<ph_client_api_host>' }
                                     );
 

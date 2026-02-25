@@ -8,6 +8,7 @@ from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.models import Node
 from products.data_warehouse.backend.models import DataModelingJob
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
 
 from .utils import strip_hostname_from_error, update_node_system_properties
 
@@ -21,6 +22,7 @@ class FailMaterializationInputs:
     dag_id: str
     job_id: str
     error: str
+    cancelled: bool = False
 
 
 @database_sync_to_async
@@ -29,16 +31,17 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     sanitized_error = strip_hostname_from_error(inputs.error)
 
     node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id)
+    status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
     update_node_system_properties(
         node,
-        status="failed",
+        status=status,
         job_id=inputs.job_id,
         error=sanitized_error,
     )
     node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
-    job.status = DataModelingJob.Status.FAILED
+    job.status = status
     job.error = sanitized_error
     job.save()
 

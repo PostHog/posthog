@@ -1805,7 +1805,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertIsNone(result)
 
     def test_authenticate_with_matching_project_api_key_in_body(self):
-        # Test that when project API key in body matches the secret key's team, it passes
+        # Test that when project token in body matches the secret key's team, it passes
         wsgi_request = self.factory.post(
             "/",
             data=f'{{"project_api_key": "{self.team.api_token}"}}',
@@ -1824,7 +1824,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_no_project_api_key_in_body_passes(self):
-        # Test that when there's no project API key in body, it still works normally
+        # Test that when there's no project token in body, it still works normally
         wsgi_request = self.factory.post(
             "/",
             data='{"some_other_field": "value"}',

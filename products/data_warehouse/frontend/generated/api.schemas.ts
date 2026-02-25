@@ -55,19 +55,19 @@ export interface PatchedDataWarehouseSavedQueryDraftApi {
 }
 
 /**
- * * `Running` - Running
+ * * `Cancelled` - Cancelled
  * `Completed` - Completed
  * `Failed` - Failed
- * `Cancelled` - Cancelled
+ * `Running` - Running
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
 
 export const DataModelingJobStatusEnumApi = {
-    Running: 'Running',
+    Cancelled: 'Cancelled',
     Completed: 'Completed',
     Failed: 'Failed',
-    Cancelled: 'Cancelled',
+    Running: 'Running',
 } as const
 
 export interface DataModelingJobApi {
@@ -511,7 +511,7 @@ export interface PatchedExternalDataSourceSerializersApi {
 
 export interface QueryTabStateApi {
     readonly id: string
-    /** 
+    /**
             Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
             and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
@@ -531,7 +531,7 @@ export interface PaginatedQueryTabStateListApi {
 
 export interface PatchedQueryTabStateApi {
     readonly id?: string
-    /** 
+    /**
             Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
             and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables

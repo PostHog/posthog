@@ -2,12 +2,11 @@ import { LRUCache } from 'lru-cache'
 
 import { sanitizeString } from '~/utils/db/utils'
 import { logger } from '~/utils/logger'
+import { TeamManager } from '~/utils/team-manager'
+import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
-import { GroupTypeIndex, Hub, Team } from '../../../types'
+import { GroupTypeIndex, Team } from '../../../types'
 import { GroupType, HogFunctionInvocationGlobals } from '../../types'
-
-/** Narrowed Hub type for GroupsManagerService */
-export type GroupsManagerServiceHub = Pick<Hub, 'teamManager' | 'groupRepository' | 'SITE_URL'>
 
 export type GroupsMap = Record<string, GroupType>
 export type GroupsCache = Record<Team['id'], GroupsMap>
@@ -29,7 +28,10 @@ const GROUP_TYPES_CACHE_TTL_MS = 60 * 10 * 1000 // 10 minutes
 export class GroupsManagerService {
     groupTypesMappingCache: LRUCache<number, { group_type: string; group_type_index: number }[]>
 
-    constructor(private hub: GroupsManagerServiceHub) {
+    constructor(
+        private teamManager: TeamManager,
+        private groupRepository: GroupRepository
+    ) {
         // There is only 5 per team so we can have a very high cache and a very long cooldown
         this.groupTypesMappingCache = new LRUCache({ max: 100_000, ttl: GROUP_TYPES_CACHE_TTL_MS })
     }
@@ -37,7 +39,7 @@ export class GroupsManagerService {
     private async filterTeamsWithGroups(teams: Team['id'][]): Promise<Team['id'][]> {
         const teamIds = await Promise.all(
             teams.map(async (teamId) => {
-                if (await this.hub.teamManager.hasAvailableFeature(teamId, 'group_analytics')) {
+                if (await this.teamManager.hasAvailableFeature(teamId, 'group_analytics')) {
                     return teamId
                 }
             })
@@ -69,7 +71,7 @@ export class GroupsManagerService {
         const teamsToLoad = teamsWithGroupAnalytics.filter((teamId) => !this.groupTypesMappingCache.get(teamId))
 
         if (teamsToLoad.length) {
-            const result = await this.hub.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
+            const result = await this.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
             Object.entries(result).forEach(([teamIdStr, groupTypes]) => {
                 const teamId = parseInt(teamIdStr)
                 this.groupTypesMappingCache.set(teamId, groupTypes)
@@ -98,11 +100,7 @@ export class GroupsManagerService {
         )
 
         try {
-            return await this.hub.groupRepository.fetchGroupsByKeys(
-                teamIds,
-                groupIndexes as GroupTypeIndex[],
-                groupKeys
-            )
+            return await this.groupRepository.fetchGroupsByKeys(teamIds, groupIndexes as GroupTypeIndex[], groupKeys)
         } catch (e) {
             logger.error('[GroupsManagerService] Error fetching group properties', {
                 error: e,
