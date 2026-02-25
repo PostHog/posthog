@@ -870,7 +870,7 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
         assert response.json()["detail"] == expected_error_message
 
 
-def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
+def test_create_s3_batch_export_validates_empty_inputs(client: HttpClient, temporal, organization, team, user):
     """Test creating a BatchExport with S3 destination validates that expected inputs are not empty."""
 
     destination_data = {
@@ -902,6 +902,53 @@ def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, tem
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "The following inputs are empty: ['aws_access_key_id', 'aws_secret_access_key']"
+
+
+def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
+    """Test creating a BatchExport with S3 destination validates that expected inputs are not missing."""
+
+    config = {
+        "bucket_name": "my-s3-bucket",
+        "region": "us-east-1",
+        "prefix": "events/",
+        "aws_access_key_id": "something",
+        "aws_secret_access_key": "something",
+        "file_format": "JSONLines",
+        "compression": "gzip",
+    }
+
+    client.force_login(user)
+
+    for key in ("aws_access_key_id", "aws_secret_access_key"):
+        # Check that we validate each key missing invidually first
+        destination_data = {"type": "S3", "config": {k: v for k, v in config.items() if k != key}}
+
+        data = {
+            "name": "my-s3-bucket",
+            "destination": destination_data,
+            "interval": "hour",
+        }
+
+        response = create_batch_export(
+            client,
+            team.pk,
+            data,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, key
+        assert response.json()["detail"] == f"Configuration missing required field: '{key}'"
+
+    response_missing_both = create_batch_export(
+        client,
+        team.pk,
+        {
+            "name": "my-s3-bucket",
+            "destination": {k: v for k, v in destination_data.items() if k != "aws_secret_access_key"},
+            "interval": "hour",
+        },
+    )
+
+    assert response_missing_both.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.parametrize(

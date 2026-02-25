@@ -416,7 +416,7 @@ class _SubqueryFinder(TraversingVisitor):
         self.found = True
 
 
-INTERNAL_NETWORKS = [
+INTERNAL_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
@@ -426,7 +426,7 @@ INTERNAL_NETWORKS = [
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("fc00::/7"),
     ipaddress.ip_network("fe80::/10"),
-]
+)
 
 
 def resolve_and_validate_host(host: str) -> None:
@@ -437,7 +437,8 @@ def resolve_and_validate_host(host: str) -> None:
     except socket.gaierror as e:
         raise ValueError(f"Could not resolve '{host}': {e}") from e
 
-    resolved_ips = {r[4][0] for r in results}  # Keep only unique values
+    # Keeps only unique ips from the result tuple
+    resolved_ips = {r[4][0] for r in results}
 
     for ip in resolved_ips:
         try:
