@@ -64,7 +64,7 @@ function AddDomainForm({ proxyRecordsLoading }: { proxyRecordsLoading: boolean }
                 .
             </p>
 
-            <Form logic={onboardingReverseProxyLogic} formKey="createRecord" enableFormOnSubmit className="space-y-3">
+            <Form logic={proxyLogic} formKey="createRecord" enableFormOnSubmit className="space-y-3">
                 <LemonField name="domain" label="Domain">
                     <LemonInput autoFocus placeholder="e.g. t.mydomain.com" data-attr="domain-input" />
                 </LemonField>
