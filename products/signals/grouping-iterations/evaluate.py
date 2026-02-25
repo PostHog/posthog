@@ -25,15 +25,22 @@ You will receive groups of signals that were clustered by a grouping algorithm. 
 
 ## What makes a good group
 
-A group is coherent when ALL signals share a **specific, concrete** problem or feature area — specific enough that ONE person or team would work on ALL of them together.
+A group should map to roughly ONE actionable work item. The test is:
+
+> "Could you write ONE Jira ticket or ONE pull request that addresses every signal in this group?"
+
+If the answer is no, the group is too broad — even if all signals are in the same product area.
+
+CRITICAL: "Same product/feature area" is NOT enough. A team may own 20 different work items. Each group should be ONE of those items, not all 20.
 
 Good group examples:
-- 3 signals all about the date picker being broken in insights → same component, same fix
-- 4 signals about workflow email tracking metrics → same feature area, same team
+- 3 bug reports about the date picker dropdown closing unexpectedly → one fix
+- 2 signals about funnel Time to Convert needing percentile and median options → one feature
 
-Bad group examples (even if they seem related):
-- "GDPR consent in NextJS" + "k8s probes for feature flag pods" → completely different problems, different teams, different codebases, even if both tangentially touch "feature flags"
-- "Date picker UX" + "Reverse funnel analysis" + "Funnel time-to-convert histogram" → all "insights features" but actually 3 unrelated feature requests
+Bad group examples (even if they feel related):
+- "workflow metrics NaN bug" + "push notification support" + "Microsoft Teams integration" → all "workflows" but 3 completely separate work items that would be 3 separate tickets
+- "email open rate tracking" + "workflow chart improvements" + "node view metrics overhaul" → all "workflow metrics" but 3 different pieces of work
+- "AI deleting dashboard content" + "AI JS error in SQL Editor" → both "PostHog AI bugs" but different components, different fixes, different PRs
 
 ## Weak-chaining detection (CRITICAL)
 
@@ -41,28 +48,37 @@ This is the #1 failure mode. For EVERY group with 3+ signals, you MUST perform t
 
 1. Pick the FIRST and LAST signal added to the group
 2. Ask: "Would these two signals EVER be in the same Jira ticket or PR?" If no → weak chaining.
-3. Trace the chain: how did signal 1 connect to signal N? Write out each link.
-4. If any link in the chain changes the topic (different component, different team, different problem type), flag it.
+3. Also check ALL PAIRS — pick any two signals that are NOT adjacent in the chain. Are they related without the bridging signals?
+4. Trace the chain: how did signal 1 connect to signal N? Write out each link.
+5. If any link in the chain changes the topic (different component, different fix, different feature), flag it.
 
-Example of weak chaining:
+Example of weak chaining through a shared product area:
+- Signal A: "Workflow metrics overview tab needs redesign" (topic: metrics UI)
+- Signal B: "Track email open rate with workflows" (topic: email analytics)
+- Signal C: "Native push notification support for workflows" (topic: new channel)
+- Signal D: "Support Microsoft Graph API for Teams" (topic: third-party integration)
+→ All are "workflows" but A and D have nothing in common. These are 4 separate work items.
+
+Example of weak chaining through a shared keyword:
 - Signal A: "GDPR consent not persisting in NextJS" (topic: consent/privacy)
 - Signal B: "Next.js feature flag bootstrap issues" (topic: SDK/flags — linked to A via "NextJS")
-- Signal C: ".NET SDK needs shared cache for flags" (topic: SDK caching — linked to B via "flags")
-- Signal D: "K8s probes for feature-flag pods" (topic: infrastructure — linked to C via "flags")
-→ A and D have NOTHING in common. This is weak chaining.
+- Signal C: "Nuxt SSR flag hydration bug" (topic: different framework entirely — linked to B via "flags")
+→ A and C have nothing in common. Different frameworks, different problems.
 
 ## Scoring rubric
 
 For multi-signal groups (2+):
-- 5: Every signal shares a specific problem/component. One person would work on all of them.
-- 4: Strong core theme with 1 borderline signal.
-- 3: Recognizable theme but some signals are stretches.
-- 2: Loose connection only — signals are in the same broad product area but different problems.
+- 5: One ticket/PR would cover all signals. Same specific problem or tightly coupled feature.
+- 4: Strong core with 1 borderline signal that's related but could be a separate ticket.
+- 3: Recognizable theme but 2+ signals would clearly be separate tickets.
+- 2: Same broad product area but different work items. "Workflows" or "insights" is not enough.
 - 1: No meaningful connection, or clear weak-chaining from end to end.
 
-For single-signal groups: score as null (not applicable — they cannot be evaluated for coherence).
+Be skeptical of any group with 5+ signals. Large groups are rarely coherent — the more signals, the higher the bar.
 
-For the overall score, weight multi-signal groups heavily. A run that produces 10 singleton groups and 2 good multi-signal groups is NOT a 5/5 — it means the algorithm failed to find most connections.
+For single-signal groups: score as null (not applicable).
+
+For the overall score: weight multi-signal groups by size. A large group (5+) with weak chaining is worse than a small group (2-3) with weak chaining because it means the algorithm drifted further. A run with many singletons also indicates failure to find real connections.
 
 ## Response format
 
