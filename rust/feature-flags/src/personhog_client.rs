@@ -6,7 +6,7 @@ use common_types::{Person, PersonId, TeamId};
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GroupIdentifier, HashKeyOverrideContext, HashKeyOverrideInput,
+    GetPersonByDistinctIdRequest, GroupIdentifier, HashKeyOverrideContext,
     UpsertHashKeyOverridesRequest,
 };
 use serde_json::Value;
@@ -51,7 +51,7 @@ pub trait PersonhogFetcher: Send + Sync {
     async fn upsert_hash_key_overrides(
         &self,
         team_id: TeamId,
-        person_id: PersonId,
+        distinct_ids: Vec<String>,
         feature_flag_keys: Vec<String>,
         hash_key: String,
     ) -> Result<(), FlagError>;
@@ -255,22 +255,15 @@ impl PersonhogFetcher for PersonhogClient {
     async fn upsert_hash_key_overrides(
         &self,
         team_id: TeamId,
-        person_id: PersonId,
+        distinct_ids: Vec<String>,
         feature_flag_keys: Vec<String>,
         hash_key: String,
     ) -> Result<(), FlagError> {
-        let overrides = feature_flag_keys
-            .into_iter()
-            .map(|key| HashKeyOverrideInput {
-                person_id,
-                feature_flag_key: key,
-            })
-            .collect();
-
         let request = Request::new(UpsertHashKeyOverridesRequest {
             team_id: team_id as i64,
-            overrides,
+            distinct_ids,
             hash_key,
+            feature_flag_keys,
         });
 
         self.client
@@ -327,7 +320,7 @@ pub mod mock {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    type UpsertCall = (TeamId, PersonId, Vec<String>, String);
+    type UpsertCall = (TeamId, Vec<String>, Vec<String>, String);
 
     pub struct MockPersonhogClient {
         person_responses: HashMap<(TeamId, String), Option<Person>>,
@@ -481,7 +474,7 @@ pub mod mock {
         async fn upsert_hash_key_overrides(
             &self,
             team_id: TeamId,
-            person_id: PersonId,
+            distinct_ids: Vec<String>,
             feature_flag_keys: Vec<String>,
             hash_key: String,
         ) -> Result<(), FlagError> {
@@ -493,7 +486,7 @@ pub mod mock {
             }
             self.upsert_calls.lock().unwrap().push((
                 team_id,
-                person_id,
+                distinct_ids,
                 feature_flag_keys,
                 hash_key,
             ));

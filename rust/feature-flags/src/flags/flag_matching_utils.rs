@@ -903,23 +903,6 @@ pub async fn set_feature_flag_hash_key_overrides(
     personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<bool, FlagError> {
     if let Some(client) = personhog_client {
-        let first_distinct_id = distinct_ids
-            .first()
-            .ok_or_else(|| FlagError::PersonhogError {
-                code: tonic::Code::InvalidArgument,
-                message: "distinct_ids must not be empty".to_string(),
-            })?;
-
-        let person_timer = common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
-        let person = client
-            .get_person_by_distinct_id(team_id, first_distinct_id)
-            .await?
-            .ok_or_else(|| FlagError::PersonhogError {
-                code: tonic::Code::NotFound,
-                message: format!("Person not found for distinct_id {first_distinct_id}"),
-            })?;
-        person_timer.fin();
-
         let feature_flag_keys =
             get_active_eec_flag_keys(router, team_id, "set_hash_key_overrides_personhog").await?;
 
@@ -929,7 +912,7 @@ pub async fn set_feature_flag_hash_key_overrides(
 
         let upsert_timer = common_metrics::timing_guard(FLAG_PERSONHOG_UPSERT_TIME, &[]);
         client
-            .upsert_hash_key_overrides(team_id, person.id, feature_flag_keys, hash_key_override)
+            .upsert_hash_key_overrides(team_id, distinct_ids, feature_flag_keys, hash_key_override)
             .await?;
         upsert_timer.fin();
 
@@ -2795,9 +2778,9 @@ mod tests {
 
             let calls = mock.get_upsert_calls();
             assert_eq!(calls.len(), 1);
-            let (call_team_id, call_person_id, call_keys, call_hash) = &calls[0];
+            let (call_team_id, call_distinct_ids, call_keys, call_hash) = &calls[0];
             assert_eq!(*call_team_id, team_id);
-            assert_eq!(*call_person_id, person_id);
+            assert_eq!(call_distinct_ids, &vec![distinct_id.to_string()]);
             assert_eq!(call_keys, &vec!["eec_flag".to_string()]);
             assert_eq!(call_hash, "anon_hash");
         }
