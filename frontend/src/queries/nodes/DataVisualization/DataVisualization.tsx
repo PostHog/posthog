@@ -161,7 +161,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const {
         query,
-        effectiveVisualizationType,
+        visualizationType,
         showResultControls,
         sourceFeatures,
         response,
@@ -214,7 +214,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         )
-    } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
+    } else if (visualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
                 uniqueKey={props.uniqueKey}
@@ -224,10 +224,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             />
         )
     } else if (
-        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
-        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
+        visualizationType === ChartDisplayType.ActionsLineGraph ||
+        visualizationType === ChartDisplayType.ActionsBar ||
+        visualizationType === ChartDisplayType.ActionsAreaGraph ||
+        visualizationType === ChartDisplayType.ActionsStackedBar
     ) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
@@ -236,23 +236,23 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
-                visualizationType={effectiveVisualizationType}
+                visualizationType={visualizationType}
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
                 presetChartHeight={presetChartHeight}
             />
         )
-    } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+    } else if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
-    } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
+    } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
 
     return (
         <div
             className={clsx('DataVisualization flex flex-1 gap-2', {
-                'h-full': effectiveVisualizationType !== ChartDisplayType.ActionsTable,
+                'h-full': visualizationType !== ChartDisplayType.ActionsTable,
             })}
         >
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
@@ -293,7 +293,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                     {props.exportContext && (
                                         <ExportButton
                                             disabledReason={
-                                                effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
+                                                visualizationType != ChartDisplayType.ActionsTable &&
                                                 'Only table results are exportable'
                                             }
                                             type="secondary"

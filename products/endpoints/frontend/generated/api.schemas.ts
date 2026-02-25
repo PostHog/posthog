@@ -1697,7 +1697,6 @@ export const DetailedResultsAggregationTypeApi = {
 export type ChartDisplayTypeApi = (typeof ChartDisplayTypeApi)[keyof typeof ChartDisplayTypeApi]
 
 export const ChartDisplayTypeApi = {
-    Auto: 'Auto',
     ActionsLineGraph: 'ActionsLineGraph',
     ActionsBar: 'ActionsBar',
     ActionsUnstackedBar: 'ActionsUnstackedBar',
