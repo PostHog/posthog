@@ -4,7 +4,6 @@ import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor,
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
-import { VimMode, initVimMode } from 'monaco-vim'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -18,6 +17,7 @@ import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
+import { setupVimMode } from 'lib/monaco/vimMode'
 import { inStorybookTestRunner } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -148,7 +148,7 @@ export function CodeEditor({
     // Keep a ref to the editor for cleanup - ensures we can dispose it even if state is stale
     const editorRef = useRef<importedEditor.IStandaloneCodeEditor | null>(null)
 
-    const vimModeRef = useRef<VimMode | null>(null)
+    const vimModeRef = useRef<{ dispose: () => void } | null>(null)
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
 
     const [realKey] = useState(() => codeEditorIndex++)
@@ -247,47 +247,14 @@ export function CodeEditor({
             return
         }
 
-        let focusCleanup: (() => void) | null = null
-
         if (enableVimMode && vimStatusBarRef.current) {
-            vimModeRef.current = initVimMode(editor, vimStatusBarRef.current)
-
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const regController = (VimMode as any).Vim.getRegisterController()
-            const origPushText = regController.pushText.bind(regController)
-            regController.pushText = function (
-                registerName: string,
-                operator: string,
-                text: string,
-                linewise: boolean,
-                blockwise: boolean
-            ) {
-                origPushText(registerName, operator, text, linewise, blockwise)
-                if (text) {
-                    void navigator.clipboard.writeText(text).catch(() => {})
-                }
-            }
-
-            const domNode = editor.getDomNode()
-            if (domNode) {
-                const onFocus = async (): Promise<void> => {
-                    try {
-                        const text = await navigator.clipboard.readText()
-                        regController.getRegister('+').setText(text)
-                    } catch {
-                        // clipboard permission denied or unavailable
-                    }
-                }
-                domNode.addEventListener('focus', onFocus, true)
-                focusCleanup = () => domNode.removeEventListener('focus', onFocus, true)
-            }
+            vimModeRef.current = setupVimMode(editor, vimStatusBarRef.current)
         } else if (vimModeRef.current) {
             vimModeRef.current.dispose()
             vimModeRef.current = null
         }
 
         return () => {
-            focusCleanup?.()
             if (vimModeRef.current) {
                 vimModeRef.current.dispose()
                 vimModeRef.current = null
