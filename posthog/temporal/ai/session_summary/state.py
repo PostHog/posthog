@@ -1,3 +1,4 @@
+import gzip
 import json
 import hashlib
 from enum import Enum
@@ -7,7 +8,6 @@ import structlog
 from redis import asyncio as aioredis
 
 from posthog.redis import get_async_client
-from posthog.temporal.common.redis_payload import decompress_bytes, load_compressed_str, store_compressed_str
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from ee.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
@@ -90,11 +90,15 @@ def generate_state_key(key_base: str, label: StateActivitiesEnum, state_id: str 
     return f"{key_base}:{label.value}:{state_id}"
 
 
+def _compress_redis_data(input_data: str) -> bytes:
+    return gzip.compress(input_data.encode("utf-8"))
+
+
 def decompress_redis_data(raw_redis_data: bytes | str) -> str:
     """Decode data retrieved from Redis. If data is `bytes` it is assumed to be
     gzip-compressed and will be decompressed. `str` values are returned unchanged."""
     if isinstance(raw_redis_data, bytes):
-        return decompress_bytes(raw_redis_data)
+        return gzip.decompress(raw_redis_data).decode("utf-8")
     if isinstance(raw_redis_data, str):
         return raw_redis_data
     msg = f"Invalid Redis data type: {type(raw_redis_data)}"  # type: ignore[unreachable]
@@ -114,7 +118,8 @@ async def store_data_in_redis(
         msg = f"Redis key is required for {label.value} to store data in Redis ({data})"
         logger.error(msg, signals_type="session-summaries")
         raise ValueError(msg)
-    await store_compressed_str(redis_client, redis_key, data, ttl=ttl)
+    compressed_data = _compress_redis_data(data)
+    await redis_client.setex(redis_key, ttl, compressed_data)
     return None
 
 
@@ -142,11 +147,18 @@ async def get_data_str_from_redis(
 ) -> str | None:
     """Retrieve and decompress a string value from Redis."""
     if not redis_key:
+        # If the data not present - it's probably not cached yet
+        return None
+    raw_redis_data = await redis_client.get(redis_key)
+    if not raw_redis_data:
+        # If the key doesn't exist in Redis, return None (not cached yet)
         return None
     try:
-        return await load_compressed_str(redis_client, redis_key)
+        redis_data_str = decompress_redis_data(raw_redis_data)
+        return redis_data_str
     except Exception as err:
-        msg = f"Failed to decompress output data for Redis key {redis_key} ({label.value}): {err}"
+        # Also exception if the data is present, but malformed
+        msg = f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label.value}): {err}"
         logger.exception(msg, redis_key=redis_key, signals_type="session-summaries")
         raise ValueError(msg) from err
 

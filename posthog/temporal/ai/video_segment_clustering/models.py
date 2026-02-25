@@ -48,10 +48,10 @@ class VideoSegment:
 class FetchSegmentsResult:
     """Result from fetch_segments_activity.
 
-    Segment data is stored in Redis to avoid exceeding Temporal's 2 MB payload limit.
+    Segment data is stored in object storage to avoid exceeding Temporal's 2 MB payload limit.
     """
 
-    redis_key: str
+    storage_key: str
     document_count: int
 
 
@@ -110,7 +110,7 @@ class FetchSegmentsActivityInputs:
 @dataclass
 class ClusterSegmentsActivityInputs:
     team_id: int
-    redis_key: str
+    storage_key: str
 
 
 @dataclass
@@ -124,7 +124,7 @@ class CreateNoiseClustersActivityInputs:
 class EmitSignalsActivityInputs:
     team_id: int
     clusters: list[Cluster]
-    redis_key: str
+    storage_key: str
 
 
 @dataclass

@@ -109,7 +109,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
             args=[
                 ClusterSegmentsActivityInputs(
                     team_id=inputs.team_id,
-                    redis_key=fetch_result.redis_key,
+                    storage_key=fetch_result.storage_key,
                 )
             ],
             start_to_close_timeout=timedelta(seconds=180),
@@ -134,7 +134,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                 EmitSignalsActivityInputs(
                     team_id=inputs.team_id,
                     clusters=all_clusters,
-                    redis_key=fetch_result.redis_key,
+                    storage_key=fetch_result.storage_key,
                 )
             ],
             start_to_close_timeout=timedelta(seconds=300),

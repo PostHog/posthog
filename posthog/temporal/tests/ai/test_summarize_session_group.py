@@ -37,6 +37,7 @@ from posthog.temporal.ai.session_summary.activities.video_validation import (
 )
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
+    _compress_redis_data,
     generate_state_id_from_session_ids,
     generate_state_key,
     get_redis_state_client,
@@ -56,7 +57,6 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionSummaryStreamUpdate,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.common.redis_payload import compress_str
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
@@ -109,7 +109,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
 ):
     # Prepare input data
     llm_input = mock_single_session_summary_llm_inputs(mock_session_id, auser.id)
-    compressed_llm_input_data = compress_str(json.dumps(dataclasses.asdict(llm_input)))
+    compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input)))
     input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id)
     # Generate Redis keys manually
     _, redis_input_key, redis_output_key = get_redis_state_client(
@@ -676,7 +676,7 @@ async def test_assign_events_to_patterns_filters_non_blocking_exceptions(
     )
     assert redis_input_key is not None
     await redis_test_setup.setup_input_data(
-        compress_str(patterns_data.model_dump_json()),
+        _compress_redis_data(patterns_data.model_dump_json()),
         redis_input_key,
     )
     # Create a mock LLM response for pattern assignment
@@ -859,7 +859,7 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
     )
     assert redis_input_key is not None
     await redis_test_setup.setup_input_data(
-        compress_str(patterns_data.model_dump_json()),
+        _compress_redis_data(patterns_data.model_dump_json()),
         redis_input_key,
     )
     # Mock LLM response that assigns events to patterns

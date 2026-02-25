@@ -2,7 +2,7 @@
 Activity 2 of the video segment clustering workflow:
 Fetch unprocessed video segments from ClickHouse.
 
-Stores result in Redis to avoid exceeding Temporal's 2 MB payload limit.
+Stores result in object storage to avoid exceeding Temporal's 2 MB payload limit.
 """
 
 import json
@@ -11,13 +11,12 @@ import time
 from temporalio import activity
 
 from posthog.models.team import Team
-from posthog.redis import get_async_client
 from posthog.temporal.ai.video_segment_clustering.models import (
     FetchSegmentsActivityInputs,
     FetchSegmentsResult,
     VideoSegmentMetadata,
 )
-from posthog.temporal.ai.video_segment_clustering.state import generate_redis_key, store_fetch_result
+from posthog.temporal.ai.video_segment_clustering.state import generate_storage_key, store_fetch_result
 from posthog.temporal.common.logger import get_logger
 
 from ..data import fetch_video_segment_metadata_rows
@@ -127,9 +126,8 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
 
     document_ids = [s.document_id for s in segments]
     distinct_ids = list({s.distinct_id for s in segments if s.distinct_id})
-    redis_key = generate_redis_key(inputs.team_id, activity.info().workflow_run_id)
-    redis_client = get_async_client()
-    await store_fetch_result(redis_client, redis_key, document_ids, distinct_ids)
+    storage_key = generate_storage_key(inputs.team_id, activity.info().workflow_run_id, name="segments")
+    await store_fetch_result(storage_key, document_ids, distinct_ids)
 
     logger.info(
         "video_segment_clustering.fetch_segments - finished",
@@ -138,4 +136,4 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
         total_duration_s=round(time.monotonic() - activity_start, 3),
     )
 
-    return FetchSegmentsResult(redis_key=redis_key, document_count=len(segments))
+    return FetchSegmentsResult(storage_key=storage_key, document_count=len(segments))

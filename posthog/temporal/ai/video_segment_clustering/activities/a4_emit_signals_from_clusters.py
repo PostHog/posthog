@@ -18,7 +18,6 @@ from posthoganalytics.ai.gemini import genai
 from temporalio import activity
 
 from posthog.models.team import Team
-from posthog.redis import get_async_client
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.data import (
     count_distinct_persons,
@@ -131,8 +130,7 @@ def _rows_to_segment_lookup(rows: list) -> dict[str, VideoSegmentMetadata]:
 async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs) -> EmitSignalsResult:
     """Label clusters via LLM, calculate weights, and emit each as a signal."""
     team = await Team.objects.aget(id=inputs.team_id)
-    redis_client = get_async_client()
-    _, distinct_ids = await load_fetch_result(redis_client, inputs.redis_key)
+    _, distinct_ids = await load_fetch_result(inputs.storage_key)
     active_users_in_period = await sync_to_async(count_distinct_persons)(team, distinct_ids)
 
     cluster_segment_ids = [sid for c in inputs.clusters for sid in c.segment_ids]
