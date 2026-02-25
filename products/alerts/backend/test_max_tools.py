@@ -216,7 +216,7 @@ class TestUpsertAlertTool(BaseTest):
     @pytest.mark.asyncio
     async def test_create_alert_requires_insight_id(self):
         with pytest.raises(pydantic.ValidationError, match="insight_id"):
-            CreateAlertAction(
+            CreateAlertAction(  # type: ignore[call-arg]
                 name="No insight",
                 condition_type=AlertConditionType.ABSOLUTE_VALUE,
                 lower_threshold=50.0,
