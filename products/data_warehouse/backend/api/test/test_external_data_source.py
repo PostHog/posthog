@@ -1082,7 +1082,8 @@ class TestExternalDataSource(APIBaseTest):
         ]
         with override_settings(CLOUD_DEPLOYMENT="US"):
             for endpoint in endpoints:
-                response = self.client.post(endpoint["url"], data=endpoint["data"])
+                url: str = endpoint["url"]
+                response = self.client.post(url, data=endpoint["data"])
                 self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {endpoint['url']}")
                 self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
 
