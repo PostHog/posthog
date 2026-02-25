@@ -318,7 +318,7 @@ class HogFlowFilterSet(FilterSet):
 
 
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "hog_flow"
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
