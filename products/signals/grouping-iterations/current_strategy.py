@@ -14,9 +14,8 @@ Keep in sync with the source files noted below.
 
 import json
 import uuid
+import logging
 from typing import Literal
-
-from pydantic import BaseModel, Field
 
 from harness import (
     EmbeddingCache,
@@ -27,6 +26,9 @@ from harness import (
     TestSignal,
     call_llm_standalone,
 )
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 MAX_QUERY_TOKENS = 2048
 
@@ -194,7 +196,7 @@ class CurrentStrategy:
         def validate_queries(text: str) -> list[str]:
             data = json.loads(text)
             result = QueryGenerationResponse.model_validate(data)
-            return [q[:MAX_QUERY_TOKENS * 4] for q in result.queries]  # rough char truncation
+            return [q[: MAX_QUERY_TOKENS * 4] for q in result.queries]  # rough char truncation
 
         queries = await call_llm_standalone(
             system_prompt=system_prompt,
@@ -202,7 +204,7 @@ class CurrentStrategy:
             validate=validate_queries,
             temperature=0.7,
         )
-        print(f"    Queries: {queries}")
+        logger.info("    Queries: %s", queries)
 
         # Step 3: Embed each query
         query_embeddings = embedding_cache.embed_batch(queries)

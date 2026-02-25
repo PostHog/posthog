@@ -5,15 +5,17 @@ Uses Claude to judge whether groups are coherent and compare against
 original report assignments.
 """
 
-import json
 import os
+import json
+import logging
 
 import anthropic
 from dotenv import find_dotenv, load_dotenv
-
 from harness import GroupingResult, TestSignal
 
 load_dotenv(find_dotenv(usecwd=True))
+
+logger = logging.getLogger(__name__)
 
 EVAL_MODEL = "claude-sonnet-4-5"
 
@@ -132,43 +134,43 @@ async def evaluate_grouping(result: GroupingResult) -> dict:
     return json.loads(text)
 
 
-def print_evaluation(evaluation: dict, result: GroupingResult):
-    """Print evaluation results in a readable format."""
+def format_evaluation(evaluation: dict, result: GroupingResult) -> str:
+    """Format evaluation results as a readable string."""
     signal_lookup: dict[str, TestSignal] = {s.signal_id: s for s in result.signals}
+    lines: list[str] = []
 
-    print(f"\n{'='*60}")
-    print("EVALUATION REPORT")
-    print(f"{'='*60}\n")
-
-    print(f"Overall Score: {evaluation.get('overall_score', '?')}/5")
-    print(f"Assessment: {evaluation.get('overall_assessment', 'N/A')}\n")
+    lines.append("EVALUATION REPORT")
+    lines.append("")
+    lines.append(f"Overall Score: {evaluation.get('overall_score', '?')}/5")
+    lines.append(f"Assessment: {evaluation.get('overall_assessment', 'N/A')}")
+    lines.append("")
 
     if evaluation.get("weak_chaining_detected"):
-        print("WEAK CHAINING DETECTED:")
+        lines.append("WEAK CHAINING DETECTED:")
         for example in evaluation.get("weak_chaining_examples", []):
-            print(f"  - {example}")
-        print()
+            lines.append(f"  - {example}")
+        lines.append("")
 
-    print("Group Assessments:")
+    lines.append("Group Assessments:")
     for ga in evaluation.get("group_assessments", []):
-        print(f"\n  {ga['group_id']} (coherence: {ga.get('coherence_score', '?')}/5)")
-        print(f"    {ga.get('assessment', 'N/A')}")
+        lines.append(f"\n  {ga['group_id']} (coherence: {ga.get('coherence_score', '?')}/5)")
+        lines.append(f"    {ga.get('assessment', 'N/A')}")
         if ga.get("misplaced_signals"):
-            print("    Misplaced signals:")
+            lines.append("    Misplaced signals:")
             for sid in ga["misplaced_signals"]:
                 sig = signal_lookup.get(sid)
                 if sig:
-                    print(f"      - {sig.content[:80].replace(chr(10), ' ')}")
+                    lines.append(f"      - {sig.content[:80].replace(chr(10), ' ')}")
                 else:
-                    print(f"      - {sid}")
+                    lines.append(f"      - {sid}")
         if ga.get("suggested_splits"):
-            print("    Suggested splits:")
+            lines.append("    Suggested splits:")
             for split in ga["suggested_splits"]:
-                print(f"      - {split}")
+                lines.append(f"      - {split}")
 
     if evaluation.get("merge_recommendations"):
-        print("\nMerge Recommendations:")
+        lines.append("\nMerge Recommendations:")
         for mr in evaluation["merge_recommendations"]:
-            print(f"  - Merge {mr['groups']}: {mr['reason']}")
+            lines.append(f"  - Merge {mr['groups']}: {mr['reason']}")
 
-    print()
+    return "\n".join(lines)

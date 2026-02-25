@@ -9,21 +9,23 @@ Provides:
 - call_llm_standalone(): Anthropic LLM calls without PostHog dependencies
 """
 
-import asyncio
-import hashlib
-import json
 import os
-import uuid
+import json
+import hashlib
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
-import anthropic
 import numpy as np
 import openai
+import anthropic
 from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(usecwd=True))
+
+logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(__file__).resolve().parent / "cache"
 EMBEDDING_MODEL = "text-embedding-3-small"
@@ -96,7 +98,7 @@ class EmbeddingCache:
         if self._cache_path.exists():
             with open(self._cache_path) as f:
                 self._cache = json.load(f)
-            print(f"  Loaded {len(self._cache)} cached embeddings")
+            logger.info("Loaded %d cached embeddings", len(self._cache))
 
     def _save(self):
         os.makedirs(self._cache_path.parent, exist_ok=True)
@@ -138,7 +140,6 @@ class EmbeddingCache:
                 uncached.append((i, text))
 
         if uncached:
-            # OpenAI supports batching up to ~2048 inputs
             batch_texts = [t for _, t in uncached]
             response = self._client.embeddings.create(
                 model=EMBEDDING_MODEL,
@@ -287,6 +288,7 @@ class InMemorySignalStore:
 
 
 # --- Standalone LLM call (bypasses PostHog analytics) ---
+# Source: products/signals/backend/temporal/llm.py (call_llm, _extract_text_content, _strip_markdown_json_fences)
 
 
 T = TypeVar("T")
@@ -349,7 +351,7 @@ async def call_llm_standalone(
         try:
             return validate(text_content)
         except Exception as e:
-            print(f"    LLM validation failed (attempt {attempt + 1}/{retries}): {e}")
+            logger.warning("LLM validation failed (attempt %d/%d): %s", attempt + 1, retries, e)
             messages.append({"role": "assistant", "content": response.content})
             messages.append(
                 {
@@ -389,18 +391,16 @@ async def run_harness(
     groups: dict[str, GroupInfo] = {}
     decisions: list[tuple[TestSignal, GroupingDecision]] = []
 
-    print(f"\n{'='*60}")
-    print(f"Processing {len(signals)} signals")
-    print(f"{'='*60}\n")
+    logger.info("Processing %d signals", len(signals))
 
     # Pre-embed all signal content for efficiency
-    print("Generating embeddings...")
+    logger.info("Generating embeddings...")
     all_embeddings = embedding_cache.embed_batch([s.content for s in signals])
-    print(f"  {len(all_embeddings)} embeddings ready\n")
+    logger.info("%d embeddings ready", len(all_embeddings))
 
     for i, (signal, embedding) in enumerate(zip(signals, all_embeddings)):
         content_preview = signal.content[:80].replace("\n", " ")
-        print(f"[{i+1}/{len(signals)}] {content_preview}...")
+        logger.info("[%d/%d] %s...", i + 1, len(signals), content_preview)
 
         decision = await strategy.assign_signal(signal, embedding, store, embedding_cache)
 
@@ -431,40 +431,38 @@ async def run_harness(
         decisions.append((signal, decision))
 
         action = "NEW GROUP" if decision.is_new else f"MATCHED -> {decision.report_id[:12]}..."
-        print(f"  -> {action} | {decision.reason[:60]}")
+        logger.info("  -> %s | %s", action, decision.reason[:60])
 
     return GroupingResult(groups=groups, decisions=decisions, signals=signals)
 
 
-def print_grouping_result(result: GroupingResult):
-    """Print a readable summary of grouping results."""
-    # Build a lookup for original report labels
-    original_reports: dict[str, set[str]] = {}
-    for signal in result.signals:
-        original_reports.setdefault(signal.original_report_id, set()).add(signal.signal_id)
+def format_grouping_result(result: GroupingResult) -> str:
+    """Format a readable summary of grouping results."""
+    lines: list[str] = []
+    lines.append(f"GROUPING RESULTS: {len(result.groups)} groups from {len(result.signals)} signals")
+    lines.append("")
 
-    print(f"\n{'='*60}")
-    print(f"GROUPING RESULTS: {len(result.groups)} groups from {len(result.signals)} signals")
-    print(f"{'='*60}\n")
+    signal_lookup = {s.signal_id: s for s in result.signals}
 
     for group in sorted(result.groups.values(), key=lambda g: -len(g.signal_ids)):
-        print(f"Group: {group.report_id[:12]}... ({len(group.signal_ids)} signals)")
+        lines.append(f"Group: {group.report_id[:12]}... ({len(group.signal_ids)} signals)")
         if group.title:
-            print(f"  Title: {group.title}")
+            lines.append(f"  Title: {group.title}")
 
-        # Show which original reports these signals came from
         orig_reports: dict[str, int] = {}
         for sid in group.signal_ids:
-            for signal in result.signals:
-                if signal.signal_id == sid:
-                    orig_reports.setdefault(signal.original_report_id[:12], 0)
-                    orig_reports[signal.original_report_id[:12]] += 1
+            sig = signal_lookup.get(sid)
+            if sig:
+                orig_reports.setdefault(sig.original_report_id[:12], 0)
+                orig_reports[sig.original_report_id[:12]] += 1
 
-        print(f"  Original reports: {dict(orig_reports)}")
+        lines.append(f"  Original reports: {dict(orig_reports)}")
 
         for sid in group.signal_ids:
-            for signal in result.signals:
-                if signal.signal_id == sid:
-                    preview = signal.content[:100].replace("\n", " ")
-                    print(f"    - [{signal.source_product}/{signal.source_type}] {preview}")
-        print()
+            sig = signal_lookup.get(sid)
+            if sig:
+                preview = sig.content[:100].replace("\n", " ")
+                lines.append(f"    - [{sig.source_product}/{sig.source_type}] {preview}")
+        lines.append("")
+
+    return "\n".join(lines)

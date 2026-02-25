@@ -8,10 +8,13 @@ Usage:
     python products/signals/grouping-iterations/data/prepare_test_set.py --input /path/to/signals.json
 """
 
-import argparse
-import json
 import os
+import json
+import logging
+import argparse
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 OUTPUT_PATH = Path(__file__).resolve().parent / "test_signals.json"
 
@@ -66,9 +69,13 @@ def main():
     input_path = Path(args.input)
     output_path = Path(args.output)
 
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     if not input_path.exists():
-        print(f"Error: signals export not found at {input_path}")
-        print("Export with: posthog-cli exp query run \"select product, document_type, document_id, timestamp, inserted_at, content, metadata from document_embeddings where model_name = 'text-embedding-3-small-1536' and product = 'signals' limit 1000\" > signals.json")
+        logger.error("Signals export not found at %s", input_path)
+        logger.error(
+            "Export with: posthog-cli exp query run \"select product, document_type, document_id, timestamp, inserted_at, content, metadata from document_embeddings where model_name = 'text-embedding-3-small-1536' and product = 'signals' limit 1000\" > signals.json"
+        )
         return
 
     # Parse all signals and group by report_id
@@ -92,7 +99,7 @@ def main():
         report_signals = signals_by_report.get(report_id, [])
         count = len(report_signals)
         test_signals.extend(report_signals)
-        print(f"  [{label}] {report_id}: {count} signals")
+        logger.info("  [%s] %s: %d signals", label, report_id, count)
 
     # Add singleton signals (from reports that have exactly 1 signal in our export)
     singleton_reports = [rid for rid, sigs in signals_by_report.items() if len(sigs) == 1 and rid not in TARGET_REPORTS]
@@ -102,7 +109,7 @@ def main():
             break
         test_signals.extend(signals_by_report[rid])
         content_preview = signals_by_report[rid][0]["content"][:80]
-        print(f"  [singleton] {rid}: {content_preview}")
+        logger.info("  [singleton] %s: %s", rid, content_preview)
         added_singletons += 1
 
     # Sort by timestamp to simulate arrival order
@@ -112,7 +119,7 @@ def main():
     with open(output_path, "w") as f:
         json.dump(test_signals, f, indent=2)
 
-    print(f"\nWrote {len(test_signals)} signals to {output_path}")
+    logger.info("Wrote %d signals to %s", len(test_signals), output_path)
 
 
 if __name__ == "__main__":
