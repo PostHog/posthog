@@ -482,11 +482,25 @@ jobs:
                   # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                   #   sqlx migrate run --source rust/persons_migrations/
 
+            # Get app token early so it can be passed to checkout below.
+            # This sets the git extraheader to the app token instead of GITHUB_TOKEN,
+            # which is required for the OpenAPI type commit push to trigger CI.
+            - name: Get app token for OpenAPI type commits
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+              id: openapi-app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
             # Now we can consider this PR's migrations
             - name: Checkout this PR
               uses: actions/checkout@v6
               with:
                   clean: false
+                  # Use app token so the git extraheader is set correctly for the OpenAPI
+                  # type commit push later — GITHUB_TOKEN pushes don't trigger CI.
+                  token: ${{ steps.openapi-app-token.outputs.token || github.token }}
 
             - name: Install python dependencies for this PR
               run: |
@@ -711,14 +725,6 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm install --frozen-lockfile
 
-            - name: Get app token for OpenAPI type commits
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
-              id: openapi-app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
-              with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
             - name: Check and update OpenAPI types
               env:
                   EVENT_NAME: ${{ github.event_name }}
@@ -770,9 +776,8 @@ jobs:
                   # Disable auto-merge before pushing to prevent unreviewed code from merging
                   gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
-                  # Remove GITHUB_TOKEN extraheader set by actions/checkout — it overrides
-                  # URL-embedded credentials and causes the push to use GITHUB_TOKEN instead
-                  # of the app token. GITHUB_TOKEN commits don't trigger CI; app token ones do.
+                  # Belt-and-suspenders: unset any lingering extraheader so the app token
+                  # in the remote URL is definitely used for the push.
                   git config --unset-all http.https://github.com/.extraheader || true
                   git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
                   git config user.name "github-actions[bot]"

@@ -27,7 +27,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { queryExportContext } from '~/queries/query'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -134,22 +133,6 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     }
 
     return hash
-}
-
-export function getDisplayTypeToSaveInsight(
-    outputTab: OutputTab,
-    sourceQueryDisplay: ChartDisplayType | undefined,
-    effectiveVisualizationType?: ChartDisplayType
-): ChartDisplayType {
-    if (outputTab === OutputTab.Results) {
-        return ChartDisplayType.ActionsTable
-    }
-
-    if (sourceQueryDisplay && sourceQueryDisplay !== ChartDisplayType.Auto) {
-        return sourceQueryDisplay
-    }
-
-    return effectiveVisualizationType || ChartDisplayType.ActionsLineGraph
 }
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
@@ -294,7 +277,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: '',
                 },
-                display: ChartDisplayType.Auto,
+                display: ChartDisplayType.ActionsLineGraph,
             } as DataVisualizationNode,
             {
                 setSourceQuery: (_, { sourceQuery }) => sourceQuery,
@@ -825,18 +808,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         saveAsInsight: async () => {
-            const effectiveVisualizationType = dataVisualizationLogic.findMounted({
-                key: values.dataLogicKey,
-                query: values.sourceQuery,
-                dataNodeCollectionId: values.dataLogicKey,
-                editMode: true,
-            })?.values.effectiveVisualizationType
-
-            const defaultDisplay = getDisplayTypeToSaveInsight(
-                values.outputActiveTab,
-                values.sourceQuery.display,
-                effectiveVisualizationType
-            )
+            const defaultDisplay =
+                values.outputActiveTab === OutputTab.Results
+                    ? ChartDisplayType.ActionsTable
+                    : values.sourceQuery.display || ChartDisplayType.ActionsLineGraph
 
             LemonDialog.openForm({
                 title: 'Save as new insight',
@@ -870,18 +845,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             })
         },
         saveAsInsightSubmit: async ({ name }) => {
-            const effectiveVisualizationType = dataVisualizationLogic.findMounted({
-                key: values.dataLogicKey,
-                query: values.sourceQuery,
-                dataNodeCollectionId: values.dataLogicKey,
-                editMode: true,
-            })?.values.effectiveVisualizationType
-
-            const display = getDisplayTypeToSaveInsight(
-                values.outputActiveTab,
-                values.sourceQuery.display,
-                effectiveVisualizationType
-            )
+            const display =
+                values.outputActiveTab === OutputTab.Results
+                    ? ChartDisplayType.ActionsTable
+                    : values.sourceQuery.display || ChartDisplayType.ActionsLineGraph
 
             const insight = await insightsApi.create({
                 name,
