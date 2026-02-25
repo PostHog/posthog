@@ -80,21 +80,41 @@ python products/signals/grouping-iterations/run.py --strategy current
 
 The harness prints to stdout and saves a full run log to `runs/` (gitignored):
 
-1. Per-signal processing log (queries generated, match decisions)
-2. Final groups with signal contents and original report IDs
-3. Evaluation report: per-group coherence scores, weak-chaining detection, merge/split recommendations, overall quality 1-5
+1. **Summary metrics** (printed first for quick comparison)
+2. Per-signal processing log (queries generated, match decisions)
+3. Final groups with signal contents and original report IDs
+4. Evaluation report: per-group coherence scores, under-grouping detection, overall quality 1-5
+
+### Comparing runs
+
+Each run produces deterministic **summary metrics** designed for quick numerical comparison:
+
+| Metric                | What it measures                                                |
+| --------------------- | --------------------------------------------------------------- |
+| Overall score         | LLM holistic judgment (1-5)                                     |
+| Weighted coherence    | Average coherence weighted by group size (higher = better)      |
+| Weak-chain groups     | Groups with coherence ≤ 2 and 3+ signals (lower = better)       |
+| Misplaced signals     | Total signals that don't belong in their group (lower = better) |
+| Under-grouping misses | Singletons that should have been merged (lower = better)        |
 
 ### Run history
 
 Each run is saved to `runs/<timestamp>_<strategy>.md` with:
 
-- **Context**: strategy name, signal count, overall score, note
+- **Context**: strategy name, signal count, note
+- **Metrics**: comparison table (overall score, weighted coherence, weak-chain groups, misplaced signals, under-grouping)
 - **Processing log**: per-signal decisions
 - **Groups**: full grouping output
 - **Evaluation**: judge assessment + raw JSON
 
 Use `--note` to tag runs (e.g. `--note "added distance threshold"`).
-Compare runs by reading the files in `runs/` — they're sorted chronologically by filename.
+Compare runs by looking at the Metrics table in each file — they're sorted chronologically by filename.
+
+### Tips
+
+- Running full runs (without `--limit`) is preferable for meaningful comparison
+- You can start multiple runs in parallel (for example, 3) — evaluation is non-deterministic, so multiple runs give better signal
+- Use `--limit 3 --skip-eval` for quick smoke tests when iterating on code
 
 ## Adding a new strategy
 

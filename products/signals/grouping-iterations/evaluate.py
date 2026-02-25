@@ -49,7 +49,7 @@ This is the #1 failure mode. For EVERY group with 3+ signals, you MUST perform t
 1. Pick the FIRST and LAST signal added to the group
 2. Ask: "Would these two signals EVER be in the same Jira ticket or PR?" If no → weak chaining.
 3. Also check ALL PAIRS — pick any two signals that are NOT adjacent in the chain. Are they related without the bridging signals?
-4. Trace the chain: how did signal 1 connect to signal N? Write out each link.
+4. Trace the chain: how did signal 1 connect to signal N? Identify where topic shifts happen.
 5. If any link in the chain changes the topic (different component, different fix, different feature), flag it.
 
 Example of weak chaining through a shared product area:
@@ -86,35 +86,30 @@ Over-grouping (weak chaining) is bad, but under-grouping is also a failure. For 
 
 > "Is there another group (or another singleton) that this signal clearly belongs with?"
 
-If yes, the algorithm missed a real connection. Common patterns:
-- Two singletons that are obviously the same issue (e.g., two different reports of the same bug)
-- A singleton that clearly belongs in an existing multi-signal group (e.g., a "date picker" singleton when there's already a "date picker improvements" group)
-- Related singletons that should have formed a group together
-
-A run with many avoidable singletons is a sign the algorithm is too conservative — it fails to find real connections.
+If yes, the algorithm missed a real connection. Report these in the "undergrouping" array.
 
 ## Response format
 
-Respond with a JSON object:
+Respond with a JSON object. Keep assessments concise — include chain reasoning inline when relevant, but do NOT repeat signal contents verbatim.
+
 {
   "group_assessments": [
     {
       "group_id": "<report_id prefix>",
       "signal_count": <number>,
       "coherence_score": <1-5 or null for singletons>,
-      "assessment": "<1-2 sentence assessment>",
-      "chain_trace": "<for 3+ signal groups: trace the connection chain from first to last signal, noting where topic shifts>",
-      "misplaced_signals": ["<first ~80 chars of signal content if it doesn't belong>"],
-      "suggested_splits": ["<description of sub-groups if applicable>"]
+      "assessment": "<1-2 sentences. For 3+ signal groups with weak chaining, briefly trace the drift (e.g. 'chains from metrics UI → email tracking → push notifications via workflows keyword')>",
+      "misplaced_signal_count": <number of signals that don't belong in this group, 0 if all belong>
     }
+  ],
+  "undergrouping": [
+    {"singleton_id": "<group_id of singleton>", "should_merge_with": "<group_id or 'other singleton: <id>'>", "reason": "<why>"}
   ],
   "merge_recommendations": [
     {"groups": ["<group_id>", "<group_id>"], "reason": "<why they should merge>"}
   ],
   "overall_score": <1-5>,
-  "overall_assessment": "<2-3 sentence summary focusing on what went WRONG>",
-  "weak_chaining_detected": <true/false>,
-  "weak_chaining_examples": ["<specific chain trace showing the drift>"]
+  "overall_assessment": "<2-3 sentence summary focusing on what went WRONG>"
 }"""
 
 
@@ -191,9 +186,52 @@ async def evaluate_grouping(result: GroupingResult) -> dict:
     return json.loads(text)
 
 
-def format_evaluation(evaluation: dict, result: GroupingResult) -> str:
+def compute_summary_metrics(evaluation: dict, result: GroupingResult) -> dict:
+    """Derive deterministic comparison metrics from evaluation results."""
+    group_assessments = evaluation.get("group_assessments", [])
+    multi_signal = [ga for ga in group_assessments if ga.get("coherence_score") is not None]
+
+    total_weighted = sum(ga["coherence_score"] * ga["signal_count"] for ga in multi_signal)
+    total_signals_in_groups = sum(ga["signal_count"] for ga in multi_signal)
+    weighted_coherence = total_weighted / total_signals_in_groups if total_signals_in_groups else 0
+
+    weak_chain_count = sum(1 for ga in multi_signal if ga["coherence_score"] <= 2)
+    total_misplaced = sum(ga.get("misplaced_signal_count", 0) for ga in group_assessments)
+
+    group_count = len(result.groups)
+    singleton_count = sum(1 for g in result.groups.values() if len(g.signal_ids) == 1)
+
+    undergrouping_count = len(evaluation.get("undergrouping", []))
+
+    return {
+        "overall_score": evaluation.get("overall_score", 0),
+        "weighted_coherence": round(weighted_coherence, 2),
+        "group_count": group_count,
+        "multi_signal_groups": group_count - singleton_count,
+        "singletons": singleton_count,
+        "weak_chain_groups": weak_chain_count,
+        "total_misplaced": total_misplaced,
+        "undergrouping_misses": undergrouping_count,
+    }
+
+
+def format_metrics(metrics: dict) -> str:
+    """Format summary metrics as a compact comparison-friendly string."""
+    lines = [
+        "METRICS (for cross-run comparison)",
+        "",
+        f"  Overall score:       {metrics['overall_score']}/5",
+        f"  Weighted coherence:  {metrics['weighted_coherence']}/5.0",
+        f"  Groups:              {metrics['group_count']} ({metrics['multi_signal_groups']} multi-signal, {metrics['singletons']} singletons)",
+        f"  Weak-chain groups:   {metrics['weak_chain_groups']}",
+        f"  Misplaced signals:   {metrics['total_misplaced']}",
+        f"  Under-grouping:      {metrics['undergrouping_misses']} missed merges",
+    ]
+    return "\n".join(lines)
+
+
+def format_evaluation(evaluation: dict) -> str:
     """Format evaluation results as a readable string."""
-    signal_lookup: dict[str, TestSignal] = {s.signal_id: s for s in result.signals}
     lines: list[str] = []
 
     lines.append("EVALUATION REPORT")
@@ -202,32 +240,21 @@ def format_evaluation(evaluation: dict, result: GroupingResult) -> str:
     lines.append(f"Assessment: {evaluation.get('overall_assessment', 'N/A')}")
     lines.append("")
 
-    if evaluation.get("weak_chaining_detected"):
-        lines.append("WEAK CHAINING DETECTED:")
-        for example in evaluation.get("weak_chaining_examples", []):
-            lines.append(f"  - {example}")
-        lines.append("")
-
     lines.append("Group Assessments:")
     for ga in evaluation.get("group_assessments", []):
         score = ga.get("coherence_score")
         score_str = f"{score}/5" if score is not None else "n/a"
-        lines.append(f"\n  {ga['group_id']} ({ga.get('signal_count', '?')} signals, coherence: {score_str})")
+        misplaced = ga.get("misplaced_signal_count", 0)
+        misplaced_str = f", {misplaced} misplaced" if misplaced else ""
+        lines.append(
+            f"\n  {ga['group_id']} ({ga.get('signal_count', '?')} signals, coherence: {score_str}{misplaced_str})"
+        )
         lines.append(f"    {ga.get('assessment', 'N/A')}")
-        if ga.get("chain_trace"):
-            lines.append(f"    Chain: {ga['chain_trace']}")
-        if ga.get("misplaced_signals"):
-            lines.append("    Misplaced signals:")
-            for sid in ga["misplaced_signals"]:
-                sig = signal_lookup.get(sid)
-                if sig:
-                    lines.append(f"      - {sig.content[:80].replace(chr(10), ' ')}")
-                else:
-                    lines.append(f"      - {sid}")
-        if ga.get("suggested_splits"):
-            lines.append("    Suggested splits:")
-            for split in ga["suggested_splits"]:
-                lines.append(f"      - {split}")
+
+    if evaluation.get("undergrouping"):
+        lines.append("\nUnder-grouping (missed merges):")
+        for ug in evaluation["undergrouping"]:
+            lines.append(f"  - {ug['singleton_id']} should merge with {ug['should_merge_with']}: {ug['reason']}")
 
     if evaluation.get("merge_recommendations"):
         lines.append("\nMerge Recommendations:")

@@ -17,7 +17,7 @@ from pathlib import Path
 # harness, current_strategy, evaluate as top-level modules
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from evaluate import evaluate_grouping, format_evaluation
+from evaluate import compute_summary_metrics, evaluate_grouping, format_evaluation, format_metrics
 from harness import EmbeddingCache, GroupingResult, format_grouping_result, load_test_signals, run_harness
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ def save_run(
     strategy_name: str,
     result: GroupingResult,
     evaluation: dict | None,
+    metrics: dict | None,
     note: str | None,
     limit: int | None,
 ) -> Path:
@@ -59,12 +60,24 @@ def save_run(
     lines.append(f"- **Strategy:** {strategy_name}")
     lines.append(f"- **Signals:** {len(result.signals)}{f' (limited from full set)' if limit else ''}")
     lines.append(f"- **Groups produced:** {len(result.groups)}")
-    if evaluation:
-        lines.append(f"- **Overall score:** {evaluation.get('overall_score', '?')}/5")
-        lines.append(f"- **Weak chaining:** {'Yes' if evaluation.get('weak_chaining_detected') else 'No'}")
     if note:
         lines.append(f"- **Note:** {note}")
     lines.append("")
+
+    if metrics:
+        lines.append("## Metrics")
+        lines.append("")
+        lines.append("| Metric | Value |")
+        lines.append("| --- | --- |")
+        lines.append(f"| Overall score | {metrics['overall_score']}/5 |")
+        lines.append(f"| Weighted coherence | {metrics['weighted_coherence']}/5.0 |")
+        lines.append(
+            f"| Groups | {metrics['group_count']} ({metrics['multi_signal_groups']} multi, {metrics['singletons']} single) |"
+        )
+        lines.append(f"| Weak-chain groups | {metrics['weak_chain_groups']} |")
+        lines.append(f"| Misplaced signals | {metrics['total_misplaced']} |")
+        lines.append(f"| Under-grouping misses | {metrics['undergrouping_misses']} |")
+        lines.append("")
 
     # Per-signal processing log
     lines.append("## Processing log")
@@ -86,7 +99,7 @@ def save_run(
     if evaluation:
         lines.append("## Evaluation")
         lines.append("")
-        lines.append(format_evaluation(evaluation, result))
+        lines.append(format_evaluation(evaluation))
         lines.append("")
 
     # Raw evaluation JSON for programmatic comparison
@@ -133,15 +146,18 @@ async def main():
 
     # Evaluate
     evaluation = None
+    metrics = None
     if not args.skip_eval:
         logger.info("Running LLM evaluation...")
         evaluation = await evaluate_grouping(result)
-        logger.info("\n%s", format_evaluation(evaluation, result))
+        metrics = compute_summary_metrics(evaluation, result)
+        logger.info("\n%s", format_metrics(metrics))
+        logger.info("\n%s", format_evaluation(evaluation))
     else:
         logger.info("(evaluation skipped)")
 
     # Save run
-    run_path = save_run(args.strategy, result, evaluation, args.note, args.limit)
+    run_path = save_run(args.strategy, result, evaluation, metrics, args.note, args.limit)
     logger.info("\nRun saved to: %s", run_path)
 
 
