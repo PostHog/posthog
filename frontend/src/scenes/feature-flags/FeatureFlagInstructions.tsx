@@ -310,8 +310,13 @@ export function CodeInstructions({
                 />
             )}
             {showPayloadCode && (
-                <>
-                    <h4 className="l4">Payload</h4>
+                <div className="flex flex-col gap-4">
+                    <div>
+                        <h3 className="text-sm font-medium my-0 mb-1">Accessing the payload</h3>
+                        <p className="text-xs text-secondary my-0">
+                            Use the following code to access the payload when this flag returns <code>true</code>.
+                        </p>
+                    </div>
                     <selectedOption.Snippet
                         data-attr="feature-flag-instructions-payload-snippet"
                         flagKey={featureFlagKey}
@@ -322,7 +327,7 @@ export function CodeInstructions({
                         remoteConfiguration={remoteConfiguration}
                         encryptedPayload={encryptedPayload}
                     />
-                </>
+                </div>
             )}
             {showBootstrapCode && (
                 <>

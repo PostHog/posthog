@@ -511,6 +511,16 @@ class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     rate = "500/day"
 
 
+class EventValuesBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "event_values_burst"
+    rate = "60/minute"
+
+
+class EventValuesSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "event_values_sustained"
+    rate = "300/hour"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"

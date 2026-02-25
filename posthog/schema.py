@@ -411,6 +411,7 @@ class AssistantTrendsDisplayType(RootModel[str | Any]):
 
 
 class Display(StrEnum):
+    AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
@@ -683,6 +684,7 @@ class ChartDisplayCategory(StrEnum):
 
 
 class ChartDisplayType(StrEnum):
+    AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
@@ -1972,6 +1974,7 @@ class FunnelVizType(StrEnum):
     STEPS = "steps"
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
+    FLOW = "flow"
 
 
 class Position(StrEnum):
@@ -3008,28 +3011,6 @@ class PlanningStepStatus(StrEnum):
     COMPLETED = "completed"
 
 
-class PlaywrightWorkspaceSetupData(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    organization_name: str | None = None
-    skip_onboarding: bool | None = None
-    use_current_time: bool | None = None
-
-
-class PlaywrightWorkspaceSetupResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    organization_id: str
-    organization_name: str
-    personal_api_key: str
-    team_id: str
-    team_name: str
-    user_email: str
-    user_id: str
-
-
 class ProductIntentContext(StrEnum):
     ONBOARDING_PRODUCT_SELECTED___PRIMARY = "onboarding product selected - primary"
     ONBOARDING_PRODUCT_SELECTED___SECONDARY = "onboarding product selected - secondary"
@@ -3997,24 +3978,6 @@ class TaxonomicFilterGroupType(StrEnum):
     WORKFLOW_VARIABLES = "workflow_variables"
     SUGGESTED_FILTERS = "suggested_filters"
     EMPTY = "empty"
-
-
-class TestSetupRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    data: dict[str, Any] | None = None
-
-
-class TestSetupResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    available_tests: list[str] | None = None
-    error: str | None = None
-    result: Any | None = None
-    success: bool
-    test_name: str
 
 
 class TikTokAdsDefaultSources(StrEnum):
@@ -10717,6 +10680,12 @@ class EndpointRunRequest(BaseModel):
     limit: int | None = Field(
         default=None,
         description=("Maximum number of results to return. If not provided, returns all results."),
+    )
+    offset: int | None = Field(
+        default=None,
+        description=(
+            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
+        ),
     )
     refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
     variables: dict[str, Any] | None = Field(

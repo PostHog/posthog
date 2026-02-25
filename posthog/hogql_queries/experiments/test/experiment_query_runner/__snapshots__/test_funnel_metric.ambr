@@ -1,7 +1,24 @@
 # serializer version: 1
 # name: TestExperimentFunnelMetric.test_funnel_metric_duplicate_events
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -20,16 +37,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -58,7 +80,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_0_ordered
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -77,16 +116,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -194,7 +238,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_out_of_order
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -213,16 +274,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -251,7 +317,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_different_feature_flags
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'experiment-flag'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -270,16 +353,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'experiment-flag'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -308,7 +396,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_events_after_experiment_end_date
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-10 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -326,16 +431,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-10 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-10 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -363,7 +473,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -382,16 +509,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -499,7 +631,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_action
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -518,16 +667,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -556,7 +710,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -575,16 +746,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -613,7 +789,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -632,16 +825,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(86400))), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 86400, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -670,7 +868,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_many_steps
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -693,16 +908,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(equals(events.event, '$pageview'), equals(events.event, 'add to cart'), equals(events.event, 'checkout started'), equals(events.event, 'checkout completed'), equals(events.event, 'survey submitted'), equals(events.event, 'referral')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(7, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5), multiply(7, metric_events.step_6)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 6), 0)) AS total_sum,
@@ -735,7 +955,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_multiple_similar_steps
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -755,16 +992,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(equals(events.event, '$pageview'), equals(events.event, 'purchase'), equals(events.event, 'purchase')))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(4, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 3), 0)) AS total_sum,
@@ -794,7 +1036,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_step_property_filter
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -813,16 +1072,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_1'), 0)), and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_2'), 0))))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -930,7 +1194,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_funnel_metric
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -948,16 +1229,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -985,7 +1271,17 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT events.`$group_0` AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT events.`$group_0` AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -996,16 +1292,21 @@
      FROM events
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -1078,7 +1379,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.13
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1096,16 +1414,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -1250,7 +1573,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.13
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1268,16 +1608,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -1422,7 +1767,24 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.13
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1440,16 +1802,21 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -1594,7 +1961,34 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.13
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     LEFT JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1622,16 +2016,21 @@
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -1776,7 +2175,34 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.13
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     LEFT JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@earlierevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1804,16 +2230,21 @@
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@earlierevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -1958,7 +2389,34 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.13
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     LEFT JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@laterevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1986,16 +2444,21 @@
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@laterevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -2140,7 +2603,17 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.13
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT events.person_id AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT events.person_id AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -2151,16 +2624,21 @@
      FROM events
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -2305,7 +2783,17 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.13
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT events.person_id AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT events.person_id AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -2316,16 +2804,21 @@
      FROM events
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,
@@ -2470,7 +2963,17 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.13
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT events.person_id AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT events.person_id AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -2481,16 +2984,21 @@
      FROM events
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 1), 0)) AS total_sum,

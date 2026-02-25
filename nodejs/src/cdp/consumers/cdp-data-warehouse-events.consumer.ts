@@ -10,7 +10,7 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CdpDataWarehouseEventSchema } from '../schema'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogRateLimiterService, HogRateLimiterServiceHub } from '../services/monitoring/hog-rate-limiter.service'
+import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
@@ -29,7 +29,6 @@ import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
  * Similar to CdpEventsConsumerHub but for data warehouse events.
  */
 export type CdpDatawarehouseEventsConsumerHub = CdpConsumerBaseHub &
-    HogRateLimiterServiceHub &
     PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
     Pick<Hub, 'teamManager' | 'SITE_URL'>
 
@@ -49,7 +48,14 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawareh
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'datawarehouse_table')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.hogRateLimiter = new HogRateLimiterService(hub, this.redis)
+        this.hogRateLimiter = new HogRateLimiterService(
+            {
+                bucketSize: hub.CDP_RATE_LIMITER_BUCKET_SIZE,
+                refillRate: hub.CDP_RATE_LIMITER_REFILL_RATE,
+                ttl: hub.CDP_RATE_LIMITER_TTL,
+            },
+            this.redis
+        )
     }
 
     public async processBatch(

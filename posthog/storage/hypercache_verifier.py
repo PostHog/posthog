@@ -282,6 +282,14 @@ def _verify_and_fix_batch(
             logger.exception("Error verifying team", team_id=team.id, error=str(e))
             continue
 
+        # Ensure db_data is available for cache fixes even if the verify
+        # function didn't include it. This avoids a redundant per-team DB
+        # query inside _fix_and_record.
+        if "db_data" not in verification and db_batch_data:
+            db_data = db_batch_data.get(team.id)
+            if db_data is not None:
+                verification["db_data"] = db_data
+
         status = verification["status"]
 
         # Determine issue type (if any)
@@ -316,8 +324,7 @@ def _verify_and_fix_batch(
                 issue_type=issue_type,
                 cache_type=cache_type,
                 result=result,
-                verification=verification if status == "mismatch" else None,
-                db_data=db_batch_data.get(team.id) if db_batch_data else None,
+                verification=verification,
             )
 
 
@@ -383,7 +390,7 @@ def _verify_empty_cache_team(
             issue_type=issue_type,
             cache_type=cache_type,
             result=result,
-            db_data=empty_value,
+            verification={"db_data": empty_value},
         )
 
 
@@ -394,8 +401,7 @@ def _fix_and_record(
     issue_type: str,
     cache_type: str,
     result: VerificationResult,
-    verification: dict | None = None,
-    db_data: dict | None = None,
+    verification: dict,
 ) -> None:
     """
     Fix a team's cache and record the result.
@@ -406,25 +412,24 @@ def _fix_and_record(
         issue_type: Type of issue (cache_miss, cache_mismatch, expiry_missing)
         cache_type: Cache type for metrics
         result: VerificationResult to update
-        verification: Optional verification result dict containing diff info
-        db_data: Pre-loaded DB data to avoid redundant query during fix
+        verification: Verification result dict containing diff info.
+            If it contains a "db_data" key, that data is written directly to
+            cache to avoid a redundant DB query.
     """
     # Log what's being fixed, including diff details for mismatches
     log_kwargs: dict = {"team_id": team.id, "issue_type": issue_type, "cache_type": cache_type}
-    if verification:
-        if "diff_fields" in verification:
-            log_kwargs["diff_fields"] = verification["diff_fields"]
-        if "diff_flags" in verification:
-            log_kwargs["diff_flags"] = verification["diff_flags"]
+    if "diff_fields" in verification:
+        log_kwargs["diff_fields"] = verification["diff_fields"]
+    if "diff_flags" in verification:
+        log_kwargs["diff_flags"] = verification["diff_flags"]
     logger.info("Fixing cache entry", **log_kwargs)
 
     try:
-        # If we have pre-loaded DB data, write it directly to cache to avoid redundant DB query
-        if db_data is not None:
-            config.hypercache.set_cache_value(team, db_data)
+        # Use preloaded db_data if available to avoid redundant DB query
+        if "db_data" in verification:
+            config.hypercache.set_cache_value(team, verification["db_data"])
             success = True
         else:
-            # Fall back to update_fn which will load from DB
             success = config.update_fn(team)
     except Exception as e:
         success = False
