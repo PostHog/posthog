@@ -45,7 +45,13 @@ The key is deterministic and survives database resets:
 phx_dev_local_test_api_key_1234567890abcdef
 ```
 
-You can also run it manually:
+You can use this key directly to make requests to the gateway locally.
+It is also available as `settings.DEV_API_KEY` in Django.
+
+In local dev (`DEBUG=True`), the gateway client defaults to `http://localhost:3308` and this key,
+so `get_llm_client()` works out of the box without setting any environment variables.
+
+You can also provision the key manually:
 
 ```bash
 python manage.py setup_local_api_key --add-scopes llm_gateway:read
