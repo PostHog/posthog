@@ -2,7 +2,7 @@
 
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
@@ -45,6 +45,13 @@ class PlaywrightSetupDashboard(BaseModel):
     variable_overrides: dict[str, Any] | None = None
 
 
+class PlaywrightSetupEvent(BaseModel):
+    event: str
+    distinct_id: str
+    timestamp_offset_days: float
+    properties: dict[str, Any] | None = None
+
+
 class PlaywrightWorkspaceSetupData(BaseModel):
     organization_name: str | None = None
     use_current_time: bool | None = None
@@ -52,6 +59,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
+    events: list[PlaywrightSetupEvent] | None = None
 
 
 class PlaywrightSetupCreatedVariable(BaseModel):
@@ -189,6 +197,7 @@ def create_organization_with_team(
     created_variables = _create_variables(data, team)
     created_insights = _create_insights(data, team, user, created_variables)
     created_dashboards = _create_dashboards(data, team, user, created_variables, created_insights)
+    _create_events_and_persons(data, team, now)
 
     return PlaywrightWorkspaceSetupResult(
         organization_id=str(organization.id),
@@ -306,6 +315,51 @@ def _create_dashboards(
                 )
         created.append(dashboard)
     return created
+
+
+def _create_events_and_persons(
+    data: PlaywrightWorkspaceSetupData,
+    team: "Team",  # type: ignore[name-defined] # noqa: F821
+    now: datetime,
+) -> None:
+    if not data.events:
+        return
+    from time import sleep
+
+    from posthog.models import Person, PersonDistinctId
+    from posthog.models.event.util import create_event
+    from posthog.models.person.util import create_person, create_person_distinct_id
+    from posthog.models.utils import UUIDT
+
+    # Derive persons from distinct_ids in events
+    distinct_ids = {e.distinct_id for e in data.events}
+    for distinct_id in distinct_ids:
+        person_uuid = str(UUIDT())
+        create_person(team_id=team.pk, version=0, uuid=person_uuid)
+        create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
+        pg_person = Person.objects.create(team=team, uuid=person_uuid)
+        PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
+
+    # Register event definitions so the taxonomic filter can find custom events
+    from products.event_definitions.backend.models.event_definition import EventDefinition
+
+    event_names = {e.event for e in data.events}
+    for event_name in event_names:
+        EventDefinition.objects.get_or_create(team=team, name=event_name, defaults={"project_id": team.project_id})
+
+    for event_spec in data.events:
+        ts = now - timedelta(days=event_spec.timestamp_offset_days)
+        create_event(
+            event_uuid=UUIDT(unix_time_ms=int(ts.timestamp() * 1000)),
+            event=event_spec.event,
+            distinct_id=event_spec.distinct_id,
+            team=team,
+            timestamp=ts,
+            properties=event_spec.properties or {},
+        )
+
+    if distinct_ids:
+        sleep(2)
 
 
 @dataclass(frozen=True)
