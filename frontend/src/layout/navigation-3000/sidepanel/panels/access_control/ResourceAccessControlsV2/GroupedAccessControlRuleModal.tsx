@@ -8,8 +8,8 @@ import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
 import { accessControlsLogic } from './accessControlsLogic'
 import { groupedAccessControlRuleModalLogic } from './groupedAccessControlRuleModalLogic'
-import { GroupedAccessControlRuleModalLogicProps } from './types'
 import { ScopeIcon } from './ScopeIcon'
+import { GroupedAccessControlRuleModalLogicProps } from './types'
 
 export function GroupedAccessControlRuleModal(props: { state: GroupedAccessControlRuleModalLogicProps }): JSX.Element {
     const { modalTitle, loading, canEdit } = useValues(groupedAccessControlRuleModalLogic(props.state))

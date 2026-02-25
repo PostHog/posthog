@@ -9,8 +9,8 @@ import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 import { AccessControlLevel, AvailableFeature } from '~/types'
 
 import { accessControlsLogic } from './accessControlsLogic'
-import { ScopeIcon } from './ScopeIcon'
 import { getLevelOptionsForResource } from './helpers'
+import { ScopeIcon } from './ScopeIcon'
 
 export function AccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
