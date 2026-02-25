@@ -74,13 +74,13 @@ class HogQLQuerySyntaxCorrectness(Scorer):
 class CISQLSemanticsCorrectness(SQLSemanticsCorrectness):
     """Wraps the shared scorer to extract `query` from the CI eval output dict."""
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
+    async def _run_eval_async(self, output, expected=None, database_schema=None, **kwargs):
         query = output.get("query") if output else None
-        return await super()._run_eval_async(query, expected, **kwargs)
+        return await super()._run_eval_async(query, expected, database_schema=database_schema, **kwargs)
 
-    def _run_eval_sync(self, output, expected=None, **kwargs):
+    def _run_eval_sync(self, output, expected=None, database_schema=None, **kwargs):
         query = output.get("query") if output else None
-        return super()._run_eval_sync(query, expected, **kwargs)
+        return super()._run_eval_sync(query, expected, database_schema=database_schema, **kwargs)
 
 
 @pytest.fixture
