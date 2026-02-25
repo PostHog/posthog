@@ -17,7 +17,7 @@ export interface AccessControlFiltersProps {
     roles: RoleType[]
     members: OrganizationMemberType[]
     resources: { key: APIScopeObject; label: string }[]
-    ruleOptions: { key: string; label: string }[]
+    ruleOptions: { key: AccessControlLevel; label: string }[]
     canUseRoles: boolean
 }
 
@@ -160,7 +160,7 @@ function FeaturesFilter(props: {
 function AccessLevelFilter(props: {
     selectedRuleLevels: AccessControlLevel[]
     setSelectedRuleLevels: (values: AccessControlLevel[]) => void
-    ruleOptions: { key: string; label: string }[]
+    ruleOptions: { key: AccessControlLevel; label: string }[]
 }): JSX.Element {
     return (
         <LemonDropdown

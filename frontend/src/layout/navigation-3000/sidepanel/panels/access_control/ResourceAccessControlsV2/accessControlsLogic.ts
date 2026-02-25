@@ -232,8 +232,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
         ruleOptions: [
             (s) => [s.availableProjectLevels, s.availableResourceLevels],
-            (projectLevels, resourceLevels): { key: string; label: string }[] => {
-                const levelSet = new Set<string>()
+            (projectLevels, resourceLevels): { key: AccessControlLevel; label: string }[] => {
+                const levelSet = new Set<AccessControlLevel>()
                 for (const level of projectLevels) {
                     levelSet.add(level)
                 }
