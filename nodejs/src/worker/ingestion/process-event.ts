@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { Summary } from 'prom-client'
 
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { ISOTimestamp, PreIngestionEvent, ProjectId, Team, TeamId } from '../../types'
 import { sanitizeEventName, timeoutGuard } from '../../utils/db/utils'

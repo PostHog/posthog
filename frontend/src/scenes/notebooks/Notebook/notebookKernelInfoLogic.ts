@@ -275,9 +275,9 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             ) =>
                 Boolean(
                     kernelInfo &&
-                        (Math.abs(selectedCpu - currentCpu) > 1e-6 ||
-                            Math.abs(selectedMemory - currentMemory) > 1e-6 ||
-                            idleTimeoutSeconds !== currentIdleTimeout)
+                    (Math.abs(selectedCpu - currentCpu) > 1e-6 ||
+                        Math.abs(selectedMemory - currentMemory) > 1e-6 ||
+                        idleTimeoutSeconds !== currentIdleTimeout)
                 ),
         ],
     }),

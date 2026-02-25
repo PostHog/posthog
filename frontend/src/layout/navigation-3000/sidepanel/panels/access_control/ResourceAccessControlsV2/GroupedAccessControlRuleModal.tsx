@@ -6,10 +6,10 @@ import { LemonButton, LemonDivider, LemonDropdown, LemonModal, LemonSelect, Link
 import { toSentenceCase } from 'lib/utils'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
-import { ScopeIcon } from './ScopeIcon'
 import { accessControlsLogic } from './accessControlsLogic'
 import { groupedAccessControlRuleModalLogic } from './groupedAccessControlRuleModalLogic'
 import { GroupedAccessControlRuleModalLogicProps } from './types'
+import { ScopeIcon } from './ScopeIcon'
 
 export function GroupedAccessControlRuleModal(props: { state: GroupedAccessControlRuleModalLogicProps }): JSX.Element {
     const { modalTitle, loading, canEdit } = useValues(groupedAccessControlRuleModalLogic(props.state))

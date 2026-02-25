@@ -188,6 +188,38 @@ class OauthConfig:
     additional_authorize_params: dict[str, str] | None = None
 
 
+POSTHOG_SLACK_SCOPE = ",".join(
+    [
+        "channels:read",
+        "groups:read",
+        "chat:write",
+        "chat:write.customize",
+        *(
+            [  # New scopes that came with the update adding PostHog AI integration with Slack
+                "app_mentions:read",
+                "assistant:write",
+                "channels:history",
+                "channels:join",
+                "chat:write.public",
+                "commands",
+                "groups:history",
+                "im:history",
+                "im:write",
+                "links:read",
+                "links:write",
+                "reactions:read",
+                "reactions:write",
+                "team:read",
+                "users:read",
+                "users:read.email",
+            ]
+            if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV"
+            else []
+        ),
+    ]
+)
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -234,7 +266,7 @@ class OauthIntegration:
                 token_url="https://slack.com/api/oauth.v2.access",
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
-                scope="channels:read,groups:read,chat:write,chat:write.customize",
+                scope=POSTHOG_SLACK_SCOPE,
                 id_path="team.id",
                 name_path="team.name",
             )

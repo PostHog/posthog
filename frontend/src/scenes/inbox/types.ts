@@ -30,3 +30,21 @@ export interface SignalReportArtefactResponse {
     results: SignalReportArtefact[]
     count: number
 }
+
+export interface SignalSourceConfig {
+    id: string
+    source_product: SignalSourceProduct
+    source_type: SignalSourceType
+    enabled: boolean
+    config: Record<string, any>
+    created_at: string
+    updated_at: string
+}
+
+export enum SignalSourceProduct {
+    SESSION_REPLAY = 'session_replay',
+}
+
+export enum SignalSourceType {
+    SESSION_ANALYSIS_CLUSTER = 'session_analysis_cluster',
+}
