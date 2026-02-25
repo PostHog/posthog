@@ -485,13 +485,18 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        collapseInspectorItems: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS],
+        ],
+
         processedSnapshotData: [
-            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID, s.featureFlags],
+            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID, s.collapseInspectorItems],
             (
                 start,
                 sessionPlayerData,
                 windowNumberForID,
-                featureFlags
+                collapseInspectorItems
             ): {
                 offlineStatusChanges: InspectorListOfflineStatusChange[]
                 browserVisibilityChanges: InspectorListBrowserVisibility[]
@@ -650,7 +655,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             if (!consoleLogSeenCache.has(cacheKey)) {
                                 consoleLogSeenCache.add(cacheKey)
 
-                                const collapseConsole = !featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS]
+                                const collapseConsole = !collapseInspectorItems
                                 const lastLogLine = consoleLogs[consoleLogs.length - 1]
                                 if (collapseConsole && lastLogLine?.content === content) {
                                     if (lastLogLine.count === undefined) {
@@ -1294,9 +1299,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         displayGroups: [
-            (s) => [s.items, s.groupRepeatedItems, s.featureFlags],
-            (items, groupRepeatedItems, featureFlags): DisplayGroup[] => {
-                if (!featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS]) {
+            (s) => [s.items, s.groupRepeatedItems, s.collapseInspectorItems],
+            (items, groupRepeatedItems, collapseInspectorItems): DisplayGroup[] => {
+                if (!collapseInspectorItems) {
                     return items.map((_, i) => ({ indices: [i] }))
                 }
                 return computeDisplayGroups(items, groupRepeatedItems)
