@@ -92,8 +92,13 @@ OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
 # LLM Gateway (internal service for proxying LLM requests with rate limiting and attribution)
-LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "")
-LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", "")
+# In local dev, default to the local gateway and the dev API key
+# created by `manage.py setup_local_api_key` (run automatically by bin/start-llm-gateway)
+LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "http://localhost:3308" if DEBUG else "")
+LLM_GATEWAY_API_KEY = get_from_env(
+    "LLM_GATEWAY_PERSONAL_API_KEY",
+    "phx_dev_local_test_api_key_1234567890abcdef" if DEBUG else "",
+)
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
