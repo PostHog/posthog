@@ -1,5 +1,3 @@
-import { ResponsiveLayouts } from 'react-grid-layout'
-
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
@@ -16,7 +14,6 @@ import {
     DashboardLayoutSize,
     InsightModel,
     QueryBasedInsightModel,
-    TileLayout,
 } from '~/types'
 
 // Layout related constants
@@ -92,21 +89,6 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     }
 
     return results
-}
-
-export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
-    const itemLayouts: Record<string, Record<DashboardLayoutSize, TileLayout>> = {}
-
-    Object.entries(layouts).forEach(([col, layout]) => {
-        layout?.forEach((layoutItem) => {
-            const i = String(layoutItem.i)
-            if (!itemLayouts[i]) {
-                itemLayouts[i] = {} as Record<DashboardLayoutSize, TileLayout>
-            }
-            itemLayouts[i][col as DashboardLayoutSize] = layoutItem
-        })
-    })
-    return itemLayouts
 }
 
 /**

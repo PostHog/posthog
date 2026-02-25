@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
-import { Layout, LayoutItem, ResponsiveLayouts } from 'react-grid-layout'
+import { Layout } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -30,7 +30,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -58,7 +57,6 @@ import {
     ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
-    DashboardLayoutSize,
     DashboardMode,
     DashboardPlacement,
     DashboardTemplateEditorType,
@@ -78,7 +76,6 @@ import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
 import {
     AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
-    BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
     MAX_TILES_FOR_AUTOPREVIEW,
@@ -88,7 +85,6 @@ import {
     encodeURLFilters,
     encodeURLVariables,
     getInsightWithRetry,
-    layoutsByTile,
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
@@ -249,8 +245,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Dashboard layout & tiles.
          */
-        updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
-        updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
+        updateLayout: (layout: Layout) => ({ layout }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
@@ -325,7 +320,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     api.dashboards.streamTiles(
                         props.id,
                         {
-                            layoutSize: values.currentLayoutSize,
                             filtersOverride: values.filtersOverrideForLoad,
                             variablesOverride: values.urlVariables,
                         },
@@ -566,15 +560,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
-                updateLayouts: (state, { layouts }) => {
-                    const itemLayouts = layoutsByTile(layouts)
-
-                    // Only persist sm layouts; xs layouts are derived on the fly
+                updateLayout: (state, { layout }) => {
                     return {
                         ...state,
                         tiles: state?.tiles?.map((tile) => ({
                             ...tile,
-                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
+                            layouts: { sm: layout.find((item) => item.i === tile.id?.toString()) },
                         })),
                     } as DashboardType<QueryBasedInsightModel>
                 },
@@ -733,18 +724,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 refreshDashboardItems: () => ({}),
                 abortQuery: () => ({}),
                 cancelDashboardRefresh: () => ({}),
-            },
-        ],
-        columns: [
-            null as number | null,
-            {
-                updateContainerWidth: (_, { columns }) => columns,
-            },
-        ],
-        containerWidth: [
-            null as number | null,
-            {
-                updateContainerWidth: (_, { containerWidth }) => containerWidth,
             },
         ],
         dashboardMode: [
@@ -1107,19 +1086,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })}`
             },
         ],
-        currentLayoutSize: [
-            (s) => [s.containerWidth],
-            (containerWidth): 'sm' | 'xs' => {
-                // Use precise container width when available, otherwise estimate from window width
-                if (containerWidth !== null) {
-                    return containerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
-                }
-                // Estimate from window width, accounting for ~300px of sidebars
-                const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
-                const estimatedContainerWidth = windowWidth - 300
-                return estimatedContainerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
-            },
-        ],
         tiles: [(s) => [s.dashboard], (dashboard) => dashboard?.tiles?.filter((t) => !t.deleted) || []],
         insightTiles: [
             (s) => [s.tiles],
@@ -1219,32 +1185,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     (!!currentTeam?.effective_membership_level &&
                         currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin)),
         ],
-        sizeKey: [
-            (s) => [s.columns],
-            (columns): DashboardLayoutSize | undefined => {
-                const [size] = (Object.entries(BREAKPOINT_COLUMN_COUNTS).find(([, value]) => value === columns) ||
-                    []) as [DashboardLayoutSize, number]
-                return size
-            },
-        ],
         layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
-        layout: [
-            (s) => [s.layouts, s.sizeKey],
-            (layouts: Partial<Record<DashboardLayoutSize, Layout>>, sizeKey: DashboardLayoutSize) =>
-                sizeKey ? layouts[sizeKey] : undefined,
-        ],
-        layoutForItem: [
-            (s) => [s.layout],
-            (layout) => {
-                const layoutForItem: Record<string, LayoutItem> = {}
-                if (layout) {
-                    for (const obj of layout) {
-                        layoutForItem[obj.i] = obj
-                    }
-                }
-                return layoutForItem
-            },
-        ],
         refreshMetrics: [
             (s) => [s.refreshStatus],
             (refreshStatus) => {
