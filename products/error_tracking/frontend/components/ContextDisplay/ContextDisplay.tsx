@@ -67,7 +67,10 @@ export function ContextDisplay({
                     </div>
                 ))
                 .with(false, () => (
-                    <PropertiesTable entries={[...exceptionEntries, ...additionalEntries]} onFilterValue={filterByPropertyValue} />
+                    <PropertiesTable
+                        entries={[...exceptionEntries, ...additionalEntries]}
+                        onFilterValue={filterByPropertyValue}
+                    />
                 ))
                 .exhaustive()}
         </>

@@ -63,7 +63,9 @@ export function PropertiesTable({
                                         }
                                         className="invisible group-hover:visible"
                                         onClick={() => {
-                                            const filterableValue = getFilterableValue(record.filterValue ?? record.value)
+                                            const filterableValue = getFilterableValue(
+                                                record.filterValue ?? record.value
+                                            )
                                             if (record.filterKey && filterableValue !== null) {
                                                 onFilterValue(record.filterKey, filterableValue)
                                             }

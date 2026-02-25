@@ -1,17 +1,17 @@
 import { actions, connect, kea, listeners, path, props } from 'kea'
 
 import {
-    issueFiltersLogic,
-    IssueFiltersLogicProps,
-} from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
-
-import {
     AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
+
+import {
+    issueFiltersLogic,
+    IssueFiltersLogicProps,
+} from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 
 export type PropertyValueFilterLogicProps = {
     issueFiltersLogicKey?: IssueFiltersLogicProps['logicKey']
