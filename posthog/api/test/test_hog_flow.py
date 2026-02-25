@@ -171,6 +171,94 @@ class TestHogFlowAPI(APIBaseTest):
             "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
         }
 
+    def test_hog_flow_conversion_filters_compiles_bytecode_on_create(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {
+            "filters": [
+                {
+                    "key": "apple",
+                    "type": "person",
+                    "value": ["green"],
+                    "operator": "exact",
+                }
+            ],
+            "window_minutes": None,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        conversion_filters = response.json()["conversion"]["filters"]
+        assert "bytecode" in conversion_filters
+        assert conversion_filters["properties"][0] == {
+            "key": "apple",
+            "type": "person",
+            "value": ["green"],
+            "operator": "exact",
+        }
+        assert isinstance(conversion_filters["bytecode"], list)
+        assert len(conversion_filters["bytecode"]) > 0
+
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+        assert flow.conversion["window_minutes"] is None
+        assert "bytecode" in flow.conversion["filters"]
+        assert isinstance(flow.conversion["filters"]["bytecode"], list)
+        assert len(flow.conversion["filters"]["bytecode"]) > 0
+
+    def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "active"
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "conversion": {
+                    "filters": [
+                        {
+                            "key": "apple",
+                            "type": "person",
+                            "value": ["green"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "window_minutes": None,
+                }
+            },
+        )
+
+        assert update_response.status_code == 200, update_response.json()
+        conversion_filters = update_response.json()["conversion"]["filters"]
+        assert "bytecode" in conversion_filters
+        assert conversion_filters["properties"][0] == {
+            "key": "apple",
+            "type": "person",
+            "value": ["green"],
+            "operator": "exact",
+        }
+        assert isinstance(conversion_filters["bytecode"], list)
+        assert len(conversion_filters["bytecode"]) > 0
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.conversion["window_minutes"] is None
+        assert "bytecode" in flow.conversion["filters"]
+        assert isinstance(flow.conversion["filters"]["bytecode"], list)
+        assert len(flow.conversion["filters"]["bytecode"]) > 0
+
     def test_hog_flow_conditional_branch_filters_bytecode(self):
         conditional_action = {
             "id": "cond_1",
