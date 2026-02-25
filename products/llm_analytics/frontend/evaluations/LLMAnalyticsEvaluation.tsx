@@ -31,8 +31,8 @@ import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ByokModelPicker } from '../ByokModelPicker'
-import { LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import { byokModelPickerLogic } from '../byokModelPickerLogic'
+import { LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 import {
     providerKeyStateIssueDescription,
