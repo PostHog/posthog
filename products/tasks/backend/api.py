@@ -307,8 +307,50 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         task_run.save()
+        self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    def _post_slack_update_for_pr(self, task_run: TaskRun) -> None:
+        pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
+        if not pr_url:
+            return
+
+        try:
+            from products.slack_app.backend.models import SlackThreadTaskMapping
+            from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
+                PostSlackUpdateInput,
+                post_slack_update,
+            )
+
+            mapping = (
+                SlackThreadTaskMapping.objects.filter(task_run=task_run)
+                .order_by("-updated_at")
+                .values(
+                    "integration_id",
+                    "channel",
+                    "thread_ts",
+                    "mentioning_slack_user_id",
+                )
+                .first()
+            )
+
+            if not mapping:
+                return
+
+            post_slack_update(
+                PostSlackUpdateInput(
+                    run_id=str(task_run.id),
+                    slack_thread_context={
+                        "integration_id": mapping["integration_id"],
+                        "channel": mapping["channel"],
+                        "thread_ts": mapping["thread_ts"],
+                        "mentioning_slack_user_id": mapping["mentioning_slack_user_id"],
+                    },
+                )
+            )
+        except Exception:
+            logger.exception("task_run_slack_update_for_pr_failed for run %s", task_run.id)
 
     def _signal_workflow_completion(self, task_run: TaskRun, status: str, error_message: str | None) -> None:
         """Send completion signal to Temporal workflow."""
@@ -372,6 +414,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # TODO: Validate output data according to schema for the task type.
         task_run.output = output_data
         task_run.save(update_fields=["output", "updated_at"])
+        self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 

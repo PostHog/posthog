@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 class PostSlackUpdateInput:
     run_id: str
     slack_thread_context: dict[str, Any]
+    sandbox_cleaned: bool = False
 
 
 @activity.defn
@@ -32,21 +33,36 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context)
         task_url = f"{settings.SITE_URL}/project/{task_run.task.team_id}/tasks/{task_run.task_id}?runId={task_run.id}"
+        pr_url = (task_run.output or {}).get("pr_url")
+
+        if input.sandbox_cleaned:
+            if pr_url:
+                handler.update_reaction("white_check_mark")
+                handler.post_pr_opened_sandbox_cleaned(pr_url, task_url)
+            elif task_run.status == TaskRun.Status.CANCELLED:
+                handler.update_reaction("white_check_mark")
+                handler.post_cancelled(task_url)
+            elif task_run.status == TaskRun.Status.FAILED:
+                error = task_run.error_message or "Unknown error"
+                handler.update_reaction("x")
+                handler.post_error(error, task_url)
+            return
 
         if task_run.status == TaskRun.Status.COMPLETED:
-            pr_url = (task_run.output or {}).get("pr_url")
             handler.update_reaction("white_check_mark")
             handler.post_completion(pr_url, task_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
-            handler.update_reaction("x")
+            handler.update_reaction("white_check_mark")
             handler.post_cancelled(task_url)
         elif task_run.status == TaskRun.Status.FAILED:
             error = task_run.error_message or "Unknown error"
             handler.update_reaction("x")
             handler.post_error(error, task_url)
         else:
+            if pr_url:
+                _post_pr_opened_notification_once(task_run, context, handler, pr_url)
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            handler.post_or_update_progress(stage, task_url, run_id=str(task_run.id))
+            handler.post_or_update_progress(stage, task_url, run_id=str(task_run.id), pr_url=pr_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 
@@ -64,3 +80,16 @@ def _get_stage_from_status(status: str, stage: str | None = None) -> str:
         TaskRun.Status.IN_PROGRESS: "In progress...",
     }
     return status_map.get(status, "In progress...")
+
+
+def _post_pr_opened_notification_once(task_run, context, handler, pr_url: str) -> None:
+    state = task_run.state or {}
+    if state.get("slack_pr_opened_notified"):
+        return
+
+    mention_prefix = f"<@{context.mentioning_slack_user_id}> " if context.mentioning_slack_user_id else ""
+    handler.post_thread_message(f"{mention_prefix}Pull request opened. Sandbox still running.")
+
+    state["slack_pr_opened_notified"] = True
+    task_run.state = state
+    task_run.save(update_fields=["state", "updated_at"])

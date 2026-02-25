@@ -16,6 +16,41 @@ class SlackUserRepoPreference(models.Model):
         ]
 
 
+class SlackThreadTaskMapping(models.Model):
+    """Maps Slack threads to task runs so follow-up messages can be forwarded to the running agent."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="slack_thread_task_mappings")
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.CASCADE,
+        related_name="slack_thread_task_mappings",
+    )
+    slack_workspace_id = models.CharField(max_length=64)
+    channel = models.CharField(max_length=64)
+    thread_ts = models.CharField(max_length=64)
+    task = models.ForeignKey(
+        "tasks.Task",
+        on_delete=models.CASCADE,
+        related_name="slack_thread_mappings",
+    )
+    task_run = models.ForeignKey(
+        "tasks.TaskRun",
+        on_delete=models.CASCADE,
+        related_name="slack_thread_mappings",
+    )
+    mentioning_slack_user_id = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["integration", "channel", "thread_ts"],
+                name="uniq_slack_thread_task_mapping",
+            )
+        ]
+
+
 class SlackUserProfileCache(models.Model):
     integration = models.ForeignKey(
         "posthog.Integration",

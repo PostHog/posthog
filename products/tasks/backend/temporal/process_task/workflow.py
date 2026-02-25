@@ -80,6 +80,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
+        sandbox_cleaned = False
+        timed_out = False
         run_id = input.run_id
         self._slack_thread_context = input.slack_thread_context
 
@@ -131,6 +133,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         timeout=timedelta(minutes=INACTIVITY_TIMEOUT_MINUTES),
                     )
                 except TimeoutError:
+                    timed_out = True
                     break
 
                 if self._heartbeat_received and not self._task_completed:
@@ -139,6 +142,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
+            elif timed_out:
+                await self._update_task_run_status("cancelled", error_message="Run timed out due to inactivity")
 
             await self._post_slack_update()
 
@@ -183,6 +188,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if sandbox_id:
                 await self._read_sandbox_logs(sandbox_id)
                 await self._cleanup_sandbox(sandbox_id)
+                sandbox_cleaned = True
+
+            if sandbox_cleaned and self._slack_thread_context and self._context:
+                await self._post_slack_update(sandbox_cleaned=True)
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         return await workflow.execute_activity(
@@ -274,7 +283,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
-    async def _post_slack_update(self) -> None:
+    async def _post_slack_update(self, sandbox_cleaned: bool = False) -> None:
         if not self._slack_thread_context:
             return
         await workflow.execute_activity(
@@ -282,6 +291,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             PostSlackUpdateInput(
                 run_id=self.context.run_id,
                 slack_thread_context=self._slack_thread_context,
+                sandbox_cleaned=sandbox_cleaned,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),

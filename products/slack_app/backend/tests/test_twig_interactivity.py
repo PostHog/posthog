@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+from types import SimpleNamespace
 from typing import Any
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -448,12 +449,11 @@ class TestProcessTwigRepoSelection(TestCase):
         process_twig_repo_selection(payload)
         mock_client.chat_update.assert_not_called()
 
-    @patch("products.slack_app.backend.api._create_task_for_repo")
     @patch("products.slack_app.backend.api._get_full_repo_names")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.WebClient")
     def test_default_repo_selection_sets_preference_without_creating_task(
-        self, mock_webclient_class, mock_resolve, mock_get_repos, mock_create_task
+        self, mock_webclient_class, mock_resolve, mock_get_repos
     ):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -471,24 +471,31 @@ class TestProcessTwigRepoSelection(TestCase):
 
         process_twig_repo_selection(self._make_payload(action_id="twig_default_repo_select", repo="posthog/posthog-js"))
 
-        mock_create_task.assert_not_called()
         preference = SlackUserRepoPreference.objects.get(team=self.team, user=self.user, channel="C001")
         assert preference.repository == "posthog/posthog-js"
 
+    @patch("products.tasks.backend.services.agent_command.send_cancel")
     @patch("products.tasks.backend.models.TaskRun")
     @patch("posthog.models.integration.Integration")
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.temporal.common.client.sync_connect")
     def test_terminate_action_signals_workflow(
-        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
+        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model, mock_send_cancel
     ):
         from products.slack_app.backend.tasks import process_twig_task_termination
+
+        mock_send_cancel.return_value = SimpleNamespace(
+            success=False, status_code=502, error="Connection refused", retryable=True
+        )
 
         mock_run = MagicMock()
         mock_run.id = "run-1"
         mock_run.task_id = "task-1"
         mock_run.team_id = self.team.id
         mock_run.status = "in_progress"
+        mock_run.is_terminal = False
+        mock_run.workflow_id = "task-processing-task-1-run-1"
+        mock_run.state = {"sandbox_url": "https://sandbox.example.com/rpc"}
         mock_task_run_model.Status.COMPLETED = "completed"
         mock_task_run_model.Status.FAILED = "failed"
         mock_task_run_model.Status.CANCELLED = "cancelled"
@@ -529,6 +536,7 @@ class TestProcessTwigRepoSelection(TestCase):
 
         process_twig_task_termination(payload)
 
+        mock_send_cancel.assert_called_once()
         mock_client.get_workflow_handle.assert_called_once_with("task-processing-task-1-run-1")
         mock_handle.signal.assert_called_once()
         mock_slack_client.chat_update.assert_called_once()

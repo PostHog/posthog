@@ -66,6 +66,7 @@ class TestAITemporalModuleIntegrity:
             "post_twig_no_repos_activity",
             "post_twig_repo_picker_activity",
             "create_twig_task_for_repo_activity",
+            "forward_twig_followup_activity",
             "post_twig_picker_timeout_activity",
             "post_twig_internal_error_activity",
             "process_twig_default_repo_selection_activity",

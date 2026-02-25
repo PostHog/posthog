@@ -403,6 +403,10 @@ class TaskRun(models.Model):
         }
         self.append_log([event])
 
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in {self.Status.COMPLETED, self.Status.FAILED, self.Status.CANCELLED}
+
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
 

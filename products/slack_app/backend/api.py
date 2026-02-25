@@ -824,11 +824,10 @@ def guess_repository(
 
     from openai import OpenAI
 
-    from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_user
+    from posthog.llm.gateway_client import get_llm_client
+    from posthog.temporal.oauth import create_oauth_access_token_for_user
 
     if not user:
-        from posthog.llm.gateway_client import get_llm_client
-
         client = get_llm_client("twig")
     else:
         oauth_token = create_oauth_access_token_for_user(user, integration.team_id)
@@ -897,11 +896,34 @@ def select_repository(
     if user_default_repo and user_default_repo not in all_repos:
         _clear_user_default_repo(integration.team_id, user.id, channel)
 
+    if not user_default_repo:
+        from products.slack_app.backend.models import SlackUserRepoPreference
+
+        other_channel_defaults_count = (
+            SlackUserRepoPreference.objects.filter(
+                team_id=integration.team_id,
+                user_id=user.id,
+            )
+            .exclude(channel=channel)
+            .count()
+        )
+        logger.info(
+            "twig_default_repo_not_found_for_channel",
+            team_id=integration.team_id,
+            user_id=user.id,
+            channel=channel,
+            other_channel_defaults_count=other_channel_defaults_count,
+        )
+
     return RepoDecision(mode="picker", repository=None, reason="no_explicit_multi_repo", llm_called=False)
 
 
 def route_twig_event_to_relevant_region(
-    request: HttpRequest, event: dict, slack_team_id: str, integration_kind: str = "slack-twig"
+    request: HttpRequest,
+    event: dict,
+    slack_team_id: str,
+    integration_kind: str = "slack-twig",
+    event_id: str | None = None,
 ) -> str:
     integrations = list(
         Integration.objects.filter(kind=integration_kind, integration_id=slack_team_id)
@@ -919,7 +941,8 @@ def route_twig_event_to_relevant_region(
                 integration_id=integration.id,
                 slack_team_id=slack_team_id,
             )
-            workflow_id = f"twig-mention-{slack_team_id}:{event.get('channel', '')}:{event.get('thread_ts') or event.get('ts', '')}"
+            event_id_or_fallback = event_id if event_id else f"{event.get('channel', '')}:{event.get('ts', '')}"
+            workflow_id = f"twig-mention-{slack_team_id}:{event_id_or_fallback}"
             client = sync_connect()
             asyncio.run(
                 client.start_workflow(
@@ -938,84 +961,6 @@ def route_twig_event_to_relevant_region(
     else:
         logger.warning("twig_no_integration_found", slack_team_id=slack_team_id)
         return ROUTE_NO_INTEGRATION
-
-
-def _create_task_for_repo(
-    *,
-    repository: str,
-    integration: Integration,
-    slack: SlackIntegration,
-    channel: str,
-    thread_ts: str,
-    user_message_ts: str | None,
-    event_text: str,
-    thread_messages: list[dict[str, str]],
-    user_id: int,
-    slack_user_id: str | None = None,
-) -> None:
-    """Create a Task for the given repo, adding a seedling reaction and handling errors."""
-    if user_message_ts:
-        slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="seedling")
-
-    user_text = _strip_bot_mentions(event_text)
-    title = user_text[:255] if user_text else "Task from Slack"
-    description = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
-
-    from products.slack_app.backend.slack_thread import SlackThreadContext
-    from products.tasks.backend.models import Task
-
-    slack_thread_context = SlackThreadContext(
-        integration_id=integration.id,
-        channel=channel,
-        thread_ts=thread_ts,
-        user_message_ts=user_message_ts,
-        mentioning_slack_user_id=slack_user_id,
-    )
-
-    slack_thread_url = None
-    try:
-        permalink_resp = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts)
-        if permalink_resp.get("ok"):
-            slack_thread_url = permalink_resp["permalink"]
-    except Exception:
-        logger.warning("twig_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
-
-    try:
-        Task.create_and_run(
-            team=integration.team,
-            title=title,
-            description=description,
-            origin_product=Task.OriginProduct.SLACK,
-            user_id=user_id,
-            repository=repository,
-            slack_thread_context=slack_thread_context,
-            slack_thread_url=slack_thread_url,
-        )
-    except Exception as e:
-        logger.exception(
-            "twig_task_creation_failed",
-            error=str(e),
-            team_id=integration.team_id,
-            channel=channel,
-            thread_ts=thread_ts,
-        )
-        try:
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
-            )
-        except Exception:
-            logger.warning("twig_error_notification_failed", channel=channel, thread_ts=thread_ts)
-        return
-
-    logger.info(
-        "twig_task_created",
-        team_id=integration.team_id,
-        repository=repository,
-        channel=channel,
-        thread_ts=thread_ts,
-    )
 
 
 def _picker_context_cache_key(context_token: str) -> str:
@@ -1080,9 +1025,10 @@ def twig_event_handler(request: HttpRequest) -> HttpResponse:
     if event_type == "event_callback":
         event = data.get("event", {})
         slack_team_id = data.get("team_id", "")
+        event_id = data.get("event_id")
 
         if event.get("type") == "app_mention":
-            result = route_twig_event_to_relevant_region(request, event, slack_team_id)
+            result = route_twig_event_to_relevant_region(request, event, slack_team_id, event_id=event_id)
             if result == ROUTE_PROXY_FAILED:
                 return HttpResponse(status=502)
 

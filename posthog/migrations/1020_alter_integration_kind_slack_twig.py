@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1018_migrate_event_definition_models"),
+        ("posthog", "1019_alter_integration_kind_pinterest_ads"),
     ]
 
     operations = [
@@ -40,6 +40,7 @@ class Migration(migrations.Migration):
                     ("azure-blob", "Azure Blob"),
                     ("firebase", "Firebase"),
                     ("jira", "Jira"),
+                    ("pinterest-ads", "Pinterest Ads"),
                 ],
                 max_length=20,
             ),

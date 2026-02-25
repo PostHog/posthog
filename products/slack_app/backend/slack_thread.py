@@ -119,9 +119,22 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_update_reaction_failed", error=str(e))
 
-    def post_or_update_progress(self, stage: str, task_url: str | None = None, run_id: str | None = None) -> None:
+    def post_or_update_progress(
+        self,
+        stage: str,
+        task_url: str | None = None,
+        run_id: str | None = None,
+        pr_url: str | None = None,
+    ) -> None:
         """Post a new progress message or update the existing one."""
-        text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
+        if pr_url:
+            text = (
+                f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\n"
+                "Pull request opened. Sandbox still running.\n"
+                f"Stage: {stage}"
+            )
+        else:
+            text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
@@ -134,6 +147,16 @@ class SlackThreadHandler:
                     "url": task_url,
                 }
             ]
+
+            if pr_url:
+                actions.insert(
+                    0,
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+                        "url": pr_url,
+                    },
+                )
 
             if run_id:
                 terminate_value = json.dumps(
@@ -191,6 +214,42 @@ class SlackThreadHandler:
         except Exception as e:
             logger.exception("slack_progress_update_failed", error=str(e))
 
+    def post_pr_opened_sandbox_cleaned(self, pr_url: str, task_url: str) -> None:
+        """Post final PR message after sandbox cleanup."""
+        header = "*Pull request opened. Sandbox cleaned up.* :rocket:"
+
+        blocks: list[dict[str, Any]] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": header}},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+                        "url": pr_url,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "url": task_url,
+                    },
+                ],
+            },
+        ]
+
+        self._delete_progress_and_post(header, blocks)
+
+    def post_thread_message(self, text: str) -> None:
+        """Post a plain message in the existing thread."""
+        try:
+            self._get_client().chat_postMessage(
+                channel=self.context.channel,
+                thread_ts=self.context.thread_ts,
+                text=text,
+            )
+        except Exception as e:
+            logger.warning("slack_post_thread_message_failed", error=str(e))
+
     def post_completion(self, pr_url: str | None, task_url: str) -> None:
         """Post completion message with PR link."""
         if pr_url:
@@ -243,7 +302,7 @@ class SlackThreadHandler:
 
     def post_cancelled(self, task_url: str) -> None:
         """Post cancelled message with link to PostHog for details."""
-        header = "*Task Cancelled* :octagonal_sign:"
+        header = "*Sandbox stopped* :white_check_mark:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
