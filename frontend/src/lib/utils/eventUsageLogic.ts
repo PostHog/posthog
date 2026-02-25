@@ -790,6 +790,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             selected,
             recommendationSource,
         }),
+        reportOnboardingReverseProxyDomainEntered: (domain: string) => ({ domain }),
+        reportOnboardingReverseProxyDocsClicked: true,
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -1937,6 +1939,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
             })
+        },
+        reportOnboardingReverseProxyDomainEntered: ({ domain }) => {
+            posthog.capture('onboarding reverse proxy domain entered', { domain })
+        },
+        reportOnboardingReverseProxyDocsClicked: () => {
+            posthog.capture('onboarding reverse proxy docs clicked')
         },
         // command bar
         reportCommandBarStatusChanged: ({ status }) => {
