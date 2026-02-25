@@ -1,4 +1,5 @@
 import uuid
+from typing import cast
 from urllib.parse import quote, urlencode, urlparse
 
 from django.conf import settings
@@ -13,6 +14,7 @@ from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.user import User
 
 from ee.vercel.client import VercelAPIClient
 
@@ -135,6 +137,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         if not serializer.is_valid():
             raise exceptions.ValidationError(serializer.errors)
 
+        user = cast(User, request.user)
         session_key = serializer.validated_data["session"]
         organization_id = serializer.validated_data["organization_id"]
 
@@ -142,10 +145,9 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         if not cached_data:
             raise exceptions.ValidationError("Session expired. Please try linking again from Vercel.")
 
-        # Verify the user is a member of the selected org
         try:
             membership = OrganizationMembership.objects.get(
-                user=request.user,
+                user=user,
                 organization_id=organization_id,
             )
         except OrganizationMembership.DoesNotExist:
@@ -183,10 +185,10 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 "vercel_user_id": cached_data["user_id"],
                 "configuration_id": cached_data.get("configuration_id"),
                 "user_mappings": {
-                    cached_data["user_id"]: request.user.pk,
+                    cached_data["user_id"]: user.pk,
                 },
             },
-            created_by=request.user,
+            created_by=user,
         )
 
         # Clean up the session
@@ -196,7 +198,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             "Vercel connectable account linked",
             installation_id=installation_id,
             organization_id=str(organization_id),
-            user_id=request.user.pk,
+            user_id=user.pk,
             integration="vercel",
         )
 
@@ -221,8 +223,9 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         if not cached_data:
             raise exceptions.ValidationError("Session expired. Please try linking again from Vercel.")
 
+        user = cast(User, request.user)
         memberships = OrganizationMembership.objects.filter(
-            user=request.user,
+            user=user,
             level__gte=OrganizationMembership.Level.ADMIN,
         ).select_related("organization")
 
