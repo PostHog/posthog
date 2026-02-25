@@ -29,13 +29,16 @@ class RunQuotaLimitingAllOrgsInputs:
 async def run_quota_limiting_all_orgs(
     _inputs: RunQuotaLimitingAllOrgsInputs,
 ) -> None:
-    async with Heartbeater():
+    async with Heartbeater() as heartbeater:
         try:
             from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
+            def progress_callback(phase: str, progress: str, detail: str) -> None:
+                heartbeater.details = (phase, progress, detail)
+
             @database_sync_to_async(thread_sensitive=True)
             def async_update_all_orgs_billing_quotas():
-                update_all_orgs_billing_quotas()
+                update_all_orgs_billing_quotas(progress_callback=progress_callback)
 
             await async_update_all_orgs_billing_quotas()
         except ImportError:
