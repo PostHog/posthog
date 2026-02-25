@@ -144,7 +144,12 @@ async def _handle_partial_data_loading(
 
 
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> None:
-    """Run post-load operations for a final batch whose data was already written to Delta Lake."""
+    """Run post-load operations for a final batch whose data was already written to Delta Lake.
+
+    The batch data (S3 read, partitioning, Delta Lake write) was already handled when
+    the batch was first processed with is_final_batch=False. We only need to run
+    post-load operations (compaction, S3 queryable folder prep, schema validation).
+    """
     job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
         id=export_signal.job_id
     )
@@ -163,12 +168,9 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         logger.warning("no_delta_table_for_post_load", job_id=export_signal.job_id)
         return
 
-    pa_table = read_parquet(export_signal.s3_path)
-
-    pa_table = _apply_partitioning(export_signal, pa_table, delta_table, schema)
-
-    internal_schema = HogQLSchema()
-    internal_schema.add_pyarrow_table(pa_table)
+    table_schema_dict: dict[str, str] = {}
+    if schema.table and schema.table.columns:
+        table_schema_dict = {col_name: col["hogql"] for col_name, col in schema.table.columns.items() if "hogql" in col}
 
     async_to_sync(run_post_load_operations)(
         job=job,
@@ -177,7 +179,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         delta_table_helper=delta_table_helper,
         row_count=export_signal.total_rows or 0,
         file_uris=delta_table.file_uris(),
-        table_schema_dict=internal_schema.to_hogql_types(),
+        table_schema_dict=table_schema_dict,
         resource_name=export_signal.resource_name,
         logger=logger,
     )
