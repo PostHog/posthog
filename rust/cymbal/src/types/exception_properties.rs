@@ -10,6 +10,7 @@ use crate::{
     fingerprinting::FingerprintRecordPart,
     frames::releases::ReleaseInfo,
     issue_resolution::Issue,
+    langs::apple::AppleDebugImage,
     recursively_sanitize_properties,
     types::{event::AnyEvent, ExceptionList, OutputErrProps},
 };
@@ -52,6 +53,13 @@ pub struct ExceptionProperties {
     pub proposed_issue_name: Option<String>,
     #[serde(rename = "$issue_description", skip_serializing_if = "Option::is_none")]
     pub proposed_issue_description: Option<String>,
+
+    #[serde(
+        rename = "$debug_images",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub debug_images: Vec<AppleDebugImage>,
 
     #[serde(flatten)]
     pub props: HashMap<String, Value>,

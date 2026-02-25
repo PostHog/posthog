@@ -467,7 +467,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=50,
             name="some feature",
             key="some-feature",
             created_by=self.user,
@@ -529,6 +528,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -565,6 +567,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -623,6 +628,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -660,6 +668,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "api",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -855,6 +866,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -1156,6 +1170,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -1894,6 +1912,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -4085,7 +4107,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Beta feature",
             key="beta-feature",
             team=self.team,
-            rollout_percentage=51,
             filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
             created_by=self.user,
         )
@@ -4095,7 +4116,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="inactive-flag",
             team=self.team,
             active=False,
-            rollout_percentage=100,
             filters={"properties": []},
             created_by=self.user,
         )
@@ -4149,7 +4169,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Beta feature",
             key="beta-feature",
             team=self.team,
-            rollout_percentage=51,
             filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
             created_by=self.user,
         )
@@ -4159,7 +4178,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="inactive-flag",
             team=self.team,
             active=False,
-            rollout_percentage=100,
             filters={"properties": []},
             created_by=self.user,
         )
@@ -5407,7 +5425,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_feature_flag_dashboard(self):
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=50,
             name="some feature",
             key="some-feature",
             created_by=self.user,
@@ -5434,7 +5451,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_feature_flag_dashboard_patch(self):
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=50,
             name="some feature",
             key="some-feature",
             created_by=self.user,
@@ -5457,7 +5473,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_feature_flag_dashboard_already_exists(self):
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=50,
             name="some feature",
             key="some-feature",
             created_by=self.user,
@@ -5485,7 +5500,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
                 "multivariate": None,
@@ -5542,7 +5556,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_cant_update_early_access_flag_with_group(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "aggregation_group_type_index": None,
                 "groups": [{"properties": [], "rollout_percentage": None}],
@@ -6865,7 +6878,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
                 "multivariate": None,
@@ -6903,7 +6915,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_inactive_flag(self):
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
                 "multivariate": None,
@@ -6942,7 +6953,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_group_flag(self):
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [
                     {
@@ -6991,7 +7001,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_no_person_distinct_ids(self):
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": 100}],
                 "multivariate": None,

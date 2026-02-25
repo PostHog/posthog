@@ -191,6 +191,46 @@ describe('insightSceneLogic', () => {
         expect(insightApiCall.mock.calls.length).toBeGreaterThan(callCountAfterInitialLoad)
     })
 
+    it.each([
+        ['new subscription', 'new', 'new'],
+        ['a specific subscription', '5', 5],
+    ])(
+        'updates itemId when navigating from subscriptions list to %s',
+        async (_label, subscriptionId, expectedItemId) => {
+            logic = insightSceneLogic({ tabId })
+            logic.mount()
+
+            router.actions.push(urls.insightSubcriptions(Insight42))
+            await expectLogic(logic).toMatchValues({
+                insightId: Insight42,
+                insightMode: ItemMode.Subscriptions,
+                itemId: null,
+            })
+
+            sceneLogic.actions.setExportedScene(
+                { logic: insightSceneLogic, component: () => null as any },
+                Scene.Insight,
+                'insightSubcriptions',
+                tabId,
+                { params: {}, searchParams: {}, hashParams: {} }
+            )
+            sceneLogic.actions.setScene(
+                Scene.Insight,
+                'insightSubcriptions',
+                tabId,
+                { params: {}, searchParams: {}, hashParams: {} },
+                false
+            )
+
+            router.actions.push(urls.insightSubcription(Insight42, subscriptionId))
+            await expectLogic(logic).toMatchValues({
+                insightId: Insight42,
+                insightMode: ItemMode.Subscriptions,
+                itemId: expectedItemId,
+            })
+        }
+    )
+
     it('does not reload insight when only the URL hash changes', async () => {
         const insightApiCall = jest
             .fn()

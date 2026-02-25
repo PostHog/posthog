@@ -482,7 +482,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: true,
         pauseIframePlayback: true,
         restartIframePlayback: true,
-        setCurrentSegment: (segment: RecordingSegment, shouldSeek: boolean = true) => ({ segment, shouldSeek }),
+        setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
         setRootFrame: (frame: HTMLDivElement | null) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
@@ -1366,7 +1366,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: ({ player }) => {
             if (player) {
                 if (values.currentTimestamp !== undefined) {
-                    actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                    actions.seekToTimestamp(values.currentTimestamp)
                 }
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
@@ -1375,7 +1375,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
         },
-        setCurrentSegment: ({ segment, shouldSeek }) => {
+        setCurrentSegment: ({ segment }) => {
             // Check if we should skip this segment
             if (!segment.isActive && values.skipInactivitySetting && segment.kind !== 'buffer') {
                 // In video export mode with metadata footer, instantly seek past inactive segments
@@ -1408,9 +1408,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 // Otherwise keep existing player visible (last valid frame)
             }
-            // Only seek if requested - prevents infinite recursion when called from updateAnimation
-            if (shouldSeek && values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+            if (values.currentTimestamp !== undefined) {
+                actions.seekToTimestamp(values.currentTimestamp)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1436,7 +1435,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                actions.seekToTimestamp(values.currentTimestamp)
             }
         },
         initializePlayerFromStart: () => {
@@ -1510,14 +1509,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.initializePlayerFromStart()
             }
             actions.checkBufferingCompleted()
-
-            // If snapshot data arrived but the replayer hasn't been created yet,
-            // try initializing it now. This handles the race condition where
-            // setRootFrame fired before data was available (e.g. in modals where
-            // the DOM is ready before network requests complete).
-            if (!values.player && values.rootFrame) {
-                actions.tryInitReplayer()
-            }
 
             breakpoint()
         },
@@ -1788,10 +1779,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
 
             // Detect when the replayer is stuck (same timestamp for consecutive frames).
-            // This happens in gap segments (no events) and in window segments where
-            // the replayer has no events at the current offset (e.g. inactive segments
-            // deep into a window's timeline). After a few stuck frames, advance time
-            // manually so playback doesn't freeze.
+            // This happens in window segments where the replayer has no events at the
+            // current offset (e.g. inactive segments deep into a window's timeline).
+            // After a few stuck frames, advance time manually so playback doesn't freeze.
             if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
                 cache._stuckFrames = (cache._stuckFrames || 0) + 1
             } else {
@@ -1800,7 +1790,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache._lastAnimTimestamp = newTimestamp
 
             const isStuck = cache._stuckFrames >= 5
-            const shouldManuallyAdvance = values.currentSegment?.kind === 'gap' || isStuck
+            // Only manually advance when rrweb can't provide a timestamp (gap with no
+            // replayer for this windowId) or when truly stuck. Don't override rrweb's
+            // timestamp unconditionally for gaps — rrweb may still be playing at high
+            // speed (e.g. skip inactivity) and overriding causes PostHog's tracked
+            // position to diverge from rrweb's actual playback position.
+            const shouldManuallyAdvance =
+                (newTimestamp == undefined && values.currentSegment?.kind === 'gap') || isStuck
             if (shouldManuallyAdvance && values.currentTimestamp) {
                 newTimestamp = values.currentTimestamp + values.roughAnimationFPS
             }
@@ -1828,8 +1824,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // NOTE: confusingly this setCurrentTimestamp call is essential to playback
                     // we rely on the segmentation to travel smoothly through the recording
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
-                    // Pass false to prevent seeking - we're already updating animation, don't recurse
-                    actions.setCurrentSegment(nextSegment, false)
+                    actions.setCurrentSegment(nextSegment)
                 } else {
                     // At the end of the recording. Pause the player and set fully to the end
                     actions.setEndReached()

@@ -225,6 +225,8 @@ pub struct FeatureFlagMatcher {
     /// Dispatcher for bounded-concurrency Rayon batch evaluation.
     /// `None` in tests that don't exercise the parallel path.
     rayon_dispatcher: Option<RayonDispatcher>,
+    /// When true, skip all writes to PostgreSQL and Redis.
+    skip_writes: bool,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -271,6 +273,7 @@ impl FeatureFlagMatcher {
             flag_evaluation_state: FlagEvaluationState::default(),
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
+            skip_writes: false,
         }
     }
 
@@ -281,6 +284,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_rayon_dispatcher(mut self, dispatcher: RayonDispatcher) -> Self {
         self.rayon_dispatcher = Some(dispatcher);
+        self
+    }
+
+    pub fn with_skip_writes(mut self, skip_writes: bool) -> Self {
+        self.skip_writes = skip_writes;
         self
     }
 
@@ -486,24 +494,32 @@ impl FeatureFlagMatcher {
         let mut writing_hash_key_override = false;
 
         if should_write {
-            if let Err(e) = set_feature_flag_hash_key_overrides(
-                // NB: this is the only method that writes to the database
-                &self.router,
-                self.team_id,
-                target_distinct_ids.clone(),
-                hash_key.clone(),
-            )
-            .await
-            {
-                error!("Failed to set feature flag hash key overrides for team {} distinct_id {} hash_key {}: {:?}", self.team_id, self.distinct_id, hash_key, e);
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), e.evaluation_error_code())],
-                    1,
+            if self.skip_writes {
+                tracing::debug!(
+                    team_id = self.team_id,
+                    distinct_id = %self.distinct_id,
+                    "SKIP_WRITES: skipping hash key override write to PostgreSQL"
                 );
-                return (None, true);
+            } else {
+                if let Err(e) = set_feature_flag_hash_key_overrides(
+                    // NB: this is the only method that writes to the database
+                    &self.router,
+                    self.team_id,
+                    target_distinct_ids.clone(),
+                    hash_key.clone(),
+                )
+                .await
+                {
+                    error!("Failed to set feature flag hash key overrides for team {} distinct_id {} hash_key {}: {:?}", self.team_id, self.distinct_id, hash_key, e);
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), e.evaluation_error_code())],
+                        1,
+                    );
+                    return (None, true);
+                }
+                writing_hash_key_override = true;
             }
-            writing_hash_key_override = true;
         }
 
         inc(
