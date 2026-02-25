@@ -6402,7 +6402,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_local_evaluation_cache_invalidation_on_feature_flag_delete(self, mock_on_commit):
         """Test that cache invalidates when FeatureFlag is deleted."""
-        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+        from posthog.models.feature_flag.local_evaluation import (
+            flag_definitions_hypercache,
+            flag_definitions_without_cohorts_hypercache,
+        )
 
         # Create two feature flags
         flag1 = FeatureFlag.objects.create(
@@ -6422,8 +6425,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Clear caches to start fresh
-        flags_hypercache.clear_cache(self.team)
-        flags_without_cohorts_hypercache.clear_cache(self.team)
+        flag_definitions_hypercache.clear_cache(self.team)
+        flag_definitions_without_cohorts_hypercache.clear_cache(self.team)
 
         # Populate both cache variants using use_cache parameter
         response1 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
@@ -6474,7 +6477,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_local_evaluation_cache_invalidation_on_cohort_delete(self, mock_on_commit):
         """Test that cache invalidates when Cohort is deleted."""
-        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+        from posthog.models.feature_flag.local_evaluation import (
+            flag_definitions_hypercache,
+            flag_definitions_without_cohorts_hypercache,
+        )
 
         # Create a cohort
         cohort = Cohort.objects.create(
@@ -6500,8 +6506,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Clear caches to start fresh
-        flags_hypercache.clear_cache(self.team)
-        flags_without_cohorts_hypercache.clear_cache(self.team)
+        flag_definitions_hypercache.clear_cache(self.team)
+        flag_definitions_without_cohorts_hypercache.clear_cache(self.team)
 
         # Populate cache with cohorts using use_cache parameter
         response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts")

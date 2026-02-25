@@ -99,7 +99,7 @@ Feature flag local evaluation uses two separate HyperCache instances in `posthog
 
 ```python
 # Full flags with cohort definitions (for smart clients)
-flags_hypercache = HyperCache(
+flag_definitions_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(team, include_cohorts=True),
@@ -107,7 +107,7 @@ flags_hypercache = HyperCache(
 )
 
 # Simplified flags without cohorts (legacy)
-flags_without_cohorts_hypercache = HyperCache(
+flag_definitions_without_cohorts_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_without_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(team, include_cohorts=False),
@@ -115,7 +115,7 @@ flags_without_cohorts_hypercache = HyperCache(
 )
 ```
 
-All current SDKs support cohort evaluation locally, so the dual-cache strategy is legacy. The `flags_without_cohorts` cache exists for older SDK versions that couldn't handle cohort definitions. Once requests for flags without cohorts decline sufficiently, this cache can be removed.
+All current SDKs support cohort evaluation locally, so the dual-cache strategy is legacy. The `flag_definitions_without_cohorts_hypercache` cache exists for older SDK versions that couldn't handle cohort definitions. Once requests for flags without cohorts decline sufficiently, this cache can be removed.
 
 ### Cache invalidation
 
