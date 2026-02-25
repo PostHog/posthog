@@ -593,6 +593,10 @@ async fn test_personal_api_key_with_scoped_organizations_allowed() {
         .create_user(&user_email, &org_id, team.id)
         .await
         .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
 
     // Create personal API key with scoped_organizations restriction that includes our org
     let org_id_str = org_id.to_string();
