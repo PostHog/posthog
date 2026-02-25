@@ -1175,6 +1175,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
 
+            tag_queries(execution_mode=execution_mode.value)
+
             # Abort early if the user doesn't have access to the query runner
             # We'll proceed as usual if there's no user connected to this request
             # We're capturing the error for analytics purposes, but we reraise the same one

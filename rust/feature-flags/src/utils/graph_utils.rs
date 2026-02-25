@@ -612,7 +612,7 @@ pub fn log_dependency_graph_construction_errors(
         );
     }
 
-    tracing::error!(
+    tracing::warn!(
         "There were errors building the feature flag dependency graph for team {}. Will attempt to evaluate the rest of the flags: {:?}",
         team_id, errors
     );
