@@ -1,4 +1,3 @@
-import { Hub } from '~/types'
 import { logger } from '~/utils/logger'
 
 import { JWT, PosthogJwtAudience } from '../../utils/jwt-utils'
@@ -7,8 +6,11 @@ import { RecipientManagerRecipient } from '../managers/recipients-manager.servic
 export class RecipientTokensService {
     private jwt: JWT
 
-    constructor(protected hub: Pick<Hub, 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'>) {
-        this.jwt = new JWT(hub.ENCRYPTION_SALT_KEYS ?? '')
+    constructor(
+        private encryptionSaltKeys: string,
+        private siteUrl: string
+    ) {
+        this.jwt = new JWT(encryptionSaltKeys ?? '')
     }
 
     public validatePreferencesToken(
@@ -44,7 +46,7 @@ export class RecipientTokensService {
 
     public generatePreferencesUrl(recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>): string {
         const token = this.generatePreferencesToken(recipient)
-        return `${this.hub.SITE_URL}/messaging-preferences/${token}/` // NOTE: Trailing slash is required for the preferences page to work
+        return `${this.siteUrl}/messaging-preferences/${token}/` // NOTE: Trailing slash is required for the preferences page to work
     }
 
     public generateOneClickUnsubscribeUrl(

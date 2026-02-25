@@ -3,7 +3,11 @@ import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import {
+    HogTransformerService,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from '../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -42,19 +46,19 @@ import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redi
  * Narrowed Hub type for IngestionConsumer.
  * This includes all fields needed by IngestionConsumer and its dependencies:
  * - HogTransformerService (via HogTransformerHub)
- * - BatchWritingGroupStore (via GroupHub)
+ * - BatchWritingGroupStore
  * - EventIngestionRestrictionManager
  * - KafkaProducerWrapper
  * - BatchWritingPersonsStore
  * - Preprocessing and ingestion pipelines
  */
-export type IngestionConsumerHub = HogTransformerHub &
+export type IngestionConsumerHub = HogTransformerServiceDeps &
     IngestionConsumerConfig &
     Pick<
         Hub,
         // EventIngestionRestrictionManager
         | 'redisPool'
-        // GroupHub (BatchWritingGroupStore)
+        // BatchWritingGroupStore
         | 'groupRepository'
         | 'clickhouseGroupRepository'
         // KafkaProducerWrapper.create
@@ -166,7 +170,7 @@ export class IngestionConsumer {
             })
         }
 
-        this.hogTransformer = new HogTransformerService(hub)
+        this.hogTransformer = createHogTransformerService(hub)
 
         this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
@@ -177,11 +181,16 @@ export class IngestionConsumer {
             updateAllProperties: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
         })
 
-        this.groupStore = new BatchWritingGroupStore(this.hub, {
-            maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-            maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-        })
+        this.groupStore = new BatchWritingGroupStore(
+            this.hub.kafkaProducer,
+            this.hub.groupRepository,
+            this.hub.clickhouseGroupRepository,
+            {
+                maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+                maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+                optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            }
+        )
 
         this.kafkaConsumer = new KafkaConsumer({
             groupId: this.groupId,
@@ -237,8 +246,6 @@ export class IngestionConsumer {
                 CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
-                TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
-                PIPELINE_STEP_STALLED_LOG_TIMEOUT: this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.hub.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_ASYNC_TOPIC: this.hub.PERSON_MERGE_ASYNC_TOPIC,

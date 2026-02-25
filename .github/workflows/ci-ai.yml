@@ -16,7 +16,7 @@ concurrency:
 jobs:
     eval:
         timeout-minutes: 45
-        name: Run AI evals
+        name: AI evals / ${{ matrix.group }}
         runs-on: ubuntu-latest
         # Skipping on forks as Braintrust credentials are not available there
         if: |
@@ -24,10 +24,44 @@ jobs:
                 github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
             )
 
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - group: insights
+                      ignore_paths: ''
+                      test_paths: >-
+                          ee/hogai/eval/ci/eval_funnel.py
+                          ee/hogai/eval/ci/eval_trends.py
+                          ee/hogai/eval/ci/eval_retention.py
+                          ee/hogai/eval/ci/eval_sql.py
+                          ee/hogai/eval/ci/eval_survey_analysis.py
+                    - group: features
+                      ignore_paths: ''
+                      test_paths: >-
+                          ee/hogai/eval/ci/eval_surveys.py
+                          ee/hogai/eval/ci/eval_memory.py
+                          ee/hogai/eval/ci/eval_memory_onboarding.py
+                          ee/hogai/eval/ci/eval_ticket_summary.py
+                          ee/hogai/eval/ci/eval_insight_search.py
+                          ee/hogai/eval/ci/eval_ui_context.py
+                    - group: root-and-tools
+                      test_paths: ee/hogai/eval/ci
+                      ignore_paths: >-
+                          --ignore=ee/hogai/eval/ci/eval_funnel.py
+                          --ignore=ee/hogai/eval/ci/eval_trends.py
+                          --ignore=ee/hogai/eval/ci/eval_retention.py
+                          --ignore=ee/hogai/eval/ci/eval_sql.py
+                          --ignore=ee/hogai/eval/ci/eval_survey_analysis.py
+                          --ignore=ee/hogai/eval/ci/eval_surveys.py
+                          --ignore=ee/hogai/eval/ci/eval_memory.py
+                          --ignore=ee/hogai/eval/ci/eval_memory_onboarding.py
+                          --ignore=ee/hogai/eval/ci/eval_ticket_summary.py
+                          --ignore=ee/hogai/eval/ci/eval_insight_search.py
+                          --ignore=ee/hogai/eval/ci/eval_ui_context.py
+
         permissions:
             contents: read
-            issues: write
-            pull-requests: write
 
         steps:
             - uses: actions/checkout@v6
@@ -88,7 +122,7 @@ jobs:
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Run LLM evals
-              run: pytest ee/hogai/eval/ci -vv --junitxml=junit.xml
+              run: pytest ${{ matrix.test_paths }} ${{ matrix.ignore_paths }} -vv --junitxml=junit.xml
               env:
                   EVAL_MODE: ci
                   EXPORT_EVAL_RESULTS: true
@@ -100,8 +134,51 @@ jobs:
                   AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
                   AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
 
+            - name: Upload eval results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: eval-results-${{ matrix.group }}
+                  path: |
+                      eval_results.jsonl
+                      junit.xml
+
+    eval-summary:
+        timeout-minutes: 5
+        name: AI evals / summary
+        runs-on: ubuntu-latest
+        needs: eval
+        if: always() && needs.eval.result != 'skipped'
+
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: .github/scripts
+
+            - name: Download all eval results
+              uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+              with:
+                  pattern: eval-results-*
+                  path: eval-artifacts
+
+            - name: Merge eval results
+              run: |
+                  # Merge all eval_results.jsonl files into one
+                  cat eval-artifacts/*/eval_results.jsonl > eval_results.jsonl 2>/dev/null || true
+                  if [ ! -s eval_results.jsonl ]; then
+                      echo "No eval results found"
+                  else
+                      echo "Merged eval results:"
+                      wc -l eval_results.jsonl
+                  fi
+
             - name: Post eval summary to PR
-              # always() because we want to post even if `pytest` exited with an error (likely just one eval suite errored)
+              # always() because we want to post even if some eval groups errored
               if: always() && github.event_name == 'pull_request'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
@@ -109,9 +186,10 @@ jobs:
                       const fs = require("fs")
                       const script = require('.github/scripts/post-eval-summary.js')
                       script({ github, context, fs })
-            - name: Upload test results
+
+            - name: Upload merged test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
                   name: junit-results-ai-evals
-                  path: junit.xml
+                  path: eval-artifacts/*/junit.xml

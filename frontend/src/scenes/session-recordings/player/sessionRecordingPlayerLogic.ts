@@ -28,9 +28,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
     SessionRecordingDataCoordinatorLogicProps,
@@ -482,7 +482,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: true,
         pauseIframePlayback: true,
         restartIframePlayback: true,
-        setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
+        setCurrentSegment: (segment: RecordingSegment, shouldSeek: boolean = true) => ({ segment, shouldSeek }),
         setRootFrame: (frame: HTMLDivElement | null) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
@@ -1375,7 +1375,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
         },
-        setCurrentSegment: ({ segment }) => {
+        setCurrentSegment: ({ segment, shouldSeek }) => {
             // Check if we should skip this segment
             if (!segment.isActive && values.skipInactivitySetting && segment.kind !== 'buffer') {
                 // In video export mode with metadata footer, instantly seek past inactive segments
@@ -1408,7 +1408,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 // Otherwise keep existing player visible (last valid frame)
             }
-            if (values.currentTimestamp !== undefined) {
+            // Only seek if requested - prevents infinite recursion when called from updateAnimation
+            if (shouldSeek && values.currentTimestamp !== undefined) {
                 actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
@@ -1787,10 +1788,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
 
             // Detect when the replayer is stuck (same timestamp for consecutive frames).
-            // This happens in gap segments (no events) and in window segments where
-            // the replayer has no events at the current offset (e.g. inactive segments
-            // deep into a window's timeline). After a few stuck frames, advance time
-            // manually so playback doesn't freeze.
+            // This happens in window segments where the replayer has no events at the
+            // current offset (e.g. inactive segments deep into a window's timeline).
+            // After a few stuck frames, advance time manually so playback doesn't freeze.
             if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
                 cache._stuckFrames = (cache._stuckFrames || 0) + 1
             } else {
@@ -1799,7 +1799,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache._lastAnimTimestamp = newTimestamp
 
             const isStuck = cache._stuckFrames >= 5
-            const shouldManuallyAdvance = values.currentSegment?.kind === 'gap' || isStuck
+            // Only manually advance when rrweb can't provide a timestamp (gap with no
+            // replayer for this windowId) or when truly stuck. Don't override rrweb's
+            // timestamp unconditionally for gaps — rrweb may still be playing at high
+            // speed (e.g. skip inactivity) and overriding causes PostHog's tracked
+            // position to diverge from rrweb's actual playback position.
+            const shouldManuallyAdvance =
+                (newTimestamp == undefined && values.currentSegment?.kind === 'gap') || isStuck
             if (shouldManuallyAdvance && values.currentTimestamp) {
                 newTimestamp = values.currentTimestamp + values.roughAnimationFPS
             }
@@ -1827,7 +1833,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // NOTE: confusingly this setCurrentTimestamp call is essential to playback
                     // we rely on the segmentation to travel smoothly through the recording
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
-                    actions.setCurrentSegment(nextSegment)
+                    // Pass false to prevent seeking - we're already updating animation, don't recurse
+                    actions.setCurrentSegment(nextSegment, false)
                 } else {
                     // At the end of the recording. Pause the player and set fully to the end
                     actions.setEndReached()

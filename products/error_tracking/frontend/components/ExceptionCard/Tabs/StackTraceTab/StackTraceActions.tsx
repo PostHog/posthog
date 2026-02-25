@@ -18,8 +18,8 @@ import {
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { useErrorTrackingExplainIssue } from '../../../ExplainIssueTool'
-import { FixModal } from '../../FixModal'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
+import { FixModal } from '../../FixModal'
 
 export interface StackTraceActionsProps {
     issue: ErrorTrackingRelationalIssue

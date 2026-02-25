@@ -51,19 +51,22 @@ class TestOpenRouterListModels:
     def test_list_models_without_key_returns_empty(self):
         assert OpenRouterAdapter.list_models(None) == []
 
-    def test_list_models_with_key_returns_sorted_ids(self):
-        mock_model_b = MagicMock()
-        mock_model_b.id = "openai/gpt-4o"
-        mock_model_a = MagicMock()
-        mock_model_a.id = "anthropic/claude-3.5-sonnet"
+    def test_list_models_with_key_returns_newest_first(self):
+        mock_model_older = MagicMock()
+        mock_model_older.id = "anthropic/claude-3.5-sonnet"
+        mock_model_older.created = 1700000000
+
+        mock_model_newer = MagicMock()
+        mock_model_newer.id = "openai/gpt-4o"
+        mock_model_newer.created = 1710000000
 
         mock_client = MagicMock()
-        mock_client.models.list.return_value = [mock_model_b, mock_model_a]
+        mock_client.models.list.return_value = [mock_model_older, mock_model_newer]
 
         with patch("products.llm_analytics.backend.llm.providers.openrouter.openai.OpenAI", return_value=mock_client):
             models = OpenRouterAdapter.list_models("sk-or-test-key")
 
-        assert models == ["anthropic/claude-3.5-sonnet", "openai/gpt-4o"]
+        assert models == ["openai/gpt-4o", "anthropic/claude-3.5-sonnet"]
 
     def test_list_models_error_returns_empty(self):
         with patch(

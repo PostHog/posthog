@@ -9,8 +9,8 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
-import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 

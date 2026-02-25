@@ -1011,7 +1011,7 @@ def product_tours(request):
             request,
             generate_exception_response(
                 "product_tours",
-                "API key not provided. You can find your project API key in your PostHog project settings.",
+                "Project token not provided. You can find your project token in your PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -1024,7 +1024,7 @@ def product_tours(request):
             request,
             generate_exception_response(
                 "product_tours",
-                "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                "Project token invalid. You can find your project token in your PostHog project settings.",
                 type="authentication_error",
                 code="invalid_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,

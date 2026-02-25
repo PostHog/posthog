@@ -14,6 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.video_segment_clustering.models import (
     GetSessionsToPrimeResult,
@@ -116,6 +117,8 @@ _BASELINE_HAVING_PREDICATES: list[RecordingPropertyFilter] = [
     ),
 ]
 
+_DEFAULT_FILTER_TEST_ACCOUNTS = False  # Summarize all sessions (it's also faster to skip this filter)
+
 
 def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
     """Fetch session IDs of recordings that ended within the lookback period.
@@ -134,7 +137,7 @@ def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
         query = RecordingsQuery(
             filter_test_accounts=user_defined_query.filter_test_accounts
             if user_defined_query.filter_test_accounts is not None
-            else True,
+            else _DEFAULT_FILTER_TEST_ACCOUNTS,
             date_from=f"-{lookback_hours}h",
             limit=MAX_SESSIONS_TO_PRIME_EMBEDDINGS,
             having_predicates=_BASELINE_HAVING_PREDICATES + (user_defined_query.having_predicates or []),
@@ -146,13 +149,17 @@ def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
         )
     else:
         query = RecordingsQuery(
-            filter_test_accounts=True,
+            filter_test_accounts=_DEFAULT_FILTER_TEST_ACCOUNTS,
             date_from=f"-{lookback_hours}h",
             limit=MAX_SESSIONS_TO_PRIME_EMBEDDINGS,
             having_predicates=_BASELINE_HAVING_PREDICATES,
         )
 
     with tags_context(product=Product.SESSION_SUMMARY):
-        result = SessionRecordingListFromQuery(team=team, query=query).run()
+        result = SessionRecordingListFromQuery(
+            team=team,
+            query=query,
+            max_execution_time=HOGQL_INCREASED_MAX_EXECUTION_TIME,
+        ).run()
 
     return [recording["session_id"] for recording in result.results]

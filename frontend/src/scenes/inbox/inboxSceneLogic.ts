@@ -5,8 +5,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, RecordingUniversalFilters } from '~/types'
@@ -35,7 +35,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         openSessionAnalysisSetup: true,
         closeSessionAnalysisSetup: true,
         toggleSessionAnalysis: true,
-        saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
+        saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({
+            filters,
+        }),
         clearSessionAnalysisFilters: true,
     }),
 
@@ -220,7 +222,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     config.id !==
                         `new_${SignalSourceProduct.SESSION_REPLAY}_${SignalSourceType.SESSION_ANALYSIS_CLUSTER}`
                 ) {
-                    await api.signalSourceConfigs.update(config.id, { enabled: desiredEnabled })
+                    await api.signalSourceConfigs.update(config.id, {
+                        enabled: desiredEnabled,
+                    })
                 } else {
                     await api.signalSourceConfigs.create({
                         source_product: SignalSourceProduct.SESSION_REPLAY,
@@ -270,7 +274,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     existing.id !==
                         `new_${SignalSourceProduct.SESSION_REPLAY}_${SignalSourceType.SESSION_ANALYSIS_CLUSTER}`
                 ) {
-                    await api.signalSourceConfigs.update(existing.id, { config: {}, enabled: true })
+                    await api.signalSourceConfigs.update(existing.id, {
+                        config: {},
+                        enabled: true,
+                    })
                     lemonToast.success('Session analysis filters cleared')
                 }
                 actions.loadSourceConfigs()
