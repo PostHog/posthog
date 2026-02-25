@@ -25,6 +25,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils'
 import { SyncTypeLabelMap, defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -84,11 +85,14 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     return (
         <BindLogic logic={dataWarehouseSourceSettingsLogic} props={logicProps}>
             <div className="flex items-center justify-between gap-2 mb-2">
-                <LemonSwitch
-                    checked={showEnabledSchemasOnly}
-                    onChange={setShowEnabledSchemasOnly}
-                    label="Show enabled only"
-                />
+                <div className="flex items-center gap-3">
+                    <LemonSwitch
+                        checked={showEnabledSchemasOnly}
+                        onChange={setShowEnabledSchemasOnly}
+                        label="Show enabled only"
+                    />
+                    <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
+                </div>
                 <SourceEditorAction source={source}>
                     <LemonButton
                         type="secondary"
