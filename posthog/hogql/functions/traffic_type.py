@@ -96,7 +96,13 @@ def _build_bot_array_lookup(
 
     Uses multiMatchAnyIndex which evaluates the user_agent expression once and checks
     all patterns, then uses array indexing to get the corresponding label.
+
+    NULL user agents are coalesced to empty string so they match the ^$ pattern
+    and get classified as empty_ua_value instead of falling through to default.
     """
+    # Coalesce NULL to empty string so NULL user agents match the ^$ pattern
+    safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
+
     # Build patterns array (all bot patterns + empty UA pattern)
     patterns = [*BOT_DEFINITIONS.keys(), "^$"]
     patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
@@ -107,7 +113,7 @@ def _build_bot_array_lookup(
     labels_array = ast.Array(exprs=[ast.Constant(value=label) for label in labels])
 
     # multiMatchAnyIndex(user_agent, patterns) -> returns 0 if no match, else 1-based index
-    index_call = ast.Call(name="multiMatchAnyIndex", args=[user_agent_expr, patterns_array])
+    index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
     # labels[index] - array access (1-based in ClickHouse)
     label_lookup = ast.ArrayAccess(array=labels_array, property=index_call, nullish=False)
@@ -164,16 +170,20 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     EXPERIMENTAL: This function may change without notice.
 
     Returns true if the user agent matches bot/automation patterns, false otherwise.
+    NULL user agents are treated as bots (empty UA is considered automation).
     """
     user_agent_expr = args[0]
+
+    # Coalesce NULL to empty string so NULL user agents match the ^$ pattern
+    safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
     # Build OR expression from all patterns
     match_exprs: list[ast.Expr] = []
     for pattern in BOT_DEFINITIONS.keys():
-        match_exprs.append(ast.Call(name="match", args=[user_agent_expr, ast.Constant(value=pattern)]))
+        match_exprs.append(ast.Call(name="match", args=[safe_user_agent, ast.Constant(value=pattern)]))
 
-    # Empty user agent
-    match_exprs.append(ast.Call(name="match", args=[user_agent_expr, ast.Constant(value="^$")]))
+    # Empty user agent (also matches NULL after coalescing)
+    match_exprs.append(ast.Call(name="match", args=[safe_user_agent, ast.Constant(value="^$")]))
 
     return ast.Or(exprs=match_exprs)
 

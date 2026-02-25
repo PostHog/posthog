@@ -66,22 +66,25 @@ class TestTrafficTypeExpressions:
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_traffic_type_expr(user_agent_expr)
 
+        # Uses if(multiMatchAnyIndex(...) = 0, default, labels[index]) pattern
         assert isinstance(expr, ast.Call)
-        assert expr.name == "multiIf"
-        # Should have pairs of (condition, value) + (empty UA condition, value) + default
-        # len(BOT_DEFINITIONS) * 2 + 2 + 1
-        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
-        assert len(expr.args) == expected_args
+        assert expr.name == "if"
+        assert len(expr.args) == 3
+        # Default value for regular traffic
+        assert isinstance(expr.args[1], ast.Constant)
+        assert expr.args[1].value == "Regular"
 
     def test_traffic_category_expr_structure(self):
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_traffic_category_expr(user_agent_expr)
 
+        # Uses if(multiMatchAnyIndex(...) = 0, default, labels[index]) pattern
         assert isinstance(expr, ast.Call)
-        assert expr.name == "multiIf"
-        # Should have pairs of (condition, value) + (empty UA condition, value) + default
-        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
-        assert len(expr.args) == expected_args
+        assert expr.name == "if"
+        assert len(expr.args) == 3
+        # Default value for regular traffic
+        assert isinstance(expr.args[1], ast.Constant)
+        assert expr.args[1].value == "regular"
 
     def test_is_bot_expr_structure(self):
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
@@ -95,18 +98,22 @@ class TestTrafficTypeExpressions:
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_bot_type_expr(user_agent_expr)
 
+        # Uses if(multiMatchAnyIndex(...) = 0, default, labels[index]) pattern
         assert isinstance(expr, ast.Call)
-        assert expr.name == "multiIf"
-        # Should have pairs of (condition, value) + (empty UA condition, value) + default
-        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
-        assert len(expr.args) == expected_args
+        assert expr.name == "if"
+        assert len(expr.args) == 3
+        # Default value for regular traffic (empty string)
+        assert isinstance(expr.args[1], ast.Constant)
+        assert expr.args[1].value == ""
 
     def test_get_bot_name_expr_structure(self):
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_bot_name_expr(user_agent_expr)
 
+        # Uses if(multiMatchAnyIndex(...) = 0, default, labels[index]) pattern
         assert isinstance(expr, ast.Call)
-        assert expr.name == "multiIf"
-        # Should have pairs of (condition, value) + (empty UA condition, value) + default
-        expected_args = len(BOT_DEFINITIONS) * 2 + 2 + 1
-        assert len(expr.args) == expected_args
+        assert expr.name == "if"
+        assert len(expr.args) == 3
+        # Default value for regular traffic (empty string)
+        assert isinstance(expr.args[1], ast.Constant)
+        assert expr.args[1].value == ""

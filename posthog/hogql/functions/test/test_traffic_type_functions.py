@@ -211,12 +211,16 @@ class TestGetBotNameFunction:
 
         assert isinstance(result, ast.Call)
         assert result.name == "if"
-        # multiMatchAnyIndex should use our custom user agent field
+        # multiMatchAnyIndex should use our custom user agent field wrapped in ifNull
         comparison = result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         index_call = comparison.left
         assert isinstance(index_call, ast.Call)
-        assert index_call.args[0] == user_agent_arg
+        # First arg is ifNull(user_agent, '')
+        safe_user_agent = index_call.args[0]
+        assert isinstance(safe_user_agent, ast.Call)
+        assert safe_user_agent.name == "ifNull"
+        assert safe_user_agent.args[0] == user_agent_arg
 
 
 class TestTrafficTypeFunctionPatterns:
@@ -239,13 +243,17 @@ class TestTrafficTypeFunctionPatterns:
         assert result.name == "if"
         # Default value
         assert result.args[1].value == expected_default
-        # multiMatchAnyIndex should use our custom user agent field
+        # multiMatchAnyIndex should use our custom user agent field wrapped in ifNull
         comparison = result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         index_call = comparison.left
         assert isinstance(index_call, ast.Call)
         assert index_call.name == "multiMatchAnyIndex"
-        assert index_call.args[0] == user_agent_arg
+        # First arg is ifNull(user_agent, '')
+        safe_user_agent = index_call.args[0]
+        assert isinstance(safe_user_agent, ast.Call)
+        assert safe_user_agent.name == "ifNull"
+        assert safe_user_agent.args[0] == user_agent_arg
 
     def test_is_bot_preserves_user_agent_expression(self):
         node = ast.Call(name="__preview_isBot", args=[])
@@ -256,7 +264,46 @@ class TestTrafficTypeFunctionPatterns:
 
         for expr in result.exprs:
             assert isinstance(expr, ast.Call)
-            assert expr.args[0] == user_agent_arg
+            # User agent is wrapped in ifNull(user_agent, '')
+            safe_user_agent = expr.args[0]
+            assert isinstance(safe_user_agent, ast.Call)
+            assert safe_user_agent.name == "ifNull"
+            assert safe_user_agent.args[0] == user_agent_arg
+
+
+class TestNullHandling:
+    def test_build_bot_array_lookup_wraps_user_agent_in_ifnull(self):
+        node = ast.Call(name="__preview_getTrafficType", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+
+        result = get_traffic_type(node=node, args=[user_agent_arg])
+
+        # Get the multiMatchAnyIndex call from the comparison
+        comparison = result.args[0]
+        index_call = comparison.left
+        # First arg should be ifNull(user_agent, '')
+        safe_user_agent = index_call.args[0]
+        assert isinstance(safe_user_agent, ast.Call)
+        assert safe_user_agent.name == "ifNull"
+        assert len(safe_user_agent.args) == 2
+        assert safe_user_agent.args[0] == user_agent_arg
+        assert isinstance(safe_user_agent.args[1], ast.Constant)
+        assert safe_user_agent.args[1].value == ""
+
+    def test_is_bot_wraps_user_agent_in_ifnull(self):
+        node = ast.Call(name="__preview_isBot", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+
+        result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Or)
+
+        # All match calls should use ifNull(user_agent, '')
+        for match_call in result.exprs:
+            safe_user_agent = match_call.args[0]
+            assert isinstance(safe_user_agent, ast.Call)
+            assert safe_user_agent.name == "ifNull"
+            assert safe_user_agent.args[0] == user_agent_arg
+            assert safe_user_agent.args[1].value == ""
 
 
 class TestBotDefinitionsDataStructure:
