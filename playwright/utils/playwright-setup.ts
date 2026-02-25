@@ -44,7 +44,7 @@ export interface PlaywrightSetupDashboard {
 export interface PlaywrightSetupEvent {
     event: string
     distinct_id: string
-    timestamp_offset_days: number // days before "now"; supports fractional values
+    timestamp: string // ISO 8601 timestamp
     properties?: Record<string, any>
 }
 

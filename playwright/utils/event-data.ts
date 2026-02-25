@@ -82,12 +82,11 @@ function resolve<T>(value: ValueOrFn<T>, n: number): T {
 
 function toEvent(options: CreateEventOptions, n: number): PlaywrightSetupEvent {
     const timestamp = options.timestamp ? resolve(options.timestamp, n) : new Date().toISOString()
-    const offsetDays = (Date.now() - new Date(timestamp).getTime()) / (1000 * 60 * 60 * 24)
 
     return {
         event: options.event ?? eventNames.pageview,
         distinct_id: resolve(options.user ?? users.alice, n),
-        timestamp_offset_days: Math.round(offsetDays),
+        timestamp,
         properties: { ...defaultProperties, ...options.properties },
     }
 }
@@ -102,12 +101,15 @@ export function createEvent(options: CreateEventOptions = {}): EventResult {
                 const event = toEvent(options, n)
 
                 if (repeatOptions.randomizeTimes) {
-                    const hoursOffset = Math.random() * 24
-                    event.timestamp_offset_days = event.timestamp_offset_days + hoursOffset / 24
+                    const date = new Date(event.timestamp)
+                    date.setHours(date.getHours() + Math.floor(Math.random() * 24))
+                    event.timestamp = date.toISOString()
                 }
 
                 if (repeatOptions.randomizeDays != null) {
-                    event.timestamp_offset_days = Math.floor(Math.random() * repeatOptions.randomizeDays)
+                    const date = new Date()
+                    date.setDate(date.getDate() - Math.floor(Math.random() * repeatOptions.randomizeDays))
+                    event.timestamp = date.toISOString()
                 }
 
                 return event

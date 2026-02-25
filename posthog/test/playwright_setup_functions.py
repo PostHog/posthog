@@ -2,7 +2,7 @@
 
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import Dashboard, DashboardTile, Insight, PersonalAPIKey, User
+from posthog.models import Dashboard, DashboardTile, Insight, PersonalAPIKey, Team, User
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import mask_key_value
@@ -48,7 +48,7 @@ class PlaywrightSetupDashboard(BaseModel):
 class PlaywrightSetupEvent(BaseModel):
     event: str
     distinct_id: str
-    timestamp_offset_days: float
+    timestamp: str
     properties: dict[str, Any] | None = None
 
 
@@ -197,7 +197,7 @@ def create_organization_with_team(
     created_variables = _create_variables(data, team)
     created_insights = _create_insights(data, team, user, created_variables)
     created_dashboards = _create_dashboards(data, team, user, created_variables, created_insights)
-    _create_events_and_persons(data, team, now)
+    _create_events_and_persons(data, team)
 
     return PlaywrightWorkspaceSetupResult(
         organization_id=str(organization.id),
@@ -227,7 +227,7 @@ def _derive_code_name(name: str) -> str:
     return "".join(c for c in name if c.isalnum() or c == " " or c == "_").replace(" ", "_").lower()
 
 
-def _create_variables(data: PlaywrightWorkspaceSetupData, team: "Team") -> list[InsightVariable]:  # type: ignore[name-defined] # noqa: F821
+def _create_variables(data: PlaywrightWorkspaceSetupData, team: Team) -> list[InsightVariable]:
     if not data.insight_variables:
         return []
     created: list[InsightVariable] = []
@@ -245,7 +245,7 @@ def _create_variables(data: PlaywrightWorkspaceSetupData, team: "Team") -> list[
 
 def _create_insights(
     data: PlaywrightWorkspaceSetupData,
-    team: "Team",  # type: ignore[name-defined] # noqa: F821
+    team: Team,
     user: User,
     created_variables: list[InsightVariable],
 ) -> list[Insight]:
@@ -279,7 +279,7 @@ def _create_insights(
 
 def _create_dashboards(
     data: PlaywrightWorkspaceSetupData,
-    team: "Team",  # type: ignore[name-defined] # noqa: F821
+    team: Team,
     user: User,
     created_variables: list[InsightVariable],
     created_insights: list[Insight],
@@ -317,11 +317,7 @@ def _create_dashboards(
     return created
 
 
-def _create_events_and_persons(
-    data: PlaywrightWorkspaceSetupData,
-    team: "Team",  # type: ignore[name-defined] # noqa: F821
-    now: datetime,
-) -> None:
+def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -> None:
     if not data.events:
         return
     from time import sleep
@@ -348,7 +344,7 @@ def _create_events_and_persons(
         EventDefinition.objects.get_or_create(team=team, name=event_name, defaults={"project_id": team.project_id})
 
     for event_spec in data.events:
-        ts = now - timedelta(days=event_spec.timestamp_offset_days)
+        ts = datetime.fromisoformat(event_spec.timestamp)
         create_event(
             event_uuid=UUIDT(unix_time_ms=int(ts.timestamp() * 1000)),
             event=event_spec.event,
