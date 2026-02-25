@@ -86,7 +86,6 @@ interface VariantsSectionProps {
     variants: MultivariateFlagVariant[]
     isEditing: boolean
     sectionDraft: Partial<FeatureFlagType> | null
-    updateSectionDraft: (draft: Partial<FeatureFlagType>) => void
     allVariantKeys: string[]
 }
 
@@ -95,132 +94,18 @@ function VariantsSection({
     variants: originalVariants,
     isEditing,
     sectionDraft,
-    updateSectionDraft,
     allVariantKeys,
 }: VariantsSectionProps): JSX.Element {
+    const {
+        updateDraftVariant,
+        updateDraftVariantPayload,
+        addDraftVariant,
+        removeDraftVariant,
+        distributeDraftVariantsEqually,
+    } = useActions(featureFlagLogic)
+
     const draftVariants: MultivariateFlagVariant[] = sectionDraft?.filters?.multivariate?.variants ?? originalVariants
     const draftPayloads = sectionDraft?.filters?.payloads ?? featureFlag.filters?.payloads ?? {}
-
-    const updateVariant = (
-        index: number,
-        field: 'key' | 'name' | 'rollout_percentage',
-        value: string | number
-    ): void => {
-        const coercedValue = field === 'rollout_percentage' ? Number(value) || 0 : String(value)
-        const currentVariants = [...draftVariants]
-        const oldKey = currentVariants[index]?.key
-        currentVariants[index] = { ...currentVariants[index], [field]: coercedValue }
-
-        let updatedPayloads = { ...draftPayloads }
-        if (field === 'key' && oldKey && oldKey !== coercedValue) {
-            const existingPayload = updatedPayloads[oldKey]
-            if (existingPayload !== undefined) {
-                delete updatedPayloads[oldKey]
-                updatedPayloads[coercedValue as string] = existingPayload
-            }
-        }
-
-        updateSectionDraft({
-            filters: {
-                ...featureFlag.filters,
-                ...sectionDraft?.filters,
-                multivariate: {
-                    ...featureFlag.filters?.multivariate,
-                    ...sectionDraft?.filters?.multivariate,
-                    variants: currentVariants,
-                },
-                payloads: updatedPayloads,
-            },
-        })
-    }
-
-    const updateVariantPayload = (index: number, value: string | undefined): void => {
-        const variantKey = draftVariants[index]?.key
-        if (!variantKey) {
-            return
-        }
-        const currentPayloads = { ...draftPayloads }
-        if (value === '' || value === undefined) {
-            delete currentPayloads[variantKey]
-        } else {
-            currentPayloads[variantKey] = value
-        }
-        updateSectionDraft({
-            filters: {
-                ...featureFlag.filters,
-                ...sectionDraft?.filters,
-                payloads: currentPayloads,
-            },
-        })
-    }
-
-    const addVariant = (): void => {
-        const currentVariants = [...draftVariants]
-        currentVariants.push({ key: '', name: '', rollout_percentage: 0 })
-        updateSectionDraft({
-            filters: {
-                ...featureFlag.filters,
-                ...sectionDraft?.filters,
-                multivariate: {
-                    ...featureFlag.filters?.multivariate,
-                    ...sectionDraft?.filters?.multivariate,
-                    variants: currentVariants,
-                },
-            },
-        })
-    }
-
-    const removeVariant = (index: number): void => {
-        const currentVariants = [...draftVariants]
-        const removedVariant = currentVariants[index]
-        currentVariants.splice(index, 1)
-
-        const currentPayloads = { ...draftPayloads }
-        if (removedVariant?.key) {
-            delete currentPayloads[removedVariant.key]
-        }
-
-        updateSectionDraft({
-            filters: {
-                ...featureFlag.filters,
-                ...sectionDraft?.filters,
-                multivariate: {
-                    ...featureFlag.filters?.multivariate,
-                    ...sectionDraft?.filters?.multivariate,
-                    variants: currentVariants,
-                },
-                payloads: currentPayloads,
-            },
-        })
-    }
-
-    const distributeVariantsEqually = (): void => {
-        const currentVariants = [...draftVariants]
-        const numVariants = currentVariants.length
-        if (numVariants > 0 && numVariants <= 100) {
-            const percentageRounded = Math.round(100 / numVariants)
-            const totalRounded = percentageRounded * numVariants
-            const delta = totalRounded - 100
-            currentVariants.forEach((variant, index) => {
-                currentVariants[index] = { ...variant, rollout_percentage: percentageRounded }
-            })
-            currentVariants[numVariants - 1] = {
-                ...currentVariants[numVariants - 1],
-                rollout_percentage: percentageRounded - delta,
-            }
-        }
-        updateSectionDraft({
-            filters: {
-                ...featureFlag.filters,
-                ...sectionDraft?.filters,
-                multivariate: {
-                    ...featureFlag.filters?.multivariate,
-                    ...sectionDraft?.filters?.multivariate,
-                    variants: currentVariants,
-                },
-            },
-        })
-    }
 
     const displayVariants = isEditing ? draftVariants : originalVariants
     const displayPayloads = isEditing ? draftPayloads : (featureFlag.filters?.payloads ?? {})
@@ -233,7 +118,7 @@ function VariantsSection({
                     <LemonButton
                         size="small"
                         icon={<IconBalance />}
-                        onClick={distributeVariantsEqually}
+                        onClick={distributeDraftVariantsEqually}
                         tooltip="Distribute rollout percentages equally"
                     />
                 </div>
@@ -260,7 +145,7 @@ function VariantsSection({
                                 <LemonInput
                                     placeholder="Enter a variant key - e.g. control, test, variant_1"
                                     value={variant.key}
-                                    onChange={(value) => updateVariant(index, 'key', value)}
+                                    onChange={(value) => updateDraftVariant(index, 'key', value)}
                                 />
 
                                 <LemonLabel>Rollout percentage</LemonLabel>
@@ -270,7 +155,11 @@ function VariantsSection({
                                     max={100}
                                     value={variant.rollout_percentage || 0}
                                     onChange={(value) =>
-                                        updateVariant(index, 'rollout_percentage', parseInt(value?.toString() || '0'))
+                                        updateDraftVariant(
+                                            index,
+                                            'rollout_percentage',
+                                            parseInt(value?.toString() || '0')
+                                        )
                                     }
                                     suffix={<span>%</span>}
                                 />
@@ -279,12 +168,12 @@ function VariantsSection({
                                 <LemonTextArea
                                     placeholder="Enter an optional description for the variant"
                                     value={variant.name || ''}
-                                    onChange={(value) => updateVariant(index, 'name', value)}
+                                    onChange={(value) => updateDraftVariant(index, 'name', value)}
                                 />
 
                                 <LemonLabel>Payload</LemonLabel>
                                 <JSONEditorInput
-                                    onChange={(value) => updateVariantPayload(index, value)}
+                                    onChange={(value) => updateDraftVariantPayload(index, value)}
                                     value={displayPayloads[variant.key]}
                                     placeholder='{"key": "value"}'
                                 />
@@ -307,7 +196,7 @@ function VariantsSection({
                                                 primaryButton: {
                                                     children: 'Remove variant',
                                                     status: 'danger',
-                                                    onClick: () => removeVariant(index),
+                                                    onClick: () => removeDraftVariant(index),
                                                 },
                                                 secondaryButton: {
                                                     children: 'Cancel',
@@ -324,7 +213,7 @@ function VariantsSection({
                 />
 
                 <div>
-                    <LemonButton type="secondary" icon={<IconPlus />} onClick={addVariant}>
+                    <LemonButton type="secondary" icon={<IconPlus />} onClick={addDraftVariant}>
                         Add variant
                     </LemonButton>
                 </div>
@@ -713,7 +602,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     variants={variants}
                                     isEditing={isEditing}
                                     sectionDraft={sectionDraft}
-                                    updateSectionDraft={updateSectionDraft}
                                     allVariantKeys={allVariantKeys}
                                 />
                             )}
