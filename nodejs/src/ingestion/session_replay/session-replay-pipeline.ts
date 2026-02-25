@@ -11,12 +11,12 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
-import { TopHogRegistry, createTopHogWrapper, sum, timer, timerResult } from '../pipelines/extensions/tophog'
+import { TopHogRegistry, createTopHogWrapper, sum, timer } from '../pipelines/extensions/tophog'
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
-import { ParseMessageStepOutput, createParseMessageStep } from './parse-message-step'
-import { RecordSessionEventStepInput, createRecordSessionEventStep } from './record-session-event-step'
+import { createParseMessageStep } from './parse-message-step'
+import { createRecordSessionEventStep } from './record-session-event-step'
 import { createTeamFilterStep } from './team-filter-step'
 
 export interface SessionReplayPipelineInput {
@@ -116,13 +116,10 @@ export function createSessionReplayPipeline(
                                             // Parse message content
                                             .pipe(
                                                 topHogWrapper(createParseMessageStep(), [
-                                                    timerResult(
-                                                        'parse_time_ms_by_session_id',
-                                                        (output: ParseMessageStepOutput) => ({
-                                                            token: output.parsedMessage.token ?? 'unknown',
-                                                            session_id: output.parsedMessage.session_id,
-                                                        })
-                                                    ),
+                                                    timer('parse_time_ms_by_session_id', (input) => ({
+                                                        token: input.headers.token ?? 'unknown',
+                                                        session_id: input.headers.session_id ?? 'unknown',
+                                                    })),
                                                 ])
                                             )
                                             // Monitor library version and emit warnings for old versions
@@ -135,7 +132,7 @@ export function createSessionReplayPipeline(
                                                         isDebugLoggingEnabled,
                                                     }),
                                                     [
-                                                        sum<RecordSessionEventStepInput, RecordSessionEventStepInput>(
+                                                        sum(
                                                             'message_size_by_session_id',
                                                             (input) => ({
                                                                 token: input.parsedMessage.token ?? 'unknown',
@@ -143,13 +140,10 @@ export function createSessionReplayPipeline(
                                                             }),
                                                             (input) => input.parsedMessage.metadata.rawSize
                                                         ),
-                                                        timer<RecordSessionEventStepInput, RecordSessionEventStepInput>(
-                                                            'consume_time_ms_by_session_id',
-                                                            (input) => ({
-                                                                token: input.parsedMessage.token ?? 'unknown',
-                                                                session_id: input.parsedMessage.session_id,
-                                                            })
-                                                        ),
+                                                        timer('consume_time_ms_by_session_id', (input) => ({
+                                                            token: input.parsedMessage.token ?? 'unknown',
+                                                            session_id: input.parsedMessage.session_id,
+                                                        })),
                                                     ]
                                                 )
                                             )

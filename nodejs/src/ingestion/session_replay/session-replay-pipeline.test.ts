@@ -186,15 +186,17 @@ describe('session-replay-pipeline', () => {
         sessionId?: string,
         headers?: Record<string, string>
     ): Message {
-        // Default to including a token header since team filtering requires it
+        const actualSessionId = sessionId ?? `session-${offset}`
+        // Default to including token and session_id headers since they're required for metrics
         const headersWithDefaults = headers ?? { token: 'test-token' }
+        if (!headersWithDefaults.session_id) {
+            headersWithDefaults.session_id = actualSessionId
+        }
         const kafkaHeaders = Object.entries(headersWithDefaults).map(([key, value]) => ({
             [key]: Buffer.from(value),
         }))
 
-        const payload = sessionId
-            ? createValidSnapshotPayload(sessionId)
-            : createValidSnapshotPayload(`session-${offset}`)
+        const payload = createValidSnapshotPayload(actualSessionId)
 
         return {
             partition,
@@ -216,6 +218,9 @@ describe('session-replay-pipeline', () => {
         headers?: Record<string, string>
     ): Message {
         const headersWithDefaults = headers ?? { token: 'test-token' }
+        if (!headersWithDefaults.session_id) {
+            headersWithDefaults.session_id = sessionId
+        }
         const kafkaHeaders = Object.entries(headersWithDefaults).map(([key, value]) => ({
             [key]: Buffer.from(value),
         }))
@@ -526,8 +531,12 @@ describe('session-replay-pipeline', () => {
             expect(result).toHaveLength(2)
             // Verify headers were correctly parsed and passed through
             expect(capturedHeaders).toHaveLength(2)
-            expect(capturedHeaders[0]).toEqual({ token: 'team-token-123', distinctId: 'user-456' })
-            expect(capturedHeaders[1]).toEqual({ token: 'team-token-789' })
+            expect(capturedHeaders[0]).toEqual({
+                token: 'team-token-123',
+                distinctId: 'user-456',
+                session_id: 'session-1',
+            })
+            expect(capturedHeaders[1]).toEqual({ token: 'team-token-789', session_id: 'session-2' })
         })
 
         it('processes large batch with all messages passing through', async () => {

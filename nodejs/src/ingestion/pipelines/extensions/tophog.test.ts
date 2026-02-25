@@ -13,7 +13,6 @@ import {
     sum,
     sumResult,
     timer,
-    timerResult,
 } from './tophog'
 
 describe('topHog wrapper', () => {
@@ -427,91 +426,5 @@ describe('topHog wrapper', () => {
         await pipeline.process(createContext(ok({ teamId: 1 })))
 
         expect(mockTracker.record).not.toHaveBeenCalled()
-    })
-
-    it('should record timerResult metric only on OK results', async () => {
-        const mockTracker = createMockTopHog()
-        const topHog = createTopHogWrapper(mockTracker)
-
-        function myStep(_input: { teamId: number }) {
-            return Promise.resolve(ok({ sessionId: 'session-123' }))
-        }
-
-        const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(topHog(myStep, [timerResult('step_time', (output) => ({ session_id: output.sessionId }))]))
-            .build()
-
-        await pipeline.process(createContext(ok({ teamId: 42 })))
-
-        expect(mockTracker.registerSum).toHaveBeenCalledWith('step_time', undefined)
-        expect(mockTracker.record).toHaveBeenCalledWith({ session_id: 'session-123' }, expect.any(Number))
-    })
-
-    it('should not record timerResult on non-OK results', async () => {
-        const mockTracker = createMockTopHog()
-        const topHog = createTopHogWrapper(mockTracker)
-        const step = jest.fn().mockResolvedValue(dlq('bad data'))
-
-        const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(
-                topHog(step, [
-                    timerResult('step_time', (_output: { sessionId: string }) => ({ session_id: 'should-not-record' })),
-                ])
-            )
-            .build()
-
-        await pipeline.process(createContext(ok({ teamId: 1 })))
-
-        expect(mockTracker.record).not.toHaveBeenCalled()
-    })
-
-    it('should record timerResult with access to both output and input', async () => {
-        const mockTracker = createMockTopHog()
-        const topHog = createTopHogWrapper(mockTracker)
-
-        function myStep(_input: { teamId: number }) {
-            return Promise.resolve(ok({ sessionId: 'session-456' }))
-        }
-
-        const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(
-                topHog(myStep, [
-                    timerResult('step_time', (output, input) => ({
-                        team_id: String(input.teamId),
-                        session_id: output.sessionId,
-                    })),
-                ])
-            )
-            .build()
-
-        await pipeline.process(createContext(ok({ teamId: 99 })))
-
-        expect(mockTracker.registerSum).toHaveBeenCalledWith('step_time', undefined)
-        expect(mockTracker.record).toHaveBeenCalledWith(
-            { team_id: '99', session_id: 'session-456' },
-            expect.any(Number)
-        )
-    })
-
-    it('should record actual elapsed time in timerResult', async () => {
-        const mockTracker = createMockTopHog()
-        const topHog = createTopHogWrapper(mockTracker)
-
-        // Step that takes at least 20ms (using larger value to avoid flakiness)
-        async function slowStep(_input: { teamId: number }) {
-            await new Promise((resolve) => setTimeout(resolve, 20))
-            return ok({ done: true })
-        }
-
-        const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(topHog(slowStep, [timerResult('step_time', () => ({ key: 'value' }))]))
-            .build()
-
-        await pipeline.process(createContext(ok({ teamId: 1 })))
-
-        expect(mockTracker.record).toHaveBeenCalledTimes(1)
-        const recordedTime = mockTracker.record.mock.calls[0][1] as number
-        // Use a lower threshold than the actual delay to account for timing variance
-        expect(recordedTime).toBeGreaterThanOrEqual(15)
     })
 })
