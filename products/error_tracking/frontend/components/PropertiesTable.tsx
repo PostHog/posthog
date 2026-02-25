@@ -47,33 +47,25 @@ export function PropertiesTable({
                         <div className="flex gap-x-2 justify-between items-center">
                             <div>{String(dataValue)}</div>
                             <div className="flex items-center gap-1">
-                                {onFilterValue && (
-                                    <LemonButton
-                                        size="xsmall"
-                                        tooltip={
-                                            getFilterableValue(record.filterValue ?? record.value) !== null
-                                                ? 'Filter by this value'
-                                                : 'Filtering is only available for string, number, or boolean values'
-                                        }
-                                        disabledReason={
-                                            !record.filterKey ||
-                                            getFilterableValue(record.filterValue ?? record.value) === null
-                                                ? 'Cannot filter by this value'
-                                                : null
-                                        }
-                                        className="invisible group-hover:visible"
-                                        onClick={() => {
-                                            const filterableValue = getFilterableValue(
-                                                record.filterValue ?? record.value
-                                            )
-                                            if (record.filterKey && filterableValue !== null) {
-                                                onFilterValue(record.filterKey, filterableValue)
-                                            }
-                                        }}
-                                    >
-                                        <IconFilter />
-                                    </LemonButton>
-                                )}
+                                {onFilterValue &&
+                                    record.filterKey &&
+                                    getFilterableValue(record.filterValue ?? record.value) !== null && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            tooltip="Filter by this value"
+                                            className="invisible group-hover:visible"
+                                            onClick={() => {
+                                                const filterableValue = getFilterableValue(
+                                                    record.filterValue ?? record.value
+                                                )
+                                                if (filterableValue !== null) {
+                                                    onFilterValue(record.filterKey as string, filterableValue)
+                                                }
+                                            }}
+                                        >
+                                            <IconFilter />
+                                        </LemonButton>
+                                    )}
                                 <LemonButton
                                     size="xsmall"
                                     tooltip="Copy value"

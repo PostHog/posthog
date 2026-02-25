@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -7,8 +7,19 @@ import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { concatValues } from 'lib/components/Errors/utils'
 import { identifierToHuman } from 'lib/utils'
 
-import { propertyValueFilterLogic } from '../ExceptionCard/propertyValueFilterLogic'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
+
+import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
 import { PropertiesTable } from '../PropertiesTable'
+
+const NON_FILTERABLE_ADDITIONAL_PROPERTY_KEYS = new Set(['$tab_count', 'tab_count'])
 
 export type ContextDisplayProps = {
     loading: boolean
@@ -21,14 +32,37 @@ export function ContextDisplay({
     exceptionAttributes,
     additionalProperties,
 }: ContextDisplayProps): JSX.Element {
-    const { filterByPropertyValue } = useActions(propertyValueFilterLogic)
+    const { filterGroup } = useValues(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
+    const { setFilterGroup } = useActions(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
+    const onFilterValue = (key: string, value: string | number | boolean): void => {
+        const firstGroup = filterGroup.values[0] as UniversalFiltersGroup
+        const newFilter: AnyPropertyFilter = {
+            key,
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: [value],
+        }
+        setFilterGroup({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    ...firstGroup,
+                    values: [...firstGroup.values, newFilter],
+                },
+            ],
+        })
+    }
     const additionalEntries = Object.entries(additionalProperties)
         .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base' }))
-        .map(([key, value]) => ({ key: identifierToHuman(key, 'title'), value, filterKey: key }))
+        .map(([key, value]) => ({
+            key: identifierToHuman(key, 'title'),
+            value,
+            filterKey: NON_FILTERABLE_ADDITIONAL_PROPERTY_KEYS.has(key) ? undefined : key,
+        }))
     const exceptionEntries = exceptionAttributes
         ? [
               { key: 'Level', value: exceptionAttributes.level, filterKey: '$level' },
-              { key: 'Synthetic', value: exceptionAttributes.synthetic, filterKey: '$exception_synthetic' },
+              { key: 'Synthetic', value: exceptionAttributes.synthetic },
               {
                   key: 'Library',
                   value: concatValues(exceptionAttributes, 'lib', 'libVersion'),
@@ -69,7 +103,7 @@ export function ContextDisplay({
                 .with(false, () => (
                     <PropertiesTable
                         entries={[...exceptionEntries, ...additionalEntries]}
-                        onFilterValue={filterByPropertyValue}
+                        onFilterValue={onFilterValue}
                     />
                 ))
                 .exhaustive()}

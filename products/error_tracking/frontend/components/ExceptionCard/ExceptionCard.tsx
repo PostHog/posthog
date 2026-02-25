@@ -11,7 +11,6 @@ import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/T
 
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { exceptionCardLogic } from './exceptionCardLogic'
-import { propertyValueFilterLogic } from './propertyValueFilterLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StackTraceTab } from './Tabs/StackTraceTab'
@@ -56,11 +55,9 @@ export function ExceptionCard({
 
     return (
         <BindLogic logic={exceptionCardLogic} props={cardLogicProps}>
-            <BindLogic logic={propertyValueFilterLogic}>
-                <BindLogic logic={errorPropertiesLogic} props={eventProps}>
-                    <BindLogic logic={releasePreviewLogic} props={eventProps}>
-                        <ExceptionCardContent timestamp={event?.timestamp} {...contentProps} />
-                    </BindLogic>
+            <BindLogic logic={errorPropertiesLogic} props={eventProps}>
+                <BindLogic logic={releasePreviewLogic} props={eventProps}>
+                    <ExceptionCardContent timestamp={event?.timestamp} {...contentProps} />
                 </BindLogic>
             </BindLogic>
         </BindLogic>
