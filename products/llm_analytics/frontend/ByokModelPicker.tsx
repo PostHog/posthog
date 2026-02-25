@@ -6,6 +6,7 @@ import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { byokModelPickerLogic } from './byokModelPickerLogic'
+import { LLMProviderIcon } from './LLMProviderIcon'
 
 export interface ByokModelPickerProps {
     model: string
@@ -25,9 +26,11 @@ export function ByokModelPicker({
     'data-attr': dataAttr,
 }: ByokModelPickerProps): JSX.Element {
     useMountedLogic(byokModelPickerLogic)
-    const { search, filteredProviderModelGroups, byokModelsLoading, providerKeysLoading } =
+    const { search, filteredProviderModelGroups, selectedProviderForModel, byokModelsLoading, providerKeysLoading } =
         useValues(byokModelPickerLogic)
     const { setSearch, clearSearch } = useActions(byokModelPickerLogic)
+
+    const selectedProvider = selectedProviderForModel(model, selectedProviderKeyId)
 
     const handleVisibilityChange = (visible: boolean): void => {
         if (!visible) {
@@ -58,9 +61,11 @@ export function ByokModelPicker({
         ...filteredProviderModelGroups.map((group): LemonMenuItems[number] => {
             const isActiveGroup = group.providerKeyId === selectedProviderKeyId
             return {
+                icon: <LLMProviderIcon provider={group.provider} />,
                 label: group.label,
                 active: isActiveGroup && group.models.some((m) => m.id === model),
                 items: group.models.map((m) => ({
+                    icon: <LLMProviderIcon provider={group.provider} />,
                     label: m.name,
                     tooltip: m.description || undefined,
                     active: isActiveGroup && m.id === model,
@@ -86,7 +91,13 @@ export function ByokModelPicker({
             placement="bottom-start"
             onVisibilityChange={handleVisibilityChange}
         >
-            <LemonButton type="secondary" fullWidth className="justify-between" data-attr={dataAttr}>
+            <LemonButton
+                type="secondary"
+                fullWidth
+                className="justify-between"
+                data-attr={dataAttr}
+                icon={selectedProvider ? <LLMProviderIcon provider={selectedProvider} /> : undefined}
+            >
                 {selectedModelName ?? placeholder}
             </LemonButton>
         </LemonMenu>
