@@ -176,6 +176,11 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
     while queries:
         query = queries.pop()
 
+        # collect CTEs from each query as it's processed so that nested CTEs
+        # (inner WITH clauses resolved through from outer CTEs) are available
+        if query.ctes:
+            ctes.update(query.ctes)
+
         join = query.select_from
 
         if join is None:

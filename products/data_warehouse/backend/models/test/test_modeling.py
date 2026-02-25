@@ -58,6 +58,34 @@ GET_PARENTS_TEST_CASES = [
             """,
         {"events"},
     ),
+    # CTE used in a JOIN - should resolve through the CTE to find actual parents
+    (
+        """
+            WITH cte AS (SELECT event, person_id FROM events GROUP BY event, person_id)
+            SELECT p.id, c.event
+            FROM persons p
+            JOIN cte c ON p.id = c.person_id
+            """,
+        {"events", "persons"},
+    ),
+    # nested CTEs: a top-level CTE whose inner query defines its own CTEs used in a JOIN
+    (
+        """
+            WITH outer_cte AS (
+                WITH inner_data AS (
+                    SELECT event, person_id FROM events GROUP BY event, person_id
+                ),
+                inner_agg AS (
+                    SELECT person_id, count() AS cnt FROM inner_data GROUP BY person_id
+                )
+                SELECT p.id, ia.cnt
+                FROM persons p
+                JOIN inner_agg ia ON p.id = ia.person_id
+            )
+            SELECT * FROM outer_cte
+        """,
+        {"events", "persons"},
+    ),
 ]
 
 
