@@ -34,8 +34,22 @@ def get_strategy(name: str):
         from group_aware_strategy import GroupAwareStrategy
 
         return GroupAwareStrategy()
+    elif name == "verification_gate":
+        from verification_gate_strategy import VerificationGateStrategy
+
+        return VerificationGateStrategy()
+    elif name == "multilink":
+        from multilink_strategy import MultiLinkStrategy
+
+        return MultiLinkStrategy()
+    elif name == "pr_specificity":
+        from pr_specificity_strategy import PRSpecificityStrategy
+
+        return PRSpecificityStrategy()
     else:
-        raise ValueError(f"Unknown strategy: {name}. Available: current, group_aware")
+        raise ValueError(
+            f"Unknown strategy: {name}. Available: current, group_aware, verification_gate, multilink, pr_specificity"
+        )
 
 
 def save_run(

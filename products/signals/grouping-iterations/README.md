@@ -124,6 +124,22 @@ Compare runs by looking at the Metrics table in each file — they're sorted chr
 - You can start multiple runs in parallel (for example, 3) — evaluation is non-deterministic, so multiple runs give better signal
 - Use `--limit 3 --skip-eval` for quick smoke tests when iterating on code
 
+## Strategies and results
+
+| Strategy                               | Overall | Weighted coherence | Groups (multi/single) | Weak-chain | Misplaced | Under-grouping |
+| -------------------------------------- | ------- | ------------------ | --------------------- | ---------- | --------- | -------------- |
+| `current` (production baseline)        | 2/5     | 1.97–2.65          | 15–18 (5–6 / 9–12)    | 2–3        | 13–18     | 1–4            |
+| `group_aware` (full report context)    | 2–3/5   | 2.86–3.71          | 31–33 (4–6 / 25–28)   | 1–2        | 4–6       | 1–12           |
+| `verification_gate` (LLM verification) | 2/5     | 2.87–3.36          | 29–30 (10–11 / 18–20) | 3–5        | 6–10      | 1–2            |
+| `multilink` (transitive verification)  | 2/5     | 2.53–2.87          | 16–18 (6–7 / 10–11)   | 3          | 13–18     | 0–1            |
+| `pr_specificity` (PR-title gate)       | 2/5     | 2.64–2.92          | 27–29 (9–11 / 16–20)  | 5–6        | 8–11      | 1              |
+
+- **current**: Good at discovery, no filtering. Chains unrelated signals through shared keywords.
+- **group_aware**: Shows LLM full report context. Too conservative — over-splits into singletons.
+- **verification_gate**: Adds LLM "does this fit?" check. Subjective, doesn't reliably catch bridges.
+- **multilink**: Current discovery + embedding-based transitive verification. Fails because embeddings can't distinguish "same domain" from "same work item" — signals sharing product vocabulary pass the check.
+- **pr_specificity**: Current discovery + one LLM call asking "write a PR title for all signals; is it specific enough for one engineer?" Forces synthesis over judgment — weak-chained groups can't produce a specific PR title.
+
 ## Adding a new strategy
 
 1. Create `my_strategy.py` implementing the `GroupingStrategy` protocol:
@@ -184,6 +200,10 @@ products/signals/grouping-iterations/
 ├── run.py                     # Main entry point
 ├── harness.py                 # Core: EmbeddingCache, InMemorySignalStore, GroupingStrategy protocol
 ├── current_strategy.py        # Production grouping logic (in-memory)
+├── group_aware_strategy.py    # Shows full report context to LLM (too conservative)
+├── verification_gate_strategy.py  # Current + verification gate for 2+ signal reports
+├── multilink_strategy.py      # Current + multi-link transitive verification
+├── pr_specificity_strategy.py # Current + PR-title specificity gate
 ├── evaluate.py                # LLM-based evaluation
 ├── data/
 │   ├── prepare_test_set.py    # Regeneration script (only needed to refresh fixture)
