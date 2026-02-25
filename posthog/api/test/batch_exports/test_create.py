@@ -1707,12 +1707,12 @@ def test_creating_S3_batch_export_fails_if_using_invalid_endpoint_url(
 @pytest.mark.parametrize(
     "host",
     [
-        "https://192.168.1.1",
-        "http://127.0.0.1",
-        "http://[::1]/",
-        "http://10.0.0.1:9000/",
-        "http://169.254.0.0:8080/data",
-        "http://localhost",
+        "192.168.1.1",
+        "127.0.0.1",
+        "[::1]",
+        "10.0.0.1",
+        "169.254.0.0",
+        "localhost",
     ],
 )
 def test_create_redshift_or_postgres_batch_export_fails_with_invalid_host(

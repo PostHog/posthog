@@ -447,12 +447,17 @@ def resolve_and_validate_url(url: str) -> None:
     try:
         parsed = urlparse(url)
     except Exception as e:
-        raise ValueError(f"Invalid URL '{url}': {e}") from e
+        raise ValueError(f"Invalid URL'{url}': {e}") from e
 
     host = parsed.hostname
     if not host:
         raise ValueError(f"URL has no hostname")
 
+    resolve_and_validate_host(host)
+
+
+def resolve_and_validate_host(host: str) -> None:
+    """Ensure provided host resolves to a non-internal IP."""
     # Host may already be an IP literal
     try:
         ip = ipaddress.ip_address(host)
@@ -474,7 +479,7 @@ def resolve_and_validate_url(url: str) -> None:
 
     for ip in resolved_ips:
         if is_ip_internal(ip):
-            raise ValueError(f"URL resolved to internal IP: {ip}")
+            raise ValueError(f"Host resolved to internal IP: {ip}")
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
@@ -826,7 +831,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             BatchExportDestination.Destination.REDSHIFT,
         ):
             try:
-                resolve_and_validate_url(merged_config["host"])
+                resolve_and_validate_host(merged_config["host"])
             except ValueError:
                 raise serializers.ValidationError(f"Invalid host: '{merged_config['host']}'")
 
