@@ -36,10 +36,10 @@ export class HogFlowBatchPersonQueryService {
         groupTypeIndex?: number
     ): Promise<BlastRadiusResponse> {
         // The /internal endpoints aren't exposed publicly and require INTERNAL_API_SECRET for authentication
-        const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius`
+        const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius` as const
 
         try {
-            const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
+            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
                 urlPath,
                 fetchParams: {
                     method: 'POST',
@@ -86,10 +86,10 @@ export class HogFlowBatchPersonQueryService {
         groupTypeIndex?: number,
         cursor?: string | null
     ): Promise<BlastRadiusPersonsResponse> {
-        const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons`
+        const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons` as const
 
         try {
-            const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
+            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
                 urlPath,
                 fetchParams: {
                     method: 'POST',
