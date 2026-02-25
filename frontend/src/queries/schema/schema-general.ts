@@ -304,6 +304,7 @@ export type QuerySchema =
     | StickinessQuery
     | LifecycleQuery
     | FunnelCorrelationQuery
+    | CalendarHeatmapQuery
 
     // Misc
     | DatabaseSchemaQuery

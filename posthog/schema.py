@@ -19075,6 +19075,7 @@ class QueryRequest(BaseModel):
         | StickinessQuery
         | LifecycleQuery
         | FunnelCorrelationQuery
+        | CalendarHeatmapQuery
         | DatabaseSchemaQuery
         | LogsQuery
         | LogAttributesQuery
