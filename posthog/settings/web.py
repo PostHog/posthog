@@ -352,6 +352,7 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
+    "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",

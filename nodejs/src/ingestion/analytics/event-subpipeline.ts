@@ -20,7 +20,7 @@ import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../event-processing/process-persons-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
-import { TopHogWrapper, count } from '../pipelines/extensions/tophog'
+import { TopHogWrapper, count, timer } from '../pipelines/extensions/tophog'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -65,7 +65,14 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createHogTransformEventStep(hogTransformer))
         .pipe(createNormalizeEventStep())
         .pipe(createProcessPersonlessStep(personsStore))
-        .pipe(createProcessPersonsStep(options, kafkaProducer, personsStore))
+        .pipe(
+            topHog(createProcessPersonsStep(options, kafkaProducer, personsStore), [
+                timer('process_persons_time', (input) => ({
+                    team_id: String(input.team.id),
+                    distinct_id: input.normalizedEvent.distinct_id,
+                })),
+            ])
+        )
         .pipe(createPrepareEventStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(
             createExtractHeatmapDataStep({
