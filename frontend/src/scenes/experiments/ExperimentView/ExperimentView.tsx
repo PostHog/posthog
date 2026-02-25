@@ -271,8 +271,12 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     if (!experimentLoading && isExperimentCreationIncomplete(experiment)) {
         if (showWizard) {
             return (
-                <BindLogic logic={createExperimentLogic} props={{ experiment, tabId }}>
-                    <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
+                <BindLogic
+                    logic={createExperimentLogic}
+                    props={{ experiment, tabId }}
+                    key={`${experimentId}-${experiment.name}`}
+                >
+                    <BindLogic logic={experimentWizardLogic} props={{ experiment, tabId }}>
                         <ExperimentWizard />
                     </BindLogic>
                 </BindLogic>

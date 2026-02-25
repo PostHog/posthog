@@ -25,6 +25,7 @@ export const STEP_ORDER: Record<ExperimentWizardStep, number> = {
 
 export interface ExperimentWizardLogicProps {
     tabId: string
+    experiment?: Experiment
 }
 
 export const experimentWizardLogic = kea<experimentWizardLogicType>([
@@ -36,7 +37,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
 
     connect((props: ExperimentWizardLogicProps) => ({
         values: [
-            createExperimentLogic({ tabId: props.tabId }),
+            createExperimentLogic({ tabId: props.tabId, experiment: props.experiment }),
             [
                 'experiment',
                 'sharedMetrics',
@@ -46,7 +47,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             ],
         ],
         actions: [
-            createExperimentLogic({ tabId: props.tabId }),
+            createExperimentLogic({ tabId: props.tabId, experiment: props.experiment }),
             [
                 'setExperiment',
                 'setExperimentValue',
@@ -55,7 +56,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 'setSharedMetrics',
                 'saveExperiment',
             ],
-            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }),
+            variantsPanelLogic({ experiment: props.experiment || { ...NEW_EXPERIMENT }, disabled: false }),
             ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
@@ -248,10 +249,13 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         },
     })),
 
-    events(({ actions, values }) => ({
+    events(({ actions, values, props }) => ({
         afterMount: () => {
             actions.reportExperimentWizardStarted(values.showGuide)
-            actions.resetWizard()
+            // Only reset the wizard if we're creating a new experiment, not editing a draft
+            if (!props.experiment || props.experiment.id === 'new') {
+                actions.resetWizard()
+            }
             actions.loadFeatureFlagsForAutocomplete()
         },
     })),
