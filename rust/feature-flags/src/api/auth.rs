@@ -198,8 +198,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
             }
 
             // Validate organization access (MANDATORY for teams with organization_id)
-            // Personal API keys can only access teams in organizations where the user is a member,
-            // unless explicitly scoped to specific organizations via scoped_organizations
+            // Personal API keys can only access teams in organizations where the user is a current member
             let user_id: i32 = row.get("user_id");
             let user_organization_id: uuid::Uuid = row.get("user_organization_id");
             let scoped_organizations: Option<Vec<String>> =
@@ -210,22 +209,28 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
                 let team_organization_id_str = team_organization_id.to_string();
 
                 // Check organization access:
-                // - If scoped_organizations has entries: team's org must be in the list
-                // - Otherwise (NULL or empty): user must be a member of the team's org
-                let has_org_access = match scoped_organizations.as_ref() {
-                    Some(orgs) if !orgs.is_empty() => orgs.contains(&team_organization_id_str),
-                    _ => {
-                        // Check if user is a member of the team's organization
-                        let is_member: bool = sqlx::query_scalar(
-                            "SELECT EXISTS(SELECT 1 FROM posthog_organizationmembership WHERE user_id = $1 AND organization_id = $2)"
-                        )
-                        .bind(user_id)
-                        .bind(team_organization_id)
-                        .fetch_one(&mut *conn)
-                        .await?;
-                        is_member
+                // 1. If scoped_organizations has entries, the team's org must be in the list
+                // 2. The user must always be a current member of the team's organization
+                if let Some(orgs) = scoped_organizations.as_ref() {
+                    if !orgs.is_empty() && !orgs.contains(&team_organization_id_str) {
+                        warn!(
+                            team_organization_id = %team_organization_id_str,
+                            scoped_organizations = ?orgs,
+                            "Personal API key scope does not include this organization"
+                        );
+                        return Err(FlagError::PersonalApiKeyInvalid(
+                            "Authorization header".to_string(),
+                        ));
                     }
-                };
+                }
+
+                let has_org_access: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM posthog_organizationmembership WHERE user_id = $1 AND organization_id = $2)"
+                )
+                .bind(user_id)
+                .bind(team_organization_id)
+                .fetch_one(&mut *conn)
+                .await?;
 
                 if !has_org_access {
                     warn!(
