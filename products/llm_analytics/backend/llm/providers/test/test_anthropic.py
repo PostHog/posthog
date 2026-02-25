@@ -59,3 +59,8 @@ class TestAnthropicListModels:
     )
     def test_list_models_error_returns_supported(self, _mock_anthropic):
         assert AnthropicAdapter.list_models("sk-ant-test-key") == AnthropicConfig.SUPPORTED_MODELS
+
+
+class TestAnthropicRecommendedModels:
+    def test_recommended_models_equals_supported_models(self):
+        assert AnthropicAdapter.recommended_models() == set(AnthropicConfig.SUPPORTED_MODELS)

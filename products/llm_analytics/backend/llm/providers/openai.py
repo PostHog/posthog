@@ -60,12 +60,18 @@ class OpenAIConfig:
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
-        "o3",
+        "gpt-5.2-pro",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5-pro",
+        "gpt-5-nano",
+        "gpt-5-mini",
+        "gpt-5",
         "o3-pro",
         "o4-mini",
+        "o3",
+        "o1-pro",
         "o3-mini",
-        "gpt-5",
-        "gpt-5-mini",
     ]
 
 
