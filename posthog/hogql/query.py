@@ -209,7 +209,9 @@ class HogQLQueryExecutor:
                 return
 
             for table_type in select_type.tables.values():
-                if isinstance(table_type, ast.TableAliasType):
+                if isinstance(table_type, ast.TableType) and isinstance(table_type.table, DirectPostgresTable):
+                    source_ids.add(table_type.table.external_data_source_id)
+                elif isinstance(table_type, ast.TableAliasType):
                     if isinstance(table_type.table_type, ast.TableType) and isinstance(
                         table_type.table_type.table, DirectPostgresTable
                     ):
