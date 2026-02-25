@@ -171,6 +171,8 @@ pub struct FlagsCanonicalLogLine {
     pub person_properties_not_cached: bool,
     /// True if group properties were not found in evaluation state cache.
     pub group_properties_not_cached: bool,
+    /// Which data source was used for person/group property fetches: "sql" or "personhog".
+    pub property_data_source: Option<&'static str>,
     pub cohorts_evaluated: usize,
     pub flags_errored: usize,
     /// Number of errors encountered during dependency graph construction.
@@ -230,6 +232,7 @@ impl Default for FlagsCanonicalLogLine {
             property_cache_misses: 0,
             person_properties_not_cached: false,
             group_properties_not_cached: false,
+            property_data_source: None,
             cohorts_evaluated: 0,
             flags_errored: 0,
             dependency_graph_errors: 0,
@@ -289,6 +292,7 @@ impl FlagsCanonicalLogLine {
             property_cache_misses = self.property_cache_misses,
             person_properties_not_cached = self.person_properties_not_cached,
             group_properties_not_cached = self.group_properties_not_cached,
+            property_data_source = self.property_data_source,
             cohorts_evaluated = self.cohorts_evaluated,
             flags_errored = self.flags_errored,
             dependency_graph_errors = self.dependency_graph_errors,

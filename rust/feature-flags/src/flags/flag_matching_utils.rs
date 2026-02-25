@@ -178,6 +178,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<(), FlagError> {
     if let Some(client) = personhog_client {
+        with_canonical_log(|log| log.property_data_source = Some("personhog"));
         let labels = [("source".to_string(), "personhog".to_string())];
         let timer = common_metrics::timing_guard(FLAG_PROPERTIES_FETCH_TIME, &labels);
         let result = fetch_properties_via_personhog(
@@ -195,6 +196,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             .fin();
         return result;
     }
+    with_canonical_log(|log| log.property_data_source = Some("sql"));
     let sql_labels = [("source".to_string(), "sql".to_string())];
     let sql_fetch_timer = common_metrics::timing_guard(FLAG_PROPERTIES_FETCH_TIME, &sql_labels);
 
@@ -485,11 +487,16 @@ async fn fetch_properties_via_personhog(
         .collect();
 
     let person_fut = async {
+        let start = Instant::now();
         let timer = common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
         let result = client
             .get_person_by_distinct_id(team_id, &distinct_id)
             .await;
         timer.fin();
+        with_canonical_log(|log| {
+            log.person_queries += 1;
+            log.person_query_time_ms += start.elapsed().as_millis() as u64;
+        });
         result
     };
 
@@ -497,9 +504,14 @@ async fn fetch_properties_via_personhog(
         if group_identifiers.is_empty() {
             return Ok(HashMap::new());
         }
+        let start = Instant::now();
         let timer = common_metrics::timing_guard(FLAG_PERSONHOG_GROUP_QUERY_TIME, &[]);
         let result = client.get_groups(team_id, group_identifiers).await;
         timer.fin();
+        with_canonical_log(|log| {
+            log.group_queries += 1;
+            log.group_query_time_ms += start.elapsed().as_millis() as u64;
+        });
         result
     };
 
@@ -516,11 +528,16 @@ async fn fetch_properties_via_personhog(
 
         // Cohort check depends on person_id so it must run after person lookup
         if !static_cohort_ids.is_empty() {
+            let cohort_start = Instant::now();
             let cohort_timer = common_metrics::timing_guard(FLAG_PERSONHOG_COHORT_QUERY_TIME, &[]);
             let cohort_results = client
                 .check_cohort_membership(person_id, &static_cohort_ids)
                 .await?;
             cohort_timer.fin();
+            with_canonical_log(|log| {
+                log.static_cohort_queries += 1;
+                log.cohort_query_time_ms += cohort_start.elapsed().as_millis() as u64;
+            });
             flag_evaluation_state.set_static_cohort_matches(cohort_results);
         } else {
             flag_evaluation_state.set_static_cohort_matches(HashMap::new());
