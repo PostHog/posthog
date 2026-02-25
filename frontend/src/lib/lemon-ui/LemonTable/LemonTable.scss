@@ -370,7 +370,7 @@ body:not(.storybook-test-runner) {
         }
     }
 
-    .ScrollableShadows--left {
+    .ScrollableShadows[data-overflow-x-start] {
         .LemonTable__cell--sticky::before,
         .LemonTable__header--sticky::before,
         .LemonTable__cell--pinned::before,

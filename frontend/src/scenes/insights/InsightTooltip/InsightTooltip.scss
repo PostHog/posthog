@@ -5,10 +5,10 @@
     pointer-events: none;
     transition: all 0.4s;
 
-    &:has(.ScrollableShadows--left),
-    &:has(.ScrollableShadows--right),
-    &:has(.ScrollableShadows--top),
-    &:has(.ScrollableShadows--bottom) {
+    &:has(.ScrollableShadows[data-overflow-x-start]),
+    &:has(.ScrollableShadows[data-overflow-x-end]),
+    &:has(.ScrollableShadows[data-overflow-y-start]),
+    &:has(.ScrollableShadows[data-overflow-y-end]) {
         pointer-events: auto;
     }
 }
