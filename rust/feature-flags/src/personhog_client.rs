@@ -320,6 +320,9 @@ pub mod mock {
     use super::*;
     use std::sync::{Arc, Mutex};
 
+    type CohortCall = (PersonId, Vec<CohortId>);
+    type GroupCall = (TeamId, Vec<(GroupTypeIndex, String)>);
+    type HashKeyContextCall = (TeamId, Vec<String>);
     type UpsertCall = (TeamId, Vec<String>, Vec<String>, String);
 
     pub struct MockPersonhogClient {
@@ -327,6 +330,9 @@ pub mod mock {
         cohort_responses: HashMap<PersonId, HashMap<CohortId, bool>>,
         group_responses: HashMap<TeamId, HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         hash_key_override_responses: HashMap<TeamId, HashMap<String, String>>,
+        cohort_calls: Arc<Mutex<Vec<CohortCall>>>,
+        group_calls: Arc<Mutex<Vec<GroupCall>>>,
+        hash_key_context_calls: Arc<Mutex<Vec<HashKeyContextCall>>>,
         upsert_calls: Arc<Mutex<Vec<UpsertCall>>>,
         error: Option<(tonic::Code, String)>,
     }
@@ -344,6 +350,9 @@ pub mod mock {
                 cohort_responses: HashMap::new(),
                 group_responses: HashMap::new(),
                 hash_key_override_responses: HashMap::new(),
+                cohort_calls: Arc::new(Mutex::new(Vec::new())),
+                group_calls: Arc::new(Mutex::new(Vec::new())),
+                hash_key_context_calls: Arc::new(Mutex::new(Vec::new())),
                 upsert_calls: Arc::new(Mutex::new(Vec::new())),
                 error: None,
             }
@@ -392,6 +401,18 @@ pub mod mock {
             self
         }
 
+        pub fn get_cohort_calls(&self) -> Vec<CohortCall> {
+            self.cohort_calls.lock().unwrap().clone()
+        }
+
+        pub fn get_group_calls(&self) -> Vec<GroupCall> {
+            self.group_calls.lock().unwrap().clone()
+        }
+
+        pub fn get_hash_key_context_calls(&self) -> Vec<HashKeyContextCall> {
+            self.hash_key_context_calls.lock().unwrap().clone()
+        }
+
         pub fn get_upsert_calls(&self) -> Vec<UpsertCall> {
             self.upsert_calls.lock().unwrap().clone()
         }
@@ -420,7 +441,7 @@ pub mod mock {
         async fn check_cohort_membership(
             &self,
             person_id: PersonId,
-            _cohort_ids: &[CohortId],
+            cohort_ids: &[CohortId],
         ) -> Result<HashMap<CohortId, bool>, FlagError> {
             if let Some((code, message)) = &self.error {
                 return Err(FlagError::PersonhogError {
@@ -428,6 +449,10 @@ pub mod mock {
                     message: message.clone(),
                 });
             }
+            self.cohort_calls
+                .lock()
+                .unwrap()
+                .push((person_id, cohort_ids.to_vec()));
             Ok(self
                 .cohort_responses
                 .get(&person_id)
@@ -438,7 +463,7 @@ pub mod mock {
         async fn get_groups(
             &self,
             team_id: TeamId,
-            _group_identifiers: Vec<(GroupTypeIndex, String)>,
+            group_identifiers: Vec<(GroupTypeIndex, String)>,
         ) -> Result<HashMap<GroupTypeIndex, HashMap<String, Value>>, FlagError> {
             if let Some((code, message)) = &self.error {
                 return Err(FlagError::PersonhogError {
@@ -446,6 +471,10 @@ pub mod mock {
                     message: message.clone(),
                 });
             }
+            self.group_calls
+                .lock()
+                .unwrap()
+                .push((team_id, group_identifiers));
             Ok(self
                 .group_responses
                 .get(&team_id)
@@ -456,7 +485,7 @@ pub mod mock {
         async fn get_hash_key_override_context(
             &self,
             team_id: TeamId,
-            _distinct_ids: Vec<String>,
+            distinct_ids: Vec<String>,
         ) -> Result<HashMap<String, String>, FlagError> {
             if let Some((code, message)) = &self.error {
                 return Err(FlagError::PersonhogError {
@@ -464,6 +493,10 @@ pub mod mock {
                     message: message.clone(),
                 });
             }
+            self.hash_key_context_calls
+                .lock()
+                .unwrap()
+                .push((team_id, distinct_ids));
             Ok(self
                 .hash_key_override_responses
                 .get(&team_id)
