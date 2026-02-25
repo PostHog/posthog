@@ -154,6 +154,10 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
+        router.post(
+            '/api/projects/:team_id/batch_exports/:id/hog_functions/:hog_function_id/invocations',
+            asyncHandler(this.handleBatchExportHogFunction())
+        )
 
         const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
             if (req.rawBody && req.rawBody.length > 512_000) {
@@ -711,6 +715,93 @@ export class CdpApi {
             } catch (error) {
                 logger.error('[CdpApi] Error validating preferences token', error)
                 return res.status(500).json({ error: 'Failed to validate token' })
+            }
+        }
+
+    private handleBatchExportHogFunction =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                const { team_id, id, hog_function_id } = req.params
+                const { clickhouse_event, invocation_id } = req.body
+
+                logger.info('⚡️', 'Received batch export invocation', { team_id, batch_export_id: id })
+
+                const invocationID = invocation_id ?? new UUIDT().toString()
+                if (!UUID.validateString(invocationID)) {
+                    return res.status(400).json({ error: 'Invalid invocation ID' })
+                }
+
+                const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+                if (!team) {
+                    return res.status(404).json({ error: 'Team not found' })
+                }
+
+                let globals = convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.hub.SITE_URL)
+                if (!globals.event) {
+                    return res.status(400).json({ error: 'Missing event' })
+                }
+
+                const hogFunction = await this.hogFunctionManager.fetchHogFunction(hog_function_id).catch(() => null)
+                if (!hogFunction || hogFunction.team_id !== team.id || hogFunction.batch_export_id !== id) {
+                    return res.status(404).json({ error: 'Hog function not found' })
+                }
+
+                let logs: MinimalLogEntry[] = []
+                const errors: any[] = []
+
+                const {
+                    invocations,
+                    logs: filterLogs,
+                    metrics: filterMetrics,
+                } = await this.hogExecutor.buildHogFunctionInvocations([hogFunction], globals)
+
+                // Add metrics to the logs
+                filterMetrics.forEach((metric) => {
+                    if (metric.metric_name === 'filtered') {
+                        logs.push({
+                            level: 'info',
+                            timestamp: DateTime.now(),
+                            message: `Mapping trigger not matching filters was ignored.`,
+                        })
+                    }
+                })
+
+                filterLogs.forEach((log) => {
+                    logs.push(log)
+                })
+
+                for (const invocation of invocations) {
+                    invocation.id = invocationID
+
+                    const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(false, logs)
+
+                    let response: any = null
+                    if (isNativeHogFunction(hogFunction)) {
+                        response = await this.nativeDestinationExecutorService.execute(invocation)
+                    } else if (isSegmentPluginHogFunction(hogFunction)) {
+                        response = await this.segmentDestinationExecutorService.execute(invocation)
+                    } else {
+                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                    }
+
+                    logs = logs.concat(response.logs)
+                    if (response.error) {
+                        errors.push(response.error)
+                    }
+                }
+
+                const wasSkipped = invocations.length === 0
+
+                return res.json({
+                    status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
+            } catch (e) {
+                return res.status(500).json({ errors: [e.message] })
+            } finally {
+                await this.hogFunctionMonitoringService.flush()
             }
         }
 }
