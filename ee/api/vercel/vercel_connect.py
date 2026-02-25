@@ -1,5 +1,5 @@
 import uuid
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -10,6 +10,7 @@ from rest_framework import decorators, exceptions, permissions, serializers, vie
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
@@ -17,11 +18,31 @@ from ee.vercel.client import VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
+ALLOWED_REDIRECT_DOMAINS = {
+    "vercel.com",
+    "www.vercel.com",
+}
+
 CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
 
 
 def _get_connect_cache_key(session_key: str) -> str:
     return f"vercel_connect:{session_key}"
+
+
+def _validate_next_url(url: str) -> str:
+    """Validate and sanitize the next_url to prevent open redirects."""
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return ""
+    if parsed.scheme not in ("https", "http"):
+        return ""
+    if not parsed.hostname or parsed.hostname not in ALLOWED_REDIRECT_DOMAINS:
+        return ""
+    return url
 
 
 class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
@@ -38,7 +59,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
     @decorators.action(detail=False, methods=["get"], url_path="callback")
     def callback(self, request: Request) -> HttpResponse:
         code = request.query_params.get("code")
-        next_url = request.query_params.get("next", "")
+        next_url = _validate_next_url(request.query_params.get("next", ""))
         configuration_id = request.query_params.get("configurationId", "")
 
         if not code:
@@ -49,7 +70,8 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
         redirect_uri = f"{settings.SITE_URL}/connect/vercel/callback"
 
         if not client_id or not client_secret:
-            logger.error("Vercel connect: missing configuration", integration="vercel")
+            logger.error("vercel_connect_missing_configuration", integration="vercel")
+            capture_exception(Exception("Vercel connect: missing client configuration"))
             raise exceptions.APIException("Vercel integration not configured")
 
         client = VercelAPIClient(bearer_token=None)
@@ -62,12 +84,12 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
 
         if token_response.error:
             logger.error(
-                "Vercel connect: OAuth token exchange failed",
+                "vercel_connect_token_exchange_failed",
                 error=token_response.error,
                 error_description=token_response.error_description,
                 integration="vercel",
             )
-            raise exceptions.AuthenticationFailed(f"Vercel authentication failed: {token_response.error}")
+            raise exceptions.AuthenticationFailed("Vercel authentication failed")
 
         session_key = str(uuid.uuid4())
         cache.set(
@@ -199,26 +221,27 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         if not cached_data:
             raise exceptions.ValidationError("Session expired. Please try linking again from Vercel.")
 
-        # Get user's organizations where they're admin or owner
         memberships = OrganizationMembership.objects.filter(
             user=request.user,
             level__gte=OrganizationMembership.Level.ADMIN,
         ).select_related("organization")
 
-        organizations = []
-        for m in memberships:
-            has_vercel = OrganizationIntegration.objects.filter(
-                organization=m.organization,
+        org_ids = [m.organization_id for m in memberships]
+        orgs_with_vercel = set(
+            OrganizationIntegration.objects.filter(
+                organization_id__in=org_ids,
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            ).exists()
+            ).values_list("organization_id", flat=True)
+        )
 
-            organizations.append(
-                {
-                    "id": str(m.organization.id),
-                    "name": m.organization.name,
-                    "already_linked": has_vercel,
-                }
-            )
+        organizations = [
+            {
+                "id": str(m.organization.id),
+                "name": m.organization.name,
+                "already_linked": m.organization_id in orgs_with_vercel,
+            }
+            for m in memberships
+        ]
 
         return Response(
             {

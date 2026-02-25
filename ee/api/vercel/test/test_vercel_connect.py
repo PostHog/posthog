@@ -95,6 +95,26 @@ class TestVercelConnectCallback(VercelConnectTestBase):
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_malicious_next_url_is_stripped(self, mock_client_class):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
+            access_token="tok_123",
+            token_type="Bearer",
+            installation_id="icfg_new",
+            user_id="usr_1",
+        )
+
+        response = self.client.get(self.url, {"code": "good_code", "next": "https://evil.com/phish"})
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "evil.com" not in location
+        parsed = parse_qs(urlparse(location).query)
+        assert "next" not in parsed
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_unauthenticated_user_redirected_to_login(self, mock_client_class):
         self.client.logout()
         mock_client = MagicMock()

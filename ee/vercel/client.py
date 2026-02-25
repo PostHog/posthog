@@ -250,11 +250,33 @@ class VercelAPIClient:
                     error_description=json_data.get("error_description"),
                 )
 
+            access_token = json_data.get("access_token")
+            token_type = json_data.get("token_type")
+            installation_id = json_data.get("installation_id")
+            user_id = json_data.get("user_id")
+
+            if not access_token or not installation_id or not user_id:
+                logger.warning(
+                    "OAuth token exchange missing required fields",
+                    has_access_token=bool(access_token),
+                    has_installation_id=bool(installation_id),
+                    has_user_id=bool(user_id),
+                    integration="vercel",
+                )
+                return OAuthTokenResponse(
+                    access_token="",
+                    token_type="",
+                    installation_id="",
+                    user_id="",
+                    error="invalid_response",
+                    error_description="Missing required fields in OAuth response",
+                )
+
             return OAuthTokenResponse(
-                access_token=json_data["access_token"],
-                token_type=json_data["token_type"],
-                installation_id=json_data["installation_id"],
-                user_id=json_data["user_id"],
+                access_token=access_token,
+                token_type=token_type or "Bearer",
+                installation_id=installation_id,
+                user_id=user_id,
                 team_id=json_data.get("team_id"),
             )
         except APIError as e:

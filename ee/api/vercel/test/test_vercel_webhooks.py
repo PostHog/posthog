@@ -109,8 +109,26 @@ class TestVercelWebhooks(VercelTestBase):
             assert response.json()["status"] == "ignored"
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_deauthorization_deletes_integration(self):
+    @patch("ee.api.vercel.vercel_webhooks.VercelIntegration")
+    def test_deauthorization_native_calls_delete_installation(self, mock_vercel_integration):
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+
+        payload = {
+            "type": "integration.configuration-removed",
+            "payload": {"installationId": self.installation_id},
+        }
+        signature = self._sign_payload(payload)
+
+        response = self._post_webhook(payload, signature=signature)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "ok"
+        mock_vercel_integration.delete_installation.assert_called_once_with(self.installation_id)
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
+    def test_deauthorization_connectable_deletes_directly(self):
+        self.installation.config["type"] = "connectable"
+        self.installation.save()
 
         payload = {
             "type": "integration.configuration-removed",

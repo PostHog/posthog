@@ -15,6 +15,7 @@ from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.billing.billing_manager import BillingManager
 from ee.models import License
+from ee.vercel.integration import VercelIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -99,8 +100,22 @@ def vercel_webhook(request: Request) -> Response:
 
         integration = _get_integration(config_id)
         if integration:
-            logger.info("vercel_webhook_deauthorize", config_id=config_id, org_id=str(integration.organization_id))
-            integration.delete()
+            is_connectable = integration.config.get("type") == "connectable"
+            logger.info(
+                "vercel_webhook_deauthorize",
+                config_id=config_id,
+                org_id=str(integration.organization_id),
+                is_connectable=is_connectable,
+            )
+            if is_connectable:
+                integration.delete()
+            else:
+                try:
+                    VercelIntegration.delete_installation(config_id)
+                except Exception as e:
+                    logger.exception("vercel_webhook_deauthorize_delete_failed", config_id=config_id)
+                    capture_exception(e, {"config_id": config_id})
+                    return Response({"error": "Processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
             logger.warning("vercel_webhook_deauthorize_unknown_config", config_id=config_id)
 
