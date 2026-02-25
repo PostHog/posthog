@@ -35,8 +35,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_property_sum_metric(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -58,9 +57,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         # Create events with different amounts for control vs test to provide variance
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -139,8 +136,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-10T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_conversion_window_extends_to_last_exposure(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -168,9 +164,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         feature_flag_property = f"$feature/{feature_flag.key}"
         distinct_id = "user_control_window"
@@ -219,8 +213,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_outlier_handling_for_sum_metric(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -295,9 +288,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         query_runner = ExperimentQueryRunner(
             query=experiment_query, team=self.team, force_precomputation=use_precomputation
@@ -325,8 +316,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_outlier_handling_for_count_metric(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -403,9 +393,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         query_runner = ExperimentQueryRunner(
             query=experiment_query, team=self.team, force_precomputation=use_precomputation
@@ -433,8 +421,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_unique_sessions_math_type(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -509,9 +496,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         query_runner = ExperimentQueryRunner(
             query=experiment_query, team=self.team, force_precomputation=use_precomputation
@@ -539,8 +524,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_property_max_metric(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -601,9 +585,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         query_runner = ExperimentQueryRunner(
             query=experiment_query, team=self.team, force_precomputation=use_precomputation
@@ -631,8 +613,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_property_min_metric(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -693,9 +674,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         query_runner = ExperimentQueryRunner(
             query=experiment_query, team=self.team, force_precomputation=use_precomputation
@@ -723,8 +702,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_property_avg_metric(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -785,9 +763,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         query_runner = ExperimentQueryRunner(
             query=experiment_query, team=self.team, force_precomputation=use_precomputation
@@ -815,8 +791,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_outlier_handling_with_ignore_zeros(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -840,9 +815,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -930,8 +903,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_count_unique_property_values_via_hogql(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -998,9 +970,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         query_runner = ExperimentQueryRunner(
             query=experiment_query, team=self.team, force_precomputation=use_precomputation
@@ -1030,8 +1000,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_count_distinct_property_values_via_hogql(self, name, use_precomputation):
-        if use_precomputation:
-            self._clean_preaggregation_data()
+        self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -1098,9 +1067,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        if use_precomputation:
-            experiment.exposure_preaggregation_enabled = True
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         query_runner = ExperimentQueryRunner(
             query=experiment_query, team=self.team, force_precomputation=use_precomputation
