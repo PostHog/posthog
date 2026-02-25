@@ -90,7 +90,7 @@
         }
     },
     "cohorts-create": {
-        "description": "Create a new cohort. For dynamic cohorts, provide 'filters' with property conditions. For static cohorts, set 'is_static: true' and optionally provide '_create_static_person_ids' with a list of person UUIDs to include. Dynamic cohort filters use a nested structure with AND/OR groups containing person property filters (type: \"person\"), behavioral filters (type: \"behavioral\"), or references to other cohorts (type: \"cohort\").",
+        "description": "Create a new cohort. For dynamic cohorts, provide 'filters' with property conditions. For static cohorts, set 'is_static: true', then use 'cohorts-add-persons-to-static-cohort' to add person UUIDs. Dynamic cohort filters use a nested structure with AND/OR groups containing person property filters (type: \"person\"), behavioral filters (type: \"behavioral\"), or references to other cohorts (type: \"cohort\").",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Create cohort",
