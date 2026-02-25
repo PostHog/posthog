@@ -451,7 +451,7 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
         ) as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE")]}
+            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -928,7 +928,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
-        return_value={"table_1": [("id", "integer")]},
+        return_value={"table_1": [("id", "integer", True)]},
     )
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
@@ -960,7 +960,9 @@ class TestExternalDataSource(APIBaseTest):
                     "table": "table_1",
                     "should_sync": False,
                     "rows": 42,
-                    "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+                    "incremental_fields": [
+                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                    ],
                     "incremental_available": True,
                     "append_available": True,
                     "incremental_field": "id",
@@ -1007,7 +1009,9 @@ class TestExternalDataSource(APIBaseTest):
                     "table": "table_1",
                     "should_sync": False,
                     "rows": 42,
-                    "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+                    "incremental_fields": [
+                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                    ],
                     "incremental_available": True,
                     "append_available": True,
                     "incremental_field": "id",
@@ -1652,7 +1656,7 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.temporal.data_imports.sources.snowflake.source.get_snowflake_schemas"
         ) as mocked_get_snowflake_schemas:
-            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE")]}
+            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             # Create a Snowflake source with password auth
             response = self.client.post(
@@ -1747,7 +1751,7 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
         ) as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE")]}
+            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             # Create a BigQuery source
             response = self.client.post(
