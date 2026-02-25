@@ -1,7 +1,10 @@
 from prometheus_client import Counter, Histogram
 
-# Buckets tuned for ClickHouse query latency:
-# most web analytics queries complete in 0.1-10s, tail extends to 120s for cold queries
+# We use a Histogram rather than Summary because:
+# - Histograms expose _sum and _count, enabling server-side average calculations
+# - Bucket boundaries allow percentile estimation (p50, p95, p99) without client-side aggregation
+# - Buckets are tuned for ClickHouse query latency patterns: most complete in 0.1-10s,
+#   tail extends to 120s for cold queries
 WEB_ANALYTICS_QUERY_LATENCY_BUCKETS = [
     0.05,
     0.1,
