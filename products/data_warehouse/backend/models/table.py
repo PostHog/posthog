@@ -15,6 +15,7 @@ from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -391,6 +392,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
 
             fields[column] = hogql_type(name=column, nullable=is_nullable)
+
+        if (
+            self.external_data_source
+            and self.external_data_source.source_type == "Postgres"
+            and self.external_data_source.access_method == self.external_data_source.AccessMethod.DIRECT
+        ):
+            postgres_schema = (self.external_data_source.job_inputs or {}).get("schema", "public")
+            postgres_table_name = self.table_name_without_prefix()
+            return DirectPostgresTable(
+                name=self.name,
+                fields=fields,
+                postgres_schema=postgres_schema,
+                postgres_table_name=postgres_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+            )
 
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())

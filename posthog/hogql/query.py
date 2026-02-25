@@ -1,6 +1,7 @@
 import dataclasses
 from typing import ClassVar, Optional, Union, cast
 
+import psycopg
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -15,6 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
@@ -23,6 +25,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
@@ -58,6 +61,9 @@ class HogQLQueryExecutor:
     hogql_context: Optional[HogQLContext] = None
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_sql: Optional[str] = None
+    direct_postgres_sql: Optional[str] = None
+    direct_postgres_source_id: Optional[str] = None
+    direct_postgres_values: dict[str, object] | None = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -190,6 +196,109 @@ class HogQLQueryExecutor:
                             stack=[select_query_hogql],
                         )
                     )
+
+    def _extract_direct_postgres_sources_from_type(
+        self, query_type: ast.SelectQueryType | ast.SelectSetQueryType
+    ) -> set[str]:
+        source_ids: set[str] = set()
+
+        def visit_one(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
+            if isinstance(select_type, ast.SelectSetQueryType):
+                for sub_type in select_type.types:
+                    visit_one(sub_type)
+                return
+
+            for table_type in select_type.tables.values():
+                if isinstance(table_type, ast.TableAliasType):
+                    if isinstance(table_type.table_type, ast.TableType) and isinstance(
+                        table_type.table_type.table, DirectPostgresTable
+                    ):
+                        source_ids.add(table_type.table_type.table.external_data_source_id)
+                elif isinstance(table_type, ast.SelectQueryAliasType):
+                    visit_one(table_type.select_query_type)
+                elif isinstance(table_type, ast.SelectViewType):
+                    visit_one(table_type.select_query_type)
+
+            for anonymous_table in select_type.anonymous_tables:
+                visit_one(anonymous_table)
+
+        visit_one(query_type)
+        return source_ids
+
+    def _maybe_prepare_direct_postgres_query(self) -> None:
+        query_type = self.select_query.type
+        if query_type is None:
+            return
+
+        direct_source_ids = self._extract_direct_postgres_sources_from_type(query_type)
+
+        if len(direct_source_ids) == 0:
+            return
+
+        if len(direct_source_ids) > 1:
+            raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
+
+        all_table_types = Resolver(context=self.hogql_context or self.context)._extract_tables_from_query_type(
+            query_type
+        )
+        has_non_direct_tables = any(
+            isinstance(table_type, ast.TableType) and not isinstance(table_type.table, DirectPostgresTable)
+            for table_type in all_table_types
+        )
+
+        if has_non_direct_tables:
+            raise ExposedHogQLError("Direct Postgres queries cannot be joined with PostHog or warehouse-synced tables.")
+
+        direct_context = dataclasses.replace(
+            self.context,
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            timings=self.timings,
+            modifiers=self.query_modifiers,
+            limit_context=self.limit_context,
+            database=self.hogql_context.database if self.hogql_context else None,
+        )
+
+        direct_prepared_ast = prepare_ast_for_printing(
+            node=self.select_query,
+            context=direct_context,
+            dialect="postgres",
+        )
+
+        self.direct_postgres_sql = print_prepared_ast(
+            node=direct_prepared_ast,
+            context=direct_context,
+            dialect="postgres",
+            pretty=self.pretty if self.pretty is not None else True,
+        )
+        self.direct_postgres_values = direct_context.values
+        self.direct_postgres_source_id = next(iter(direct_source_ids))
+
+    def _execute_direct_postgres_query(self) -> None:
+        assert self.direct_postgres_sql is not None
+        assert self.direct_postgres_source_id is not None
+
+        from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+
+        source = ExternalDataSource.objects.get(team_id=self.team.pk, source_id=self.direct_postgres_source_id)
+        source_config = source.job_inputs or {}
+
+        with psycopg.connect(
+            host=source_config.get("host"),
+            port=source_config.get("port", 5432),
+            dbname=source_config.get("database"),
+            user=source_config.get("user"),
+            password=source_config.get("password"),
+            sslmode="prefer",
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
+                results = cursor.fetchall()
+                description = cursor.description or []
+
+        self.results = results
+        self.types = [(column.name, "String") for column in description]
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
@@ -330,22 +439,28 @@ class HogQLQueryExecutor:
         self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
-        with self.timings.measure("_generate_clickhouse_sql"):
-            self._generate_clickhouse_sql()
-        assert self.clickhouse_sql
-        return self.clickhouse_sql, self.clickhouse_context
+        self._maybe_prepare_direct_postgres_query()
+        if self.direct_postgres_sql is None:
+            with self.timings.measure("_generate_clickhouse_sql"):
+                self._generate_clickhouse_sql()
+            assert self.clickhouse_sql
+            return self.clickhouse_sql, self.clickhouse_context
+
+        return self.direct_postgres_sql, self.context
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
         self.generate_clickhouse_sql()
 
-        if self.clickhouse_sql is not None:
+        if self.direct_postgres_sql is not None:
+            self._execute_direct_postgres_query()
+        elif self.clickhouse_sql is not None:
             self._execute_clickhouse_query()
 
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,
-            clickhouse=self.clickhouse_sql,
+            clickhouse=self.direct_postgres_sql or self.clickhouse_sql,
             error=self.error,
             timings=self.timings.to_list(),
             results=self.results,

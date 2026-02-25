@@ -332,9 +332,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         source: [
-            { payload: {}, prefix: '', description: '' } as {
+            { payload: {}, prefix: '', description: '', access_method: 'warehouse' } as {
                 prefix: string
                 description: string
+                access_method: 'warehouse' | 'direct'
                 payload: Record<string, any>
             },
             {
@@ -342,13 +343,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         description: source.description ?? state.description,
+                        access_method: source.access_method ?? state.access_method,
                         payload: {
                             ...state.payload,
                             ...source.payload,
                         },
                     }
                 },
-                clearSource: () => ({ payload: {}, prefix: '', description: '' }),
+                clearSource: () => ({ payload: {}, prefix: '', description: '', access_method: 'warehouse' }),
             },
         ],
         isLoading: [
@@ -427,6 +429,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
 
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
+        isDirectQueryMode: [(s) => [s.source], (source): boolean => source.access_method === 'direct'],
         canGoBack: [
             (s) => [s.currentStep],
             (currentStep): boolean => {
@@ -434,8 +437,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         canGoNext: [
-            (s) => [s.currentStep, s.isManualLinkingSelected, s.databaseSchema],
-            (currentStep, isManualLinkingSelected, databaseSchema): boolean => {
+            (s) => [s.currentStep, s.isManualLinkingSelected, s.databaseSchema, s.isDirectQueryMode],
+            (currentStep, isManualLinkingSelected, databaseSchema, isDirectQueryMode): boolean => {
                 if (isManualLinkingSelected && currentStep === 1) {
                     return false
                 }
@@ -443,6 +446,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 if (!isManualLinkingSelected && currentStep === 3) {
                     if (databaseSchema.filter((n) => n.should_sync).length === 0) {
                         return false
+                    }
+
+                    if (isDirectQueryMode) {
+                        return true
                     }
 
                     return databaseSchema.filter((n) => n.should_sync && !n.sync_type).length === 0
@@ -573,6 +580,27 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
+                if (values.source.access_method === 'direct') {
+                    actions.updateSource({
+                        payload: {
+                            schemas: values.databaseSchema.map((schema) => ({
+                                name: schema.table,
+                                should_sync: schema.should_sync,
+                                sync_type: null,
+                                incremental_field: null,
+                                incremental_field_type: null,
+                                sync_time_of_day: null,
+                            })),
+                        },
+                    })
+                    actions.setIsLoading(true)
+                    actions.createSource()
+                    if (values.selectedConnector) {
+                        posthog.capture('source created', { sourceType: values.selectedConnector.name })
+                    }
+                    return
+                }
+
                 const ignoredTables = values.databaseSchema.filter(
                     (schema) => !schema.should_sync || schema.sync_type === null
                 )
@@ -736,6 +764,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 let showToast = false
 
                 for (const schema of schemas) {
+                    if (values.source.access_method === 'direct') {
+                        schema.should_sync = true
+                        schema.sync_type = null
+                        continue
+                    }
+
                     if (schema.sync_type === null) {
                         showToast = true
                         schema.should_sync = true

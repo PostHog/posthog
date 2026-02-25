@@ -283,6 +283,34 @@ export function SourceFormComponent({
                     )}
                 </LemonField>
             )}
+            {sourceConfig.name === 'Postgres' && (
+                <LemonField
+                    name="access_method"
+                    label="How should PostHog query this source?"
+                    help="Choose direct query mode to run HogQL directly against your Postgres database, or warehouse sync mode to copy data into the PostHog data warehouse first."
+                >
+                    {({ value, onChange }) => (
+                        <LemonSelect
+                            data-attr="postgres-access-method"
+                            value={value || 'warehouse'}
+                            onChange={onChange}
+                            options={[
+                                {
+                                    value: 'warehouse',
+                                    label: 'Sync to warehouse',
+                                    description: 'Sync selected tables into PostHog-managed storage for querying.',
+                                },
+                                {
+                                    value: 'direct',
+                                    label: 'Query directly',
+                                    description:
+                                        'Run queries live against this Postgres connection. No warehouse sync jobs are created.',
+                                },
+                            ]}
+                        />
+                    )}
+                </LemonField>
+            )}
             <Group name="payload">
                 {availableSources[sourceConfig.name].fields.map((field) =>
                     sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)

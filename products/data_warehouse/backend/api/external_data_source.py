@@ -59,6 +59,69 @@ from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKin
 logger = structlog.get_logger(__name__)
 
 
+POSTGRES_TO_CLICKHOUSE_TYPE = {
+    "smallint": "Int16",
+    "integer": "Int32",
+    "bigint": "Int64",
+    "real": "Float32",
+    "double precision": "Float64",
+    "numeric": "Float64",
+    "boolean": "Bool",
+    "date": "Date",
+    "timestamp without time zone": "DateTime64",
+    "timestamp with time zone": "DateTime64",
+    "character varying": "String",
+    "character": "String",
+    "text": "String",
+    "json": "String",
+    "jsonb": "String",
+    "uuid": "String",
+}
+
+
+HOGQL_BY_CLICKHOUSE_TYPE = {
+    "Int16": "integer",
+    "Int32": "integer",
+    "Int64": "integer",
+    "Float32": "float",
+    "Float64": "float",
+    "Bool": "boolean",
+    "Date": "date",
+    "DateTime64": "datetime",
+    "String": "string",
+}
+
+
+def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, str | bool]]:
+    resolved_columns: dict[str, dict[str, str | bool]] = {}
+
+    for column_name, postgres_type, nullable in columns:
+        normalized_type = postgres_type.lower()
+        clickhouse_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
+
+        if clickhouse_type is None:
+            if normalized_type.startswith("timestamp"):
+                clickhouse_type = "DateTime64"
+            elif normalized_type.startswith("numeric") or normalized_type.startswith("decimal"):
+                clickhouse_type = "Float64"
+            elif "int" in normalized_type:
+                clickhouse_type = "Int64"
+            else:
+                clickhouse_type = "String"
+
+        if nullable:
+            clickhouse_type = f"Nullable({clickhouse_type})"
+
+        raw_clickhouse_type = clickhouse_type.replace("Nullable(", "").replace(")", "")
+        resolved_columns[column_name] = {
+            "clickhouse": clickhouse_type,
+            "hogql": HOGQL_BY_CLICKHOUSE_TYPE.get(raw_clickhouse_type, "string"),
+            "valid": True,
+        }
+
+    return resolved_columns
+
+
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that have PASSWORD type from a source config's fields."""
     password_fields: set[str] = set()
@@ -131,6 +194,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
         source="revenue_analytics_config_safe", read_only=True
     )
+    access_method = serializers.ChoiceField(
+        choices=ExternalDataSource.AccessMethod.choices,
+        required=False,
+        default=ExternalDataSource.AccessMethod.WAREHOUSE,
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -145,6 +213,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "latest_error",
             "prefix",
             "description",
+            "access_method",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -420,7 +489,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         prefix = request.data.get("prefix", None)
         description = request.data.get("description", None)
         source_type = request.data["source_type"]
-
+        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
         # Validate prefix characters
         is_valid, error_message = validate_source_prefix(prefix)
         if not is_valid:
@@ -435,7 +504,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
-        if is_any_external_data_schema_paused(self.team_id):
+        if access_method == ExternalDataSource.AccessMethod.DIRECT and source_type != ExternalDataSourceType.POSTGRES:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Direct query mode is currently supported only for Postgres sources."},
+            )
+
+        if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
+            self.team_id
+        ):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
@@ -469,6 +546,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             job_inputs=source_config.to_dict(),
             prefix=prefix,
             description=description,
+            access_method=access_method,
         )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
@@ -515,24 +593,53 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     data={"message": "Incremental schemas given do not have an incremental field type set"},
                 )
 
+            schema_name = schema.get("name")
+            source_schema = next(
+                (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
+            )
+
             schema_model = ExternalDataSchema.objects.create(
-                name=schema.get("name"),
+                name=schema_name,
                 team=self.team,
                 source=new_source_model,
-                should_sync=should_sync,
-                sync_type=sync_type,
-                sync_time_of_day=sync_time_of_day,
+                should_sync=should_sync if access_method == ExternalDataSource.AccessMethod.WAREHOUSE else False,
+                sync_type=sync_type if access_method == ExternalDataSource.AccessMethod.WAREHOUSE else None,
+                sync_time_of_day=sync_time_of_day
+                if access_method == ExternalDataSource.AccessMethod.WAREHOUSE
+                else None,
                 sync_type_config=(
                     {
                         "incremental_field": incremental_field,
                         "incremental_field_type": incremental_field_type,
                     }
-                    if requires_incremental_fields
+                    if requires_incremental_fields and access_method == ExternalDataSource.AccessMethod.WAREHOUSE
                     else {}
                 ),
             )
 
-            if should_sync:
+            if (
+                access_method == ExternalDataSource.AccessMethod.DIRECT
+                and source_type_model == ExternalDataSourceType.POSTGRES
+            ):
+                from products.data_warehouse.backend.models.table import DataWarehouseTable
+
+                table_prefix = (
+                    f"{prefix}_{source_type_model}_".lower()
+                    if prefix is not None and isinstance(prefix, str) and prefix != ""
+                    else f"{source_type_model}_".lower()
+                )
+                table_model = DataWarehouseTable.objects.create(
+                    name=f"{table_prefix}{schema_name}".lower(),
+                    format=DataWarehouseTable.TableFormat.Parquet,
+                    team=self.team,
+                    url_pattern="direct://postgres",
+                    external_data_source=new_source_model,
+                    columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                )
+                schema_model.table = table_model
+                schema_model.save(update_fields=["table"])
+
+            if should_sync and access_method == ExternalDataSource.AccessMethod.WAREHOUSE:
                 active_schemas.append(schema_model)
 
         try:
@@ -616,6 +723,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
+
+        if instance.access_method == ExternalDataSource.AccessMethod.DIRECT:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Direct query sources cannot be reloaded because they do not run sync jobs."},
+            )
 
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
@@ -750,7 +863,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
-
         if self.prefix_required(source_type):
             if not prefix:
                 return Response(

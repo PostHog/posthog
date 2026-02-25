@@ -446,6 +446,7 @@ class Database(BaseModel):
                     id=str(db_source.source_id),
                     status=db_source.status,
                     source_type=db_source.source_type,
+                    access_method=db_source.access_method,
                     prefix=db_source.prefix or "",
                     last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
                 )

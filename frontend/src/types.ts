@@ -5354,6 +5354,7 @@ export interface ExternalDataSourceRevenueAnalyticsConfig {
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
+    access_method?: 'warehouse' | 'direct'
     prefix?: string
     description?: string
     payload: Record<string, any>
@@ -5364,6 +5365,7 @@ export interface ExternalDataSource {
     connection_id: string
     status: string
     source_type: ExternalDataSourceType
+    access_method?: 'warehouse' | 'direct'
     prefix: string | null
     description: string | null
     latest_error: string | null

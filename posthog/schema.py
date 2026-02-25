@@ -1079,6 +1079,7 @@ class DatabaseSchemaSource(BaseModel):
         extra="forbid",
     )
     id: str
+    access_method: str | None = None
     last_synced_at: str | None = None
     prefix: str
     source_type: str
