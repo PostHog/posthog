@@ -753,7 +753,7 @@ def test_create_redshift_batch_export_validates_copy_inputs(
             "user": "user",
             "password": "my-password",
             "database": "my-db",
-            "host": "test",
+            "host": "localhost",
             "schema": "public",
             "table_name": "my_events",
             "mode": mode,
@@ -986,7 +986,7 @@ def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, tem
             {
                 "user": "test",
                 "password": "password",
-                "host": "host",
+                "host": "localhost",
                 "database": "db",
                 "schema": None,  # Not optional
                 "table_name": "test",
