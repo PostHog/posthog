@@ -117,7 +117,7 @@ export const FEATURE_SUPPORT: Record<Feature, PlatformSupportConfig> = {
             version: '3.2.0',
             note: (
                 <>
-                    <Link to="https://posthog.com/docs/session-replay/network-recording?tab=iOS">
+                    <Link to="https://posthog.com/docs/session-replay/network-recording?tab=React+Native">
                         Network recording is supported on iOS only
                     </Link>{' '}
                     and can be controlled remotely using this toggle when running SDK version 4.35.0 or higher.
