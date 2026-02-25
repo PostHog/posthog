@@ -136,6 +136,12 @@ impl DependencyProvider for FeatureFlag {
     }
 
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
+        // Inactive flags evaluate to false regardless of their dependencies,
+        // so skip extraction to avoid MissingDependency errors for stale references.
+        if !self.active {
+            return Ok(HashSet::new());
+        }
+
         let mut dependencies = HashSet::new();
         for group in &self.filters.groups {
             if let Some(properties) = &group.properties {
@@ -440,6 +446,51 @@ mod tests {
 
         let deps = flag_with_mixed_props.extract_dependencies().unwrap();
         assert_eq!(deps, HashSet::from([400]));
+    }
+
+    #[test]
+    fn test_extract_dependencies_respects_active_state() {
+        use crate::utils::graph_utils::DependencyProvider;
+
+        for (active, expected_deps, label) in [
+            (
+                false,
+                HashSet::new(),
+                "inactive flags should return no dependencies",
+            ),
+            (
+                true,
+                HashSet::from([999]),
+                "active flags should still extract dependencies",
+            ),
+        ] {
+            let mut flag = create_test_flag(
+                Some(1),
+                None,
+                None,
+                Some("test_flag".to_string()),
+                None,
+                None,
+                Some(active),
+                None,
+            );
+
+            flag.filters.groups = vec![crate::flags::flag_models::FlagPropertyGroup {
+                properties: Some(vec![PropertyFilter {
+                    key: "999".to_string(),
+                    value: Some(json!("true")),
+                    operator: Some(OperatorType::Exact),
+                    prop_type: PropertyType::Flag,
+                    group_type_index: None,
+                    negation: None,
+                }]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }];
+
+            let deps = flag.extract_dependencies().unwrap();
+            assert_eq!(deps, expected_deps, "{label}");
+        }
     }
 
     #[test]

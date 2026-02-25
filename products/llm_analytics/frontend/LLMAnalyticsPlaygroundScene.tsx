@@ -23,6 +23,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { ByokModelPicker } from './ByokModelPicker'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { ComparisonItem, Message, MessageRole } from './llmAnalyticsPlaygroundLogic'
 
@@ -521,61 +522,86 @@ function getModelOptionsErrorMessage(errorStatus: number | null): string | null 
     return 'Failed to load models. Please refresh the page or try again later.'
 }
 
-function ConfigurationPanel(): JSX.Element {
+function ModelPicker(): JSX.Element {
     const {
-        maxTokens,
-        thinking,
-        reasoningLevel,
         model,
+        effectiveModelOptions,
+        selectedProviderKeyId,
+        hasByokKeys,
         modelOptions,
         modelOptionsLoading,
         modelOptionsErrorStatus,
         groupedModelOptions,
     } = useValues(llmAnalyticsPlaygroundLogic)
-    const { setMaxTokens, setThinking, setReasoningLevel, setModel, loadModelOptions } =
-        useActions(llmAnalyticsPlaygroundLogic)
+    const { setModel, loadModelOptions } = useActions(llmAnalyticsPlaygroundLogic)
+
+    if (hasByokKeys) {
+        const options = Array.isArray(effectiveModelOptions) ? effectiveModelOptions : []
+        const selectedModel = options.find((m) => m.id === model)
+
+        return (
+            <ByokModelPicker
+                model={model}
+                selectedProviderKeyId={selectedProviderKeyId}
+                onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId)}
+                selectedModelName={selectedModel?.name}
+                data-attr="playground-model-selector"
+            />
+        )
+    }
 
     const options = Array.isArray(modelOptions) ? modelOptions : []
     const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
 
     return (
+        <>
+            {modelOptionsLoading && !options.length ? (
+                <LemonSkeleton className="h-10" />
+            ) : (
+                <LemonSearchableSelect
+                    className="w-full"
+                    placeholder="Select model"
+                    value={model}
+                    onChange={(value) => value && setModel(value)}
+                    options={groupedModelOptions}
+                    searchPlaceholder="Search models..."
+                    searchKeys={['label', 'value', 'tooltip']}
+                    loading={modelOptionsLoading}
+                    disabledReason={
+                        modelOptionsLoading
+                            ? 'Loading models...'
+                            : options.length === 0
+                              ? 'No models available'
+                              : undefined
+                    }
+                    data-attr="playground-model-selector"
+                />
+            )}
+            {options.length === 0 && !modelOptionsLoading && (
+                <div className="mt-1">
+                    <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
+                    <button
+                        type="button"
+                        className="text-xs text-link mt-1 underline"
+                        onClick={() => loadModelOptions()}
+                    >
+                        Retry
+                    </button>
+                </div>
+            )}
+        </>
+    )
+}
+
+function ConfigurationPanel(): JSX.Element {
+    const { maxTokens, thinking, reasoningLevel } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmAnalyticsPlaygroundLogic)
+
+    return (
         <div className="space-y-4">
             <div>
                 <label className="font-semibold mb-1 block text-sm">Model</label>
-                {modelOptionsLoading && !options.length ? (
-                    <LemonSkeleton className="h-10" />
-                ) : (
-                    <LemonSearchableSelect
-                        className="w-full"
-                        placeholder="Select model"
-                        value={model}
-                        onChange={(value) => setModel(value)}
-                        options={groupedModelOptions}
-                        searchPlaceholder="Search models..."
-                        searchKeys={['label', 'value', 'tooltip']}
-                        loading={modelOptionsLoading}
-                        disabledReason={
-                            modelOptionsLoading
-                                ? 'Loading models...'
-                                : options.length === 0
-                                  ? 'No models available'
-                                  : undefined
-                        }
-                        data-attr="playground-model-selector"
-                    />
-                )}
-                {options.length === 0 && !modelOptionsLoading && (
-                    <div className="mt-1">
-                        <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
-                        <button
-                            type="button"
-                            className="text-xs text-link mt-1 underline"
-                            onClick={() => loadModelOptions()}
-                        >
-                            Retry
-                        </button>
-                    </div>
-                )}
+                <ModelPicker />
             </div>
 
             <div>
