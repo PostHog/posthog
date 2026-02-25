@@ -7,8 +7,8 @@ import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu
 import { urls } from 'scenes/urls'
 
 import { byokModelPickerLogic } from './byokModelPickerLogic'
-import { LLMProviderIcon } from './LLMProviderIcon'
 import { ModelOption } from './llmAnalyticsPlaygroundLogic'
+import { LLMProviderIcon } from './LLMProviderIcon'
 
 export interface ByokModelPickerProps {
     model: string
