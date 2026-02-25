@@ -101,7 +101,7 @@ impl Default for GlobalRateLimiterConfig {
         Self {
             global_threshold: 1_000_000,
             window_interval: Duration::from_secs(60),
-            bucket_interval: Duration::from_secs(10),
+            bucket_interval: Duration::from_secs(20),
             redis_key_prefix: "@posthog/global_rate_limiter".to_string(),
             // 10 minutes - long enough to benefit from hot cache under high cardinality
             local_cache_ttl: Duration::from_secs(600),
@@ -1032,7 +1032,7 @@ mod tests {
         let config = GlobalRateLimiterConfig::default();
         assert_eq!(config.global_threshold, 1_000_000);
         assert_eq!(config.window_interval, Duration::from_secs(60));
-        assert_eq!(config.bucket_interval, Duration::from_secs(10));
+        assert_eq!(config.bucket_interval, Duration::from_secs(20));
         assert_eq!(config.redis_key_prefix, "@posthog/global_rate_limiter");
         assert_eq!(config.global_cache_ttl, Duration::from_secs(300));
         assert_eq!(config.local_cache_ttl, Duration::from_secs(600));
