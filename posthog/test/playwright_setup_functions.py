@@ -56,6 +56,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     organization_name: str | None = None
     use_current_time: bool | None = None
     skip_onboarding: bool | None = None
+    no_demo_data: bool | None = None
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
@@ -97,55 +98,65 @@ class PlaywrightSetupFunction(Protocol):
 def create_organization_with_team(
     data: PlaywrightWorkspaceSetupData,
 ) -> PlaywrightWorkspaceSetupResult:
-    """Creates PostHog workspace with organization, team, user, API key, and demo data."""
+    """Creates PostHog workspace with organization, team, user, API key, and optionally demo data."""
     org_name = data.organization_name or "Hedgebox Inc."
 
     # Generate unique email to avoid collisions between parallel tests
     unique_suffix = secrets.token_hex(8)  # 16 character hex string
     user_email = f"test-{unique_suffix}@posthog.com"
+    user_password = "12345678"
 
-    # Use the working generate_demo_data command to create workspace with demo data
-    command = GenerateDemoDataCommand()
+    if data.no_demo_data:
+        from posthog.models.organization import Organization
+        from posthog.models.project import Project
 
-    # Determine the reference time for data generation
-    fixed_now = datetime(2024, 11, 3, 12, 0, 0)
-    if data.use_current_time:
-        now = timezone.now()
+        organization = Organization.objects.create(name=org_name)
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
+        team = Team.objects.create(
+            id=project.id,
+            project=project,
+            organization=organization,
+            has_completed_onboarding_for={"product_analytics": True},
+        )
+        user = User.objects.create_and_join(organization, user_email, user_password)
     else:
-        now = fixed_now
+        command = GenerateDemoDataCommand()
 
-    options = {
-        "seed": f"playwright_test",  # constant seed
-        "now": now,
-        "days_past": 30,
-        "days_future": 0,
-        "n_clusters": 3,  # Reduced from 10 for faster test execution
-        "dry_run": False,
-        "team_id": None,
-        "email": user_email,
-        "password": "12345678",
-        "product": "hedgebox",
-        "staff": False,
-        "verbosity": 0,
-        "skip_dagster": True,
-        "say_on_complete": False,
-        "skip_materialization": True,
-        "skip_flag_sync": True,
-        "skip_user_product_list": True,
-    }
+        fixed_now = datetime(2024, 11, 3, 12, 0, 0)
+        if data.use_current_time:
+            now = timezone.now()
+        else:
+            now = fixed_now
 
-    # Call the handle method directly - this creates org, team, user, and demo data
-    command.handle(**options)
+        options = {
+            "seed": f"playwright_test",  # constant seed
+            "now": now,
+            "days_past": 30,
+            "days_future": 0,
+            "n_clusters": 3,  # Reduced from 10 for faster test execution
+            "dry_run": False,
+            "team_id": None,
+            "email": user_email,
+            "password": user_password,
+            "product": "hedgebox",
+            "staff": False,
+            "verbosity": 0,
+            "skip_dagster": True,
+            "say_on_complete": False,
+            "skip_materialization": True,
+            "skip_flag_sync": True,
+            "skip_user_product_list": True,
+        }
 
-    # Get the created user, organization, and team
-    user = User.objects.get(email=user_email)
-    organization = user.organization
-    team = user.team
+        command.handle(**options)
 
-    # Update organization name if custom name was provided
-    if org_name != "Hedgebox Inc.":
-        organization.name = org_name
-        organization.save()
+        user = User.objects.get(email=user_email)
+        organization = user.organization
+        team = user.team
+
+        if org_name != "Hedgebox Inc.":
+            organization.name = org_name
+            organization.save()
 
     # Bypass billing quota limits so insights always compute on CI
     organization.never_drop_data = True
@@ -366,12 +377,25 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
         pg_person = Person.objects.create(team=team, uuid=person_uuid)
         PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
 
-    # Register event definitions so the taxonomic filter can find custom events
+    # Register event and property definitions so the taxonomic filter works
     from products.event_definitions.backend.models.event_definition import EventDefinition
+    from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
     event_names = {e.event for e in data.events}
     for event_name in event_names:
         EventDefinition.objects.get_or_create(team=team, name=event_name, defaults={"project_id": team.project_id})
+
+    property_names: set[str] = set()
+    for e in data.events:
+        if e.properties:
+            property_names.update(e.properties.keys())
+    for prop_name in property_names:
+        PropertyDefinition.objects.get_or_create(
+            team=team,
+            name=prop_name,
+            type=PropertyDefinition.Type.EVENT,
+            defaults={"project_id": team.project_id},
+        )
 
     baseline_count = _count_events_in_clickhouse(team.pk)
 
