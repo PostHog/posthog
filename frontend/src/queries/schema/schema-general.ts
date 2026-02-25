@@ -304,7 +304,6 @@ export type QuerySchema =
     | StickinessQuery
     | LifecycleQuery
     | FunnelCorrelationQuery
-    | CalendarHeatmapQuery
 
     // Misc
     | DatabaseSchemaQuery
@@ -1733,7 +1732,7 @@ export type RefreshType =
 export interface EndpointRequest {
     name?: string
     description?: string
-    query?: HogQLQuery | InsightQueryNode | CalendarHeatmapQuery
+    query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
     cache_age_seconds?: number
     /** Whether this endpoint's query results are materialized to S3 */

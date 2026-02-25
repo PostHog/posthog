@@ -1359,11 +1359,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # CALENDAR HEATMAP ENDPOINTS
     # =========================================================================
 
-    def test_calendar_heatmap_endpoint_create_and_run(self):
-        from posthog.schema import CalendarHeatmapQuery
+    def test_trends_with_calendar_display_create_and_run(self):
+        from posthog.schema import ChartDisplayType, TrendsFilter
 
-        query = CalendarHeatmapQuery(
+        query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.CALENDAR_HEATMAP),
             dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
         ).model_dump()
 
@@ -1379,45 +1380,3 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
         self.assertEqual(run_response.status_code, status.HTTP_200_OK)
-        data = run_response.json()
-        self.assertIn("results", data)
-        self.assertEqual(len(data["results"]), 1)
-        self.assertIn("calendar_heatmap_data", data["results"][0])
-
-    def test_calendar_heatmap_endpoint_accepts_date_variables(self):
-        from posthog.schema import CalendarHeatmapQuery
-
-        endpoint = create_endpoint_with_version(
-            name="calendar-heatmap-dates",
-            team=self.team,
-            query=CalendarHeatmapQuery(
-                series=[EventsNode(event="$pageview")],
-                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
-            ).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-            {"variables": {"date_from": "2026-01-05", "date_to": "2026-01-10"}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_calendar_heatmap_endpoint_can_be_materialized(self):
-        from posthog.schema import CalendarHeatmapQuery
-
-        endpoint = create_endpoint_with_version(
-            name="calendar-heatmap-mat",
-            team=self.team,
-            query=CalendarHeatmapQuery(
-                series=[EventsNode(event="$pageview")],
-            ).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
-
-        version = endpoint.get_version()
-        can_mat, reason = version.can_materialize()
-        self.assertTrue(can_mat, reason)
