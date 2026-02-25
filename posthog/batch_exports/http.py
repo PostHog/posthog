@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
 
@@ -458,11 +459,13 @@ def resolve_and_validate_url(url: str) -> None:
 
 def resolve_and_validate_host(host: str) -> None:
     """Ensure provided host resolves to a non-internal IP."""
+    if host == "localhost" and (settings.TEST or settings.DEBUG):
+        return
+
     # Host may already be an IP literal
     try:
-        ip = ipaddress.ip_address(host)
-        if is_ip_internal(str(ip)):
-            raise ValueError(f"URL resolved to internal IP: {ip}")
+        if is_ip_internal(host):
+            raise ValueError(f"Host resolved to internal IP")
         return
     except ValueError:
         # Not an IP literal, requires DNS

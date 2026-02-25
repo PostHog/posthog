@@ -7,6 +7,7 @@ import pytest
 from unittest import mock
 
 from django.conf import settings
+from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from asgiref.sync import async_to_sync
@@ -1694,11 +1695,12 @@ def test_creating_S3_batch_export_fails_if_using_invalid_endpoint_url(
     }
     client.force_login(user)
 
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
+    with override_settings(TEST=0, DEBUG=0):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert f"Invalid endpoint_url: '{endpoint_url}'" in response.json()["detail"]
@@ -1741,11 +1743,12 @@ def test_create_redshift_or_postgres_batch_export_fails_with_invalid_host(
 
         client.force_login(user)
 
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
+        with override_settings(TEST=0, DEBUG=0):
+            response = create_batch_export(
+                client,
+                team.pk,
+                batch_export_data,
+            )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert f"Invalid host: '{host}'" in response.json()["detail"]
