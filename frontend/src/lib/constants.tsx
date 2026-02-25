@@ -284,6 +284,7 @@ export const FEATURE_FLAGS = {
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
     INSIGHT_OPTIONS_PAGE: 'insight-options-page', // owner: @rafaeelaudibert #team-growth multivariate=true
+    PRODUCT_ANALYTICS_HOME_TAB: 'product-analytics-home-tab', // owner: @anirudhpillai #team-product-analytics
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
