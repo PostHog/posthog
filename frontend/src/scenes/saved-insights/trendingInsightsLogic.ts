@@ -14,8 +14,12 @@ export const trendingInsightsLogic = kea<trendingInsightsLogicType>([
         trendingInsights: {
             __default: [] as QueryBasedInsightModel[],
             loadTrendingInsights: async () => {
-                const insights = await api.insights.trending({ days: 1, limit: 5 })
-                return insights
+                try {
+                    return await api.insights.trending({ days: 1, limit: 5 })
+                } catch (error) {
+                    console.error('Failed to load trending insights:', error)
+                    return []
+                }
             },
         },
     }),

@@ -14,11 +14,16 @@ export const newEventsLogic = kea<newEventsLogicType>([
         newEvents: {
             __default: [] as EventDefinition[],
             loadNewEvents: async () => {
-                const response = await api.eventDefinitions.list({
-                    limit: 10,
-                    ordering: '-created_at',
-                })
-                return response.results
+                try {
+                    const response = await api.eventDefinitions.list({
+                        limit: 10,
+                        ordering: '-created_at',
+                    })
+                    return response.results
+                } catch (error) {
+                    console.error('Failed to load new events:', error)
+                    return []
+                }
             },
         },
     }),

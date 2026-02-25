@@ -18,25 +18,30 @@ export const activeUsersLogic = kea<activeUsersLogicType>([
                 const query = hogql`
                     SELECT person.id, any(person.properties), any(person.created_at), count() as count
                     FROM events
+                    SAMPLE 0.1
                     WHERE timestamp > now() - INTERVAL 7 DAY
                     GROUP BY person.id
                     ORDER BY count DESC
                     LIMIT 5
                 `
-                const response = await api.queryHogQL(query, { scene: 'SavedInsights', productKey: 'persons' })
-
-                return (response.results || []).map((row) => {
-                    const properties = row[1] ? JSON.parse(row[1]) : {}
-                    return {
-                        id: row[0],
-                        uuid: row[0],
-                        distinct_ids: [row[0]],
-                        properties: properties,
-                        created_at: row[2],
-                        is_identified: false,
-                        name: properties.email || properties.name || row[0],
-                    } as unknown as PersonType
-                })
+                try {
+                    const response = await api.queryHogQL(query, { scene: 'SavedInsights', productKey: 'persons' })
+                    return (response.results || []).map((row) => {
+                        const properties = row[1] ? JSON.parse(row[1]) : {}
+                        return {
+                            id: row[0],
+                            uuid: row[0],
+                            distinct_ids: [row[0]],
+                            properties: properties,
+                            created_at: row[2],
+                            is_identified: false,
+                            name: properties.email || properties.name || row[0],
+                        } as unknown as PersonType
+                    })
+                } catch (error) {
+                    console.error('Failed to load active users:', error)
+                    return []
+                }
             },
         },
     }),

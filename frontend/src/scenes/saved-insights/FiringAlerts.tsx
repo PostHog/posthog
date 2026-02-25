@@ -50,7 +50,7 @@ export function FiringAlerts(): JSX.Element {
                 buttonTo: urls.savedInsights(SavedInsightsTabs.Alerts),
             }}
             items={firingAlerts.slice(0, 5)}
-            renderRow={(alert: AlertType, index) => <AlertRow key={index} alert={alert} />}
+            renderRow={(alert: AlertType) => <AlertRow key={alert.id} alert={alert} />}
             contentHeightBehavior="fit-content"
         />
     )
