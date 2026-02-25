@@ -695,7 +695,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            const newInsight = await insightsApi.duplicate(insight)
+            let insightToDuplicate = insight
+            if (insight.short_id) {
+                try {
+                    const cleanInsight = await insightsApi.getByShortId(insight.short_id)
+                    if (cleanInsight) {
+                        insightToDuplicate = cleanInsight
+                    }
+                } catch {
+                    // Fall through to duplicate the original insight
+                }
+            }
+            const newInsight = await insightsApi.duplicate(insightToDuplicate)
             for (const logic of savedInsightsLogic.findAllMounted()) {
                 logic.actions.addInsight(newInsight)
             }
