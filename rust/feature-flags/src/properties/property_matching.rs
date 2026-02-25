@@ -159,23 +159,22 @@ pub fn match_property(
         OperatorType::IcontainsMulti | OperatorType::NotIcontainsMulti => {
             if let Some(match_value) = match_value {
                 let match_string = to_string_representation(match_value).to_ascii_lowercase();
-                
+
                 // Handle both single values and arrays
                 let search_values: Vec<String> = match value {
-                    Value::Array(arr) => {
-                        arr.iter()
-                            .map(|v| to_string_representation(v).to_ascii_lowercase())
-                            .collect()
-                    }
+                    Value::Array(arr) => arr
+                        .iter()
+                        .map(|v| to_string_representation(v).to_ascii_lowercase())
+                        .collect(),
                     single_value => {
                         vec![to_string_representation(single_value).to_ascii_lowercase()]
                     }
                 };
 
                 // Check if any of the search values is contained in the match value
-                let any_contained = search_values.iter().any(|search_val| {
-                    match_string.contains(search_val)
-                });
+                let any_contained = search_values
+                    .iter()
+                    .any(|search_val| match_string.contains(search_val));
 
                 if operator == OperatorType::IcontainsMulti {
                     Ok(any_contained)
