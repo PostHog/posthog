@@ -8,8 +8,11 @@ export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
  * This is used when fetching groups via the /query endpoint instead of the REST API.
  */
 export function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[] {
+    const groupNameIndex = response.columns.indexOf('group_name')
+    if (groupNameIndex === -1) {
+        return []
+    }
     return response.results.map((row) => {
-        const groupNameIndex = response.columns.indexOf('group_name')
         const groupNameValue = row[groupNameIndex] as { display_name: string; key: string }
         return {
             group_key: groupNameValue.key,
