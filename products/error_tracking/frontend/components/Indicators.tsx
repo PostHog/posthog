@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React from 'react'
+import { forwardRef } from 'react'
 
 import { LemonBadge, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 
@@ -25,7 +25,7 @@ interface LabelIndicatorProps {
     className?: string
 }
 
-export const LabelIndicator = React.forwardRef<HTMLDivElement, LabelIndicatorProps>(function LabelIndicator(
+export const LabelIndicator = forwardRef<HTMLDivElement, LabelIndicatorProps>(function LabelIndicator(
     { intent, label, size, tooltip, tooltipPlacement, className },
     ref
 ): JSX.Element {
@@ -80,7 +80,7 @@ interface StatusIndicatorProps {
     className?: string
 }
 
-export const StatusIndicator = React.forwardRef<HTMLDivElement, StatusIndicatorProps>(function StatusIndicator(
+export const StatusIndicator = forwardRef<HTMLDivElement, StatusIndicatorProps>(function StatusIndicator(
     { status, size = 'small', intent = false, className, withTooltip },
     ref
 ): JSX.Element {

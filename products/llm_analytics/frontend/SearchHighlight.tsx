@@ -1,4 +1,4 @@
-import React from 'react'
+import { forwardRef } from 'react'
 
 import { findSearchMatches } from './searchUtils'
 
@@ -11,7 +11,7 @@ interface SearchHighlightProps {
 /**
  * Highlights all search occurrences in the string.
  */
-export const SearchHighlight = React.forwardRef<HTMLSpanElement, SearchHighlightProps>(
+export const SearchHighlight = forwardRef<HTMLSpanElement, SearchHighlightProps>(
     ({ string, substring, className }, ref) => {
         // If no search, return plain text
         if (!substring.trim()) {

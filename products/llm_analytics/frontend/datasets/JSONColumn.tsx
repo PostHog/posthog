@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React from 'react'
+import { memo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
@@ -8,7 +8,7 @@ import { JSONViewerTheme } from 'lib/components/JSONViewer'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-const MemoizedJSONViewer = React.memo(({ json }: { json: Record<any, any> }) => {
+const MemoizedJSONViewer = memo(({ json }: { json: Record<any, any> }) => {
     const { isDarkModeOn } = useValues(themeLogic)
 
     return (

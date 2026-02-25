@@ -2,7 +2,8 @@ import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import * as React from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import {

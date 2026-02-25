@@ -1,4 +1,4 @@
-import React from 'react'
+import { useMemo } from 'react'
 
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { isObject } from 'lib/utils'
@@ -42,7 +42,7 @@ export function EventContentGeneration({
     // Map each normalized input message back to its original index in $ai_input.
     // This serves as a stable key for looking up per-message sentiment results,
     // regardless of how normalizeMessage expands/transforms messages.
-    const inputSourceIndices = React.useMemo(() => {
+    const inputSourceIndices = useMemo(() => {
         const indices: number[] = []
         if (tools) {
             indices.push(-1) // tools message prepended by normalizeMessages

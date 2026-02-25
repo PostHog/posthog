@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import React, { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 
 import { IconDatabase, IconExternal, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
@@ -26,7 +26,7 @@ export interface SaveToDatasetButtonProps {
     metadata?: unknown
 }
 
-export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
+export const SaveToDatasetButton = memo(function SaveToDatasetButton({
     traceId,
     timestamp,
     sourceId,

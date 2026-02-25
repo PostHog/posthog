@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 
@@ -14,7 +14,7 @@ export interface JSONEditorProps {
     autoFocus?: boolean
 }
 
-export const JSONEditor = React.memo(
+export const JSONEditor = memo(
     ({
         onChange,
         lineHeight = 20,

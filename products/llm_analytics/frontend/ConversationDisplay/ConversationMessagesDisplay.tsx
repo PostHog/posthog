@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React from 'react'
+import { useState, useRef, useEffect, memo, Fragment } from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -79,12 +79,12 @@ export function ConversationMessagesDisplay({
     traceId?: string | null
     generationEventId?: string
 }): JSX.Element {
-    const [messageShowStates, setMessageShowStates] = React.useState(() =>
+    const [messageShowStates, setMessageShowStates] = useState(() =>
         getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
     )
-    const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
-    const [isRenderingXml, setIsRenderingXml] = React.useState(false)
-    const previousSearchQueryRef = React.useRef('')
+    const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(true)
+    const [isRenderingXml, setIsRenderingXml] = useState(false)
+    const previousSearchQueryRef = useRef('')
     const inputMessageShowStates = messageShowStates.input
     const outputMessageShowStates = messageShowStates.output
     const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
@@ -126,14 +126,14 @@ export function ConversationMessagesDisplay({
     }
 
     // Initialize message states when message counts or display option changes.
-    React.useEffect(() => {
+    useEffect(() => {
         setMessageShowStates(
             getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
         )
     }, [inputNormalized.length, outputNormalized.length, displayOption])
 
     // Expand only messages matching the current search query.
-    React.useEffect(() => {
+    useEffect(() => {
         const trimmedSearchQuery = searchQuery?.trim() ?? ''
         if (trimmedSearchQuery) {
             const inputMatches = inputNormalized.map((msg) => {
@@ -207,7 +207,7 @@ export function ConversationMessagesDisplay({
         inputNormalized.length > 0 ? (
             inputNormalized.map((message, i) => {
                 return (
-                    <React.Fragment key={i}>
+                    <Fragment key={i}>
                         <LLMMessageDisplay
                             message={message}
                             show={inputMessageShowStates[i] || false}
@@ -223,7 +223,7 @@ export function ConversationMessagesDisplay({
                         {i < inputNormalized.length - 1 && (
                             <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
                         )}
-                    </React.Fragment>
+                    </Fragment>
                 )
             })
         ) : (
@@ -441,7 +441,7 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
     return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
 }
 
-export const LLMMessageDisplay = React.memo(
+export const LLMMessageDisplay = memo(
     ({
         message,
         isOutput,
@@ -517,10 +517,10 @@ export const LLMMessageDisplay = React.memo(
                 return (
                     <>
                         {content.map((item, index) => (
-                            <React.Fragment key={index}>
+                            <Fragment key={index}>
                                 {renderContentItem(item, searchQuery)}
                                 {index < content.length - 1 && <div className="border-t my-2" />}
-                            </React.Fragment>
+                            </Fragment>
                         ))}
                     </>
                 )

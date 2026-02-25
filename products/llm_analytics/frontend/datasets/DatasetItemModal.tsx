@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import React from 'react'
+import { memo } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -24,7 +24,7 @@ export interface DatasetItemModalProps {
     title?: string
 }
 
-export const DatasetItemModal = React.memo(function DatasetItemModal({
+export const DatasetItemModal = memo(function DatasetItemModal({
     isOpen,
     onClose,
     partialDatasetItem,
