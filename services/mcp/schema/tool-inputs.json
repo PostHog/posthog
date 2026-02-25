@@ -1172,7 +1172,7 @@
                     "type": "string"
                 },
                 "restart": {
-                    "description": "Restart concluded experiment (clears end_date and conclusion)",
+                    "description": "Restart concluded experiment as draft (clears start_date, end_date, and conclusion)",
                     "type": "boolean"
                 },
                 "archive": {
@@ -1382,7 +1382,7 @@
                             "type": "string"
                         },
                         "restart": {
-                            "description": "Restart concluded experiment (clears end_date and conclusion)",
+                            "description": "Restart concluded experiment as draft (clears start_date, end_date, and conclusion)",
                             "type": "boolean"
                         },
                         "archive": {
