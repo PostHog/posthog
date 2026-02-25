@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from hogli.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
+from hogli.devenv.generator import (
+    DevenvConfig,
+    MprocsGenerator,
+    build_vscode_compounds,
+    load_devenv_config,
+    regenerate_vscode_launch_config,
+)
 from hogli.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
 from parameterized import parameterized
@@ -552,3 +559,62 @@ class TestInfoProcess:
 
         assert "hogli dev:setup" in shell
         assert "hogli dev:explain" in shell
+
+
+class TestVSCodeLaunchGeneration:
+    """Test VS Code launch compound generation."""
+
+    def test_build_vscode_compounds_has_static_and_intent_entries(self) -> None:
+        """Compound generation includes shared presets and intent-specific entries."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+
+        compounds = build_vscode_compounds(resolver)
+        names = {compound["name"] for compound in compounds}
+
+        assert "PostHog" in names
+        assert "PostHog (Error tracking)" in names
+        assert "PostHog (Session replay)" in names
+        assert "PostHog (Feature flags)" in names
+        assert "PostHog (Product analytics)" in names
+
+    def test_regenerate_vscode_launch_replaces_compounds(self) -> None:
+        """Regeneration keeps launch data but rewrites compounds deterministically."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            launch_path = Path(tmpdir) / "launch.json"
+            launch_path.write_text(
+                """{
+    // comment should be preserved
+    "version": "0.2.0",
+    "configurations": [
+        {"name": "Backend", "type": "debugpy", "request": "launch"}
+    ],
+    "inputs": [],
+    "compounds": [
+        {"name": "old", "configurations": []}
+    ]
+}
+"""
+            )
+
+            written_path = regenerate_vscode_launch_config(resolver, output_path=launch_path)
+
+            assert written_path == launch_path
+
+            launch_content = launch_path.read_text()
+            assert "// comment should be preserved" in launch_content
+
+            launch_data = json.loads(
+                "\n".join(line for line in launch_content.splitlines() if not line.lstrip().startswith("//"))
+            )
+            compounds = launch_data["compounds"]
+
+            assert launch_data["version"] == "0.2.0"
+            assert launch_data["configurations"][0]["name"] == "Backend"
+            assert "old" not in {compound["name"] for compound in compounds}
+            assert "PostHog (Error tracking)" in {compound["name"] for compound in compounds}

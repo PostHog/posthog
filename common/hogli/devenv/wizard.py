@@ -15,6 +15,7 @@ from .generator import (
     get_generated_mprocs_path,
     get_main_repo_from_worktree,
     load_devenv_config,
+    regenerate_vscode_launch_config,
 )
 from .registry import create_mprocs_registry
 from .resolver import IntentMap, IntentResolver
@@ -60,11 +61,14 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     registry = create_mprocs_registry()
     resolver = IntentResolver(intent_map, registry)
     local_path = get_generated_mprocs_path()
+    vscode_path = regenerate_vscode_launch_config(resolver)
 
     click.echo("")
     click.echo(click.style("PostHog Developer Environment Setup", fg="green", bold=True))
     click.echo("")
     click.echo("Configure which services to start based on the products you're working on.")
+    if vscode_path:
+        click.echo(f"VS Code launch compounds refreshed: {vscode_path}")
     click.echo("")
 
     # Check for existing config (follows symlinks)

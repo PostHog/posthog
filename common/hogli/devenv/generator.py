@@ -7,6 +7,8 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 from __future__ import annotations
 
 import os
+import re
+import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,7 +18,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from .registry import ProcessRegistry
-    from .resolver import ResolvedEnvironment
+    from .resolver import IntentResolver, ResolvedEnvironment
 
 
 class DevenvConfig(BaseModel):
@@ -36,6 +38,73 @@ class DevenvConfig(BaseModel):
 
 # Docker compose command building
 DOCKER_COMPOSE_BASE = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+
+# VS Code compound generation
+VSCODE_UNIT_TO_CONFIGURATION: dict[str, str] = {
+    "backend": "Backend",
+    "celery-worker": "Celery Threaded Pool",
+    "celery-beat": "Celery Beat",
+    "frontend": "Frontend",
+    "nodejs": "Nodejs Services",
+    "temporal-worker": "Temporal Worker",
+    "dagster": "Dagster: Debug Dagit UI",
+}
+
+VSCODE_CONFIGURATION_ORDER: list[str] = [
+    "backend",
+    "celery-worker",
+    "celery-beat",
+    "frontend",
+    "nodejs",
+    "temporal-worker",
+    "dagster",
+]
+
+VSCODE_STATIC_COMPOUNDS: list[dict[str, Any]] = [
+    {
+        "name": "PostHog",
+        "configurations": [
+            "Backend",
+            "Celery Threaded Pool",
+            "Celery Beat",
+            "Frontend",
+            "Nodejs Services",
+            "Temporal Worker",
+        ],
+    },
+    {
+        "name": "PostHog (no typegen)",
+        "configurations": [
+            "Backend",
+            "Celery Threaded Pool",
+            "Celery Beat",
+            "Frontend (no typegen)",
+            "Nodejs Services",
+            "Temporal Worker",
+        ],
+    },
+    {
+        "name": "PostHog (https)",
+        "configurations": [
+            "Backend",
+            "Celery Threaded Pool",
+            "Celery Beat",
+            "Frontend (https)",
+            "Nodejs Services",
+            "Temporal Worker",
+        ],
+    },
+    {
+        "name": "PostHog (local billing)",
+        "configurations": [
+            "Backend (with local billing)",
+            "Celery Threaded Pool",
+            "Frontend",
+            "Nodejs Services",
+            "Temporal Worker",
+        ],
+    },
+]
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
@@ -397,3 +466,139 @@ def get_generated_mprocs_path() -> Path:
             return main_path
 
     return local_path
+
+
+def get_vscode_launch_path() -> Path:
+    """Get the VS Code launch.json path for the current repository."""
+    current = Path.cwd().resolve()
+    for parent in [current, *current.parents]:
+        if (parent / ".git").exists():
+            return parent / ".vscode" / "launch.json"
+    return current / ".vscode" / "launch.json"
+
+
+def _format_intent_label(intent_name: str) -> str:
+    """Format an intent name for display in a VS Code compound."""
+    acronym_words = {"ai", "llm", "mcp", "cdp"}
+    parts = intent_name.split("_")
+    formatted_parts: list[str] = []
+
+    for idx, part in enumerate(parts):
+        if part in acronym_words:
+            formatted_parts.append(part.upper())
+        elif idx == 0:
+            formatted_parts.append(part.capitalize())
+        else:
+            formatted_parts.append(part)
+
+    return " ".join(formatted_parts)
+
+
+def _build_compound(name: str, configurations: list[str], group: str) -> dict[str, Any]:
+    """Build a VS Code compound in a consistent shape."""
+    return {
+        "name": name,
+        "configurations": configurations,
+        "stopAll": True,
+        "presentation": {"group": group},
+    }
+
+
+def _get_configurations_for_units(units: set[str]) -> list[str]:
+    """Map resolved units to ordered VS Code configuration names."""
+    return [
+        VSCODE_UNIT_TO_CONFIGURATION[unit]
+        for unit in VSCODE_CONFIGURATION_ORDER
+        if unit in units and unit in VSCODE_UNIT_TO_CONFIGURATION
+    ]
+
+
+def build_vscode_compounds(resolver: IntentResolver) -> list[dict[str, Any]]:
+    """Build deterministic VS Code compounds from static presets and intents."""
+    compounds = [
+        _build_compound(name=compound["name"], configurations=compound["configurations"], group="compound")
+        for compound in VSCODE_STATIC_COMPOUNDS
+    ]
+
+    for intent_name in resolver.intent_map.intents:
+        resolved = resolver.resolve([intent_name])
+        configurations = _get_configurations_for_units(resolved.units)
+        if not configurations:
+            continue
+
+        compounds.append(
+            _build_compound(
+                name=f"PostHog ({_format_intent_label(intent_name)})",
+                configurations=configurations,
+                group="intent",
+            )
+        )
+
+    return compounds
+
+
+def _find_keyed_array_range(content: str, key: str) -> tuple[int, int] | None:
+    """Find the [start, end) character range for an array value by key name."""
+    key_match = re.search(rf'"{re.escape(key)}"\s*:\s*\[', content)
+    if not key_match:
+        return None
+
+    start = key_match.end() - 1  # points to '['
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for idx in range(start, len(content)):
+        char = content[idx]
+
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return start, idx + 1
+
+    return None
+
+
+def regenerate_vscode_launch_config(resolver: IntentResolver, output_path: Path | None = None) -> Path | None:
+    """Regenerate .vscode/launch.json compounds from deterministic presets.
+
+    This keeps launch.json stable and committed while still allowing hogli to
+    refresh the generated compound list whenever dev commands run.
+    """
+    launch_path = output_path or get_vscode_launch_path()
+    if not launch_path.exists():
+        return None
+
+    try:
+        raw_content = launch_path.read_text()
+    except OSError:
+        return None
+
+    compounds_range = _find_keyed_array_range(raw_content, "compounds")
+    if not compounds_range:
+        return None
+
+    compounds_json_lines = json.dumps(build_vscode_compounds(resolver), indent=4).splitlines()
+    indented_compounds_json = "\n".join(
+        [compounds_json_lines[0], *[f"    {line}" for line in compounds_json_lines[1:]]]
+    )
+    start, end = compounds_range
+    updated_content = f"{raw_content[:start]}{indented_compounds_json}{raw_content[end:]}"
+    updated_content = re.sub(r'("compounds"\s*:)\s+\[', r"\1 [", updated_content, count=1)
+
+    launch_path.parent.mkdir(parents=True, exist_ok=True)
+    launch_path.write_text(updated_content if updated_content.endswith("\n") else f"{updated_content}\n")
+    return launch_path

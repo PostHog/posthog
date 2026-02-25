@@ -159,7 +159,7 @@ health_checks:
 start:
     start:
         bin_script: start
-        description: Main entry point that launches all dev services via mprocs orchestrator
+        description: Main entry point that launches all dev services (mprocs by default, or VS Code with --vscode)
         services:
             - mprocs
             - docker

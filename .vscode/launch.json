@@ -365,6 +365,199 @@
             "presentation": {
                 "group": "compound"
             }
+        },
+        {
+            "name": "PostHog (Product analytics)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Error tracking)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Session replay)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Feature flags)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Experiments)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Nodejs Services",
+                "Dagster: Debug Dagit UI"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (LLM analytics)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Nodejs Services",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Web analytics)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Surveys)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Data warehouse)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Nodejs Services",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Cohorts)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Pipelines)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Nodejs Services",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (AI features)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Nodejs Services",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Logs)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Workflows)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Nodejs Services",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Tracing)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Debug tools)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (MCP)",
+            "configurations": ["Backend", "Celery Threaded Pool", "Celery Beat", "Frontend", "Nodejs Services"],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
+        },
+        {
+            "name": "PostHog (Dagster)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Nodejs Services",
+                "Dagster: Debug Dagit UI"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "intent"
+            }
         }
     ]
 }

@@ -15,8 +15,11 @@ from .generator import (
     MprocsConfig,
     MprocsGenerator,
     build_docker_compose_command,
+    build_vscode_compounds,
     get_generated_mprocs_path,
+    get_vscode_launch_path,
     load_devenv_config,
+    regenerate_vscode_launch_config,
 )
 from .registry import MprocsRegistry, ProcessRegistry, create_mprocs_registry
 from .resolver import IntentMap, IntentResolver, load_intent_map
@@ -30,10 +33,13 @@ __all__ = [
     "load_devenv_config",
     "get_generated_mprocs_path",
     "build_docker_compose_command",
+    "build_vscode_compounds",
     "ProcessRegistry",
     "MprocsRegistry",
     "create_mprocs_registry",
     "MprocsGenerator",
     "MprocsConfig",
+    "get_vscode_launch_path",
+    "regenerate_vscode_launch_config",
     "run_setup_wizard",
 ]
