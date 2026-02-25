@@ -3,7 +3,11 @@ import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import {
+    HogTransformerService,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from '../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -48,7 +52,7 @@ import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redi
  * - BatchWritingPersonsStore
  * - Preprocessing and ingestion pipelines
  */
-export type IngestionConsumerHub = HogTransformerHub &
+export type IngestionConsumerHub = HogTransformerServiceDeps &
     IngestionConsumerConfig &
     Pick<
         Hub,
@@ -166,7 +170,7 @@ export class IngestionConsumer {
             })
         }
 
-        this.hogTransformer = new HogTransformerService(hub)
+        this.hogTransformer = createHogTransformerService(hub)
 
         this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,

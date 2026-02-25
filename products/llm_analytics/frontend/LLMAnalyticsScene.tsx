@@ -188,7 +188,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
         const columns =
             generationsQuery.source.select ||
-            getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT])
+            getDefaultGenerationsColumns(
+                !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+            )
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
         const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
@@ -220,7 +223,8 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 ...generationsQuery,
                 showSavedFilters: true,
                 defaultColumns: getDefaultGenerationsColumns(
-                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
                 ),
             }}
             setQuery={(query) => {
@@ -280,6 +284,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                         },
                     },
                     person: llmAnalyticsColumnRenderers.person,
+                    "'' -- Sentiment": llmAnalyticsColumnRenderers["'' -- Sentiment"],
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
                     },

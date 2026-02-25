@@ -18,8 +18,13 @@ import {
     HogFunctionWebhookResult,
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
-import { HogTransformerHub, HogTransformerService } from './hog-transformations/hog-transformer.service'
+import {
+    HogTransformerService,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from './hog-transformations/hog-transformer.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogInputsService } from './services/hog-inputs.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
@@ -27,6 +32,7 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
+import { EmailService } from './services/messaging/email.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
@@ -43,7 +49,7 @@ import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering
  * Combines all hub types needed by CdpApi and its dependencies.
  */
 export type CdpApiHub = CdpSourceWebhooksConsumerHub &
-    HogTransformerHub &
+    HogTransformerServiceDeps &
     Pick<
         Hub,
         | 'teamManager'
@@ -82,14 +88,38 @@ export class CdpApi {
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
         this.recipientsManager = new RecipientsManagerService(hub.postgres)
-        this.hogExecutor = new HogExecutorService(hub)
+        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const emailService = new EmailService(
+            {
+                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                sesRegion: hub.SES_REGION,
+                sesEndpoint: hub.SES_ENDPOINT,
+            },
+            hub.integrationManager,
+            hub.ENCRYPTION_SALT_KEYS,
+            hub.SITE_URL
+        )
+        this.hogExecutor = new HogExecutorService(
+            {
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+            },
+            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+            hogInputsService,
+            emailService,
+            this.recipientTokensService
+        )
         this.hogFlowFunctionsService = new HogFlowFunctionsService(
             hub.SITE_URL,
             this.hogFunctionTemplateManager,
             this.hogExecutor
         )
         this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
-        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         this.hogFlowExecutor = new HogFlowExecutorService(
             this.hogFlowFunctionsService,
             this.recipientPreferencesService
@@ -128,7 +158,7 @@ export class CdpApi {
                 poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
             })
         )
-        this.hogTransformer = new HogTransformerService(hub)
+        this.hogTransformer = createHogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(
             hub.kafkaProducer,
             hub.internalCaptureService,
