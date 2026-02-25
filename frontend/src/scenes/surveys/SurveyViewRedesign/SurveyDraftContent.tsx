@@ -1,24 +1,63 @@
-import { IconRocket } from '@posthog/icons'
+import { useValues } from 'kea'
+
+import { IconCheck, IconRocket } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { BuilderHog1 } from 'lib/components/hedgehogs'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
-export function SurveyDraftContent({ onSeeSurveyDetails }: { onSeeSurveyDetails?: () => void }): JSX.Element {
-    const launchChecklist = [
+import { Survey, SurveyType } from '~/types'
+
+interface ChecklistItem {
+    title: string
+    done: boolean
+    hint: string
+}
+
+function getLaunchChecklist(survey: Survey, hasTargetingSet: boolean): ChecklistItem[] {
+    const hasQuestions = survey.questions.length > 0
+    const allQuestionsHaveText = hasQuestions && survey.questions.every((q) => q.question?.trim())
+
+    const isApiSurvey = survey.type === SurveyType.API
+    const hasDisplayConditions =
+        isApiSurvey ||
+        !!survey.conditions?.url ||
+        (survey.conditions?.events?.values?.length ?? 0) > 0 ||
+        (survey.conditions?.actions?.values?.length ?? 0) > 0
+
+    return [
         {
-            title: 'Question clarity',
-            description: 'Keep wording short and specific so respondents can answer quickly.',
+            title: 'Questions',
+            done: hasQuestions && allQuestionsHaveText,
+            hint: !hasQuestions
+                ? 'Add at least one question to your survey.'
+                : !allQuestionsHaveText
+                  ? 'Make sure every question has text.'
+                  : 'All questions have text.',
         },
         {
             title: 'Audience targeting',
-            description: 'Confirm URL and user conditions so this shows to the right people.',
+            done: hasTargetingSet,
+            hint: hasTargetingSet
+                ? 'Targeting conditions are set.'
+                : 'Add URL, user, or feature flag conditions so this reaches the right people.',
         },
         {
-            title: 'Timing and frequency',
-            description: 'Choose moments after value events, and avoid showing too often.',
+            title: 'Display conditions',
+            done: hasDisplayConditions,
+            hint: isApiSurvey
+                ? 'API survey — you control when it shows.'
+                : hasDisplayConditions
+                  ? 'Trigger events or URL rules are configured.'
+                  : 'Add a URL match or trigger event so the survey appears at the right moment.',
         },
     ]
+}
+
+export function SurveyDraftContent({ onSeeSurveyDetails }: { onSeeSurveyDetails?: () => void }): JSX.Element {
+    const { survey, hasTargetingSet } = useValues(surveyLogic)
+    const checklist = getLaunchChecklist(survey as Survey, hasTargetingSet)
 
     return (
         <div className="px-4 py-10">
@@ -63,15 +102,21 @@ export function SurveyDraftContent({ onSeeSurveyDetails }: { onSeeSurveyDetails?
                 <div className="w-full max-w-2xl">
                     <div className="mb-2 text-center text-sm font-medium text-primary">Pre-launch checklist</div>
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                        {launchChecklist.map((item, index) => (
+                        {checklist.map((item) => (
                             <div key={item.title} className="rounded-lg border border-border p-3 text-left">
                                 <div className="mb-2 flex items-center gap-2">
-                                    <span className="inline-flex size-5 items-center justify-center rounded-full border border-border text-xs text-secondary">
-                                        {index + 1}
+                                    <span
+                                        className={`inline-flex size-5 items-center justify-center rounded-full text-xs ${
+                                            item.done
+                                                ? 'bg-success-highlight text-success'
+                                                : 'border border-border text-secondary'
+                                        }`}
+                                    >
+                                        {item.done ? <IconCheck className="size-3" /> : null}
                                     </span>
                                     <span className="text-sm font-medium text-primary">{item.title}</span>
                                 </div>
-                                <p className="m-0 text-xs text-secondary">{item.description}</p>
+                                <p className="m-0 text-xs text-secondary">{item.hint}</p>
                             </div>
                         ))}
                     </div>
