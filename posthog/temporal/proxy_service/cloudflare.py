@@ -127,6 +127,9 @@ def create_custom_hostname(domain: str) -> CustomHostnameInfo:
         "ssl": {
             "method": "http",
             "type": "dv",
+            "settings": {
+                "min_tls_version": "1.2",
+            },
         },
     }
 
