@@ -129,6 +129,21 @@ pub async fn handle_recording_payload(
         chatty_debug_enabled,
     };
 
+    // Apply global rate limit per team (API token) if enabled
+    if let Some(global_rate_limiter) = &state.global_rate_limiter {
+        if let Some(limited) = global_rate_limiter
+            .is_limited(&context.token, events.len() as u64)
+            .await
+        {
+            debug_or_info!(chatty_debug_enabled,
+                context=?context,
+                event_count=?events.len(),
+                details=?limited,
+                "global rate limit applied");
+            return Err(CaptureError::GlobalRateLimitExceeded());
+        }
+    }
+
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "evaluating quota limits");

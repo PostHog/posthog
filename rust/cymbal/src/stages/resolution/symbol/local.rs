@@ -11,6 +11,7 @@ use crate::{
     config::Config,
     error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
     frames::{records::ErrorTrackingStackFrame, releases::ReleaseRecord, Frame, RawFrame},
+    langs::apple::AppleDebugImage,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
         SUSPICIOUS_FRAMES_DETECTED,
@@ -54,6 +55,7 @@ impl LocalSymbolResolver {
         &self,
         team_id: i32,
         frame: &RawFrame,
+        debug_images: &[AppleDebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         if frame.is_suspicious() {
             metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
@@ -64,7 +66,7 @@ impl LocalSymbolResolver {
             .cache
             .try_get_with(raw_id.clone(), async {
                 cache_miss = true;
-                self.resolve_impl(frame, raw_id.clone()).await
+                self.resolve_impl(frame, raw_id.clone(), debug_images).await
             })
             .await
             .map_err(|e| UnhandledError::Other(e.to_string()))?;
@@ -82,6 +84,7 @@ impl LocalSymbolResolver {
         &self,
         frame: &RawFrame,
         raw_id: RawFrameId,
+        debug_images: &[AppleDebugImage],
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
         let loaded =
             ErrorTrackingStackFrame::load_all(&self.pool, &raw_id, self.result_ttl).await?;
@@ -92,7 +95,9 @@ impl LocalSymbolResolver {
 
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
-        let resolved = frame.resolve(raw_id.team_id, &self.catalog).await?;
+        let resolved = frame
+            .resolve(raw_id.team_id, &self.catalog, debug_images)
+            .await?;
 
         assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
 
@@ -140,8 +145,9 @@ impl SymbolResolver for LocalSymbolResolver {
         &self,
         team_id: TeamId,
         frame: &RawFrame,
+        debug_images: &[AppleDebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
-        self.resolve(team_id, frame).await
+        self.resolve(team_id, frame, debug_images).await
     }
 
     async fn resolve_java_class(
@@ -197,6 +203,7 @@ mod test {
         frames::{records::ErrorTrackingStackFrame, RawFrame},
         stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
         symbol_store::{
+            apple::AppleProvider,
             chunk_id::ChunkIdFetcher,
             hermesmap::HermesMapProvider,
             proguard::ProguardProvider,
@@ -269,7 +276,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(saving_smp, hmp, pgp);
+        let apple = ChunkIdFetcher::new(
+            AppleProvider {},
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(saving_smp, hmp, pgp, apple);
 
         (config, catalog, server)
     }
@@ -356,7 +370,7 @@ mod test {
             setup_test_context(pool.clone(), |c, cl| expect_puts_and_gets(c, cl, 1, 0)).await;
         let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
         let frame = get_test_frame(&server);
-        let resolved_1 = resolver.resolve_raw_frame(0, &frame).await.unwrap();
+        let resolved_1 = resolver.resolve_raw_frame(0, &frame, &[]).await.unwrap();
 
         // Check there's only 1 symbol set row, and only one frame row
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posthog_errortrackingsymbolset")
@@ -391,7 +405,7 @@ mod test {
 
         // Re-do the resolution, which will then hit the in-memory frame cache
         let frame = get_test_frame(&server);
-        let resolved_2 = resolver.resolve_raw_frame(0, &frame).await.unwrap();
+        let resolved_2 = resolver.resolve_raw_frame(0, &frame, &[]).await.unwrap();
 
         resolver.cache.invalidate_all();
         resolver.cache.run_pending_tasks().await;
@@ -399,7 +413,7 @@ mod test {
 
         // Now we should hit PG for the frame
         let frame = get_test_frame(&server);
-        let resolved_3 = resolver.resolve_raw_frame(0, &frame).await.unwrap();
+        let resolved_3 = resolver.resolve_raw_frame(0, &frame, &[]).await.unwrap();
 
         assert_eq!(resolved_1, resolved_2);
         assert_eq!(resolved_2, resolved_3);

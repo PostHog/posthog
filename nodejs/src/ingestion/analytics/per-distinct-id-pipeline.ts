@@ -4,10 +4,10 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import {

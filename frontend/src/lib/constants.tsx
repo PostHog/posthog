@@ -4,6 +4,7 @@ import { ChartDisplayCategory, ChartDisplayType, Region, SDKKey, SSOProvider } f
 
 // Sync with backend DISPLAY_TYPES_TO_CATEGORIES
 export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayCategory> = {
+    [ChartDisplayType.Auto]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsBar]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayCategory.TimeSeries,
@@ -169,6 +170,7 @@ export const FEATURE_FLAGS = {
     // UX flags, used to control the UX of the app
     AI_FIRST: 'ai-first', // this a larger change, not released to team yet
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // used to remove the sidepanel from the experience
+    SEARCH_AI_PREVIEW: 'search-ai-preview', // used to show AI preview on search when no results are found
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
@@ -343,6 +345,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_CONVERSATIONS: 'product-conversations', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT: 'product-support', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT_SLACK: 'product-support-slack', // owner: @veryayskiy #team-conversations
     ONBOARDING_AI_PRODUCT_RECOMMENDATIONS: 'onboarding-ai-product-recommendations', // owner: @rafaeelaudibert #team-growth, AI-powered product recommendations in onboarding multivariate=control,test,chat
     ONBOARDING_SESSION_REPLAY_MEDIA: 'onboarding-session-replay-media', // owner: @fercgomes #team-growth multivariate=control,screenshot,demo
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true

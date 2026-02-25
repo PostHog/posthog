@@ -28,6 +28,8 @@ SENTIMENT_LATENCY_HISTOGRAM_METRICS = (
     "llma_sentiment_activity_execution_latency",
     "llma_sentiment_activity_schedule_to_start_latency",
     "llma_sentiment_workflow_execution_latency",
+    "llma_sentiment_query_time",
+    "llma_sentiment_inference_time",
 )
 SENTIMENT_LATENCY_HISTOGRAM_BUCKETS = [
     100.0,  # 100ms
@@ -38,6 +40,7 @@ SENTIMENT_LATENCY_HISTOGRAM_BUCKETS = [
     10_000.0,  # 10 seconds
     30_000.0,  # 30 seconds
     60_000.0,  # 1 minute
+    120_000.0,  # 2 minutes
 ]
 
 # ---------------------------------------------------------------------------
@@ -91,6 +94,38 @@ def record_messages_classified(count: int) -> None:
         "llma_sentiment_messages_classified",
         "Messages classified for sentiment",
     ).add(count)
+
+
+def record_generations_fetched(count: int) -> None:
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter()
+    meter.create_counter(
+        "llma_sentiment_generations_fetched",
+        "Generation rows fetched from ClickHouse",
+    ).add(count)
+
+
+def record_query_time_ms(duration_ms: float) -> None:
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter()
+    meter.create_histogram_timedelta(
+        name="llma_sentiment_query_time",
+        description="ClickHouse query time",
+        unit="ms",
+    ).record(dt.timedelta(milliseconds=duration_ms))
+
+
+def record_inference_time_ms(duration_ms: float) -> None:
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter()
+    meter.create_histogram_timedelta(
+        name="llma_sentiment_inference_time",
+        description="ONNX model inference time",
+        unit="ms",
+    ).record(dt.timedelta(milliseconds=duration_ms))
 
 
 def increment_errors(error_type: str) -> None:

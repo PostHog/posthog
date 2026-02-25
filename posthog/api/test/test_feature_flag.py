@@ -528,6 +528,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -564,6 +567,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -622,6 +628,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -659,6 +668,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "api",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -854,6 +866,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -1155,6 +1170,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -1893,6 +1912,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
