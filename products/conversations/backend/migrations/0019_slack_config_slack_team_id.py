@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="teamconversationsslackconfig",
             name="slack_team_id",
-            field=models.CharField(blank=True, db_index=True, max_length=64, null=True),
+            field=models.CharField(blank=True, max_length=64, null=True),
         ),
     ]
