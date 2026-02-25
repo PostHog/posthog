@@ -230,7 +230,7 @@ pub struct FeatureFlagMatcher {
     /// When true, skip all writes to PostgreSQL and Redis.
     skip_writes: bool,
     /// Optional personhog gRPC client for fetching person data
-    pub personhog_client: Option<Arc<dyn PersonhogFetcher>>,
+    personhog_client: Option<Arc<dyn PersonhogFetcher>>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
