@@ -225,7 +225,7 @@ function LazyGenerationSentimentCell({
     traceId: string
     generationEventId: string
 }): JSX.Element {
-    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { sentimentByTraceId, isTraceLoading, getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
     const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
     const { dateFilter } = useValues(llmAnalyticsSharedLogic)
 
@@ -244,7 +244,7 @@ function LazyGenerationSentimentCell({
         return <>–</>
     }
 
-    const generationSentiment = cached.generations?.[generationEventId]
+    const generationSentiment = getGenerationSentiment(traceId, generationEventId)
     if (!generationSentiment) {
         return <>–</>
     }
