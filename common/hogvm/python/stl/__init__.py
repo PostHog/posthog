@@ -906,7 +906,6 @@ def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[
         match = re.search(pattern, haystack)
         if not match:
             return ""
-        # Return first capture group if exists, otherwise whole match
         if match.lastindex and match.lastindex >= 1:
             return match.group(1) or ""
         return match.group(0) or ""

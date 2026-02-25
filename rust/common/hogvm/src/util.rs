@@ -40,12 +40,11 @@ pub fn regex_extract(
     let Some(captures) = regex.captures(haystack.as_ref()) else {
         return Ok(String::new());
     };
-    // Return first capture group if it exists, otherwise the whole match
-    let result = captures
-        .get(1)
-        .or_else(|| captures.get(0))
-        .map(|m| m.as_str())
-        .unwrap_or("");
+    let result = if regex.captures_len() > 1 {
+        captures.get(1).map(|m| m.as_str()).unwrap_or("")
+    } else {
+        captures.get(0).map(|m| m.as_str()).unwrap_or("")
+    };
     Ok(result.to_string())
 }
 

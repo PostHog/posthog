@@ -8,7 +8,6 @@ fun sortableSemver(version) {
   if (empty(extracted)) {
     return []
   }
-  // Split by '.' and convert each part to integer
   let parts := splitByString('.', extracted)
   return arrayMap(x -> toInt(x) ?? 0, parts)
 }
