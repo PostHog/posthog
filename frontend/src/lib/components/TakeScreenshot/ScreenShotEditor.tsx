@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import * as React from 'react'
 
 import { IconPencil, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonColorPicker, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'

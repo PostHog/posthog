@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
-import React from 'react'
+import { createElement } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -1158,7 +1158,7 @@ describe('maxThreadLogic', () => {
             const initCommand = {
                 name: SlashCommandName.SlashInit,
                 description: 'Test command',
-                icon: React.createElement('div'),
+                icon: createElement('div'),
             }
 
             await expectLogic(logic, () => {
@@ -1173,7 +1173,7 @@ describe('maxThreadLogic', () => {
                 name: SlashCommandName.SlashRemember,
                 arg: '[information]' as const,
                 description: 'Test command with arg',
-                icon: React.createElement('div'),
+                icon: createElement('div'),
             }
 
             await expectLogic(logic, () => {
@@ -1187,7 +1187,7 @@ describe('maxThreadLogic', () => {
             const initCommand = {
                 name: SlashCommandName.SlashInit,
                 description: 'Test command',
-                icon: React.createElement('div'),
+                icon: createElement('div'),
             }
 
             const askMaxSpy = jest.spyOn(logic.actions, 'askMax')
@@ -1202,7 +1202,7 @@ describe('maxThreadLogic', () => {
                 name: SlashCommandName.SlashRemember,
                 arg: '[information]' as const,
                 description: 'Test command with arg',
-                icon: React.createElement('div'),
+                icon: createElement('div'),
             }
 
             await expectLogic(logic, () => {
@@ -1217,7 +1217,7 @@ describe('maxThreadLogic', () => {
                 name: SlashCommandName.SlashRemember,
                 arg: '[information]' as const,
                 description: 'Test command with arg',
-                icon: React.createElement('div'),
+                icon: createElement('div'),
             }
 
             const askMaxSpy = jest.spyOn(logic.actions, 'askMax')

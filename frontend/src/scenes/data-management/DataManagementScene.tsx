@@ -1,6 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors, useValues } from 'kea'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
-import React from 'react'
+import * as React from 'react'
 
 import { IconInfo } from '@posthog/icons'
 

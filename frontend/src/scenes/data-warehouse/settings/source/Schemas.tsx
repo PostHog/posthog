@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import * as React from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {

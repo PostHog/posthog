@@ -1,4 +1,4 @@
-import React from 'react'
+import { cloneElement } from 'react'
 
 import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark, IconPlay } from '@posthog/icons'
 
@@ -24,7 +24,7 @@ interface IconWithBadgeProps {
 function IconWithBadge({ icon, verified, hidden, tooltipTitle, className }: IconWithBadgeProps): JSX.Element {
     const wrappedIcon = (
         <div className="relative inline-flex">
-            {React.cloneElement(icon, { className: className || icon.props.className })}
+            {cloneElement(icon, { className: className || icon.props.className })}
             {(verified || hidden) && (
                 <div className="absolute -bottom-1 -left-2 flex items-center justify-center rounded-full bg-primary-light shadow-md p-[1px]">
                     {hidden ? (

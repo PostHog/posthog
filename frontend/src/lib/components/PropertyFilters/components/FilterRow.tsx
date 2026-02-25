@@ -1,7 +1,7 @@
 import './FilterRow.scss'
 
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import { memo, useState } from 'react'
 
 import { IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
 
@@ -33,7 +33,7 @@ interface FilterRowProps {
     size?: 'xsmall' | 'small' | 'medium'
 }
 
-export const FilterRow = React.memo(function FilterRow({
+export const FilterRow = memo(function FilterRow({
     item,
     index,
     filters,

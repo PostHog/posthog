@@ -1,7 +1,7 @@
 import './Lettermark.scss'
 
 import clsx from 'clsx'
-import React from 'react'
+import { forwardRef } from 'react'
 
 // This is the number of known --lettermark-* variables in `globals.scss`
 export const NUM_LETTERMARK_STYLES = 16
@@ -30,7 +30,7 @@ export interface LettermarkProps {
  *
  * When given a string, the initial letter is shown. Numbers up to 99 are displayed in full, in integer form.
  */
-export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(function Lettermark(
+export const Lettermark = forwardRef<HTMLDivElement, LettermarkProps>(function Lettermark(
     { name, index, color, outlined = false, rounded = false, size = 'medium', className },
     ref
 ) {

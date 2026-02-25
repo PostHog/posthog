@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconPlus } from '@posthog/icons'
 import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
@@ -31,7 +31,7 @@ export const scene: SceneExport = {
 }
 
 const ExpandableDataCell: QueryContextColumnComponent = ({ value }: { value: unknown }): JSX.Element => {
-    const [isExpanded, setIsExpanded] = React.useState(false)
+    const [isExpanded, setIsExpanded] = useState(false)
 
     if (value == null || (Array.isArray(value) && value.length === 0)) {
         return (

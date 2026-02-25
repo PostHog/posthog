@@ -1,7 +1,8 @@
 import './CalendarHeatMap.scss'
 
 import { useValues } from 'kea'
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import * as React from 'react'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 

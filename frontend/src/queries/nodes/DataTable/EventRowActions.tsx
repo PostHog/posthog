@@ -1,4 +1,4 @@
-import React from 'react'
+import { forwardRef } from 'react'
 
 import { IconAI, IconWarning } from '@posthog/icons'
 
@@ -86,24 +86,23 @@ export function eventRowActionsContent(event: EventType): JSX.Element {
     )
 }
 
-export const EventCopyLinkButton = React.forwardRef<
-    HTMLButtonElement,
-    { event: Pick<EventType, 'uuid' | 'timestamp'> }
->(function EventCopyLinkButton({ event }, ref) {
-    return (
-        <LemonButton
-            ref={ref}
-            fullWidth
-            sideIcon={<IconLink />}
-            data-attr="events-table-event-link"
-            onClick={() =>
-                void copyToClipboard(
-                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
-                    'link to event'
-                )
-            }
-        >
-            Copy link to event
-        </LemonButton>
-    )
-})
+export const EventCopyLinkButton = forwardRef<HTMLButtonElement, { event: Pick<EventType, 'uuid' | 'timestamp'> }>(
+    function EventCopyLinkButton({ event }, ref) {
+        return (
+            <LemonButton
+                ref={ref}
+                fullWidth
+                sideIcon={<IconLink />}
+                data-attr="events-table-event-link"
+                onClick={() =>
+                    void copyToClipboard(
+                        urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
+                        'link to event'
+                    )
+                }
+            >
+                Copy link to event
+            </LemonButton>
+        )
+    }
+)

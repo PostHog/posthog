@@ -1,4 +1,4 @@
-import React from 'react'
+import * as React from 'react'
 
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { dayjs } from 'lib/dayjs'

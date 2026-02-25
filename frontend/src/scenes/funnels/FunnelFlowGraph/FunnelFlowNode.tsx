@@ -1,7 +1,7 @@
 import { Handle, Position } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import { memo } from 'react'
 
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
@@ -32,7 +32,7 @@ function OptionalChip(): JSX.Element {
     )
 }
 
-export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
+export const FunnelFlowNode = memo(function FunnelFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
     const { step, stepIndex, isOptional } = data
     const isFirstStep = stepIndex === 0
     const { insightProps } = useValues(insightLogic)

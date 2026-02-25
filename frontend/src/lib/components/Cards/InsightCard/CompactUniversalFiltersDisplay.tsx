@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React from 'react'
+import { Fragment } from 'react'
 
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
@@ -60,14 +60,14 @@ export function CompactUniversalFiltersDisplay({
                 if (isUniversalFiltersGroup(filterOrGroup)) {
                     // Nested group
                     return (
-                        <React.Fragment key={index}>
+                        <Fragment key={index}>
                             {index > 0 && (
                                 <em className="text-[11px] font-semibold leading-5">
                                     {groupFilter.type === FilterLogicalOperator.Or ? 'OR' : 'AND'}
                                 </em>
                             )}
                             <CompactUniversalFiltersDisplay groupFilter={filterOrGroup} embedded={embedded} />
-                        </React.Fragment>
+                        </Fragment>
                     )
                 }
 
@@ -154,12 +154,12 @@ export function CompactUniversalFiltersDisplay({
                                     {isAnyPropertyfilter(propertyFilter) &&
                                         (Array.isArray(propertyFilter.value) ? (
                                             propertyFilter.value.map((subValue, index) => (
-                                                <React.Fragment key={index}>
+                                                <Fragment key={index}>
                                                     <code className="SeriesDisplay__value">{String(subValue)}</code>
                                                     {index <
                                                         (propertyFilter.value as PropertyFilterBaseValue[]).length -
                                                             1 && ' or '}
-                                                </React.Fragment>
+                                                </Fragment>
                                             ))
                                         ) : propertyFilter.value != undefined ? (
                                             <code className="SeriesDisplay__value">{String(propertyFilter.value)}</code>

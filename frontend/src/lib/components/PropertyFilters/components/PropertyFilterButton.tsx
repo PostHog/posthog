@@ -2,7 +2,7 @@ import './PropertyFilterButton.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React from 'react'
+import { forwardRef } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
@@ -25,71 +25,69 @@ export interface PropertyFilterButtonProps {
     compact?: boolean
 }
 
-export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
-    function PropertyFilterButton(
-        { onClick, onClose, children, item, disabledReason, compact = false },
-        ref
-    ): JSX.Element {
-        const { cohortsById } = useValues(cohortsModel)
-        const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+export const PropertyFilterButton = forwardRef<HTMLElement, PropertyFilterButtonProps>(function PropertyFilterButton(
+    { onClick, onClose, children, item, disabledReason, compact = false },
+    ref
+): JSX.Element {
+    const { cohortsById } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-        const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(item.type)
+    const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(item.type)
 
-        const closable = onClose !== undefined
-        const clickable = onClick !== undefined
-        const label =
-            children ||
-            formatPropertyLabel(
-                item,
-                cohortsById,
-                (s) =>
-                    formatPropertyValueForDisplay(
-                        item.key,
-                        s,
-                        propertyDefinitionType,
-                        (item as GroupPropertyFilter).group_type_index as GroupTypeIndex | undefined
-                    )?.toString() || '?'
-            )
-
-        const ButtonComponent = clickable ? 'button' : 'div'
-
-        const button = (
-            <ButtonComponent
-                ref={ref as any}
-                onClick={disabledReason ? undefined : onClick}
-                className={clsx('PropertyFilterButton', 'grow', 'ph-no-capture', {
-                    'PropertyFilterButton--closeable': closable,
-                    'PropertyFilterButton--clickable': clickable,
-                    'PropertyFilterButton--compact': compact,
-                })}
-                aria-disabled={!!disabledReason}
-                type={ButtonComponent === 'button' ? 'button' : undefined}
-            >
-                <PropertyFilterIcon type={item.type} />
-                <span className="PropertyFilterButton-content" title={label}>
-                    {midEllipsis(label, 32)}
-                </span>
-                {closable && !disabledReason && (
-                    // The context below prevents close button from going into active status when filter popover is open
-                    <PopoverReferenceContext.Provider value={null}>
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconX />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                onClose()
-                            }}
-                            className="p-0.5"
-                        />
-                    </PopoverReferenceContext.Provider>
-                )}
-            </ButtonComponent>
+    const closable = onClose !== undefined
+    const clickable = onClick !== undefined
+    const label =
+        children ||
+        formatPropertyLabel(
+            item,
+            cohortsById,
+            (s) =>
+                formatPropertyValueForDisplay(
+                    item.key,
+                    s,
+                    propertyDefinitionType,
+                    (item as GroupPropertyFilter).group_type_index as GroupTypeIndex | undefined
+                )?.toString() || '?'
         )
 
-        if (disabledReason) {
-            return <Tooltip title={disabledReason}>{button}</Tooltip>
-        }
+    const ButtonComponent = clickable ? 'button' : 'div'
 
-        return button
+    const button = (
+        <ButtonComponent
+            ref={ref as any}
+            onClick={disabledReason ? undefined : onClick}
+            className={clsx('PropertyFilterButton', 'grow', 'ph-no-capture', {
+                'PropertyFilterButton--closeable': closable,
+                'PropertyFilterButton--clickable': clickable,
+                'PropertyFilterButton--compact': compact,
+            })}
+            aria-disabled={!!disabledReason}
+            type={ButtonComponent === 'button' ? 'button' : undefined}
+        >
+            <PropertyFilterIcon type={item.type} />
+            <span className="PropertyFilterButton-content" title={label}>
+                {midEllipsis(label, 32)}
+            </span>
+            {closable && !disabledReason && (
+                // The context below prevents close button from going into active status when filter popover is open
+                <PopoverReferenceContext.Provider value={null}>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX />}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onClose()
+                        }}
+                        className="p-0.5"
+                    />
+                </PopoverReferenceContext.Provider>
+            )}
+        </ButtonComponent>
+    )
+
+    if (disabledReason) {
+        return <Tooltip title={disabledReason}>{button}</Tooltip>
     }
-)
+
+    return button
+})

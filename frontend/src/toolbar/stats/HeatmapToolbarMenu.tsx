@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React from 'react'
+import * as React from 'react'
 
 import { IconMagicWand } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'

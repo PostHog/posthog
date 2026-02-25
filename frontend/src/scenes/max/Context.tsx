@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
-import React from 'react'
+import * as React from 'react'
 
 import { IconAtSign, IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'

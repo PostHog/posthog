@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { FieldName, Form, Group } from 'kea-forms'
-import React, { useEffect } from 'react'
+import { Fragment, useEffect } from 'react'
 
 import {
     LemonDivider,
@@ -45,10 +45,10 @@ const sourceFieldToElement = (
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
     if (field.type === 'text' && field.name === 'connection_string') {
         if (isUpdateMode) {
-            return <React.Fragment key={field.name} />
+            return <Fragment key={field.name} />
         }
         return (
-            <React.Fragment key={field.name}>
+            <Fragment key={field.name}>
                 <LemonField name={field.name} label={field.label}>
                     {({ onChange }) => (
                         <LemonInput
@@ -89,7 +89,7 @@ const sourceFieldToElement = (
                     )}
                 </LemonField>
                 <LemonDivider />
-            </React.Fragment>
+            </Fragment>
         )
     }
 

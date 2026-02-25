@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import { memo, Fragment, useState } from 'react'
 
 import { IconCode, IconCopy, IconFilter, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions, LemonSwitch } from '@posthog/lemon-ui'
@@ -78,7 +78,7 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
     )
 }
 
-export const SurveyResponseFilters = React.memo(function SurveyResponseFilters(): JSX.Element {
+export const SurveyResponseFilters = memo(function SurveyResponseFilters(): JSX.Element {
     const { survey, answerFilters, propertyFilters, defaultAnswerFilters, dateRange, showArchivedResponses } =
         useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters, setDateRange, setShowArchivedResponses } = useActions(surveyLogic)
@@ -214,7 +214,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                         const operators = OPERATOR_OPTIONS[question.type] || []
 
                         return (
-                            <React.Fragment key={question.id}>
+                            <Fragment key={question.id}>
                                 {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
                                 <div className="grid grid-cols-6 gap-2 p-2 items-center">
                                     <div className="col-span-3">
@@ -258,7 +258,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                                             )}
                                     </div>
                                 </div>
-                            </React.Fragment>
+                            </Fragment>
                         )
                     })}
                 </div>

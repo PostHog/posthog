@@ -1,4 +1,4 @@
-import React from 'react'
+import { Fragment } from 'react'
 
 import { IconClock, IconFilter, IconList, IconSort } from '@posthog/icons'
 
@@ -19,12 +19,12 @@ function DurationSummary({ filters }: { filters: RecordingUniversalFilters }): J
     return (
         <InsightDetailSectionDisplay icon={<IconClock />} label="Duration">
             {filters.duration.map((durationFilter, index) => (
-                <React.Fragment key={index}>
+                <Fragment key={index}>
                     <span className="font-medium">
                         {humanFriendlyDurationFilter(durationFilter, durationFilter.key as DurationType)}
                     </span>
                     {index < filters.duration.length - 1 && ' and '}
-                </React.Fragment>
+                </Fragment>
             ))}
         </InsightDetailSectionDisplay>
     )

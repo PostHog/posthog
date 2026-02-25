@@ -1,6 +1,6 @@
 import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
-import React, {
+import {
     CSSProperties,
     ForwardedRef,
     HTMLAttributes,
@@ -11,6 +11,7 @@ import React, {
     useRef,
     useState,
 } from 'react'
+import * as React from 'react'
 
 import { IconEllipsis, IconUpload } from '@posthog/icons'
 

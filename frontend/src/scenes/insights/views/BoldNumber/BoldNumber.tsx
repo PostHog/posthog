@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
-import React from 'react'
+import * as React from 'react'
 
 import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'

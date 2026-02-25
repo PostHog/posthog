@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { forwardRef, useEffect, useState } from 'react'
 
 import { Link } from '../Link'
 
@@ -9,10 +9,7 @@ export interface ClampedTextProps {
 
 const isCssEllipsisApplied = (elem: HTMLDivElement): boolean => elem.scrollHeight > elem.clientHeight
 
-export const ClampedText = React.forwardRef<HTMLDivElement, ClampedTextProps>(function ClampedText(
-    { lines, text },
-    ref
-) {
+export const ClampedText = forwardRef<HTMLDivElement, ClampedTextProps>(function ClampedText({ lines, text }, ref) {
     const [localLines, setLocalLines] = useState<number | undefined>(lines)
     const [isExpanded, setIsExpanded] = useState<boolean>(false)
     const [showMore, setShowMore] = useState<boolean>(false)
@@ -53,7 +50,7 @@ export const ClampedText = React.forwardRef<HTMLDivElement, ClampedTextProps>(fu
     )
 })
 
-const TruncatedElement = React.forwardRef<HTMLDivElement, { lines?: number; text: string }>(function TruncatedElement(
+const TruncatedElement = forwardRef<HTMLDivElement, { lines?: number; text: string }>(function TruncatedElement(
     { text, lines },
     ref
 ) {

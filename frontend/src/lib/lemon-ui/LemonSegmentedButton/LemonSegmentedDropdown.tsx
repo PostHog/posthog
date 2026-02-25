@@ -1,7 +1,8 @@
 import './LemonSegmentedDropdown.scss'
 
 import clsx from 'clsx'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
+import * as React from 'react'
 
 import { useSliderPositioning } from '../hooks'
 import { LemonButton, LemonButtonProps } from '../LemonButton'

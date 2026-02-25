@@ -1,4 +1,4 @@
-import React from 'react'
+import { useEffect } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -241,7 +241,7 @@ export function BatchExportsEditFields({
                                 }
 
                                 // Set defaults when file format changes for new destinations
-                                React.useEffect(() => {
+                                useEffect(() => {
                                     // Only run when configuration changes
                                     if (!configurationChanged) {
                                         return
@@ -835,7 +835,7 @@ export function BatchExportsEditFields({
                                 return false
                             }
 
-                            React.useEffect(() => {
+                            useEffect(() => {
                                 if (!configurationChanged) {
                                     return
                                 }

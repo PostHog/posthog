@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const RetoolLogo = React.memo(function RetoolLogo(): JSX.Element {
+export const RetoolLogo = memo(function RetoolLogo(): JSX.Element {
     return (
         <svg className="h-8 w-8" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 42">
             <title>Retool logo</title>

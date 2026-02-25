@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import { createElement, useEffect } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
@@ -87,9 +87,7 @@ export function useMaxTool({
             : (): void => {
                   // Show the suggestions from this specific tool
                   if (definition && suggestions && suggestions.length > 0) {
-                      setActiveGroup(
-                          createSuggestionGroup(definition.name, React.createElement(IconWrench), suggestions)
-                      )
+                      setActiveGroup(createSuggestionGroup(definition.name, createElement(IconWrench), suggestions))
                   }
                   openSidePanel(SidePanelTab.Max, initialMaxPrompt)
                   onMaxOpen?.()

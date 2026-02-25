@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import React from 'react'
+import * as React from 'react'
 
 import { IconCode, IconFlask, IconPeople, IconSparkles, IconTestTube, IconToggle, IconWrench } from '@posthog/icons'
 

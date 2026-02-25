@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 
 import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
@@ -82,7 +82,7 @@ export const OnboardingProductConfiguration: OnboardingStepComponentType<Onboard
             <div className="mt-6">
                 <h2 className="pt-2">Options</h2>
                 {combinedList.map((item, idx) => (
-                    <React.Fragment key={idx}>
+                    <Fragment key={idx}>
                         <LemonDivider className="my-4" />
                         <div className="grid grid-cols-3 gap-4">
                             <div className="col-span-2">
@@ -116,7 +116,7 @@ export const OnboardingProductConfiguration: OnboardingStepComponentType<Onboard
                                 )}
                             </div>
                         </div>
-                    </React.Fragment>
+                    </Fragment>
                 ))}
             </div>
         </OnboardingStep>

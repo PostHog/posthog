@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useLayoutEffect, useMemo, useState } from 'react'
+import { memo, useLayoutEffect, useMemo, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconEye, IconHide, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -69,7 +69,7 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
 
 const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as const
 
-export const VisualizationArtifactAnswer = React.memo(function VisualizationArtifactAnswer({
+export const VisualizationArtifactAnswer = memo(function VisualizationArtifactAnswer({
     message,
     content,
     status,

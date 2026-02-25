@@ -1,7 +1,8 @@
 import '~/scenes/insights/views/WorldMap/WorldMap.scss'
 
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
+import * as React from 'react'
 
 import { gradateColor } from 'lib/utils'
 import { countryVectors } from 'scenes/insights/views/WorldMap/countryVectors'

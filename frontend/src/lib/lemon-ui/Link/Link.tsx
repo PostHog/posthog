@@ -1,7 +1,7 @@
 import './Link.scss'
 
 import { router } from 'kea-router'
-import React from 'react'
+import * as React from 'react'
 
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 

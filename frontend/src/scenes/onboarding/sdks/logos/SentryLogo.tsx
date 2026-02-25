@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const SentryLogo = React.memo(function SentryLogo(): JSX.Element {
+export const SentryLogo = memo(function SentryLogo(): JSX.Element {
     return (
         <svg className="h-8 w-8" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 66">
             <title>Sentry logo</title>

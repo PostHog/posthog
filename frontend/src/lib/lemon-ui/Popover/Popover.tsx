@@ -14,7 +14,7 @@ import {
     useMergeRefs,
 } from '@floating-ui/react'
 import clsx from 'clsx'
-import React, {
+import {
     MouseEventHandler,
     ReactElement,
     useCallback,
@@ -24,6 +24,7 @@ import React, {
     useRef,
     useState,
 } from 'react'
+import * as React from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'

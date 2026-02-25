@@ -1,7 +1,7 @@
 import './PropertyGroupFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import React from 'react'
+import { Fragment } from 'react'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -99,7 +99,7 @@ export function PropertyGroupFilters({
                             {propertyGroupFilter.values?.map(
                                 (group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                                     return (
-                                        <React.Fragment key={propertyGroupIndex}>
+                                        <Fragment key={propertyGroupIndex}>
                                             <div className="property-group">
                                                 <div className="flex justify-between items-center mb-2">
                                                     <AndOrFilterSelect
@@ -146,7 +146,7 @@ export function PropertyGroupFilters({
                                                     <span>{propertyGroupFilter.type}</span>
                                                 </div>
                                             )}
-                                        </React.Fragment>
+                                        </Fragment>
                                     )
                                 }
                             )}

@@ -5,7 +5,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import { forwardRef, useEffect } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 
@@ -114,7 +114,7 @@ export interface ActionFilterProps {
     operatorAllowlist?: PropertyOperator[]
 }
 
-export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
+export const ActionFilter = forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
     {
         setFilters,
         filters,

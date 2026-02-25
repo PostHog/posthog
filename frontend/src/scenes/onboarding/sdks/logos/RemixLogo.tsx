@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const RemixLogo = React.memo(function RemixLogo(): JSX.Element {
+export const RemixLogo = memo(function RemixLogo(): JSX.Element {
     return (
         <svg className="h-8 w-8" viewBox="0 0 411 473" fill="none" xmlns="http://www.w3.org/2000/svg">
             <title>Remix logo</title>

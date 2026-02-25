@@ -1,12 +1,12 @@
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
-import React, { HTMLProps, useLayoutEffect, useRef, useState } from 'react'
+import { forwardRef, HTMLProps, useLayoutEffect, useRef, useState } from 'react'
 
 interface RawInputAutosizeProps extends HTMLProps<HTMLInputElement> {
     wrapperClassName?: string
 }
 
-export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutosizeProps>(function RawInputAutosize(
+export const RawInputAutosize = forwardRef<HTMLInputElement, RawInputAutosizeProps>(function RawInputAutosize(
     { wrapperClassName, ...inputProps },
     ref
 ) {

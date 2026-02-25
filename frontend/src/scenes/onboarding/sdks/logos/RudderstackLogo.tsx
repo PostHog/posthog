@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const RudderstackLogo = React.memo(function RudderstackLogo(): JSX.Element {
+export const RudderstackLogo = memo(function RudderstackLogo(): JSX.Element {
     return (
         <svg className="h-8 w-8" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
             <title>RudderStack logo</title>

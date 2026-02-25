@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const OpenAILogo = React.memo(function OpenAILogo(): JSX.Element {
+export const OpenAILogo = memo(function OpenAILogo(): JSX.Element {
     return (
         <svg className="h-8 w-8" viewBox="0 0 721 721" fill="none" xmlns="http://www.w3.org/2000/svg">
             <title>OpenAI logo</title>

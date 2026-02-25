@@ -1,7 +1,7 @@
 import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
@@ -118,7 +118,7 @@ export function PropertyFilters({
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
                     {displayedFilters.map((item: AnyPropertyFilter, index: number) => {
                         return (
-                            <React.Fragment key={displayedFilterIds[index]}>
+                            <Fragment key={displayedFilterIds[index]}>
                                 {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
                                     <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                                 )}
@@ -169,7 +169,7 @@ export function PropertyFilters({
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
                                     disabledReason={disabledReason}
                                 />
-                            </React.Fragment>
+                            </Fragment>
                         )
                     })}
                 </BindLogic>

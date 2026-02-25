@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import React, { useState } from 'react'
+import { Fragment, useState } from 'react'
 
 import { IconLock, IconPencil } from '@posthog/icons'
 import {
@@ -66,7 +66,7 @@ export function PipelinePluginConfiguration({
 
     const configSchemaArray = getConfigSchemaArray(plugin.config_schema)
     const fields = configSchemaArray.map((fieldConfig, index) => (
-        <React.Fragment key={fieldConfig.key || `__key__${index}`}>
+        <Fragment key={fieldConfig.key || `__key__${index}`}>
             {fieldConfig.key &&
             fieldConfig.type &&
             isValidField(fieldConfig) &&
@@ -101,7 +101,7 @@ export function PipelinePluginConfiguration({
                     ) : null}
                 </>
             )}
-        </React.Fragment>
+        </Fragment>
     ))
 
     const buttons = (

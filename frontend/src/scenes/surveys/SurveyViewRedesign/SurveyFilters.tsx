@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import { Fragment, useState } from 'react'
 
 import { IconCopy, IconFilter, IconGraph, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions, LemonSwitch } from '@posthog/lemon-ui'
@@ -174,7 +174,7 @@ export function SurveyResultsFiltersBar(): JSX.Element {
                         const operators = OPERATOR_OPTIONS[question.type] || []
 
                         return (
-                            <React.Fragment key={question.id}>
+                            <Fragment key={question.id}>
                                 {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
                                 <div className="grid grid-cols-6 gap-2 p-2 items-center">
                                     <div className="col-span-3">
@@ -218,7 +218,7 @@ export function SurveyResultsFiltersBar(): JSX.Element {
                                             )}
                                     </div>
                                 </div>
-                            </React.Fragment>
+                            </Fragment>
                         )
                     })}
                 </div>

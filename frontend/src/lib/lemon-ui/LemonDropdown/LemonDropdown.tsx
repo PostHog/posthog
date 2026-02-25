@@ -1,4 +1,5 @@
-import React, { MouseEventHandler, useContext, useRef, useState } from 'react'
+import { MouseEventHandler, useContext, useRef, useState } from 'react'
+import * as React from 'react'
 
 import { Popover, PopoverOverlayContext, PopoverProps } from '../Popover'
 

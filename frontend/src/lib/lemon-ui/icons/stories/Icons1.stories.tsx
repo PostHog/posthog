@@ -1,5 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import * as React from 'react'
+import { useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -43,7 +43,7 @@ const allIcons: IconDefinition[] = Object.entries(icons)
 
 type LibraryType = StoryObj<{ letter?: string | null }>
 const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
-    const [showBorder, setShowBorder] = React.useState(true)
+    const [showBorder, setShowBorder] = useState(true)
     const filteredIcons =
         letter === undefined
             ? allIcons

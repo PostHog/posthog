@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { cloneElement, useState } from 'react'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -56,7 +56,7 @@ export const EventSelect = ({
     }
 
     // Add in the toggle popover logic for the passed in element
-    const addElementWithToggle = React.cloneElement(addElement, { onClick: () => setOpen(!open) })
+    const addElementWithToggle = cloneElement(addElement, { onClick: () => setOpen(!open) })
 
     return (
         <div className="flex items-center flex-wrap gap-2">

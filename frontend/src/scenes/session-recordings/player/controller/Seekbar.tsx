@@ -1,8 +1,7 @@
 import './Seekbar.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
-import React from 'react'
+import { memo, useEffect, useRef } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
@@ -18,7 +17,7 @@ import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
 import { seekbarLogic } from './seekbarLogic'
 
-const SeekbarSources = React.memo(function SeekbarSourcesRaw({
+const SeekbarSources = memo(function SeekbarSourcesRaw({
     sourceLoadingStates,
     recordingStartMs,
     recordingEndMs,
@@ -74,7 +73,7 @@ const SeekbarSources = React.memo(function SeekbarSourcesRaw({
 })
 
 // the seekbar and its children can be accidentally re-rendered as the player ticks
-const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
+const SeekbarSegment = memo(function SeekbarSegmentRaw({
     segment,
     durationMs,
 }: {

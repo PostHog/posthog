@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import { forwardRef, useState } from 'react'
 
 import { LemonSkeleton } from '../LemonSkeleton'
 import { Lettermark } from '../Lettermark'
@@ -19,7 +19,7 @@ export interface UploadedLogoProps {
     outlinedLettermark?: boolean
 }
 
-export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(function UploadedLogo(
+export const UploadedLogo = forwardRef<HTMLDivElement, UploadedLogoProps>(function UploadedLogo(
     { name, mediaId, entityId, size = 'medium', outlinedLettermark },
     ref
 ) {

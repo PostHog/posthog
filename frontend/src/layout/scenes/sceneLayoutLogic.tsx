@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, reducers } from 'kea'
-import React from 'react'
+import * as React from 'react'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneConfig } from 'scenes/sceneTypes'

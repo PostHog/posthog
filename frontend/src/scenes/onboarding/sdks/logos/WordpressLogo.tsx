@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const WordpressLogo = React.memo(function WordpressLogo(): JSX.Element {
+export const WordpressLogo = memo(function WordpressLogo(): JSX.Element {
     return (
         <svg className="h-8 w-8" viewBox="0 0 122.52 122.523" xmlns="http://www.w3.org/2000/svg">
             <title>WordPress logo</title>

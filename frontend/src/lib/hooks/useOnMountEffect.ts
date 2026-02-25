@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
+import * as React from 'react'
 
 /**
  * useOnMountEffect - A hook that runs an effect only once when the component mounts

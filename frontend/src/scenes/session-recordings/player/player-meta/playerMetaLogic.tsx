@@ -3,7 +3,7 @@ import { aiSummaryMock } from './ai-summary.mock'
 import { createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
-import React from 'react'
+import { isValidElement } from 'react'
 
 import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
@@ -44,7 +44,7 @@ function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | nu
 }
 
 function canRenderDirectly(value: any): boolean {
-    return typeof value === 'string' || typeof value === 'number' || React.isValidElement(value)
+    return typeof value === 'string' || typeof value === 'number' || isValidElement(value)
 }
 
 export function countryTitleFrom(

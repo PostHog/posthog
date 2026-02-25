@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import { Fragment, useState } from 'react'
 
 import { printHogStringOutput } from '@posthog/hogvm'
 import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
@@ -113,10 +113,10 @@ export function ReplChunk({
                         {print.map((line, index) => (
                             <div key={index}>
                                 {line.map((arg, argIndex) => (
-                                    <React.Fragment key={argIndex}>
+                                    <Fragment key={argIndex}>
                                         {printRichHogOutput(arg)}
                                         {argIndex < line.length - 1 ? ' ' : ''}
-                                    </React.Fragment>
+                                    </Fragment>
                                 ))}
                             </div>
                         ))}

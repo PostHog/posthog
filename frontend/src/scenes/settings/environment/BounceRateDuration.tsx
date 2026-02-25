@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -31,7 +31,7 @@ export function BounceRateDurationSetting(): JSX.Element {
         })
     }
 
-    const inputRef = React.useRef<HTMLInputElement>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
 
     return (
         <>

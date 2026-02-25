@@ -2,7 +2,7 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-import React from 'react'
+import { createRef } from 'react'
 
 import {
     IconChat,
@@ -773,7 +773,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         sidebarContentsFlattened: (sidebarContentsFlattened) => {
             for (const item of sidebarContentsFlattened) {
                 if (!item.ref) {
-                    item.ref = React.createRef() // Inject refs for keyboard navigation
+                    item.ref = createRef() // Inject refs for keyboard navigation
                 }
             }
             actions.setLastFocusedItemIndex(-1) // Reset focused item index on contents change

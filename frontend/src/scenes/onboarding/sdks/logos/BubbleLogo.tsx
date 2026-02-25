@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const BubbleLogo = React.memo(function BubbleLogo(): JSX.Element {
+export const BubbleLogo = memo(function BubbleLogo(): JSX.Element {
     return (
         <svg
             className="h-8 w-8"

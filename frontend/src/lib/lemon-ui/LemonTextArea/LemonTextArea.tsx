@@ -1,6 +1,7 @@
 import './LemonTextArea.scss'
 
-import React, { ReactElement, useEffect, useRef, useState } from 'react'
+import { ReactElement, useEffect, useRef, useState } from 'react'
+import * as React from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
 import { cn } from 'lib/utils/css-classes'

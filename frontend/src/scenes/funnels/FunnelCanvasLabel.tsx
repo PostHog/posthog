@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import { Fragment } from 'react'
 
 import { IconInfo, IconTestTube } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -103,10 +103,10 @@ export function FunnelCanvasLabel(): JSX.Element | null {
     return (
         <div className="flex items-center">
             {labels.map((label, i) => (
-                <React.Fragment key={i}>
+                <Fragment key={i}>
                     {i > 0 && <span className="my-0.5 mx-2 border-l border-primary h-3.5" />}
                     {label}
-                </React.Fragment>
+                </Fragment>
             ))}
         </div>
     )

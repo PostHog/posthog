@@ -2,7 +2,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import React from 'react'
+import * as React from 'react'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 

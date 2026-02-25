@@ -1,7 +1,8 @@
 import './ScrollableShadows.scss'
 
 import { clsx } from 'clsx'
-import React, { CSSProperties, MutableRefObject } from 'react'
+import { CSSProperties, MutableRefObject } from 'react'
+import * as React from 'react'
 
 import { useScrollable } from 'lib/hooks/useScrollable'
 

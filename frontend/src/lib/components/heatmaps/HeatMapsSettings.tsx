@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
-import React, { useState } from 'react'
+import { useState } from 'react'
+import * as React from 'react'
 
 import { IconInfo } from '@posthog/icons'
 

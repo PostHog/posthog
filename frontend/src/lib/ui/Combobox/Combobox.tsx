@@ -1,4 +1,4 @@
-import React, {
+import {
     ReactNode,
     createContext,
     forwardRef,
@@ -11,6 +11,7 @@ import React, {
     useRef,
     useState,
 } from 'react'
+import * as React from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'

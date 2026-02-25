@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import React from 'react'
+import { memo } from 'react'
 
 import {
     IconArrowLeft,
@@ -91,7 +91,7 @@ export interface MaxInstanceProps {
     isAIOnlyMode?: boolean
 }
 
-export const MaxInstance = React.memo(function MaxInstance({
+export const MaxInstance = memo(function MaxInstance({
     sidePanel,
     tabId,
     isAIOnlyMode,

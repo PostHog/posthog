@@ -2,7 +2,8 @@ import './CodeSnippet.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { type HTMLProps, useEffect, useState } from 'react'
+import type { HTMLProps } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'
@@ -158,7 +159,7 @@ export interface CodeSnippetProps {
     maxLinesWithoutExpansion?: number
 }
 
-export const CodeSnippet = React.memo(function CodeSnippet({
+export const CodeSnippet = memo(function CodeSnippet({
     children: text,
     language = Language.Text,
     wrap = false,

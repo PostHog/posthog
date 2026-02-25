@@ -2,7 +2,7 @@ import './RetentionTable.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import * as React from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 

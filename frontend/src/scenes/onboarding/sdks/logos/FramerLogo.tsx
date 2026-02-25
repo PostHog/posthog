@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const FramerLogo = React.memo(function FramerLogo(): JSX.Element {
+export const FramerLogo = memo(function FramerLogo(): JSX.Element {
     return (
         <svg
             fill="#000000"

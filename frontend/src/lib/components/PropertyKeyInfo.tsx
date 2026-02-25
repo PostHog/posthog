@@ -1,7 +1,7 @@
 import './PropertyKeyInfo.scss'
 
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import { forwardRef, cloneElement, useState } from 'react'
 
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
@@ -24,7 +24,7 @@ interface PropertyKeyInfoProps {
     className?: string
 }
 
-export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(function PropertyKeyInfo(
+export const PropertyKeyInfo = forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(function PropertyKeyInfo(
     {
         value,
         type = TaxonomicFilterGroupType.EventProperties,
@@ -108,7 +108,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
             showArrow
             placement="right"
         >
-            {React.cloneElement(innerContent, {
+            {cloneElement(innerContent, {
                 onMouseEnter: () => setPopoverVisible(true),
                 onMouseLeave: () => setPopoverVisible(false),
             })}

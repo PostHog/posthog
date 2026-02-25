@@ -2,7 +2,8 @@ import './index.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
+import * as React from 'react'
 
 import { IconClock, IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'

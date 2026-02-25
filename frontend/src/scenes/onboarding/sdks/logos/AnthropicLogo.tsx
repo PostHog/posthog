@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const AnthropicLogo = React.memo(function AnthropicLogo(): JSX.Element {
+export const AnthropicLogo = memo(function AnthropicLogo(): JSX.Element {
     return (
         <svg className="h-8 w-8" viewBox="0 0 92.2 65" xmlns="http://www.w3.org/2000/svg">
             <title>Anthropic logo</title>

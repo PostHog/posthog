@@ -1,6 +1,6 @@
-import React from 'react'
+import { memo } from 'react'
 
-export const IOSLogo = React.memo(function IOSLogo(): JSX.Element {
+export const IOSLogo = memo(function IOSLogo(): JSX.Element {
     return (
         <svg className="h-8 w-8" fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 24">
             <title>iOS logo</title>

@@ -1,7 +1,7 @@
 import './CardMeta.scss'
 
 import clsx from 'clsx'
-import React from 'react'
+import * as React from 'react'
 import { Transition } from 'react-transition-group'
 
 import { IconPieChart } from '@posthog/icons'

@@ -1,7 +1,7 @@
 import './LemonSegmentedButton.scss'
 
 import clsx from 'clsx'
-import React from 'react'
+import * as React from 'react'
 
 import { useSliderPositioning } from '../hooks'
 import { LemonButton, LemonButtonProps } from '../LemonButton'

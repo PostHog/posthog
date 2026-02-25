@@ -1,4 +1,4 @@
-import React from 'react'
+import { createElement } from 'react'
 
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -144,7 +144,7 @@ export function renderHogQLX(value: any): JSX.Element {
         } else if (HOGQLX_TAGS_NO_ATTRIBUTES.includes(tag)) {
             const { children, source, key } = rest
             const value = children ?? source
-            const element = React.createElement(tag, { key: key ?? undefined }, value ? renderHogQLX(value) : undefined)
+            const element = createElement(tag, { key: key ?? undefined }, value ? renderHogQLX(value) : undefined)
 
             return <LightErrorBoundary>{element}</LightErrorBoundary>
         }

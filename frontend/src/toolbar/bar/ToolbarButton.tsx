@@ -3,7 +3,7 @@ import './ToolbarButton.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FunctionComponent, useEffect } from 'react'
-import React from 'react'
+import * as React from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 

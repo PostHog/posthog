@@ -1,5 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import React from 'react'
+import { Fragment } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 
@@ -70,10 +70,10 @@ export const Status: StoryFn<typeof LemonBadge> = () => {
     return (
         <div className="flex deprecated-space-x-2 items-center">
             {statuses.map((status) => (
-                <React.Fragment key={status}>
+                <Fragment key={status}>
                     <span>{status}</span>
                     <LemonBadge content={<IconPlusSmall />} status={status as LemonBadgeProps['status']} />
-                </React.Fragment>
+                </Fragment>
             ))}
         </div>
     )

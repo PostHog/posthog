@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import React, { useState } from 'react'
+import { forwardRef, useState } from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { LemonMenuItemList } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -32,7 +32,7 @@ export interface QueryCardProps extends Pick<InsightCardProps, 'highlighted' | '
 }
 
 /** This is like InsightCard, except for presentation of queries that aren't saved insights. */
-export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(function QueryCard(
+export const QueryCard = forwardRef<HTMLDivElement, QueryCardProps>(function QueryCard(
     {
         query,
         title,

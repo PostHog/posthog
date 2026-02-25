@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import posthog from 'posthog-js'
-import React, { MutableRefObject, memo } from 'react'
+import { MutableRefObject, memo } from 'react'
+import * as React from 'react'
 
 import { IconComment } from '@posthog/icons'
 

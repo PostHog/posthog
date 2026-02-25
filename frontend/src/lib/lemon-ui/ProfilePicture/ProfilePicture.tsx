@@ -3,7 +3,7 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
 import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
@@ -29,7 +29,7 @@ export interface ProfilePictureProps {
     type?: 'person' | 'bot' | 'system'
 }
 
-export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePictureProps>(function ProfilePicture(
+export const ProfilePicture = forwardRef<HTMLSpanElement, ProfilePictureProps>(function ProfilePicture(
     { user, name, size = 'lg', showName, className, index, title, type = 'person' },
     ref
 ) {

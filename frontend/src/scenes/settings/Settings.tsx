@@ -3,7 +3,7 @@ import './Settings.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React from 'react'
+import { Fragment } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
@@ -79,9 +79,7 @@ export function Settings({
     // though this is likely to change (see https://github.com/posthog/posthog/pull/22421).
     // In the meantime, we don't want a needless re-authentication modal:
     const AuthenticationAreaComponent =
-        selectedLevel !== 'environment' && selectedLevel !== 'project'
-            ? TimeSensitiveAuthenticationArea
-            : React.Fragment
+        selectedLevel !== 'environment' && selectedLevel !== 'project' ? TimeSensitiveAuthenticationArea : Fragment
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
@@ -297,7 +295,7 @@ function SearchResults({
     return (
         <ul className="gap-y-px">
             {results.map((group) => (
-                <React.Fragment key={group.sectionId}>
+                <Fragment key={group.sectionId}>
                     <li className="text-muted text-xs font-semibold uppercase pt-2 pb-1 px-2">
                         {group.sectionTitle}
                         <span className="text-muted-alt ml-1">({SettingLevelNames[group.level]})</span>
@@ -321,7 +319,7 @@ function SearchResults({
                             </LemonButton>
                         </li>
                     ))}
-                </React.Fragment>
+                </Fragment>
             ))}
         </ul>
     )
@@ -390,10 +388,10 @@ const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?:
     return (
         <ul className="gap-y-px">
             {options.map((option) => (
-                <React.Fragment key={option.key}>
+                <Fragment key={option.key}>
                     <li className={clsx(depthMap[depth])}>{option.content}</li>
                     {option.items ? <OptionGroup options={option.items} depth={depth + 1} /> : null}
-                </React.Fragment>
+                </Fragment>
             ))}
         </ul>
     )

@@ -2,7 +2,7 @@ import './PlanComparison.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { useState } from 'react'
+import { Fragment, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
@@ -323,7 +323,7 @@ export const PlanComparison = ({
                                     (plan) => plan.included_if == 'has_subscription' || plan.current_plan
                                 )
                                 return (
-                                    <React.Fragment key={`inclusion-only-product-features-${includedProduct.type}`}>
+                                    <Fragment key={`inclusion-only-product-features-${includedProduct.type}`}>
                                         <tr>
                                             <th
                                                 colSpan={3}
@@ -365,7 +365,7 @@ export const PlanComparison = ({
                                                         </Tooltip>
                                                     </th>
                                                     {includedPlans?.map((plan) => (
-                                                        <React.Fragment key={`${plan.plan_key}-${feature.key}`}>
+                                                        <Fragment key={`${plan.plan_key}-${feature.key}`}>
                                                             {/* Some products don't have a free plan, so we need to pretend there is one
                                                                         so the features line up in the correct columns in the UI. This is kind of 
                                                                         hacky because it assumes we only have 2 plans total, but it works for now.
@@ -387,11 +387,11 @@ export const PlanComparison = ({
                                                                     className="text-base"
                                                                 />
                                                             </td>
-                                                        </React.Fragment>
+                                                        </Fragment>
                                                     ))}
                                                 </tr>
                                             ))}
-                                    </React.Fragment>
+                                    </Fragment>
                                 )
                             })}
                     </>

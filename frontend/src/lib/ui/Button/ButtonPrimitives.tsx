@@ -1,7 +1,8 @@
 import './ButtonPrimitives.scss'
 
 import { type VariantProps, cva } from 'cva'
-import React, { ReactNode, createContext, forwardRef, useContext } from 'react'
+import { ReactNode, createContext, forwardRef, useContext } from 'react'
+import * as React from 'react'
 
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { cn } from 'lib/utils/css-classes'

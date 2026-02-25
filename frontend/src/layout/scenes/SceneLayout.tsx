@@ -1,7 +1,8 @@
 import './SceneLayout.css'
 
 import { useActions, useValues } from 'kea'
-import React, { PropsWithChildren, useEffect } from 'react'
+import { PropsWithChildren, useEffect } from 'react'
+import * as React from 'react'
 import { createPortal } from 'react-dom'
 
 import { LemonDivider } from '@posthog/lemon-ui'

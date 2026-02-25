@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
-import React, { Children, ReactNode, createContext, isValidElement, useContext, useMemo } from 'react'
+import { Children, ReactNode, createContext, isValidElement, useContext, useMemo } from 'react'
+import * as React from 'react'
 
 import { StepProps, StepsProps } from '@posthog/shared-onboarding/steps'
 import { StepDefinition, StepModifier } from '@posthog/shared-onboarding/steps'

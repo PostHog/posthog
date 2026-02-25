@@ -1,5 +1,6 @@
 import clsx from 'clsx'
-import React, { HTMLProps, useState } from 'react'
+import { HTMLProps, useState } from 'react'
+import * as React from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 
