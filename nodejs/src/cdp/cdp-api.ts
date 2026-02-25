@@ -18,7 +18,11 @@ import {
     HogFunctionWebhookResult,
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
-import { HogTransformerHub, HogTransformerService } from './hog-transformations/hog-transformer.service'
+import {
+    HogTransformerService,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from './hog-transformations/hog-transformer.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
@@ -45,7 +49,7 @@ import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering
  * Combines all hub types needed by CdpApi and its dependencies.
  */
 export type CdpApiHub = CdpSourceWebhooksConsumerHub &
-    HogTransformerHub &
+    HogTransformerServiceDeps &
     Pick<
         Hub,
         | 'teamManager'
@@ -154,7 +158,7 @@ export class CdpApi {
                 poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
             })
         )
-        this.hogTransformer = new HogTransformerService(hub)
+        this.hogTransformer = createHogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(
             hub.kafkaProducer,
             hub.internalCaptureService,
