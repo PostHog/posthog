@@ -16,6 +16,7 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
+    global_rate_limiter::GlobalRateLimitKey,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     v0_request::ProcessingContext,
@@ -131,8 +132,9 @@ pub async fn handle_recording_payload(
 
     // Apply global rate limit per team (API token) if enabled
     if let Some(global_rate_limiter) = &state.global_rate_limiter {
+        let cache_key = GlobalRateLimitKey::Token(&context.token).to_cache_key();
         if let Some(limited) = global_rate_limiter
-            .is_limited(&context.token, events.len() as u64)
+            .is_limited(&cache_key, events.len() as u64)
             .await
         {
             debug_or_info!(chatty_debug_enabled,

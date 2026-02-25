@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,6 +14,20 @@ use tracing::{error, info};
 
 #[cfg(test)]
 use chrono::DateTime;
+
+pub enum GlobalRateLimitKey<'a> {
+    Token(&'a str),
+    TokenDistinctId(&'a str, &'a str),
+}
+
+impl<'a> GlobalRateLimitKey<'a> {
+    pub fn to_cache_key(&self) -> Cow<'a, str> {
+        match self {
+            Self::Token(t) => Cow::Borrowed(t),
+            Self::TokenDistinctId(t, d) => Cow::Owned(format!("{t}:{d}")),
+        }
+    }
+}
 
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
@@ -328,5 +343,33 @@ mod tests {
             vec!["is_custom_key", "check_custom_limit"],
             "must NOT call check_limit when key is registered as custom"
         );
+    }
+
+    #[test]
+    fn test_global_rate_limit_key_to_cache_key() {
+        let cases: Vec<(GlobalRateLimitKey, &str, bool)> = vec![
+            (GlobalRateLimitKey::Token("abc"), "abc", true),
+            (GlobalRateLimitKey::Token(""), "", true),
+            (
+                GlobalRateLimitKey::TokenDistinctId("abc", "xyz"),
+                "abc:xyz",
+                false,
+            ),
+            (
+                GlobalRateLimitKey::TokenDistinctId("abc", ""),
+                "abc:",
+                false,
+            ),
+        ];
+
+        for (key, expected, expect_borrowed) in cases {
+            let result = key.to_cache_key();
+            assert_eq!(&*result, expected, "key={expected}");
+            assert_eq!(
+                matches!(result, Cow::Borrowed(_)),
+                expect_borrowed,
+                "key={expected}: expected borrowed={expect_borrowed}"
+            );
+        }
     }
 }
