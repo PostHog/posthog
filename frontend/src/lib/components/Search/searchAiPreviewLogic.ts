@@ -125,12 +125,15 @@ export const searchAiPreviewLogic = kea<searchAiPreviewLogicType>([
 
             cache.abortController = new AbortController()
             const traceId = uuid()
+            const conversationId = uuid()
+            actions.setConversationId(conversationId)
 
             try {
                 const response = await api.conversations.stream(
                     {
                         content: trimmedQuery,
                         trace_id: traceId,
+                        conversation: conversationId,
                     },
                     { signal: cache.abortController.signal }
                 )

@@ -652,10 +652,12 @@ function SearchResults({
     className,
     listClassName,
     groupLabelClassName,
+    isModal = false,
 }: {
     className?: string
     listClassName?: string
     groupLabelClassName?: string
+    isModal?: boolean
 }): JSX.Element {
     const { groupedItems, handleItemClick, highlightedItemRef, isSearching } = useSearchContext()
 
@@ -710,6 +712,7 @@ function SearchResults({
                                                         item={item}
                                                         handleItemClick={handleItemClick}
                                                         highlightedItemRef={highlightedItemRef}
+                                                        isModal={isModal}
                                                     />
                                                 )
                                             }
@@ -826,10 +829,12 @@ function AiSearchItem({
     item,
     handleItemClick,
     highlightedItemRef,
+    isModal = false,
 }: {
     item: SearchItem
     handleItemClick: (item: SearchItem) => void
     highlightedItemRef: MutableRefObject<SearchItem | null>
+    isModal?: boolean
 }): JSX.Element {
     const { logicKey } = useSearchContext()
     const { showPreview, truncatedPreviewText, streamingState, conversationId } = useValues(
@@ -855,13 +860,15 @@ function AiSearchItem({
                             buttonProps={{
                                 fullWidth: true,
                                 autoHeight: true,
+                                className: cn(
+                                    'flex-col items-start gap-0 bg-surface-primary',
+                                    showPreview &&
+                                        'shadow border-primary @2xl/main-content:-ml-3 @2xl/main-content:w-[calc(100%+(var(--spacing)*6))] max-w-none p-4 text-sm select-auto hover:border-ai not(:hover):[&[data-highlighted]:not(:hover)]:outline-ai',
+                                    isModal && 'm-0'
+                                ),
                             }}
                             {...props}
                             tabIndex={-1}
-                            className={cn(
-                                'flex-col items-start gap-0',
-                                showPreview && 'shadow border-primary -mx-3 p-4 text-sm select-auto hover:border-ai'
-                            )}
                             data-attr="ai-search-item"
                         >
                             {showPreview ? (
