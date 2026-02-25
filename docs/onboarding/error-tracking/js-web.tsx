@@ -69,12 +69,7 @@ export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[
         ),
     }
 
-    return [
-        ...installSteps,
-        exceptionAutocaptureStep,
-        manualCaptureStep,
-        verifyStep,
-    ]
+    return [...installSteps, exceptionAutocaptureStep, manualCaptureStep, verifyStep]
 }
 
 export const JSWebInstallation = createInstallation(getJSWebSteps)

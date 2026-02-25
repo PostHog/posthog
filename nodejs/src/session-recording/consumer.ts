@@ -4,6 +4,7 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
+import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,
@@ -11,6 +12,7 @@ import {
     createSessionReplayPipeline,
     runSessionReplayPipeline,
 } from '../ingestion/session_replay'
+import { TopHog } from '../ingestion/tophog/tophog'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { getBlockDecryptor, getBlockEncryptor } from '../session-replay/shared/crypto'
@@ -35,23 +37,15 @@ import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restr
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
-import { captureIngestionWarning } from '../worker/ingestion/utils'
-import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
-import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
-import { TeamFilter } from './teams/team-filter'
-import { MessageWithTeam } from './teams/types'
-import { TopTracker } from './top-tracker'
-import { CaptureIngestionWarningFn } from './types'
-import { LibVersionMonitor } from './versions/lib-version-monitor'
 
 /** Narrowed Hub type for SessionRecordingIngester */
 export type SessionRecordingIngesterHub = SessionRecordingConfig &
@@ -72,6 +66,9 @@ export type SessionRecordingIngesterHub = SessionRecordingConfig &
         // For encryption key management
         | 'SESSION_RECORDING_KMS_ENDPOINT'
         | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
+        // For TopHog metrics
+        | 'INGESTION_PIPELINE'
+        | 'INGESTION_LANE'
     >
 
 export class SessionRecordingIngester {
@@ -84,11 +81,9 @@ export class SessionRecordingIngester {
     private isDebugLoggingEnabled: ValueMatcher<number>
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
-    private readonly kafkaParser: KafkaMessageParser
     private readonly redisPool: RedisPool
     private readonly restrictionRedisPool: RedisPool
-    private readonly teamFilter: TeamFilter
-    private readonly libVersionMonitor?: LibVersionMonitor
+    private readonly teamService: TeamService
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
@@ -98,10 +93,8 @@ export class SessionRecordingIngester {
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
     private readonly kafkaMessageProducer: KafkaProducerWrapper
-    private readonly ingestionWarningProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
-    private readonly topTracker: TopTracker
-    private topTrackerLogInterval?: NodeJS.Timeout
+    private readonly topHog: TopHog
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
 
@@ -110,8 +103,7 @@ export class SessionRecordingIngester {
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         kafkaMetadataProducer: KafkaProducerWrapper,
-        kafkaMessageProducer: KafkaProducerWrapper,
-        ingestionWarningProducer?: KafkaProducerWrapper
+        kafkaMessageProducer: KafkaProducerWrapper
     ) {
         this.topic = hub.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
         this.overflowTopic = hub.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC
@@ -130,7 +122,6 @@ export class SessionRecordingIngester {
 
         this.kafkaMetadataProducer = kafkaMetadataProducer
         this.kafkaMessageProducer = kafkaMessageProducer
-        this.ingestionWarningProducer = ingestionWarningProducer
 
         let s3Client: S3Client | null = null
         if (
@@ -155,8 +146,12 @@ export class SessionRecordingIngester {
             s3Client = new S3Client(s3Config)
         }
 
-        this.topTracker = new TopTracker()
-        this.kafkaParser = new KafkaMessageParser(this.topTracker)
+        this.topHog = new TopHog({
+            kafkaProducer: kafkaMetadataProducer,
+            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            pipeline: hub.INGESTION_PIPELINE ?? 'unknown',
+            lane: hub.INGESTION_LANE ?? 'unknown',
+        })
 
         // Session recording uses its own Redis instance with fallback to default
         this.redisPool = createRedisPoolFromConfig({
@@ -191,21 +186,13 @@ export class SessionRecordingIngester {
             poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
         })
 
-        const teamService = new TeamService(postgres)
+        this.teamService = new TeamService(postgres)
 
         this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.restrictionRedisPool, {
             pipeline: 'session_recordings',
         })
 
-        this.teamFilter = new TeamFilter(teamService)
-        if (ingestionWarningProducer) {
-            const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
-                await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
-            }
-            this.libVersionMonitor = new LibVersionMonitor(captureWarning)
-        }
-
-        const retentionService = new RetentionService(this.redisPool, teamService)
+        const retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(
@@ -241,7 +228,7 @@ export class SessionRecordingIngester {
         })
 
         const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
-        const keyStore = getKeyStore(teamService, retentionService, region, {
+        const keyStore = getKeyStore(this.teamService, retentionService, region, {
             kmsEndpoint: hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
@@ -269,7 +256,13 @@ export class SessionRecordingIngester {
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: !this.consumeOverflow,
             overflowTopic: this.overflowTopic,
+            dlqTopic: this.hub.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
             promiseScheduler: this.promiseScheduler,
+            teamService: this.teamService,
+            topHog: this.topHog,
+            ingestionWarningProducer: this.kafkaMetadataProducer,
+            sessionBatchManager: this.sessionBatchManager,
+            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
         })
     }
 
@@ -311,26 +304,9 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        // Apply event processing pipeline steps first
-        const messagesToProcess = await instrumentFn(
-            `recordingingesterv2.handleEachBatch.runPipeline`,
-            async () => await runSessionReplayPipeline(this.sessionReplayPipeline, messages)
-        )
-
-        const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
-            const parsedMessages = await this.kafkaParser.parseBatch(messagesToProcess)
-            const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
-            const processedMessages = this.libVersionMonitor
-                ? await this.libVersionMonitor.processBatch(messagesWithTeam)
-                : messagesWithTeam
-
-            return processedMessages
-        })
-
-        this.kafkaConsumer.heartbeat()
-
-        await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () =>
-            this.processMessages(processedMessages)
+        // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
+        await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
+            runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
 
         this.kafkaConsumer.heartbeat()
@@ -340,56 +316,6 @@ export class SessionRecordingIngester {
                 this.sessionBatchManager.flush()
             )
         }
-    }
-
-    private async processMessages(parsedMessages: MessageWithTeam[]) {
-        const batch = this.sessionBatchManager.getCurrentBatch()
-        for (const message of parsedMessages) {
-            await this.consume(message, batch)
-        }
-    }
-
-    private async consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
-        const consumeStartTime = performance.now()
-
-        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
-        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        SessionRecordingIngesterMetrics.resetSessionsRevoked()
-        const { team, message: parsedMessage } = message
-        const debugEnabled = this.isDebugLoggingEnabled(parsedMessage.metadata.partition)
-
-        if (debugEnabled) {
-            logger.debug('🔄', 'processing_session_recording', {
-                partition: parsedMessage.metadata.partition,
-                offset: parsedMessage.metadata.offset,
-                distinct_id: parsedMessage.distinct_id,
-                session_id: parsedMessage.session_id,
-                raw_size: parsedMessage.metadata.rawSize,
-            })
-        }
-
-        const { partition } = parsedMessage.metadata
-        const isDebug = this.isDebugLoggingEnabled(partition)
-        if (isDebug) {
-            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
-                ...parsedMessage.metadata,
-                team_id: team.teamId,
-                session_id: parsedMessage.session_id,
-            })
-        }
-
-        SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
-
-        // Track message size per session_id
-        const trackingKey = `token:${parsedMessage.token ?? 'unknown'}:session_id:${parsedMessage.session_id}`
-        this.topTracker.increment('message_size_by_session_id', trackingKey, parsedMessage.metadata.rawSize)
-
-        await batch.record(message)
-
-        // Track consume time per session_id
-        const consumeEndTime = performance.now()
-        const consumeDurationMs = consumeEndTime - consumeStartTime
-        this.topTracker.increment('consume_time_ms_by_session_id', trackingKey, consumeDurationMs)
     }
 
     public async start(): Promise<void> {
@@ -438,21 +364,16 @@ export class SessionRecordingIngester {
             logger.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })
         })
 
-        // Start periodic logging of top tracked metrics (every 60 seconds)
-        this.topTrackerLogInterval = setInterval(() => {
-            this.topTracker.logAndReset(10)
-        }, 60000)
+        // Start periodic flushing of TopHog metrics
+        this.topHog.start()
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
         logger.info('🔁', 'blob_ingester_consumer_v2 - stopping')
         this.isStopping = true
 
-        // Stop the top tracker interval and log final results
-        if (this.topTrackerLogInterval) {
-            clearInterval(this.topTrackerLogInterval)
-            this.topTracker.logAndReset(10)
-        }
+        // Stop TopHog and flush final metrics
+        await this.topHog.stop()
 
         const assignedPartitions = this.assignedTopicPartitions
         await this.kafkaConsumer.disconnect()
@@ -464,11 +385,9 @@ export class SessionRecordingIngester {
         // Clean up resources owned by this ingester
         this.keyStore.stop()
         // Note: kafkaMetadataProducer may be shared (e.g., hub.kafkaProducer in production),
-        // so callers are responsible for disconnecting it if they created it
+        // so callers are responsible for disconnecting it. We only disconnect kafkaMessageProducer
+        // which we always own.
         await this.kafkaMessageProducer.disconnect()
-        if (this.ingestionWarningProducer) {
-            await this.ingestionWarningProducer.disconnect()
-        }
         await this.redisPool.drain()
         await this.redisPool.clear()
         await this.restrictionRedisPool.drain()

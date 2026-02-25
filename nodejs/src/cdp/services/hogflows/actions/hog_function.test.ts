@@ -13,8 +13,11 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { HogFlowAction } from '../../../../schema/hogflow'
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
+import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { EmailService } from '../../messaging/email.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler } from './hog_function'
@@ -37,7 +40,32 @@ describe('HogFunctionHandler', () => {
         hub = await createHub()
         team = await getFirstTeam(hub)
 
-        mockHogFunctionExecutor = new HogExecutorService(hub)
+        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const emailService = new EmailService(
+            {
+                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                sesRegion: hub.SES_REGION,
+                sesEndpoint: hub.SES_ENDPOINT,
+            },
+            hub.integrationManager,
+            hub.ENCRYPTION_SALT_KEYS,
+            hub.SITE_URL
+        )
+        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        mockHogFunctionExecutor = new HogExecutorService(
+            {
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+            },
+            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+            hogInputsService,
+            emailService,
+            recipientTokensService
+        )
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
             hub.SITE_URL,

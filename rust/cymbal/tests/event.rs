@@ -9,7 +9,7 @@ use cymbal::{
     symbol_store::saving::SymbolSetRecord,
     types::{
         event::AnyEvent, exception_properties::ExceptionProperties, Exception, ExceptionList,
-        Stacktrace,
+        Mechanism, Stacktrace,
     },
 };
 use insta::assert_json_snapshot;
@@ -136,12 +136,17 @@ fn frame_at(mut frame: Frame, source: &str, line: u32, column: u32) -> Frame {
 // Response structs
 
 #[derive(Deserialize)]
-struct SuccessResponse(Vec<AnyEvent>);
+struct SuccessResponse(Vec<Option<AnyEvent>>);
 
 impl SuccessResponse {
     fn take_properties(self) -> ExceptionProperties {
         let event = self.0.first().expect("Should have at least one event");
-        serde_json::from_value(event.properties.clone()).expect("Should deserialize properties")
+        serde_json::from_value(event.as_ref().unwrap().properties.clone())
+            .expect("Should deserialize properties")
+    }
+
+    fn first_event(&self) -> &Option<AnyEvent> {
+        self.0.first().expect("Should have at least one event")
     }
 }
 
@@ -287,9 +292,10 @@ async fn insert_symbol_set_record(db: &PgPool, team_id: i32, chunk_id: &str) {
 
 // Helper to extract exception list from response
 fn extract_exception_list(response: &SuccessResponse) -> ExceptionList {
-    let event = response.0.first().expect("Should have at least one event");
+    let event = response.first_event();
     let props: ExceptionProperties =
-        serde_json::from_value(event.properties.clone()).expect("Should deserialize properties");
+        serde_json::from_value(event.as_ref().unwrap().properties.clone())
+            .expect("Should deserialize properties");
     props.exception_list
 }
 
@@ -319,9 +325,17 @@ async fn empty_exception_list_returns_event_with_error(db: PgPool) {
     // Empty exception list returns success with error embedded in the event
     assert!(status.is_success());
     assert_eq!(body.0.len(), 1);
-    let event = &body.0[0];
-    let errors: Vec<String> =
-        serde_json::from_value(event.properties.get("$cymbal_errors").unwrap().clone()).unwrap();
+    let event = body.first_event();
+    let errors: Vec<String> = serde_json::from_value(
+        event
+            .as_ref()
+            .unwrap()
+            .properties
+            .get("$cymbal_errors")
+            .unwrap()
+            .clone(),
+    )
+    .unwrap();
     assert!(errors.iter().any(|e| e.contains("Empty exception list")));
 }
 
@@ -388,35 +402,43 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
 
     let (_, created): (_, SuccessResponse) = harness.post_event(&input).await;
     let body = created.take_properties();
-    harness.suppress_issue(body.issue_id.unwrap()).await;
+    let issue_id = body.issue_id.unwrap();
+    harness.suppress_issue(issue_id).await;
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     assert!(status.is_success());
-    // exception should be suppressed
-    assert_eq!(body.0.len(), 0);
+    // suppressed events are filtered out entirely
+    assert_eq!(body.0.len(), 1);
+    assert!(
+        body.first_event().is_none(),
+        "Suppressed event should not be present"
+    );
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn extracts_metadata_from_exceptions(db: PgPool) {
     let harness = TestHarness::new(db);
-    let input = make_event_with_options(
-        vec![make_exception_with_stack(
-            "TypeError",
-            "Cannot read property 'foo' of undefined",
-            vec![
-                frame_at(
-                    make_frame_ts("handleClick"),
-                    "src/components/Button.tsx",
-                    42,
-                    10,
-                ),
-                frame_at(make_frame_ts("onClick"), "src/App.tsx", 100, 5),
-            ],
-        )],
-        None,
-        Some(true),
+    let mut exception = make_exception_with_stack(
+        "TypeError",
+        "Cannot read property 'foo' of undefined",
+        vec![
+            frame_at(
+                make_frame_ts("handleClick"),
+                "src/components/Button.tsx",
+                42,
+                10,
+            ),
+            frame_at(make_frame_ts("onClick"), "src/App.tsx", 100, 5),
+        ],
     );
+    exception.mechanism = Some(Mechanism {
+        handled: Some(true),
+        mechanism_type: None,
+        source: None,
+        synthetic: None,
+    });
+    let input = make_event_with_options(vec![exception], None, Some(true));
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 

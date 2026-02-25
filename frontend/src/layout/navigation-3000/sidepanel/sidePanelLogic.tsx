@@ -13,7 +13,6 @@ import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelHealthLogic } from './panels/sidePanelHealthLogic'
 import { sidePanelSdkDoctorLogic } from './panels/sidePanelSdkDoctorLogic'
 import { sidePanelStatusIncidentIoLogic } from './panels/sidePanelStatusIncidentIoLogic'
-import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -52,10 +51,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             // We need to mount this to ensure that marking as read works when the panel closes
             sidePanelNotificationsLogic,
             ['unreadCount'],
-            sidePanelStatusLogic,
-            ['status'],
             sidePanelStatusIncidentIoLogic,
-            ['status as incidentioStatus'],
+            ['status'],
             sidePanelSdkDoctorLogic,
             ['needsAttention'],
             sidePanelHealthLogic,
@@ -122,7 +119,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.sidePanelOpen,
                 s.unreadCount,
                 s.status,
-                s.incidentioStatus,
                 s.needsAttention,
                 s.hasIssues,
                 s.hasAvailableFeature,
@@ -133,7 +129,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 sidePanelOpen,
                 unreadCount,
                 status,
-                incidentioStatus,
                 needsAttention,
                 hasIssues,
                 hasAvailableFeature
@@ -151,10 +146,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                         return true
                     }
 
-                    if (
-                        tab === SidePanelTab.Status &&
-                        (status !== 'operational' || incidentioStatus !== 'operational')
-                    ) {
+                    if (tab === SidePanelTab.Status && status !== 'operational') {
                         return true
                     }
 

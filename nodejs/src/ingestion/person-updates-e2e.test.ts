@@ -72,7 +72,6 @@ class EventBuilder {
         }
         this.event.distinct_id = distinctId
         this.event.team_id = team.id
-        this.event.token = team.api_token
     }
 
     withEvent(event: string) {
@@ -98,30 +97,37 @@ class EventBuilder {
 }
 
 let offsetIncrementer = 0
+let currentToken: string
 
 const createKafkaMessage = (event: PipelineEvent, timestamp: number = Date.now()): Message => {
+    const token = currentToken
     // TRICKY: This is the slightly different format that capture sends
     const captureEvent = {
         uuid: event.uuid,
         distinct_id: event.distinct_id,
         ip: event.ip,
         now: event.now,
-        token: event.token,
+        token,
         data: JSON.stringify(event),
     }
+    const headers: { [key: string]: Buffer }[] = [
+        { token: Buffer.from(token) },
+        { distinct_id: Buffer.from(event.distinct_id!) },
+    ]
     return {
-        key: `${event.token}:${event.distinct_id}`,
+        key: `${token}:${event.distinct_id}`,
         value: Buffer.from(JSON.stringify(captureEvent)),
         size: 1,
         topic: 'test',
         offset: offsetIncrementer++,
         timestamp: timestamp + offsetIncrementer,
         partition: 1,
+        headers,
     }
 }
 
 const createKafkaMessages = (events: PipelineEvent[]): Message[] => {
-    return events.map((event) => createKafkaMessage(event))
+    return events.map(createKafkaMessage)
 }
 
 const waitForKafkaMessages = async (hub: Hub) => {
@@ -211,6 +217,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             throw new Error(`Failed to fetch team ${team.id} from database`)
         }
         team = fetchedTeam
+        currentToken = team.api_token
 
         ingester = new IngestionConsumer(hub)
         ingester['kafkaConsumer'] = {

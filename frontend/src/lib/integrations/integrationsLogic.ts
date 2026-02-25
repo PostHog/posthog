@@ -132,10 +132,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
     listeners(({ actions, values }) => ({
         handleGithubCallback: async ({ searchParams }) => {
             const { state, installation_id } = searchParams
+            const { next, token } = fromParamsGivenUrl(state ?? '')
+            const stateToken = token || state
+            let replaceUrl: string = next || urls.settings('project-integrations')
 
             try {
                 if (installation_id) {
-                    if (state !== getCookie('ph_github_state')) {
+                    if (stateToken !== getCookie('ph_github_state')) {
                         throw new Error('Invalid state token')
                     }
 
@@ -156,7 +159,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             } catch {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {
-                router.actions.replace(urls.settings('project-integrations'))
+                router.actions.replace(replaceUrl)
             }
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
@@ -181,7 +184,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 })
 
                 // Add the integration ID to the replaceUrl so that the landing page can use it
-                replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}integration_id=${integration.id}`
+                const url = new URL(replaceUrl, window.location.origin)
+                url.searchParams.set('integration_id', String(integration.id))
+                replaceUrl = url.pathname + url.search + url.hash
 
                 actions.loadIntegrations()
                 lemonToast.success(`Integration successful.`)

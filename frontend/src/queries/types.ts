@@ -62,6 +62,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     compareFilter?: any
     /** Base currency for formatting monetary values */
     baseCurrency?: CurrencyCode
+    /** Limit context sent to the /query endpoint */
+    limitContext?: 'posthog_ai'
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

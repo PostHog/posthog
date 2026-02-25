@@ -26,8 +26,10 @@ export class CleartextKeyStore implements KeyStore {
     }
 
     deleteKey(_sessionId: string, _teamId: number): Promise<DeleteKeyResult> {
-        // Crypto-shredding is not supported for cleartext sessions (non-cloud deployments)
-        return Promise.resolve({ deleted: false, reason: 'not_supported' })
+        // Cleartext sessions have no encryption key to shred, but we return success
+        // so the recording-api continues with the rest of the delete pipeline
+        // (Kafka deletion event + Postgres cleanup).
+        return Promise.resolve({ deleted: true, deletedAt: Math.floor(Date.now() / 1000) })
     }
 
     stop(): void {}

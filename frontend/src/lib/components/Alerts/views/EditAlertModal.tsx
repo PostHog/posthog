@@ -7,7 +7,6 @@ import {
     LemonBanner,
     LemonCheckbox,
     LemonCollapse,
-    LemonDivider,
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
@@ -36,10 +35,10 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { SnoozeButton } from '../SnoozeButton'
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { alertNotificationLogic } from '../alertNotificationLogic'
+import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
 import { InlineAlertNotifications } from './InlineAlertNotifications'
@@ -488,16 +487,6 @@ export function EditAlertModal({
                                                             }
                                                         />
                                                     </LemonField>
-                                                    {inlineNotificationsEnabled && alertId && (
-                                                        <>
-                                                            <LemonDivider className="my-3" />
-                                                            <h4 className="mb-2">Notification destinations</h4>
-                                                            <AlertDestinationSelector
-                                                                alertId={alertId}
-                                                                insightShortId={insightShortId}
-                                                            />
-                                                        </>
-                                                    )}
                                                 </div>
                                             ),
                                         },

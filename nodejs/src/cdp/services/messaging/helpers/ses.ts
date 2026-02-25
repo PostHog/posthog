@@ -205,6 +205,25 @@ export class SesWebhookHandler {
         }
     }
 
+    private isValidSnsSubscribeUrl(url: string): boolean {
+        try {
+            const parsedUrl = new URL(url)
+
+            if (parsedUrl.protocol !== 'https:') {
+                return false
+            }
+
+            // Must be from sns.{region}.amazonaws.com
+            if (!parsedUrl.hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
+                return false
+            }
+
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /**
      * Parse incoming body accounting for SNS raw vs envelope
      */
@@ -320,6 +339,12 @@ export class SesWebhookHandler {
             const inner = parseJSON(env.Message) as { SubscribeURL?: string }
             logger.info('[SesWebhookHandler] confirming subscription', { inner })
             if (inner.SubscribeURL) {
+                if (!this.isValidSnsSubscribeUrl(inner.SubscribeURL)) {
+                    logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
+                        url: inner.SubscribeURL,
+                    })
+                    return { status: 403, body: { error: 'Invalid SubscribeURL' } }
+                }
                 await this.fetchText(inner.SubscribeURL)
             }
             return { status: 200, body: { ok: true } }

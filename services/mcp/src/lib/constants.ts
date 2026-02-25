@@ -2,6 +2,10 @@ import { env } from 'cloudflare:workers'
 
 import type { CloudRegion } from '@/tools/types'
 
+import packageJson from '../../package.json'
+
+export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
+
 // Region-specific PostHog API base URLs
 export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
 export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
@@ -52,20 +56,28 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'profile',
     'email',
     'introspection',
-    'user:read',
-    'organization:read',
-    'project:read',
-    'feature_flag:read',
-    'feature_flag:write',
-    'experiment:read',
-    'experiment:write',
-    'insight:read',
-    'insight:write',
+    'action:read',
+    'action:write',
     'dashboard:read',
     'dashboard:write',
+    'error_tracking:read',
+    'error_tracking:write',
+    'event_definition:read',
+    'event_definition:write',
+    'experiment:read',
+    'experiment:write',
+    'feature_flag:read',
+    'feature_flag:write',
+    'insight:read',
+    'insight:write',
+    'logs:read',
+    'organization:read',
+    'project:read',
+    'property_definition:read',
     'query:read',
     'survey:read',
     'survey:write',
-    'error_tracking:read',
-    'logs:read',
+    'user:read',
+    'warehouse_table:read',
+    'warehouse_view:read',
 ] as const

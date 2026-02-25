@@ -6905,7 +6905,7 @@
                                                                          and isNull(path_key)))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -7025,7 +7025,7 @@
      WHERE ifNull(equals(path_key, '2_step two'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -7145,7 +7145,7 @@
      WHERE ifNull(equals(last_path_key, '2_step two'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -7266,7 +7266,7 @@
                                                                            and isNull(path_key)))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -7386,7 +7386,7 @@
      WHERE ifNull(equals(path_key, '3_step three'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -7506,7 +7506,7 @@
      WHERE ifNull(equals(last_path_key, '3_step three'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -7627,7 +7627,7 @@
                                                                           and isNull(path_key)))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -7747,7 +7747,7 @@
      WHERE ifNull(equals(path_key, '4_step four'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -7867,7 +7867,7 @@
      WHERE ifNull(equals(last_path_key, '4_step four'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -8119,7 +8119,7 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -8145,17 +8145,17 @@
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s3', 's1', 's5']))
   GROUP BY session_replay_events.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhousePaths.test_recording_for_dropoff
@@ -8301,7 +8301,7 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -8460,7 +8460,7 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -8486,17 +8486,17 @@
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s1']))
   GROUP BY session_replay_events.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0)
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id
@@ -8640,7 +8640,7 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -8666,17 +8666,17 @@
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
   GROUP BY session_replay_events.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0)
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhousePaths.test_recording_with_start_and_end
@@ -8830,7 +8830,7 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -8856,17 +8856,17 @@
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s1']))
   GROUP BY session_replay_events.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0)
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhousePaths.test_respect_session_limits
@@ -9159,7 +9159,7 @@
      WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -9379,7 +9379,7 @@
      WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -9599,7 +9599,7 @@
      WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -9819,7 +9819,7 @@
      WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -10198,7 +10198,7 @@
      WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -10318,7 +10318,7 @@
      WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -10524,7 +10524,7 @@
      WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -10730,7 +10730,7 @@
      WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -10850,7 +10850,7 @@
      WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -10970,7 +10970,7 @@
      WHERE and(ifNull(equals(last_path_key, '3_/3'), 0), ifNull(equals(path_key, '4_/4'), 0))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,

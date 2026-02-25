@@ -6,12 +6,12 @@ import { HogDebug } from 'scenes/debug/HogDebug'
 import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { WebVitals } from '~/queries/nodes/WebVitals/WebVitals'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import {
     AnyResponseType,
     DashboardFilter,
@@ -150,6 +150,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                embedded={embedded}
                 editMode={!!editMode}
                 variablesOverride={props.variablesOverride}
             />

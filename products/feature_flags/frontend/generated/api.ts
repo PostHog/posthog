@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogPaginatedResponseApi,
     FeatureFlagApi,
@@ -404,6 +404,9 @@ Accepts either:
 - {"ids": [...]} - Explicit list of flag IDs (no limit)
 
 Returns same format as bulk_delete for UI compatibility.
+
+Uses bulk operations for efficiency: database updates are batched and cache
+invalidation happens once at the end rather than per-flag.
  */
 export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_delete/`
