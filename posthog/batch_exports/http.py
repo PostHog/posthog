@@ -794,6 +794,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
             ):
                 raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
+        if destination_type in (
+            BatchExportDestination.Destination.POSTGRES,
+            BatchExportDestination.Destination.REDSHIFT,
+        ):
+            try:
+                resolve_and_validate_host(merged_config["host"])
+            except ValueError:
+                raise serializers.ValidationError(f"Invalid host: '{merged_config['host']}'")
+
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
