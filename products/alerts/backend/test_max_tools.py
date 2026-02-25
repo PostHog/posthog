@@ -2,6 +2,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+import pydantic
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -213,20 +214,15 @@ class TestUpsertAlertTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_alert_from_context(self):
-        insight = await self._create_insight()
-        tool = self._setup_tool(context={"insight_id": insight.id})
+    async def test_create_alert_requires_insight_id(self):
+        """insight_id is required on CreateAlertAction — omitting it is a validation error."""
 
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="Context-based alert",
+        with pytest.raises(pydantic.ValidationError, match="insight_id"):
+            CreateAlertAction(
+                name="No insight",
                 condition_type=AlertConditionType.ABSOLUTE_VALUE,
                 lower_threshold=50.0,
             )
-        )
-
-        assert "created successfully" in content
-        assert artifact["insight_id"] == insight.id
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -303,7 +299,6 @@ class TestUpsertAlertTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_id", None),
             ("nonexistent_numeric_id", -999),
             ("nonexistent_short_id", "not-a-real-id"),
         ]
@@ -313,15 +308,14 @@ class TestUpsertAlertTool(BaseTest):
     async def test_rejects_bad_insight_id(self, _name, insight_id):
         tool = self._setup_tool()
 
-        kwargs: dict = {
-            "name": "Bad insight",
-            "condition_type": AlertConditionType.ABSOLUTE_VALUE,
-            "lower_threshold": 100.0,
-        }
-        if insight_id is not None:
-            kwargs["insight_id"] = insight_id
-
-        content, artifact = await tool._arun_impl(action=CreateAlertAction(**kwargs))
+        content, artifact = await tool._arun_impl(
+            action=CreateAlertAction(
+                name="Bad insight",
+                condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                insight_id=insight_id,
+                lower_threshold=100.0,
+            )
+        )
 
         assert "not found" in content.lower()
         assert artifact["error"] == "insight_not_found"
@@ -363,34 +357,20 @@ class TestUpsertAlertTool(BaseTest):
         assert "limited to 1 alerts" in content.lower()
         assert artifact["error"] == "plan_limit_reached"
 
-    @parameterized.expand(
-        [
-            ("via_explicit_id", False),
-            ("via_context", True),
-        ]
-    )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_rejects_insight_from_other_team(self, _name, use_context):
+    async def test_rejects_insight_from_other_team(self):
         other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
         other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
         other_insight = await self._create_insight(name="Other Team Insight", team=other_team)
 
-        if use_context:
-            tool = self._setup_tool(context={"insight_id": other_insight.id})
-            action = CreateAlertAction(
-                name="Cross-team alert",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                lower_threshold=100.0,
-            )
-        else:
-            tool = self._setup_tool()
-            action = CreateAlertAction(
-                name="Cross-team alert",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                insight_id=other_insight.id,
-                lower_threshold=100.0,
-            )
+        tool = self._setup_tool()
+        action = CreateAlertAction(
+            name="Cross-team alert",
+            condition_type=AlertConditionType.ABSOLUTE_VALUE,
+            insight_id=other_insight.id,
+            lower_threshold=100.0,
+        )
 
         content, artifact = await tool._arun_impl(action=action)
 

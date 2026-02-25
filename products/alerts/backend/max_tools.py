@@ -41,12 +41,11 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
 
     # Requirements
     - Only works for TrendsQuery insights (not funnels, retention, etc.)
-    - For create: an insight must be available via insight_id or from the current context
+    - For create: insight_id is required
     - For update: the alert_id must be provided (find it via list_data with kind="alerts")
 
     # Identifying the insight (create only)
-    - **insight_id**: The ID of the insight to monitor. This can be a numeric database ID, a string short ID, or the ID of a visualization you just created with create_insight. If the visualization is not yet saved, it will be saved automatically as a new insight.
-    - If not provided, the tool falls back to the insight from the current page context.
+    - **insight_id** (required): The ID of the insight to monitor. This can be a numeric database ID, a string short ID, or the ID of a visualization you just created with create_insight. If the visualization is not yet saved, it will be saved automatically as a new insight.
 
     # Condition types
     - **absolute_value**: Fires when the metric's absolute value crosses the threshold bounds
@@ -93,9 +92,8 @@ class CreateAlertAction(BaseModel):
     condition_type: AlertConditionType = Field(
         description="Type of condition: absolute_value, relative_increase, or relative_decrease"
     )
-    insight_id: str | int | None = Field(
-        default=None,
-        description="ID of the insight to monitor. Accepts a numeric database ID, a string short ID, or a visualization artifact ID from create_insight. If not provided, uses the insight from the current context.",
+    insight_id: str | int = Field(
+        description="ID of the insight to monitor. Accepts a numeric database ID, a string short ID, or a visualization artifact ID from create_insight.",
     )
     calculation_interval: AlertCalculationInterval = Field(
         default=AlertCalculationInterval.DAILY,
@@ -366,7 +364,7 @@ class UpsertAlertTool(MaxTool):
         return await sync_to_async(AlertConfiguration.check_alert_limit)(team.id, org)
 
     async def _resolve_and_validate_insight(
-        self, insight_id: str | int | None, *, action_description: str
+        self, insight_id: str | int, *, action_description: str
     ) -> tuple[Insight, bool]:
         insight, was_auto_saved = await self._resolve_insight(insight_id)
         await self.check_object_access(insight, "viewer", resource="insight", action=action_description)
@@ -374,7 +372,7 @@ class UpsertAlertTool(MaxTool):
             raise ValueError("Alerts are only supported for TrendsQuery insights. This insight type is not supported.")
         return insight, was_auto_saved
 
-    async def _resolve_insight(self, insight_id: str | int | None) -> tuple[Insight, bool]:
+    async def _resolve_insight(self, insight_id: str | int) -> tuple[Insight, bool]:
         """Resolve an insight by numeric ID, short_id, or conversation artifact.
 
         Tries in order:
@@ -384,11 +382,9 @@ class UpsertAlertTool(MaxTool):
 
         Returns (insight, was_auto_saved).
         """
-        effective_id = str(insight_id or self.context.get("insight_id") or "").strip()
+        effective_id = str(insight_id).strip()
         if not effective_id:
-            raise Insight.DoesNotExist(
-                "No insight provided. Provide an insight_id or use this tool from an insight page."
-            )
+            raise Insight.DoesNotExist("No insight provided. Provide an insight_id.")
 
         qs = Insight.objects.filter(team=self._team, deleted=False)
 
