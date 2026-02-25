@@ -19,8 +19,6 @@ import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY } from '../../scenes/ErrorTracking
 import { issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
 import { PropertiesTable } from '../PropertiesTable'
 
-const NON_FILTERABLE_ADDITIONAL_PROPERTY_KEYS = new Set(['$tab_count', 'tab_count'])
-
 export type ContextDisplayProps = {
     loading: boolean
     exceptionAttributes: ExceptionAttributes | null
@@ -57,7 +55,7 @@ export function ContextDisplay({
         .map(([key, value]) => ({
             key: identifierToHuman(key, 'title'),
             value,
-            filterKey: NON_FILTERABLE_ADDITIONAL_PROPERTY_KEYS.has(key) ? undefined : key,
+            filterKey: key,
         }))
     const exceptionEntries = exceptionAttributes
         ? [
