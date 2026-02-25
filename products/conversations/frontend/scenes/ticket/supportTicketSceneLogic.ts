@@ -1,3 +1,4 @@
+import { JSONContent } from '@tiptap/core'
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -127,6 +128,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Session context actions
         loadPerson: true,
         loadPreviousTickets: true,
+
+        // Draft message state (persists across tab switches)
+        setDraftContent: (content: JSONContent | null) => ({ content }),
+        setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -266,6 +271,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
+        draftContent: [
+            null as JSONContent | null,
+            {
+                setDraftContent: (_, { content }) => content,
+            },
+        ],
+        draftIsPrivate: [
+            false,
+            {
+                setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
+            },
+        ],
     }),
     selectors({
         hasUnsavedChanges: [
@@ -305,13 +322,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             message.created_by.email ||
                             'Support'
                     } else if (authorType === 'customer') {
-                        // Try person properties first (from ticket.person), then ticket traits
-                        displayName =
-                            ticket?.person?.properties?.name ||
-                            ticket?.person?.properties?.email ||
-                            ticket?.anonymous_traits?.name ||
-                            ticket?.anonymous_traits?.email ||
-                            'Anonymous user'
+                        // For Slack messages, use the per-message author info
+                        const slackAuthorName = message.item_context?.slack_author_name
+                        if (slackAuthorName) {
+                            displayName = slackAuthorName
+                        } else {
+                            // Fallback to ticket-level info for widget messages
+                            displayName =
+                                ticket?.person?.properties?.name ||
+                                ticket?.person?.properties?.email ||
+                                ticket?.anonymous_traits?.name ||
+                                ticket?.anonymous_traits?.email ||
+                                'Anonymous user'
+                        }
                     }
 
                     return {

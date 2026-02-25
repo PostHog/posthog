@@ -24,6 +24,13 @@ from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
+from posthog.hogql.functions.traffic_type import (
+    get_bot_name,
+    get_bot_type,
+    get_traffic_category,
+    get_traffic_type,
+    is_bot,
+)
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_field_by_name, lookup_table_by_name
@@ -166,14 +173,27 @@ class Resolver(CloningVisitor):
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
 
-        # Visit the CTE expression (SELECT query) without creating a new CTE scope
-        # This allows the CTE to reference previously defined CTEs in the same WITH clause
-        # We clone the expr to avoid modifying the input node
         cte_expr = clone_expr(node.expr)
-        cte_expr = self.visit(cte_expr)
 
-        # Create a new CTE node instead of modifying the input
-        # This ensures we can resolve CTEs even if they appear multiple times
+        if node.recursive and isinstance(cte_expr, ast.SelectSetQuery):
+            # For recursive CTEs, resolve the base case first to determine column types,
+            # then register the CTE so the recursive branch can self-reference it.
+            base_select = clone_expr(cte_expr.initial_select_query)
+            base_select = self.visit(base_select)
+
+            placeholder = ast.CTE(
+                name=node.name,
+                expr=base_select,
+                cte_type=node.cte_type,
+                recursive=True,
+                type=ast.CTETableType(name=node.name, select_query_type=base_select.type),
+            )
+            self.ctes[node.name] = placeholder
+
+            cte_expr = self.visit(cte_expr)
+        else:
+            cte_expr = self.visit(cte_expr)
+
         new_node = ast.CTE(
             start=node.start,
             end=node.end,
@@ -181,6 +201,7 @@ class Resolver(CloningVisitor):
             name=node.name,
             expr=cte_expr,
             cte_type=node.cte_type,
+            recursive=node.recursive,
         )
 
         self.cte_counter -= 1
@@ -497,14 +518,16 @@ class Resolver(CloningVisitor):
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
 
-            node.table = super().visit(node.table)
+            node.table = cast(ast.SelectQuery, super().visit(node.table))
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
                 if node.alias in scope.tables:
                     raise QueryError(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
                 node.type = ast.SelectViewType(
-                    alias=node.alias, view_name=node.table.view_name, select_query_type=node.table.type
+                    alias=node.alias,
+                    view_name=node.table.view_name,
+                    select_query_type=cast(ast.SelectQueryType, node.table.type),
                 )
                 scope.tables[node.alias] = node.type
             elif node.alias is not None:
@@ -512,11 +535,13 @@ class Resolver(CloningVisitor):
                     raise QueryError(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
-                node.type = ast.SelectQueryAliasType(alias=node.alias, select_query_type=node.table.type)
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
                 scope.tables[node.alias] = node.type
             else:
-                node.type = node.table.type
-                scope.anonymous_tables.append(node.type)
+                node.type = cast(ast.TableOrSelectType, node.table.type)
+                scope.anonymous_tables.append(cast(ast.SelectQueryType | ast.SelectSetQueryType, node.type))
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.next_join = self.visit(node.next_join)
@@ -602,6 +627,16 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
+            if node.name == "__preview_getTrafficType":
+                return self.visit(get_traffic_type(node=node, args=node.args))
+            if node.name == "__preview_getTrafficCategory":
+                return self.visit(get_traffic_category(node=node, args=node.args))
+            if node.name == "__preview_isBot":
+                return self.visit(is_bot(node=node, args=node.args))
+            if node.name == "__preview_getBotType":
+                return self.visit(get_bot_type(node=node, args=node.args))
+            if node.name == "__preview_getBotName":
+                return self.visit(get_bot_name(node=node, args=node.args))
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []

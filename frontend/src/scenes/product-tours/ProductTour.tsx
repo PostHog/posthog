@@ -15,8 +15,8 @@ import { Error404 } from '~/layout/Error404'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductTourEdit } from './ProductTourEdit'
-import { ProductTourView } from './ProductTourView'
 import { ProductTourLogicProps, productTourLogic } from './productTourLogic'
+import { ProductTourView } from './ProductTourView'
 
 export const scene: SceneExport<ProductTourLogicProps> = {
     component: ProductTourComponent,
@@ -67,7 +67,6 @@ export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element
                                 addText="Add authorized URL"
                                 productTourId={id}
                                 userIntent={toolbarMode === 'edit' ? 'edit-product-tour' : 'preview-product-tour'}
-                                launchInSameTab={isEditingProductTour}
                             />
                         </div>
                     </LemonModal>

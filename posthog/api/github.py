@@ -38,7 +38,7 @@ TWENTY_FOUR_HOURS = 60 * 60 * 24
 
 # GitHub sends swapped type names - these constants clarify the mismatch
 GITHUB_TYPE_FOR_PERSONAL_API_KEY = "posthog_feature_flags_secure_api_key"
-GITHUB_TYPE_FOR_PROJECT_SECRET = "posthog_personal_api_key"
+GITHUB_TYPE_FOR_SECURE_API_KEY = "posthog_personal_api_key"
 GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN = "posthog_oauth_access_token"
 GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN = "posthog_oauth_refresh_token"
 
@@ -140,7 +140,7 @@ class SecretAlertSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=[
             GITHUB_TYPE_FOR_PERSONAL_API_KEY,
-            GITHUB_TYPE_FOR_PROJECT_SECRET,
+            GITHUB_TYPE_FOR_SECURE_API_KEY,
             GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
             GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
         ]
@@ -261,7 +261,7 @@ class SecretAlert(APIView):
                     serializer.roll(key)
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
-            elif item["type"] == GITHUB_TYPE_FOR_PROJECT_SECRET:
+            elif item["type"] == GITHUB_TYPE_FOR_SECURE_API_KEY:
                 try:
                     team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                     local_found = True

@@ -17,8 +17,8 @@ import {
     toUnixTimestamp,
     toUnixTimestampMilli,
 } from './date'
-import { printHogStringOutput } from './print'
 import { isIPAddressInRange } from './ip'
+import { printHogStringOutput } from './print'
 
 // TODO: this file should be generated from or mergred with posthog/hogql/compiler/javascript_stl.py
 
@@ -918,6 +918,19 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => decodeURIComponent(args[0]),
         description: 'URL-decodes a string',
         example: 'decodeURLComponent($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    tryDecodeURLComponent: {
+        fn: (args) => {
+            try {
+                return decodeURIComponent(args[0])
+            } catch {
+                return null
+            }
+        },
+        description: 'Safely URL-decodes a string, returns null on error',
+        example: 'tryDecodeURLComponent($1)',
         minArgs: 1,
         maxArgs: 1,
     },

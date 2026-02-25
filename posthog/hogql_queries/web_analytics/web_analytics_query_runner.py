@@ -44,6 +44,7 @@ from posthog.hogql_queries.web_analytics.metrics import (
     WEB_ANALYTICS_QUERY_DURATION,
     WEB_ANALYTICS_QUERY_ERRORS,
 )
+from posthog.hogql_queries.web_analytics.traffic_type import get_traffic_category_expr, get_traffic_type_expr
 from posthog.models import Action, User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
@@ -515,6 +516,14 @@ WHERE
             return path_expr
 
         return apply_path_cleaning(path_expr, self.team)
+
+    def _get_traffic_type_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+        return get_traffic_type_expr(user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]))
+
+    def _get_traffic_category_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+        return get_traffic_category_expr(
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"])
+        )
 
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:

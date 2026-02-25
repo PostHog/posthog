@@ -1,3 +1,5 @@
+import * as PartialJSON from 'partial-json'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
@@ -37,6 +39,30 @@ export interface PagedSearchOrderFilters {
     page: number
     search: string
     order_by: string
+}
+
+export interface SanitizeTraceUrlSearchParamsOptions {
+    removeSearch?: boolean
+}
+
+export function sanitizeTraceUrlSearchParams(
+    searchParams: Record<string, unknown>,
+    options: SanitizeTraceUrlSearchParamsOptions = {}
+): Record<string, unknown> {
+    const sanitizedSearchParams = { ...searchParams }
+
+    delete sanitizedSearchParams.event
+    delete sanitizedSearchParams.timestamp
+    delete sanitizedSearchParams.exception_ts
+    delete sanitizedSearchParams.line
+    delete sanitizedSearchParams.tab
+    delete sanitizedSearchParams.back_to
+
+    if (options.removeSearch) {
+        delete sanitizedSearchParams.search
+    }
+
+    return sanitizedSearchParams
 }
 
 export function cleanPagedSearchOrderParams(
@@ -765,6 +791,26 @@ export function normalizeMessages(messages: unknown, defaultRole: string, tools?
     }
 
     return normalizedMessages
+}
+
+const JSON_PREVIEW_LENGTH = 300
+
+// We are deliberately cutting off the JSON instead of the parsed final content
+// because we will soon be sending an actual truncated version of the field
+// through a materialized column. This forces us to handle partial JSON.
+function simulateNaiveTruncation(raw: unknown): string {
+    const jsonStr = typeof raw === 'string' ? raw : JSON.stringify(raw)
+    return jsonStr.slice(0, JSON_PREVIEW_LENGTH)
+}
+
+export function parsePartialJSON(json: string): unknown {
+    const flags = PartialJSON.STR | PartialJSON.OBJ | PartialJSON.ARR
+    return PartialJSON.parse(json, flags)
+}
+
+export function parseJSONPreview(raw: unknown): unknown {
+    const truncated = simulateNaiveTruncation(raw)
+    return parsePartialJSON(truncated)
 }
 
 export function removeMilliseconds(timestamp: string): string {

@@ -7,8 +7,8 @@ import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -26,8 +26,8 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
-import { Onboarding } from './Onboarding/Onboarding'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
+import { Onboarding } from './Onboarding/Onboarding'
 
 export const scene: SceneExport = {
     component: MarketingAnalyticsScene,

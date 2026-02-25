@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -11,12 +11,17 @@ import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsGenerationsLogicType } from './llmAnalyticsGenerationsLogicType'
 
-export function getDefaultGenerationsColumns(showInputOutput: boolean): string[] {
+export interface LLMAnalyticsGenerationsLogicProps {
+    tabId?: string
+}
+
+export function getDefaultGenerationsColumns(showInputOutput: boolean, showSentiment: boolean = false): string[] {
     return [
         'uuid',
         'properties.$ai_trace_id',
         ...(showInputOutput ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices'] : []),
         'person',
+        ...(showSentiment ? ["'' -- Sentiment"] : []),
         "f'{properties.$ai_model}' -- Model",
         "if(properties.$ai_is_error = 'true', '❌', '') -- Error",
         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
@@ -28,16 +33,21 @@ export function getDefaultGenerationsColumns(showInputOutput: boolean): string[]
 
 export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsGenerationsLogic']),
-    connect(() => ({
+    key((props: LLMAnalyticsGenerationsLogicProps) => props.tabId || 'default'),
+    props({} as LLMAnalyticsGenerationsLogicProps),
+    connect((props: LLMAnalyticsGenerationsLogicProps) => ({
         values: [
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [llmAnalyticsSharedLogic, ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts']],
+        actions: [
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
+            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts'],
+        ],
     })),
 
     actions({
@@ -169,7 +179,10 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                     limit: 100,
                     select:
                         generationsColumns ||
-                        getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]),
+                        getDefaultGenerationsColumns(
+                            !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
+                            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                        ),
                     orderBy: [`${generationsSort.column} ${generationsSort.direction}`],
                     after: dateFilter.dateFrom || undefined,
                     before: dateFilter.dateTo || undefined,

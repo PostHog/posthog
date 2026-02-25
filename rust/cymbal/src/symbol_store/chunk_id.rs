@@ -217,6 +217,7 @@ mod test {
         frames::RawFrame,
         langs::js::RawJSFrame,
         symbol_store::{
+            apple::AppleProvider,
             chunk_id::{ChunkIdFetcher, OrChunkId},
             hermesmap::HermesMapProvider,
             proguard::ProguardProvider,
@@ -364,7 +365,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(chunk_id_fetcher, hermes_map_fetcher, pgp);
+        let apple = ChunkIdFetcher::new(
+            AppleProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(chunk_id_fetcher, hermes_map_fetcher, pgp, apple);
 
         let mut frame = get_example_frame();
         frame.chunk_id = Some(chunk_id.clone());

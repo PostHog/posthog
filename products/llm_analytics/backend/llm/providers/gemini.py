@@ -214,16 +214,28 @@ class GeminiAdapter:
 
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
-        """List available Gemini models."""
-        if api_key:
-            try:
-                client = genai.Client(api_key=api_key)
-                all_models = [m.name for m in client.models.list() if m.name]
-                return [m.replace("models/", "") for m in all_models if m and "gemini" in m.lower()]
-            except Exception as e:
-                logger.exception(f"Error listing Gemini models: {e}")
-                return GeminiConfig.SUPPORTED_MODELS
-        return GeminiConfig.SUPPORTED_MODELS
+        """List available Gemini models.
+
+        Without a key, returns the curated SUPPORTED_MODELS list.
+        With a key, returns SUPPORTED_MODELS first, then remaining Gemini models
+        from the API sorted alphabetically.
+        """
+        if not api_key:
+            return GeminiConfig.SUPPORTED_MODELS
+
+        supported = set(GeminiConfig.SUPPORTED_MODELS)
+        try:
+            client = genai.Client(api_key=api_key)
+            api_models = list(client.models.list())
+            other = sorted(
+                m.name.removeprefix("models/")
+                for m in api_models
+                if m.name and m.name.removeprefix("models/") not in supported and m.name.startswith("models/gemini-")
+            )
+            return list(GeminiConfig.SUPPORTED_MODELS) + other
+        except Exception:
+            logger.exception("Error fetching Gemini models from API")
+            return GeminiConfig.SUPPORTED_MODELS
 
     @staticmethod
     def get_api_key() -> str:

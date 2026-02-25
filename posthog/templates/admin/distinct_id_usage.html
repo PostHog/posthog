@@ -1,0 +1,290 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
+<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
+<style>
+    .distinct-id-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .action-buttons form { display: inline; }
+    .action-buttons button { font-size: 11px; padding: 2px 6px; cursor: pointer; margin-right: 4px; }
+    .token-cell { font-family: monospace; font-size: 12px; }
+    .threshold-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+    .threshold-fields .form-row { margin-bottom: 5px; }
+    .threshold-fields label { display: block; font-weight: bold; font-size: 12px; }
+    .threshold-fields input, .threshold-fields select { width: 100%; padding: 4px 6px; }
+    .count-badge {
+        background: var(--darkened-bg, #e0e0e0);
+        color: var(--body-fg, #333);
+        padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 6px;
+    }
+    .restriction-cell { font-size: 12px; white-space: nowrap; }
+    .restriction-cell .status-applied { color: var(--success-fg, #28a745); }
+    .restriction-cell .status-not-covered { color: var(--error-fg, #c62828); }
+    .restriction-cell a { margin-left: 4px; }
+    .restriction-cell form { display: inline; }
+    .restriction-cell button { font-size: 11px; padding: 1px 5px; cursor: pointer; margin-left: 4px; }
+</style>
+{% endblock %}
+
+{% if not is_popup %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; Distinct ID usage
+</div>
+{% endblock %}
+{% endif %}
+
+{% block content %}
+<div id="content-main">
+
+{% if errors %}
+    {% for error in errors %}
+    <p class="errornote">{{ error }}</p>
+    {% endfor %}
+{% endif %}
+
+<form method="get" id="distinct-id-usage-form">
+    <fieldset class="module aligned">
+        <h2>Configuration</h2>
+        <div class="form-row" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <label for="{{ form.datetime_from.id_for_label }}">{{ form.datetime_from.label }}:</label>
+            {{ form.datetime_from }}
+            <label for="{{ form.datetime_to.id_for_label }}">{{ form.datetime_to.label }}:</label>
+            {{ form.datetime_to }}
+        </div>
+        {{ form.non_field_errors }}
+        <h3>Thresholds</h3>
+        <div class="threshold-fields">
+            {% for field in form %}
+                {% if field.name != "datetime_from" and field.name != "datetime_to" %}
+                <div class="form-row">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}:</label>
+                    {{ field }}
+                    {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+                    {{ field.errors }}
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </fieldset>
+    <div class="submit-row">
+        <input type="submit" value="Run queries" class="default" />
+    </div>
+</form>
+
+{% if queried %}
+
+<!-- High usage distinct IDs -->
+<div class="module" style="margin-top: 20px;">
+    <table style="width: 100%;">
+        <caption>High usage distinct IDs <span class="count-badge">{{ high_usage_rows|length }}</span></caption>
+        {% if high_usage_rows %}
+        <thead>
+            <tr>
+                <th scope="col">Team ID</th>
+                <th scope="col">Token</th>
+                <th scope="col">Distinct ID</th>
+                <th scope="col">Restrictions</th>
+                <th scope="col">Event count</th>
+                <th scope="col">Team total</th>
+                <th scope="col">%</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in high_usage_rows %}
+            <tr>
+                <td>{{ row.team_id }}</td>
+                <td class="token-cell"><span title="{{ row.token }}">{{ row.token|truncatechars:16 }}</span></td>
+                <td class="distinct-id-cell" title="{{ row.distinct_id }}">{{ row.distinct_id|truncatechars:40 }}</td>
+                <td class="restriction-cell">
+                    {% if row.restriction_status == "covered" %}
+                        <span class="status-applied">&#10003; Applied</span> ({{ row.restriction_type }}) <a href="{{ row.restriction_edit_url }}">Edit</a>
+                    {% elif row.restriction_status == "covered_all" %}
+                        <span class="status-applied">&#10003; Applied (all)</span> ({{ row.restriction_type }}) <a href="{{ row.restriction_edit_url }}">Edit</a>
+                    {% elif row.restriction_status == "not_covered" %}
+                        <span class="status-not-covered">&#10007; Not in list</span> ({{ row.restriction_type }})
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="add_to_restriction">
+                            <input type="hidden" name="restriction_id" value="{{ row.restriction_id }}">
+                            <input type="hidden" name="distinct_id" value="{{ row.distinct_id }}">
+                            <input type="hidden" name="return_querystring" value="{{ return_querystring }}">
+                            <button type="submit" title="Add this distinct_id to the restriction's list">Add</button>
+                        </form>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </td>
+                <td>{{ row.event_count }}</td>
+                <td>{{ row.total_team_events }}</td>
+                <td>{{ row.percentage }}%</td>
+                <td class="action-buttons">
+                    {% if row.token %}
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create_or_update_restriction">
+                        <input type="hidden" name="token" value="{{ row.token }}">
+                        <input type="hidden" name="restriction_type" value="skip_person_processing">
+                        <input type="hidden" name="distinct_id" value="{{ row.distinct_id }}">
+                        <input type="hidden" name="return_querystring" value="{{ return_querystring }}">
+                        <button type="submit">Skip person</button>
+                    </form>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create_or_update_restriction">
+                        <input type="hidden" name="token" value="{{ row.token }}">
+                        <input type="hidden" name="restriction_type" value="drop_event_from_ingestion">
+                        <input type="hidden" name="distinct_id" value="{{ row.distinct_id }}">
+                        <input type="hidden" name="return_querystring" value="{{ return_querystring }}">
+                        <button type="submit">Drop events</button>
+                    </form>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create_or_update_restriction">
+                        <input type="hidden" name="token" value="{{ row.token }}">
+                        <input type="hidden" name="restriction_type" value="force_overflow_from_ingestion">
+                        <input type="hidden" name="distinct_id" value="{{ row.distinct_id }}">
+                        <input type="hidden" name="return_querystring" value="{{ return_querystring }}">
+                        <button type="submit">Force overflow</button>
+                    </form>
+                    {% else %}
+                    <em>No token</em>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        {% else %}
+        <tbody><tr><td colspan="8"><em>No high usage distinct IDs found with current thresholds.</em></td></tr></tbody>
+        {% endif %}
+    </table>
+</div>
+
+<!-- High cardinality teams -->
+<div class="module" style="margin-top: 20px;">
+    <table style="width: 100%;">
+        <caption>High cardinality teams <span class="count-badge">{{ high_cardinality_rows|length }}</span></caption>
+        {% if high_cardinality_rows %}
+        <thead>
+            <tr>
+                <th scope="col">Team ID</th>
+                <th scope="col">Token</th>
+                <th scope="col">Restrictions</th>
+                <th scope="col">Unique distinct IDs</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in high_cardinality_rows %}
+            <tr>
+                <td>{{ row.team_id }}</td>
+                <td class="token-cell"><span title="{{ row.token }}">{{ row.token|truncatechars:16 }}</span></td>
+                <td class="restriction-cell">
+                    {% if row.restriction_status == "exists" %}
+                        {{ row.restriction_type }}{% if row.restriction_count > 1 %} (+{{ row.restriction_count|add:"-1" }}){% endif %} <a href="{{ row.restriction_edit_url }}">Edit</a>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </td>
+                <td>{{ row.distinct_id_count }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        {% else %}
+        <tbody><tr><td colspan="4"><em>No high cardinality teams found with current thresholds.</em></td></tr></tbody>
+        {% endif %}
+    </table>
+</div>
+
+<!-- Burst events -->
+<div class="module" style="margin-top: 20px;">
+    <table style="width: 100%;">
+        <caption>Burst events <span class="count-badge">{{ burst_rows|length }}</span></caption>
+        {% if burst_rows %}
+        <thead>
+            <tr>
+                <th scope="col">Team ID</th>
+                <th scope="col">Token</th>
+                <th scope="col">Distinct ID</th>
+                <th scope="col">Restrictions</th>
+                <th scope="col">Minute</th>
+                <th scope="col">Events/min</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in burst_rows %}
+            <tr>
+                <td>{{ row.team_id }}</td>
+                <td class="token-cell"><span title="{{ row.token }}">{{ row.token|truncatechars:16 }}</span></td>
+                <td class="distinct-id-cell" title="{{ row.distinct_id }}">{{ row.distinct_id|truncatechars:40 }}</td>
+                <td class="restriction-cell">
+                    {% if row.restriction_status == "covered" %}
+                        <span class="status-applied">&#10003; Applied</span> ({{ row.restriction_type }}) <a href="{{ row.restriction_edit_url }}">Edit</a>
+                    {% elif row.restriction_status == "covered_all" %}
+                        <span class="status-applied">&#10003; Applied (all)</span> ({{ row.restriction_type }}) <a href="{{ row.restriction_edit_url }}">Edit</a>
+                    {% elif row.restriction_status == "not_covered" %}
+                        <span class="status-not-covered">&#10007; Not in list</span> ({{ row.restriction_type }})
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="add_to_restriction">
+                            <input type="hidden" name="restriction_id" value="{{ row.restriction_id }}">
+                            <input type="hidden" name="distinct_id" value="{{ row.distinct_id }}">
+                            <input type="hidden" name="return_querystring" value="{{ return_querystring }}">
+                            <button type="submit" title="Add this distinct_id to the restriction's list">Add</button>
+                        </form>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </td>
+                <td>{{ row.minute }}</td>
+                <td>{{ row.event_count }}</td>
+                <td class="action-buttons">
+                    {% if row.token %}
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create_or_update_restriction">
+                        <input type="hidden" name="token" value="{{ row.token }}">
+                        <input type="hidden" name="restriction_type" value="skip_person_processing">
+                        <input type="hidden" name="distinct_id" value="{{ row.distinct_id }}">
+                        <input type="hidden" name="return_querystring" value="{{ return_querystring }}">
+                        <button type="submit">Skip person</button>
+                    </form>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create_or_update_restriction">
+                        <input type="hidden" name="token" value="{{ row.token }}">
+                        <input type="hidden" name="restriction_type" value="drop_event_from_ingestion">
+                        <input type="hidden" name="distinct_id" value="{{ row.distinct_id }}">
+                        <input type="hidden" name="return_querystring" value="{{ return_querystring }}">
+                        <button type="submit">Drop events</button>
+                    </form>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create_or_update_restriction">
+                        <input type="hidden" name="token" value="{{ row.token }}">
+                        <input type="hidden" name="restriction_type" value="force_overflow_from_ingestion">
+                        <input type="hidden" name="distinct_id" value="{{ row.distinct_id }}">
+                        <input type="hidden" name="return_querystring" value="{{ return_querystring }}">
+                        <button type="submit">Force overflow</button>
+                    </form>
+                    {% else %}
+                    <em>No token</em>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        {% else %}
+        <tbody><tr><td colspan="7"><em>No burst events found with current thresholds.</em></td></tr></tbody>
+        {% endif %}
+    </table>
+</div>
+
+{% endif %}
+
+</div>
+{% endblock %}

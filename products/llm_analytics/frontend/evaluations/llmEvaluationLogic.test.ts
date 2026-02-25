@@ -42,6 +42,17 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_by: null,
         last_used_at: null,
     },
+    {
+        id: 'key-4',
+        provider: 'fireworks',
+        name: 'Fireworks Key',
+        state: 'ok',
+        error_message: null,
+        api_key_masked: 'fw-...3456',
+        created_at: '2024-01-04T00:00:00Z',
+        created_by: null,
+        last_used_at: null,
+    },
 ]
 
 const mockEvaluation: EvaluationConfig = {
@@ -274,6 +285,57 @@ describe('llmEvaluationLogic', () => {
                 expect(byProvider.gemini).toHaveLength(0)
                 expect(byProvider.openrouter).toHaveLength(1)
                 expect(byProvider.openrouter[0].id).toBe('key-3')
+                expect(byProvider.fireworks).toHaveLength(1)
+                expect(byProvider.fireworks[0].id).toBe('key-4')
+            })
+        })
+
+        describe('evaluationProviderKeyIssue', () => {
+            beforeEach(() => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+            })
+
+            it.each([
+                ['invalid' as const, 'Authentication failed'],
+                ['error' as const, 'Quota exceeded'],
+            ])('returns the provider key when state is %s', async (state, errorMessage) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                keysLogic.actions.loadProviderKeysSuccess(
+                    mockProviderKeys.map((key) =>
+                        key.id === 'key-1' ? { ...key, state, error_message: errorMessage } : key
+                    )
+                )
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: expect.objectContaining({
+                        id: 'key-1',
+                        state,
+                        error_message: errorMessage,
+                    }),
+                })
+            })
+
+            it('returns null when evaluation uses the PostHog default key', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    model_configuration: null,
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: null,
+                })
+            })
+
+            it('returns null when provider key state is healthy', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: null,
+                })
             })
         })
 
