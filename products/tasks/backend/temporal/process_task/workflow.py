@@ -49,7 +49,7 @@ class ProcessTaskOutput:
     sandbox_id: Optional[str] = None
 
 
-INACTIVITY_TIMEOUT_MINUTES = 10
+INACTIVITY_TIMEOUT_MINUTES = 5
 
 
 @temporalio.workflow.defn(name="process-task")
