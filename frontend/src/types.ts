@@ -5031,6 +5031,7 @@ export type APIScopeObject =
     | 'group'
     | 'health_issue'
     | 'heatmap'
+    | 'hog_flow'
     | 'hog_function'
     | 'insight'
     | 'insight_variable'
