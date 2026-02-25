@@ -206,7 +206,7 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
         save_supporthog_slack_token(
             team=team,
             user=user,
-            is_impersonated_session=False,
+            is_impersonated_session=is_impersonated_session(request),
             bot_token=bot_token,
             slack_team_id=slack_team_id,
         )
