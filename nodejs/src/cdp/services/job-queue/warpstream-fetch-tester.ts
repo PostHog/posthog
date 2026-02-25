@@ -3,7 +3,6 @@ import { Counter, Histogram } from 'prom-client'
 
 import { getKafkaConfigFromEnv } from '../../../kafka/config'
 import { PluginsServerConfig } from '../../../types'
-import { logger } from '../../../utils/logger'
 import { internalFetch as fetch } from '../../../utils/request'
 
 export const cdpSeekLatencyMs = new Histogram({
@@ -107,24 +106,14 @@ export class WarpstreamFetchTester {
                         cdpSeekResult.labels({ result: 'success', method: 'individual' }).inc()
                     } else {
                         cdpSeekResult.labels({ result: 'error', method: 'individual' }).inc()
-                        logger.warn('seek_test_individual_error', {
-                            status: response.status,
-                            partition: target.partition,
-                        })
                     }
-                } catch (error) {
+                } catch {
                     cdpSeekResult.labels({ result: 'error', method: 'individual' }).inc()
-                    logger.warn('seek_test_individual_error', { error: String(error) })
                 }
             })
         )
 
-        const totalLatencyMs = performance.now() - totalStart
-        cdpSeekTotalLatencyMs.observe(totalLatencyMs)
-        logger.info('seek_test_individual_complete', {
-            latencyMs: Math.round(totalLatencyMs * 100) / 100,
-            count: targets.length,
-        })
+        cdpSeekTotalLatencyMs.observe(performance.now() - totalStart)
     }
 
     private async runBatchFetches(targets: FetchTarget[]): Promise<void> {
@@ -169,7 +158,7 @@ export class WarpstreamFetchTester {
                         headers,
                         body: JSON.stringify(body),
                     })
-                    const responseBody = await response.text()
+                    await response.text()
                     const latencyMs = performance.now() - start
 
                     cdpSeekBatchLatencyMs.observe(latencyMs)
@@ -178,27 +167,14 @@ export class WarpstreamFetchTester {
                         cdpSeekResult.labels({ result: 'success', method: 'batch' }).inc()
                     } else {
                         cdpSeekResult.labels({ result: 'error', method: 'batch' }).inc()
-                        logger.warn('seek_test_batch_error', {
-                            status: response.status,
-                            recordCount: chunk.length,
-                            responseBody: responseBody.slice(0, 500),
-                        })
                     }
-                } catch (error) {
+                } catch {
                     cdpSeekResult.labels({ result: 'error', method: 'batch' }).inc()
-                    logger.warn('seek_test_batch_error', { error: String(error), recordCount: chunk.length })
                 }
             })
         )
 
-        const totalLatencyMs = performance.now() - totalStart
-        cdpSeekBatchTotalLatencyMs.observe(totalLatencyMs)
-        logger.info('seek_test_batch_complete', {
-            latencyMs: Math.round(totalLatencyMs * 100) / 100,
-            batchCount: chunks.length,
-            batchSize,
-            totalRecords: targets.length,
-        })
+        cdpSeekBatchTotalLatencyMs.observe(performance.now() - totalStart)
     }
 
     private getHeaders(): Record<string, string> {
