@@ -502,6 +502,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
+        from posthog.hogql_queries.property_values_query_runner import (
+            CachedPropertyValuesQueryResponse,
+            PropertyType,
+            PropertyValuesQuery,
+            PropertyValuesQueryResponse,
+            PropertyValuesQueryRunner,
+        )
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
         with tracer.start_as_current_span("person_api_property_values") as span:
             key = request.GET.get("key")
             value = request.GET.get("value")
@@ -514,58 +523,27 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 span.set_attribute("result_count", 0)
                 return response.Response({"results": [], "refreshing": False})
 
-            from posthog.api.property_value_cache import (
-                get_cached_property_values,
-                is_refresh_on_cooldown,
-                is_task_running,
-                set_refresh_cooldown,
-                set_task_running,
-            )
-            from posthog.tasks.property_value_cache import (
-                refresh_person_property_values_cache,
-                run_person_property_query_and_cache,
-            )
-
-            cached = get_cached_property_values(
-                team_id=self.team.pk,
-                property_type="person",
-                property_key=key,
-                search_value=value,
-            )
-
-            if cached is not None:
-                on_cooldown = is_refresh_on_cooldown(
-                    team_id=self.team.pk,
-                    property_type="person",
+            runner = PropertyValuesQueryRunner(
+                team=self.team,
+                query=PropertyValuesQuery(
+                    property_type=PropertyType.PERSON,
                     property_key=key,
                     search_value=value,
-                )
-                task_in_flight = is_task_running(
-                    team_id=self.team.pk,
-                    property_type="person",
-                    property_key=key,
-                    search_value=value,
-                )
-                if not on_cooldown and not task_in_flight:
-                    set_refresh_cooldown(
-                        team_id=self.team.pk,
-                        property_type="person",
-                        property_key=key,
-                        search_value=value,
-                    )
-                    set_task_running(
-                        team_id=self.team.pk,
-                        property_type="person",
-                        property_key=key,
-                        search_value=value,
-                    )
-                    refresh_person_property_values_cache.delay(self.team.pk, key, value)
-                span.set_attribute("result_count", len(cached))
-                return response.Response({"results": cached, "refreshing": task_in_flight or not on_cooldown})
-
-            result = run_person_property_query_and_cache(self.team.pk, key, value)
-            span.set_attribute("result_count", len(result))
-            return response.Response({"results": result, "refreshing": False})
+                ),
+            )
+            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            is_refreshing = (
+                isinstance(result, CachedPropertyValuesQueryResponse)
+                and result.query_status is not None
+                and not result.query_status.complete
+            )
+            results = [item.model_dump(exclude_none=True) for item in result.results]
+            span.set_attribute("result_count", len(results))
+            span.set_attribute("is_refreshing", is_refreshing)
+            resp = response.Response({"results": results, "refreshing": is_refreshing})
+            resp["Cache-Control"] = "max-age=10"
+            return resp
 
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:

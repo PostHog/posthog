@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
@@ -588,14 +589,20 @@ export function captureMaxAISurveyCreationException(error?: string, source?: SUR
 
 export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
+function getTeamTimezone(): string {
+    return getAppContext()?.current_team?.timezone || 'UTC'
+}
+
 export function getSurveyStartDateForQuery(survey: Pick<Survey, 'created_at'>): string {
-    return dayjs.utc(survey.created_at).startOf('day').format(DATE_FORMAT)
+    const tz = getTeamTimezone()
+    return dayjs.tz(survey.created_at, tz).startOf('day').format(DATE_FORMAT)
 }
 
 export function getSurveyEndDateForQuery(survey: Pick<Survey, 'end_date'>): string {
+    const tz = getTeamTimezone()
     return survey.end_date
-        ? dayjs.utc(survey.end_date).endOf('day').format(DATE_FORMAT)
-        : dayjs.utc().endOf('day').format(DATE_FORMAT)
+        ? dayjs.tz(survey.end_date, tz).endOf('day').format(DATE_FORMAT)
+        : dayjs.tz(undefined, tz).endOf('day').format(DATE_FORMAT)
 }
 
 export interface SurveyDateRange {
@@ -613,10 +620,11 @@ export function getResolvedSurveyDateRange(
     // date_from only is valid ("from custom date until now")
     // date_to only is ignored to avoid impossible ranges
     if (dateRange?.date_from) {
-        fromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day').format(DATE_FORMAT) ?? fromDate
+        const tz = getTeamTimezone()
+        fromDate = dateStringToDayJs(dateRange.date_from, tz)?.startOf('day').format(DATE_FORMAT) ?? fromDate
 
         if (dateRange.date_to) {
-            toDate = dateStringToDayJs(dateRange.date_to)?.endOf('day').format(DATE_FORMAT) ?? toDate
+            toDate = dateStringToDayJs(dateRange.date_to, tz)?.endOf('day').format(DATE_FORMAT) ?? toDate
         }
     }
 

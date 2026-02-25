@@ -1,5 +1,6 @@
-import { DeepPartial } from 'chart.js/dist/types/utils'
 import 'chartjs-adapter-dayjs-3'
+
+import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
@@ -33,10 +34,10 @@ import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -294,7 +295,7 @@ export function LineGraph_({
     const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
-    const { tooltipId, hideTooltip, getTooltip } = useInsightTooltip()
+    const { tooltipId, hideTooltip, getTooltip, positionTooltip } = useInsightTooltip()
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -513,11 +514,15 @@ export function LineGraph_({
     Chart.register(annotationPlugin)
     Chart.register(chartTrendline)
 
+    const MAX_CHART_DATASETS = 50
     const { canvasRef, chartRef } = useChart({
         getConfig: () => {
             let filteredDatasets = datasets
             if (!isHorizontal) {
                 filteredDatasets = filteredDatasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
+            }
+            if (filteredDatasets.length > MAX_CHART_DATASETS) {
+                filteredDatasets = filteredDatasets.slice(0, MAX_CHART_DATASETS)
             }
 
             const processedDatasets = filteredDatasets.map(processDataset)
@@ -816,24 +821,9 @@ export function LineGraph_({
                             }
 
                             const bounds = canvas.getBoundingClientRect()
-                            const verticalBarTopOffset =
-                                isHighlightBarMode && !isHorizontal ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
-                            const horizontalBarTopOffset = isHorizontal
-                                ? tooltip.caretY - tooltipEl.clientHeight / 2
-                                : 0
-                            const tooltipClientTop =
-                                bounds.top + window.pageYOffset + horizontalBarTopOffset + verticalBarTopOffset
-
-                            const chartClientLeft = bounds.left + window.pageXOffset
-                            const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
-                            const maxXPosition = bounds.right - tooltipEl.clientWidth
-                            const tooltipClientLeft =
-                                defaultOffsetLeft > maxXPosition
-                                    ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8
-                                    : defaultOffsetLeft
-
-                            tooltipEl.style.top = tooltipClientTop + 'px'
-                            tooltipEl.style.left = tooltipClientLeft + 'px'
+                            const centerVertically = isHighlightBarMode || isHorizontal
+                            const caretY = centerVertically ? tooltip.caretY : 0
+                            positionTooltip(tooltipEl, bounds, tooltip.caretX, caretY, centerVertically)
                         },
                     },
                     ...(!isBar

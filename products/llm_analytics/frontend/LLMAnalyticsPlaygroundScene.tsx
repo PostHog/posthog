@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconGear, IconMessage, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonInput,
     LemonModal,
+    LemonSearchableSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -20,9 +21,11 @@ import {
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
+import { ByokModelPicker } from './ByokModelPicker'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
-import { ComparisonItem, Message, MessageRole, ModelOption } from './llmAnalyticsPlaygroundLogic'
+import { ComparisonItem, Message, MessageRole } from './llmAnalyticsPlaygroundLogic'
 
 // Helper to format milliseconds
 const formatMs = (ms: number | null | undefined): string => {
@@ -41,25 +44,36 @@ export const scene: SceneExport = {
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
-    return (
-        <BindLogic logic={llmAnalyticsPlaygroundLogic} props={{ key: 'llm-analytics-playground-scene' }}>
-            <PlaygroundLayout />
-        </BindLogic>
-    )
+    useMountedLogic(llmAnalyticsPlaygroundLogic)
+
+    return <PlaygroundLayout />
 }
 
 function RateLimitBanner(): JSX.Element | null {
-    const { rateLimitedUntil } = useValues(llmAnalyticsPlaygroundLogic)
+    const { rateLimitedUntil, hasProviderKey } = useValues(llmAnalyticsPlaygroundLogic)
 
     if (rateLimitedUntil === null || Date.now() >= rateLimitedUntil) {
         return null
     }
 
+    const timeRemaining = humanFriendlyDuration(Math.ceil((rateLimitedUntil - Date.now()) / 1000), { maxUnits: 1 })
+
+    if (hasProviderKey) {
+        return (
+            <LemonBanner type="warning" className="mb-4">
+                You've hit the playground request limit. You can make another request in{' '}
+                <strong>{timeRemaining}</strong>.
+            </LemonBanner>
+        )
+    }
+
     return (
         <LemonBanner type="warning" className="mb-4">
-            You've hit our playground request limit. You can make another request in{' '}
-            <strong>{humanFriendlyDuration(Math.ceil((rateLimitedUntil - Date.now()) / 1000), { maxUnits: 1 })}</strong>
-            . We're working on bring-your-own-key and other improvements to remove this limit.
+            You've hit the playground request limit. You can make another request in <strong>{timeRemaining}</strong>.{' '}
+            <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')} className="font-semibold">
+                Add your own API key
+            </Link>{' '}
+            for a higher limit.
         </LemonBanner>
     )
 }
@@ -508,55 +522,86 @@ function getModelOptionsErrorMessage(errorStatus: number | null): string | null 
     return 'Failed to load models. Please refresh the page or try again later.'
 }
 
-function ConfigurationPanel(): JSX.Element {
-    const { maxTokens, thinking, reasoningLevel, model, modelOptions, modelOptionsLoading, modelOptionsErrorStatus } =
-        useValues(llmAnalyticsPlaygroundLogic)
-    const { setMaxTokens, setThinking, setReasoningLevel, setModel, loadModelOptions } =
-        useActions(llmAnalyticsPlaygroundLogic)
+function ModelPicker(): JSX.Element {
+    const {
+        model,
+        effectiveModelOptions,
+        selectedProviderKeyId,
+        hasByokKeys,
+        modelOptions,
+        modelOptionsLoading,
+        modelOptionsErrorStatus,
+        groupedModelOptions,
+    } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setModel, loadModelOptions } = useActions(llmAnalyticsPlaygroundLogic)
 
-    const handleThinkingToggle = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        setThinking(e.target.checked)
+    if (hasByokKeys) {
+        const options = Array.isArray(effectiveModelOptions) ? effectiveModelOptions : []
+        const selectedModel = options.find((m) => m.id === model)
+
+        return (
+            <ByokModelPicker
+                model={model}
+                selectedProviderKeyId={selectedProviderKeyId}
+                onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId)}
+                selectedModelName={selectedModel?.name}
+                data-attr="playground-model-selector"
+            />
+        )
     }
 
     const options = Array.isArray(modelOptions) ? modelOptions : []
     const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
 
     return (
+        <>
+            {modelOptionsLoading && !options.length ? (
+                <LemonSkeleton className="h-10" />
+            ) : (
+                <LemonSearchableSelect
+                    className="w-full"
+                    placeholder="Select model"
+                    value={model}
+                    onChange={(value) => value && setModel(value)}
+                    options={groupedModelOptions}
+                    searchPlaceholder="Search models..."
+                    searchKeys={['label', 'value', 'tooltip']}
+                    loading={modelOptionsLoading}
+                    disabledReason={
+                        modelOptionsLoading
+                            ? 'Loading models...'
+                            : options.length === 0
+                              ? 'No models available'
+                              : undefined
+                    }
+                    data-attr="playground-model-selector"
+                />
+            )}
+            {options.length === 0 && !modelOptionsLoading && (
+                <div className="mt-1">
+                    <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
+                    <button
+                        type="button"
+                        className="text-xs text-link mt-1 underline"
+                        onClick={() => loadModelOptions()}
+                    >
+                        Retry
+                    </button>
+                </div>
+            )}
+        </>
+    )
+}
+
+function ConfigurationPanel(): JSX.Element {
+    const { maxTokens, thinking, reasoningLevel } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmAnalyticsPlaygroundLogic)
+
+    return (
         <div className="space-y-4">
             <div>
                 <label className="font-semibold mb-1 block text-sm">Model</label>
-                {modelOptionsLoading && !options.length ? (
-                    <LemonSkeleton className="h-10" />
-                ) : (
-                    <LemonSelect
-                        className="w-full"
-                        placeholder="Select model"
-                        value={model}
-                        onChange={(value) => setModel(value)}
-                        options={options.map((option: ModelOption) => ({
-                            label: `${option.name} (${option.provider})`,
-                            value: option.id,
-                            tooltip: option.description || `Provider: ${option.provider}`,
-                        }))}
-                        loading={modelOptionsLoading}
-                        disabled={modelOptionsLoading || options.length === 0}
-                        data-attr="playground-model-selector"
-                    />
-                )}
-                {options.length === 0 && !modelOptionsLoading && (
-                    <div className="mt-1">
-                        <p className="text-xs text-danger">
-                            {errorMessage || 'No models available. Check proxy status.'}
-                        </p>
-                        <button
-                            type="button"
-                            className="text-xs text-link mt-1 underline"
-                            onClick={() => loadModelOptions()}
-                        >
-                            Retry
-                        </button>
-                    </div>
-                )}
+                <ModelPicker />
             </div>
 
             <div>
@@ -573,18 +618,14 @@ function ConfigurationPanel(): JSX.Element {
                 <div className="text-xs text-muted mt-1">Leave empty to use model's default max tokens</div>
             </div>
 
-            <div className="flex items-center space-x-2">
-                <input
-                    id="thinkingToggle"
-                    type="checkbox"
-                    className="rounded text-primary focus:ring-primary"
-                    checked={thinking}
-                    onChange={handleThinkingToggle}
-                />
-                <label htmlFor="thinkingToggle" className="text-sm font-medium">
-                    Enable thinking/reasoning stream (if supported)
-                </label>
-            </div>
+            <LemonSwitch
+                bordered
+                checked={thinking}
+                onChange={setThinking}
+                label="Thinking"
+                size="small"
+                tooltip="Enable thinking/reasoning stream (if supported)"
+            />
 
             <div>
                 <label className="font-semibold mb-1 block text-sm">Reasoning level (optional)</label>

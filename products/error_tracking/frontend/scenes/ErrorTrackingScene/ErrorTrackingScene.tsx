@@ -14,8 +14,8 @@ import {
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -26,8 +26,8 @@ import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFiltering
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
-import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
+import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
@@ -57,6 +57,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
 
     useOnMountEffect(() => {
+        const utmSource = new URLSearchParams(window.location.search).get('utm_source')
         api.hogFunctions
             .list({
                 types: ['internal_destination'],
@@ -66,6 +67,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 posthog.capture('error_tracking_issues_list_viewed', {
                     active_tab: activeTab,
                     alert_destination_count: res.results.length,
+                    ...(utmSource ? { utm_source: utmSource } : {}),
                 })
             })
     })

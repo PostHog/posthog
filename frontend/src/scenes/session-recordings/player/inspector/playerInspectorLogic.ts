@@ -904,7 +904,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         highlightColor: (responseStatus || 0) >= 400 ? 'danger' : undefined,
                         windowId,
                         windowNumber: windowNumberForID(windowId),
-                        key: `performance-${event.uuid}`,
+                        key: `performance-${event.uuid ?? event.name ?? 'unknown'}-${timestamp.valueOf()}`,
                     })
                 }
 

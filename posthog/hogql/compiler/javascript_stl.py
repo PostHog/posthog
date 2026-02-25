@@ -226,6 +226,10 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function decodeURLComponent (str) { return decodeURIComponent(str) }",
         [],
     ],
+    "tryDecodeURLComponent": [
+        "function tryDecodeURLComponent (str) { try { return decodeURIComponent(str) } catch { return null } }",
+        [],
+    ],
     "replaceOne": [
         "function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }",
         [],
