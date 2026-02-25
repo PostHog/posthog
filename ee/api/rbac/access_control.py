@@ -415,7 +415,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         default_access_controls = AccessControl.objects.filter(team=team, organization_member=None, role=None)
 
-        project_access_level = None
+        project_access_level: AccessControlLevel = default_access_level("project")
         saved_resource_levels: dict[str, str] = {}
 
         for ac in default_access_controls:

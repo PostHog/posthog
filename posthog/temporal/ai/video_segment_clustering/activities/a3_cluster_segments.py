@@ -21,6 +21,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     ClusterSegmentsActivityInputs,
     VideoSegment,
 )
+from posthog.temporal.ai.video_segment_clustering.state import load_fetch_result
 from posthog.temporal.common.logger import get_logger
 
 from ..data import fetch_video_segment_embedding_rows
@@ -30,7 +31,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class _ClusteringResultWithCentroids:
-    """Internal result that includes centroids for Redis storage."""
+    """Internal result that includes centroids alongside the main clustering result."""
 
     result: ClusteringResult
     centroids: dict[int, list[float]]
@@ -63,8 +64,9 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
 
     """
     team = await Team.objects.aget(id=inputs.team_id)
+    document_ids, _ = await load_fetch_result(inputs.storage_key)
     # We fetch segments here instead of passing via Temporal, to avoid large Temporal payloads (each embedding is 3 KB)
-    segments = await _fetch_embeddings_by_document_ids(team, inputs.document_ids)
+    segments = await _fetch_embeddings_by_document_ids(team, document_ids)
 
     # Run in to_thread as clustering is CPU-bound
     clustering_with_centroids = await asyncio.to_thread(_perform_clustering, segments)
@@ -132,7 +134,7 @@ async def _fetch_embeddings_by_document_ids(
 def _perform_clustering(segments: list[VideoSegment]) -> _ClusteringResultWithCentroids:
     """Run clustering and handle noise. CPU-bound.
 
-    Returns ClusteringResult with centroids stored separately for Redis caching.
+    Returns ClusteringResult with centroids stored separately.
     """
     n_segments = len(segments)
 
@@ -211,7 +213,7 @@ def _perform_iterative_kmeans_clustering(
     # Track which segments are still in the pool
     remaining_doc_ids = set(all_document_ids)
     final_clusters: list[Cluster] = []
-    centroids: dict[int, list[float]] = {}  # Stored separately for Redis caching
+    centroids: dict[int, list[float]] = {}
 
     iteration = 0
     # TODO: Explore progressive threshold relaxation, i.e. larger distance threshold in later
