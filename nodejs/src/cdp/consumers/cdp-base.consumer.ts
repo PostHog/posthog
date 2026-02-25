@@ -8,18 +8,15 @@ import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.se
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { GroupsManagerService, GroupsManagerServiceHub } from '../services/managers/groups-manager.service'
-import { HogFunctionManagerHub, HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import { GroupsManagerService } from '../services/managers/groups-manager.service'
+import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
-import {
-    HogFunctionMonitoringService,
-    HogFunctionMonitoringServiceHub,
-} from '../services/monitoring/hog-function-monitoring.service'
+import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
-import { HogWatcherService, HogWatcherServiceHub } from '../services/monitoring/hog-watcher.service'
+import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 
@@ -28,11 +25,7 @@ import { SegmentDestinationExecutorService } from '../services/segment-destinati
  * This includes all fields needed by the base consumer and its services.
  */
 export type CdpConsumerBaseHub = CdpFetchConfig &
-    HogFunctionManagerHub &
     HogExecutorServiceHub &
-    HogFunctionMonitoringServiceHub &
-    HogWatcherServiceHub &
-    GroupsManagerServiceHub &
     Pick<
         Hub,
         // Redis config
@@ -55,6 +48,31 @@ export type CdpConsumerBaseHub = CdpFetchConfig &
         | 'geoipService'
         // HogFlowManagerService
         | 'pubSub'
+        // HogFunctionManagerService
+        | 'encryptedFields'
+        // HogFunctionMonitoringService
+        | 'kafkaProducer'
+        | 'internalCaptureService'
+        | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
+        | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
+        // GroupsManagerService
+        | 'groupRepository'
+        // HogWatcherService
+        | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
+        | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
+        | 'CDP_WATCHER_HOG_COST_TIMING'
+        | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
+        | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
+        | 'CDP_WATCHER_ASYNC_COST_TIMING'
+        | 'CDP_WATCHER_SEND_EVENTS'
+        | 'CDP_WATCHER_BUCKET_SIZE'
+        | 'CDP_WATCHER_REFILL_RATE'
+        | 'CDP_WATCHER_TTL'
+        | 'CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS'
+        | 'CDP_WATCHER_THRESHOLD_DEGRADED'
+        | 'CDP_WATCHER_STATE_LOCK_TTL'
+        | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
+        | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
     >
 
 export interface TeamIDWithConfig {
@@ -103,9 +121,29 @@ export abstract class CdpConsumerBase<THub extends CdpConsumerBaseHub = CdpConsu
             poolMinSize: hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
-        this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
         this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
-        this.hogWatcher = new HogWatcherService(hub, this.redis)
+        this.hogWatcher = new HogWatcherService(
+            hub.teamManager,
+            {
+                hogCostTimingLowerMs: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                hogCostTiming: hub.CDP_WATCHER_HOG_COST_TIMING,
+                asyncCostTimingLowerMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+                asyncCostTimingUpperMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+                asyncCostTiming: hub.CDP_WATCHER_ASYNC_COST_TIMING,
+                sendEvents: hub.CDP_WATCHER_SEND_EVENTS,
+                bucketSize: hub.CDP_WATCHER_BUCKET_SIZE,
+                refillRate: hub.CDP_WATCHER_REFILL_RATE,
+                ttl: hub.CDP_WATCHER_TTL,
+                automaticallyDisableFunctions: hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
+                thresholdDegraded: hub.CDP_WATCHER_THRESHOLD_DEGRADED,
+                stateLockTtl: hub.CDP_WATCHER_STATE_LOCK_TTL,
+                observeResultsBufferTimeMs: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
+                observeResultsBufferMaxResults: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
+            },
+            this.redis
+        )
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub.postgres)
@@ -123,8 +161,14 @@ export abstract class CdpConsumerBase<THub extends CdpConsumerBaseHub = CdpConsu
         )
 
         this.personsManager = new PersonsManagerService(this.hub.personRepository)
-        this.groupsManager = new GroupsManagerService(this.hub)
-        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
+        this.groupsManager = new GroupsManagerService(this.hub.teamManager, this.hub.groupRepository)
+        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(
+            this.hub.kafkaProducer,
+            this.hub.internalCaptureService,
+            this.hub.teamManager,
+            this.hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+            this.hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
+        )
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(
             this.hub.postgres,
             this.hub.geoipService

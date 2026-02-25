@@ -147,11 +147,37 @@ export class HogTransformerService {
             poolMinSize: hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
-        this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
-        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
-        this.hogWatcher = new HogWatcherService(hub, this.redis)
+        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(
+            hub.kafkaProducer,
+            hub.internalCaptureService,
+            hub.teamManager,
+            hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+            hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
+        )
+        this.hogWatcher = new HogWatcherService(
+            hub.teamManager,
+            {
+                hogCostTimingLowerMs: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                hogCostTiming: hub.CDP_WATCHER_HOG_COST_TIMING,
+                asyncCostTimingLowerMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+                asyncCostTimingUpperMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+                asyncCostTiming: hub.CDP_WATCHER_ASYNC_COST_TIMING,
+                sendEvents: hub.CDP_WATCHER_SEND_EVENTS,
+                bucketSize: hub.CDP_WATCHER_BUCKET_SIZE,
+                refillRate: hub.CDP_WATCHER_REFILL_RATE,
+                ttl: hub.CDP_WATCHER_TTL,
+                automaticallyDisableFunctions: hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
+                thresholdDegraded: hub.CDP_WATCHER_THRESHOLD_DEGRADED,
+                stateLockTtl: hub.CDP_WATCHER_STATE_LOCK_TTL,
+                observeResultsBufferTimeMs: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
+                observeResultsBufferMaxResults: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
+            },
+            this.redis
+        )
     }
 
     public async start(): Promise<void> {}
