@@ -90,6 +90,19 @@ describe('fetch', () => {
             // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
         })
+
+        it.each([
+            ['::ffff:169.254.169.254', 'IPv6-mapped IMDS'],
+            ['::ffff:127.0.0.1', 'IPv6-mapped loopback'],
+            ['::ffff:10.0.0.1', 'IPv6-mapped private'],
+            ['::ffff:192.168.1.1', 'IPv6-mapped private'],
+            ['::ffff:0.0.0.0', 'IPv6-mapped this network'],
+        ])('should block IPv6-mapped IPv4 addresses: %s (%s)', async (ip) => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 6 }] as any)
+
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
+        })
     })
 
     describe('parallel requests execution', () => {

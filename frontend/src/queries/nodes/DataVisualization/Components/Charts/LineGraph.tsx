@@ -2,6 +2,7 @@
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import 'chartjs-adapter-dayjs-3'
+
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
@@ -45,6 +46,8 @@ import { lineGraphLogic } from './lineGraphLogic'
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
 Chart.register(chartTrendline)
+
+const TOOLTIP_ROW_CUTOFF = 8
 
 const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): GraphType => {
     if (!settings || !settings.display || !settings.display.displayType || settings.display?.displayType === 'auto') {
@@ -404,7 +407,7 @@ export const LineGraph = ({
                                 const referenceDataPoint = tooltip.dataPoints[0]
 
                                 // Filter series data based on highlight mode
-                                const filteredSeriesData = isHighlightBarMode
+                                let filteredSeriesData = isHighlightBarMode
                                     ? ySeriesData.filter((_, index) => index === referenceDataPoint.datasetIndex)
                                     : ySeriesData
                                 const stackedSeriesTotalAtIndex =
@@ -414,6 +417,11 @@ export const LineGraph = ({
                                               0
                                           )
                                         : null
+
+                                const isTruncated = filteredSeriesData.length > TOOLTIP_ROW_CUTOFF
+                                if (isTruncated) {
+                                    filteredSeriesData = filteredSeriesData.slice(0, TOOLTIP_ROW_CUTOFF)
+                                }
 
                                 const tooltipData = filteredSeriesData.map((series, index) => {
                                     const seriesName =
@@ -473,8 +481,13 @@ export const LineGraph = ({
                                                     render: (value, record) => {
                                                         if (record.isTotalRow) {
                                                             return (
-                                                                <div className="datum-label-column font-extrabold">
-                                                                    Total
+                                                                <div className="datum-label-column">
+                                                                    <span className="font-extrabold">Total</span>
+                                                                    {isTruncated && (
+                                                                        <span className="text-xs text-muted ml-1">
+                                                                            (incl. hidden series)
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                             )
                                                         }
@@ -533,6 +546,11 @@ export const LineGraph = ({
                                             }}
                                             showHeader
                                         />
+                                        {isTruncated && (
+                                            <div className="text-xs text-muted p-2 border-t">
+                                                For readability, <b>not all series are displayed</b>
+                                            </div>
+                                        )}
                                         {isBarChart && isStackedBarChart && !isHighlightBarMode && (
                                             <div className="text-xs text-muted p-2 border-t">
                                                 Hold Shift (⇧) to highlight individual bars

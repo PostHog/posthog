@@ -48,6 +48,11 @@ function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] 
 export interface FeatureFlagReleaseConditionsLogicProps {
     filters: FeatureFlagFilters
     id?: string
+    /**
+     * When true, prevents blast radius API calls from being made.
+     * Use this for readonly displays where live calculations aren't needed.
+     * @see calculateBlastRadius listener which checks this prop
+     */
     readOnly?: boolean
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]

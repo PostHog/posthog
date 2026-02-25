@@ -7,8 +7,8 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
 
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
