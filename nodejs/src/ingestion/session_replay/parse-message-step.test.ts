@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 import { promisify } from 'node:util'
 import { gzip } from 'zlib'
 
-import { TopTracker } from '../../session-recording/top-tracker'
 import { PipelineResultType } from '../pipelines/results'
 import { ParseMessageStepInput, createParseMessageStep } from './parse-message-step'
 
@@ -269,32 +268,6 @@ describe('createParseMessageStep', () => {
                 true
             )
         }
-    })
-
-    it('should track parsing time when topTracker is provided', async () => {
-        const topTracker = new TopTracker()
-        const step = createParseMessageStep({ topTracker })
-        const payload = createValidSnapshotPayload('session-1')
-        const input = createInput(0, 1, payload, { token: 'test-token' })
-
-        const result = await step(input)
-
-        expect(result.type).toBe(PipelineResultType.OK)
-
-        const trackingKey = 'token:test-token:session_id:session-1'
-        const parseTime = topTracker.getCount('parse_time_ms_by_session_id', trackingKey)
-        expect(parseTime).toBeGreaterThan(0)
-    })
-
-    it('should not track parsing time when topTracker is not provided', async () => {
-        const step = createParseMessageStep()
-        const payload = createValidSnapshotPayload('session-1')
-        const input = createInput(0, 1, payload)
-
-        const result = await step(input)
-
-        expect(result.type).toBe(PipelineResultType.OK)
-        // No error thrown when topTracker is not provided
     })
 
     it('should send messages with missing timestamp to DLQ', async () => {

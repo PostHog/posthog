@@ -40,12 +40,12 @@ class AnthropicConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
-        "claude-haiku-4-5",
-        "claude-sonnet-4-5",
         "claude-opus-4-5",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
         "claude-opus-4-1",
-        "claude-sonnet-4-0",
         "claude-opus-4-0",
+        "claude-sonnet-4-0",
         "claude-3-7-sonnet-latest",
     ]
 

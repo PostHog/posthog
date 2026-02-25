@@ -381,96 +381,14 @@ describe('llmAnalyticsPlaygroundLogic', () => {
         })
     })
 
-    describe('BYOK model loading', () => {
-        const BYOK_OPENAI_MODELS: ModelOption[] = [
-            { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '' },
-            { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI', description: '' },
-        ]
+    describe('effectiveModelOptions', () => {
+        it('should return trial models when no BYOK keys exist', async () => {
+            await expectLogic(logic).toFinishAllListeners()
 
-        const BYOK_ANTHROPIC_MODELS: ModelOption[] = [
-            { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'Anthropic', description: '' },
-        ]
-
-        it('should load models from BYOK provider keys when available', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                    },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                        results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
-                    },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'key-1') {
-                            return [200, BYOK_OPENAI_MODELS]
-                        }
-                        return [200, MOCK_MODEL_OPTIONS]
-                    },
-                },
-            })
-
-            const testLogic = llmAnalyticsPlaygroundLogic()
-            testLogic.mount()
-            testLogic.actions.loadModelOptions()
-            await expectLogic(testLogic).toFinishAllListeners()
-
-            expect(testLogic.values.modelOptions).toEqual(
-                BYOK_OPENAI_MODELS.map((m) => ({ ...m, providerKeyId: 'key-1' }))
-            )
-
-            testLogic.unmount()
+            expect(logic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
         })
 
-        it('should deduplicate models across provider keys', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                    },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                        results: [
-                            { id: 'key-1', provider: 'openai', state: 'ok' },
-                            { id: 'key-2', provider: 'anthropic', state: 'ok' },
-                        ],
-                    },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        const keyId = req.url.searchParams.get('provider_key_id')
-                        if (keyId === 'key-1') {
-                            return [
-                                200,
-                                [
-                                    ...BYOK_OPENAI_MODELS,
-                                    {
-                                        id: 'claude-sonnet-4',
-                                        name: 'Claude Sonnet 4',
-                                        provider: 'Anthropic',
-                                        description: '',
-                                    },
-                                ],
-                            ]
-                        }
-                        if (keyId === 'key-2') {
-                            return [200, BYOK_ANTHROPIC_MODELS]
-                        }
-                        return [200, []]
-                    },
-                },
-            })
-
-            const testLogic = llmAnalyticsPlaygroundLogic()
-            testLogic.mount()
-            testLogic.actions.loadModelOptions()
-            await expectLogic(testLogic).toFinishAllListeners()
-
-            // claude-sonnet-4 should appear once (from key-1, which comes first)
-            const claudeModels = testLogic.values.modelOptions.filter((m) => m.id === 'claude-sonnet-4')
-            expect(claudeModels).toHaveLength(1)
-            expect(claudeModels[0].providerKeyId).toBe('key-1')
-
-            testLogic.unmount()
-        })
-
-        it('should fall back to default models when no valid provider keys exist', async () => {
+        it('should return trial models when all keys are invalid', async () => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
@@ -487,17 +405,17 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             testLogic.mount()
             await expectLogic(testLogic).toFinishAllListeners()
 
-            // Should fall back to shared models since no keys have state 'ok'
-            expect(testLogic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            expect(testLogic.values.hasByokKeys).toBe(false)
+            expect(testLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
 
             testLogic.unmount()
         })
 
-        it('should fall back to default models when provider keys API fails', async () => {
+        it('should return trial models when provider keys API fails', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': () => {
-                        throw new Error('API Error')
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
                     },
                     '/api/environments/:team_id/llm_analytics/provider_keys/': () => {
                         throw new Error('API Error')
@@ -510,38 +428,42 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             testLogic.mount()
             await expectLogic(testLogic).toFinishAllListeners()
 
-            expect(testLogic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            expect(testLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
 
             testLogic.unmount()
         })
 
-        it('should attach providerKeyId to BYOK models', async () => {
+        it('should return BYOK models when valid keys exist and models have loaded', async () => {
+            const byokModels: ModelOption[] = [{ id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '' }]
+
+            // Unmount the default logic first so llmProviderKeysLogic singleton resets
+            logic.unmount()
+
             useMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                        results: [{ id: 'key-abc', provider: 'openai', state: 'ok' }],
+                        results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
                     },
                     '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'key-abc') {
-                            return [200, BYOK_OPENAI_MODELS]
+                        if (req.url.searchParams.get('provider_key_id') === 'key-1') {
+                            return [200, byokModels]
                         }
-                        return [200, []]
+                        return [200, MOCK_MODEL_OPTIONS]
                     },
                 },
             })
 
-            const testLogic = llmAnalyticsPlaygroundLogic()
-            testLogic.mount()
-            await expectLogic(testLogic).toFinishAllListeners()
+            logic = llmAnalyticsPlaygroundLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-            for (const model of testLogic.values.modelOptions) {
-                expect(model.providerKeyId).toBe('key-abc')
-            }
-
-            testLogic.unmount()
+            expect(logic.values.hasByokKeys).toBe(true)
+            expect(logic.values.effectiveModelOptions).toEqual(
+                byokModels.map((m) => ({ ...m, providerKeyId: 'key-1' }))
+            )
         })
     })
 

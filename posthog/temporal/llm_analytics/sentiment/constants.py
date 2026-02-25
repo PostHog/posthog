@@ -17,7 +17,7 @@ MAX_MESSAGE_CHARS = 2000
 CLASSIFY_BATCH_SIZE = 32  # texts per ONNX forward pass
 MAX_CLASSIFICATIONS_PER_TRACE = 200
 MAX_GENERATIONS_PER_TRACE = 10  # per-trace cap enforced by window function in ClickHouse
-MAX_INPUT_CHARS = 50_000  # skip $ai_input longer than this (accumulated conversation histories)
+MAX_INPUT_CHARS = 300_000  # skip $ai_input longer than this (covers p99; extraction truncates before inference)
 QUERY_LOOKBACK_DAYS = 30  # timestamp filter to enable partition pruning
 
 # Temporal workflow/activity config

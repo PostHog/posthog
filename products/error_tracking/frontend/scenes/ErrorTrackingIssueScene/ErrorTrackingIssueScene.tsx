@@ -245,7 +245,8 @@ const LeftHandColumn = (): JSX.Element => {
 }
 
 const ExceptionsTab = (): JSX.Element => {
-    const { eventsQuery, eventsQueryKey, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
+    const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, issueFingerprintsLoading } =
+        useValues(errorTrackingIssueSceneLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
 
     return (
@@ -261,16 +262,22 @@ const ExceptionsTab = (): JSX.Element => {
             </div>
             <LemonDivider className="my-0 shrink-0" />
             <Metadata className="flex flex-col flex-1 min-h-0 overflow-y-auto">
-                <EventsTable
-                    query={eventsQuery}
-                    queryKey={eventsQueryKey}
-                    selectedEvent={selectedEvent}
-                    onEventSelect={(selectedEvent) => {
-                        if (selectedEvent) {
-                            selectEvent(selectedEvent)
-                        }
-                    }}
-                />
+                {issueFingerprintsLoading ? (
+                    <div className="text-muted text-sm px-2 py-3">Loading exceptions...</div>
+                ) : issueFingerprints.length === 0 ? (
+                    <div className="text-muted text-sm px-2 py-3">No exceptions found for this issue.</div>
+                ) : (
+                    <EventsTable
+                        query={eventsQuery}
+                        queryKey={eventsQueryKey}
+                        selectedEvent={selectedEvent}
+                        onEventSelect={(selectedEvent) => {
+                            if (selectedEvent) {
+                                selectEvent(selectedEvent)
+                            }
+                        }}
+                    />
+                )}
             </Metadata>
         </div>
     )
