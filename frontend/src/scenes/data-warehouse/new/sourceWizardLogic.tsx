@@ -228,12 +228,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         setInitialConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
+        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({
+            source,
+            searchParams,
+        }),
         onClear: true,
         onBack: true,
         onNext: true,
         onSubmit: true,
-        setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
+        setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({
+            schemas,
+        }),
         toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
@@ -247,7 +252,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             incrementalFieldType,
         }),
         clearSource: true,
-        updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
+        updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({
+            source,
+        }),
         createSource: true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setSourceId: (id: string) => ({ sourceId: id }),
@@ -255,7 +262,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         cancelWizard: true,
         setStep: (step: number) => ({ step }),
         getDatabaseSchemas: true,
-        setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
+        setManualLinkingProvider: (provider: ManualLinkSourceType) => ({
+            provider,
+        }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
         toggleAllTables: (selectAll: boolean) => ({ selectAll }),
@@ -332,7 +341,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         source: [
-            { payload: {}, prefix: '', description: '', access_method: 'warehouse' } as {
+            {
+                payload: {},
+                prefix: '',
+                description: '',
+                access_method: 'warehouse',
+            } as {
                 prefix: string
                 description: string
                 access_method: 'warehouse' | 'direct'
@@ -350,7 +364,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         },
                     }
                 },
-                clearSource: () => ({ payload: {}, prefix: '', description: '', access_method: 'warehouse' }),
+                clearSource: () => ({
+                    payload: {},
+                    prefix: '',
+                    description: '',
+                    access_method: 'warehouse',
+                }),
             },
         ],
         isLoading: [
@@ -465,13 +484,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep, s.isManualLinkingSelected, (_, props) => props.onComplete],
-            (currentStep, isManualLinkingSelected, onComplete): string => {
+            (s) => [s.currentStep, s.isManualLinkingSelected, s.isDirectQueryMode, (_, props) => props.onComplete],
+            (currentStep, isManualLinkingSelected, isDirectQueryMode, onComplete): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
 
                 if (currentStep === 3) {
+                    if (isDirectQueryMode) {
+                        return 'Save tables'
+                    }
                     return 'Import'
                 }
 
@@ -529,8 +551,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         modalTitle: [
-            (s) => [s.currentStep],
-            (currentStep) => {
+            (s) => [s.currentStep, s.isDirectQueryMode],
+            (currentStep, isDirectQueryMode) => {
                 if (currentStep === 1) {
                     return ''
                 }
@@ -539,10 +561,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 3) {
+                    if (isDirectQueryMode) {
+                        return 'Select tables to query'
+                    }
                     return 'Select tables to import'
                 }
 
                 if (currentStep === 4) {
+                    if (isDirectQueryMode) {
+                        return 'Tables ready to query'
+                    }
                     return 'Importing your data...'
                 }
 
@@ -596,7 +624,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setIsLoading(true)
                     actions.createSource()
                     if (values.selectedConnector) {
-                        posthog.capture('source created', { sourceType: values.selectedConnector.name })
+                        posthog.capture('source created', {
+                            sourceType: values.selectedConnector.name,
+                        })
                     }
                     return
                 }
@@ -640,7 +670,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         <div className="font-bold text-danger">Full refresh</div>
                         <div>
                             <span className="text-muted">
-                                {tableCountFormatter(fullRefreshTables.length, { none: 'None ✓' })}
+                                {tableCountFormatter(fullRefreshTables.length, {
+                                    none: 'None ✓',
+                                })}
                             </span>{' '}
                             — Re-syncs all rows every time. Can significantly increase costs.
                         </div>
@@ -676,7 +708,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             actions.setIsLoading(true)
                             actions.createSource()
                             if (values.selectedConnector) {
-                                posthog.capture('source created', { sourceType: values.selectedConnector.name })
+                                posthog.capture('source created', {
+                                    sourceType: values.selectedConnector.name,
+                                })
                             }
                         },
                         size: 'small',
@@ -949,7 +983,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         actions.setIsLoading(false)
                     } catch (e: any) {
                         if (e?.data?.message) {
-                            actions.setSourceConnectionDetailsManualErrors({ prefix: e.data.message })
+                            actions.setSourceConnectionDetailsManualErrors({
+                                prefix: e.data.message,
+                            })
                         }
                         actions.setIsLoading(false)
 

@@ -917,6 +917,33 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse"
         )
 
+    def test_direct_postgres_table_supports_properties_virtual_table(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        DataWarehouseTable.objects.create(
+            name="postgres_direct_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            columns={"id": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+
+        database = Database.create_for(team=self.team)
+        direct_table = database.get_table("postgres_direct_table")
+
+        assert isinstance(direct_table, Table)
+        assert "properties" in direct_table.fields
+
     def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team

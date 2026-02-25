@@ -199,7 +199,9 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                     </div>
                 )}
 
-                {selectedConnector && <FreeHistoricalSyncsBanner hideGetStarted={true} />}
+                {selectedConnector && source.access_method !== 'direct' && (
+                    <FreeHistoricalSyncsBanner hideGetStarted={true} />
+                )}
 
                 {currentStep === 1 ? (
                     <FirstStep allowedSources={props.allowedSources} />

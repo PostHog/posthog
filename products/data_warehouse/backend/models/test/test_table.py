@@ -193,6 +193,24 @@ class TestTable(BaseTest):
             ],
         )
 
+    def test_hogql_definition_new_style_with_lowercase_hogql_type(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="bla",
+            url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "id": {"clickhouse": "Int64", "hogql": "integer"},
+            },
+            credential=credential,
+        )
+
+        self.assertEqual(
+            list(table.hogql_definition().fields.values()),
+            [IntegerDatabaseField(name="id", nullable=False)],
+        )
+
     def test_hogql_definition_column_name_hyphen(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(

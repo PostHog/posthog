@@ -10,12 +10,20 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExternalDataSourceSchema } from '~/types'
 
+type DirectQuerySchema = {
+    name: string
+    should_sync: boolean
+}
+
 export const SyncProgressStep = (): JSX.Element => {
-    const { sourceId, isWrapped } = useValues(sourceWizardLogic)
+    const { sourceId, isWrapped, isDirectQueryMode, databaseSchema } = useValues(sourceWizardLogic)
     const { cancelWizard } = useActions(sourceWizardLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
     const source = dataWarehouseSources?.results.find((n) => n.id === sourceId)
     const schemas = source?.schemas ?? []
+    const directQuerySchemas: DirectQuerySchema[] = databaseSchema
+        .filter((schema) => schema.should_sync)
+        .map((schema) => ({ name: schema.table, should_sync: schema.should_sync }))
 
     const getSyncStatus = (schema: ExternalDataSourceSchema): { status: string; tagType: LemonTagType } => {
         if (!schema.should_sync) {
@@ -86,6 +94,35 @@ export const SyncProgressStep = (): JSX.Element => {
                 return ''
             },
         })
+    }
+
+    if (isDirectQueryMode) {
+        return (
+            <SceneSection title="You're all set! Your selected tables are now available to query in PostHog.">
+                <LemonTable
+                    emptyState="No tables selected"
+                    dataSource={directQuerySchemas}
+                    loading={false}
+                    disableTableWhileLoading={false}
+                    columns={[
+                        {
+                            title: 'Table',
+                            key: 'table',
+                            render: function RenderTable(_, schema) {
+                                return schema.name
+                            },
+                        },
+                        {
+                            title: 'Status',
+                            key: 'status',
+                            render: function RenderStatus() {
+                                return <LemonTag type="success">Ready to query</LemonTag>
+                            },
+                        },
+                    ]}
+                />
+            </SceneSection>
+        )
     }
 
     return (

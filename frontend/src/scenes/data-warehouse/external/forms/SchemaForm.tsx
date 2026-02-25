@@ -35,6 +35,11 @@ export default function SchemaForm(): JSX.Element {
     return (
         <>
             <div className="flex flex-col gap-2">
+                {isDirectQueryMode && (
+                    <p className="text-sm text-muted-alt mb-0">
+                        Choose which tables should be available for querying in PostHog.
+                    </p>
+                )}
                 <div>
                     <LemonTable
                         emptyState="No schemas found"
@@ -105,7 +110,7 @@ export default function SchemaForm(): JSX.Element {
                                     if (isDirectQueryMode) {
                                         return (
                                             <span className="text-xs text-muted-foreground">
-                                                Not used in direct mode
+                                                Only selected tables are queryable in direct mode
                                             </span>
                                         )
                                     }
@@ -159,7 +164,7 @@ export default function SchemaForm(): JSX.Element {
                                     if (isDirectQueryMode) {
                                         return (
                                             <span className="text-xs text-muted-foreground">
-                                                Not used in direct mode
+                                                Only selected tables are queryable in direct mode
                                             </span>
                                         )
                                     }
