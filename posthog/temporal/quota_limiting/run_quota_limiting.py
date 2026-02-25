@@ -25,10 +25,19 @@ class RunQuotaLimitingAllOrgsInputs:
     pass
 
 
+@dataclasses.dataclass
+class QuotaLimitingResult:
+    duration_s: float = 0.0
+    orgs_processed: int = 0
+    orgs_limited: int = 0
+    orgs_suspended: int = 0
+
+
 @activity.defn(name="run-quota-limiting-all-orgs")
 async def run_quota_limiting_all_orgs(
     _inputs: RunQuotaLimitingAllOrgsInputs,
-) -> None:
+) -> QuotaLimitingResult:
+    result = QuotaLimitingResult()
     async with Heartbeater() as heartbeater:
         try:
             from ee.billing.quota_limiting import update_all_orgs_billing_quotas
@@ -38,15 +47,17 @@ async def run_quota_limiting_all_orgs(
 
             @database_sync_to_async(thread_sensitive=True)
             def async_update_all_orgs_billing_quotas():
-                update_all_orgs_billing_quotas(progress_callback=progress_callback)
+                return update_all_orgs_billing_quotas(progress_callback=progress_callback)
 
-            await async_update_all_orgs_billing_quotas()
+            _limited, _suspended, stats = await async_update_all_orgs_billing_quotas()
+            result = QuotaLimitingResult(**stats)
         except ImportError:
             pass
         except Exception as e:
             capture_exception(e)
             # Raise exception without large context to avoid "Failure exceeds size limit"
             raise Exception(f"Quota limiting failed: {type(e).__name__}: {str(e)[:200]}...")
+    return result
 
 
 @workflow.defn(name="run-quota-limiting")
@@ -58,9 +69,9 @@ class RunQuotaLimitingWorkflow(PostHogWorkflow):
         return RunQuotaLimitingInputs(**loaded)
 
     @workflow.run
-    async def run(self, _inputs: RunQuotaLimitingInputs) -> None:
+    async def run(self, _inputs: RunQuotaLimitingInputs) -> QuotaLimitingResult:
         try:
-            await workflow.execute_activity(
+            return await workflow.execute_activity(
                 run_quota_limiting_all_orgs,
                 RunQuotaLimitingAllOrgsInputs(),
                 start_to_close_timeout=timedelta(hours=12),

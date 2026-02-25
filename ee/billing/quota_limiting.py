@@ -917,17 +917,27 @@ def update_all_orgs_billing_quotas(
         if progress_callback:
             progress_callback("redis_done", f"duration={redis_duration_s}s", "")
 
+    total_duration_s = time() - total_start
     logger.info(
         "quota_limiting_run",
         phase="total",
         status="done",
-        duration_ms=round((time() - total_start) * 1000, 1),
+        duration_ms=round(total_duration_s * 1000, 1),
         orgs_processed=orgs_processed,
         orgs_limited=orgs_limited_count,
         orgs_suspended=orgs_suspended_count,
     )
 
-    return quota_limited_orgs, quota_limiting_suspended_orgs
+    return (
+        quota_limited_orgs,
+        quota_limiting_suspended_orgs,
+        {
+            "duration_s": round(total_duration_s, 1),
+            "orgs_processed": orgs_processed,
+            "orgs_limited": orgs_limited_count,
+            "orgs_suspended": orgs_suspended_count,
+        },
+    )
 
 
 # -------------------------------------------------------------------------------------------------
