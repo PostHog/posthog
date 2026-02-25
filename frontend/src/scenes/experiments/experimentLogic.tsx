@@ -1229,7 +1229,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 payload: { active: isActive },
             })
 
-            actions.loadExperiment()
+            actions.loadExperiment({ triggeredBy: 'config_change' })
         },
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
@@ -1363,13 +1363,13 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentType: async ({ type }) => {
             actions.setExperiment({ type: type })
         },
-        loadExperimentSuccess: async ({ experiment }) => {
+        loadExperimentSuccess: async ({ experiment, payload }) => {
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
             // Load metrics for running experiments (will set up auto-refresh after load completes)
             if (experiment?.start_date) {
-                actions.refreshExperimentResults(false, 'page_load')
+                actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual')
             }
         },
         launchExperiment: async () => {
@@ -1434,10 +1434,9 @@ export const experimentLogic = kea<experimentLogicType>([
         refreshExperimentResults: async ({ forceRefresh, triggeredBy }) => {
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
-            // Shared accumulator for cached counts from both load calls
             const summaries: MetricLoadingSummary[] = []
-            cache.refreshSummaries = summaries
-            cache.refreshId = refreshId
+            cache.refreshSummariesById = cache.refreshSummariesById ?? {}
+            cache.refreshSummariesById[refreshId] = summaries
             try {
                 await Promise.all([
                     actions.loadPrimaryMetricsResults(forceRefresh, refreshId),
@@ -1446,6 +1445,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 ])
             } finally {
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
+                const refreshSummaries = cache.refreshSummariesById?.[refreshId] ?? []
+                if (cache.refreshSummariesById) {
+                    delete cache.refreshSummariesById[refreshId]
+                }
 
                 const primaryCount =
                     (values.experiment?.metrics?.length || 0) +
@@ -1465,7 +1468,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const erroredCount =
                     values.primaryMetricsResultsErrors.filter(Boolean).length +
                     values.secondaryMetricsResultsErrors.filter(Boolean).length
-                const cachedCount = summaries.reduce((sum, s) => sum + s.cachedCount, 0)
+                const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
 
                 eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
                     values.experimentId,
@@ -1624,7 +1627,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 saved_metrics_ids: combinedMetricsIds,
             })
 
-            actions.loadExperiment()
+            actions.loadExperiment({ triggeredBy: 'config_change' })
         },
         removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
             const sharedMetricsIds = values.experiment.saved_metrics
@@ -1648,7 +1651,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics_secondary: cleanedMetricsSecondary,
             })
 
-            actions.loadExperiment()
+            actions.loadExperiment({ triggeredBy: 'config_change' })
         },
         createExperimentDashboard: async () => {
             actions.setIsCreatingExperimentDashboard(true)
@@ -1828,8 +1831,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
             })
 
-            if (cache.refreshId === resolvedRefreshId && cache.refreshSummaries) {
-                cache.refreshSummaries.push(summary)
+            const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
+            if (refreshSummaries) {
+                refreshSummaries.push(summary)
             }
 
             actions.setPrimaryMetricsResultsLoading(false)
@@ -1865,8 +1869,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
             })
 
-            if (cache.refreshId === resolvedRefreshId && cache.refreshSummaries) {
-                cache.refreshSummaries.push(summary)
+            const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
+            if (refreshSummaries) {
+                refreshSummaries.push(summary)
             }
 
             actions.setSecondaryMetricsResultsLoading(false)
@@ -2074,7 +2079,8 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     loaders(({ actions, values }) => ({
         experiment: {
-            loadExperiment: async () => {
+            loadExperiment: async ({ triggeredBy }: { triggeredBy?: ExperimentTriggeredBy } = {}) => {
+                void triggeredBy
                 if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(
