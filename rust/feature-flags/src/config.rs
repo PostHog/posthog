@@ -529,11 +529,9 @@ impl ThreadCounts {
             detected
         };
 
-        tracing::info!(
-            override_cores,
-            detected_cores = detected,
-            effective_cores = cores,
-            "thread pool core count resolved"
+        eprintln!(
+            "thread pool core count resolved: override_cores={}, detected_cores={}, effective_cores={}",
+            override_cores, detected, cores,
         );
 
         Self::from_cores(cores)
@@ -1152,6 +1150,21 @@ mod thread_counts_tests {
                 "tokio should get half the cores for {cores} cores"
             );
         }
+    }
+
+    #[test]
+    fn test_new_with_override_uses_override() {
+        let counts = ThreadCounts::new(8);
+        assert_eq!(counts.rayon_threads, 8);
+        assert_eq!(counts.tokio_workers, 4);
+    }
+
+    #[test]
+    fn test_new_with_zero_falls_back_to_detected() {
+        let counts = ThreadCounts::new(0);
+        // Should fall back to available_parallelism, which is always >= 1
+        assert!(counts.rayon_threads >= 1);
+        assert!(counts.tokio_workers >= 1);
     }
 }
 
