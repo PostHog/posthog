@@ -59,7 +59,7 @@ class TestUserCostLimitConfig:
         assert "twig" in settings.user_cost_limits
         twig = settings.user_cost_limits["twig"]
         assert twig.burst_limit_usd == 100.0
-        assert twig.burst_window_seconds == 18000
+        assert twig.burst_window_seconds == 86400
         assert twig.sustained_limit_usd == 1000.0
         assert twig.sustained_window_seconds == 2592000
         get_settings.cache_clear()
@@ -389,7 +389,7 @@ class TestRetryAfterHeader:
         result = await throttle.allow_request(context)
 
         assert result.allowed is False
-        assert result.retry_after == 18000
+        assert result.retry_after == 86400
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
