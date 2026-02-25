@@ -3,14 +3,14 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { Element, PluginEvent, Properties } from '@posthog/plugin-scaffold'
-
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { InternalCaptureService } from './common/services/internal-capture'
+import { InternalFetchService } from './common/services/internal-fetch'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { PostgresRouter } from './utils/db/postgres'
@@ -22,7 +22,7 @@ import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositorie
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
-export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+export { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
@@ -192,9 +192,12 @@ export type CdpConfig = {
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
     CYCLOTRON_SHADOW_DATABASE_URL: string
     CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
-    CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, samples consumed messages and seeks back to verify read latency
-    CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: number // Fraction of messages to test (0.0-1.0, e.g. 0.01 = 1%)
+    CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, fetches consumed messages via HTTP to measure WarpStream read latency
     CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
+    CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: number // Number of parallel individual single-record fetches (0 to disable)
+    CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: number // Number of parallel batch fetch requests (0 to disable)
+    CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: number // Records per batch fetch request
+    CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: string // Base URL for WarpStream HTTP fetch endpoint (e.g. 'https://warpstream.example.com')
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -216,7 +219,7 @@ export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
 
 export type IngestionConsumerConfig = {
     /** The lane this consumer is processing (e.g. main, overflow, historical, async) */
-    INGESTION_LANE?: IngestionLane
+    INGESTION_LANE: IngestionLane | null
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
@@ -280,9 +283,7 @@ export type IngestionConsumerConfig = {
     // Pipeline step config
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
-    PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
-    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
@@ -477,6 +478,7 @@ export interface PluginsServerConfig
     /** Comma-separated list of capability groups for local dev: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags */
     NODEJS_CAPABILITY_GROUPS: string | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
+    INGESTION_PIPELINE: string | null
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
@@ -527,38 +529,30 @@ export interface PluginsServerConfig
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
-
-    // ClickHouse
-    CLICKHOUSE_HOST: string
-    CLICKHOUSE_PORT: number
-    CLICKHOUSE_USERNAME: string
-    CLICKHOUSE_PASSWORD: string
-    CLICKHOUSE_DATABASE: string
 }
 
-export interface Hub extends PluginsServerConfig {
-    // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
+export interface HubServices {
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
-    // tools
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
-    // geoip database, setup in workers
     geoipService: GeoIPService
-    // lookups
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
     internalCaptureService: InternalCaptureService
+    internalFetchService: InternalFetchService
 }
+
+export interface Hub extends PluginsServerConfig, HubServices {}
 
 export interface PluginServerCapabilities {
     // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts

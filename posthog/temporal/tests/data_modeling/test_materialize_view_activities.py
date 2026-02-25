@@ -27,6 +27,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import InvalidNo
 
 from products.data_modeling.backend.models import Node, NodeType
 from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery, DataWarehouseTable
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -115,7 +116,7 @@ class TestFailMaterializationActivity:
         await activity_environment.run(fail_materialization_activity, inputs)
         await database_sync_to_async(anode.refresh_from_db)()
         system_props = anode.properties.get("system", {})
-        assert system_props["last_run_status"] == "failed"
+        assert system_props["last_run_status"] == DataModelingJobStatus.FAILED
         assert system_props["last_run_job_id"] == str(ajob.id)
         assert system_props["last_run_error"] == "Query failed: timeout"
         assert "last_run_at" in system_props
@@ -161,7 +162,7 @@ class TestSucceedMaterializationActivity:
         await activity_environment.run(succeed_materialization_activity, inputs)
         await database_sync_to_async(anode.refresh_from_db)()
         system_props = anode.properties.get("system", {})
-        assert system_props["last_run_status"] == "completed"
+        assert system_props["last_run_status"] == DataModelingJobStatus.COMPLETED
         assert system_props["last_run_job_id"] == str(ajob.id)
         assert system_props["last_run_rows"] == 500
         assert system_props["last_run_duration_seconds"] == 30.0

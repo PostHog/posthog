@@ -30,12 +30,12 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -59,8 +59,8 @@ import {
     InsightShortId,
 } from '~/types'
 
-import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -89,8 +89,8 @@ export function VariantTag({
         return <></>
     }
 
-    const variantColor = experiment.parameters?.feature_flag_variants
-        ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
+    const variantColor = experiment.feature_flag?.filters.multivariate?.variants
+        ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
         : 'var(--text-muted)'
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
@@ -280,13 +280,10 @@ export function PageHeaderCustom(): JSX.Element {
         experiment,
         isExperimentDraft,
         isExperimentRunning,
+        isExperimentLaunched,
         isExperimentStopped,
-        isSingleVariantShipped,
         hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
-        primaryMetricsResults,
-        legacyPrimaryMetricsResults,
-        hasMinimumExposureForResults,
         experimentLoading,
     } = useValues(experimentLogic)
     const {
@@ -309,12 +306,6 @@ export function PageHeaderCustom(): JSX.Element {
 
     const exposureCohortId = experiment?.exposure_cohort
 
-    const shouldShowFinishExperimentButton =
-        !isExperimentDraft &&
-        !isSingleVariantShipped &&
-        hasMinimumExposureForResults &&
-        (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
-
     return (
         <>
             <SceneTitleSection
@@ -335,7 +326,7 @@ export function PageHeaderCustom(): JSX.Element {
                 saveOnBlur
                 actions={
                     <>
-                        {experiment && !isExperimentRunning && (
+                        {experiment && isExperimentDraft && (
                             <div className="flex items-center">
                                 <LemonButton
                                     type="primary"
@@ -352,7 +343,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 </LemonButton>
                             </div>
                         )}
-                        {experiment && isExperimentRunning && (
+                        {experiment && isExperimentLaunched && (
                             <div className="flex flex-row gap-2">
                                 {isExperimentStopped && (
                                     <LemonButton
@@ -387,7 +378,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 )}
                             </div>
                         )}
-                        {shouldShowFinishExperimentButton && (
+                        {experiment && isExperimentRunning && !isExperimentStopped && (
                             <>
                                 <Tooltip title="Conclude this experiment and decide which variant to keep">
                                     <LemonButton
@@ -414,7 +405,7 @@ export function PageHeaderCustom(): JSX.Element {
             />
             <HogfettiComponent />
 
-            {experiment && isExperimentRunning && (
+            {experiment && isExperimentLaunched && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={() => setDuplicateModalOpen(true)}>
@@ -689,8 +680,8 @@ export function ResumeExperimentModal(): JSX.Element {
 }
 
 export function FinishExperimentModal(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
-    const { finishExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { experiment, isSingleVariantShipped, shippedVariantKey } = useValues(experimentLogic)
+    const { finishExperiment, endExperimentWithoutShipping, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeFinishExperimentModal } = useActions(modalsLogic)
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -712,6 +703,14 @@ export function FinishExperimentModal(): JSX.Element {
         experiment.filters.aggregation_group_type_index != null
             ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
             : 'users'
+
+    const handleEndExperiment = (): void => {
+        if (isSingleVariantShipped || !selectedVariantKey) {
+            endExperimentWithoutShipping()
+        } else {
+            finishExperiment({ selectedVariantKey })
+        }
+    }
 
     return (
         <>
@@ -735,9 +734,7 @@ export function FinishExperimentModal(): JSX.Element {
                             Cancel
                         </LemonButton>
                         <LemonButton
-                            onClick={() => {
-                                finishExperiment({ selectedVariantKey })
-                            }}
+                            onClick={handleEndExperiment}
                             type="primary"
                             disabledReason={!experiment.conclusion && 'Select a conclusion'}
                         >
@@ -747,45 +744,61 @@ export function FinishExperimentModal(): JSX.Element {
                 }
             >
                 <div className="space-y-4">
-                    <div>
-                        <LemonLabel>Variant to keep</LemonLabel>
-                        <div className="text-sm text-secondary">
-                            The selected variant will be rolled out to <b>100% of {aggregationTargetName}</b>.
+                    {isSingleVariantShipped ? (
+                        <div>
+                            <LemonBanner type="info" className="mb-4">
+                                <b>
+                                    <VariantTag variantKey={shippedVariantKey || ''} />
+                                </b>{' '}
+                                is already rolled out to 100% of {aggregationTargetName}. Ending this experiment will
+                                mark it as complete without changing the feature flag.
+                            </LemonBanner>
                         </div>
-                        <div className="w-1/2">
-                            <LemonSelect
-                                className="w-full"
-                                data-attr="metrics-selector"
-                                value={selectedVariantKey}
-                                onChange={(variantKey) => {
-                                    setSelectedVariantKey(variantKey)
-                                }}
-                                options={
-                                    experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
-                                        value: key,
-                                        label: (
-                                            <div className="deprecated-space-x-2 inline-flex">
-                                                <VariantTag variantKey={key} />
-                                            </div>
-                                        ),
-                                    })) || []
-                                }
-                            />
+                    ) : (
+                        <div>
+                            <LemonLabel>Variant to keep</LemonLabel>
+                            <div className="text-sm text-secondary">
+                                The selected variant will be rolled out to <b>100% of {aggregationTargetName}</b>.
+                            </div>
+                            <div className="w-1/2">
+                                <LemonSelect
+                                    className="w-full"
+                                    data-attr="metrics-selector"
+                                    value={selectedVariantKey}
+                                    placeholder="Select a variant"
+                                    onChange={(variantKey) => {
+                                        setSelectedVariantKey(variantKey)
+                                    }}
+                                    allowClear={true}
+                                    options={
+                                        experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
+                                            value: key,
+                                            label: (
+                                                <div className="deprecated-space-x-2 inline-flex">
+                                                    <VariantTag variantKey={key} />
+                                                </div>
+                                            ),
+                                        })) || []
+                                    }
+                                />
+                            </div>
                         </div>
-                    </div>
+                    )}
                     <ConclusionForm />
-                    <LemonBanner type="info" className="mb-4">
-                        For more precise control over your release, adjust the rollout percentage and release conditions
-                        in the{' '}
-                        <Link
-                            target="_blank"
-                            className="font-semibold"
-                            to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
-                        >
-                            {experiment.feature_flag?.key}
-                        </Link>{' '}
-                        feature flag.
-                    </LemonBanner>
+                    {!isSingleVariantShipped && (
+                        <LemonBanner type="info" className="mb-4">
+                            For more precise control over your release, adjust the rollout percentage and release
+                            conditions in the{' '}
+                            <Link
+                                target="_blank"
+                                className="font-semibold"
+                                to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                            >
+                                {experiment.feature_flag?.key}
+                            </Link>{' '}
+                            feature flag.
+                        </LemonBanner>
+                    )}
                 </div>
             </LemonModal>
         </>

@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { Person, Team } from '../../types'
 import { uuidFromDistinctId } from '../../worker/ingestion/person-uuid'

@@ -1,6 +1,7 @@
 import './BillingLineGraph.scss'
 
 import 'chartjs-adapter-dayjs-3'
+
 import annotationPlugin from 'chartjs-plugin-annotation'
 import { useValues } from 'kea'
 import { useCallback, useEffect, useRef, useState } from 'react'

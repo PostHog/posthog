@@ -171,12 +171,7 @@ export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinitio
         ),
     }
 
-    return [
-        ...installSteps,
-        exceptionAutocaptureStep,
-        manualCaptureStep,
-        verifyStep,
-    ]
+    return [...installSteps, exceptionAutocaptureStep, manualCaptureStep, verifyStep]
 }
 
 export const AngularInstallation = createInstallation(getAngularSteps)

@@ -362,9 +362,19 @@ def sync_old_schemas_with_new_schemas(
 
     schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schemas]
     deleted_schemas: list[str] = []
+    actually_created: list[str] = []
 
     for schema in schemas_to_create:
-        ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
+        obj, created = ExternalDataSchema.objects.get_or_create(
+            team_id=team_id, source_id=source_id, name=schema, deleted=False, defaults={"should_sync": False}
+        )
+        if created:
+            actually_created.append(schema)
+        elif obj.deleted:
+            obj.deleted = False
+            obj.deleted_at = None
+            obj.should_sync = False
+            obj.save(update_fields=["deleted", "deleted_at", "should_sync"])
 
     for schema in schemas_to_possibly_delete:
         # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible
@@ -380,7 +390,7 @@ def sync_old_schemas_with_new_schemas(
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 
-    return schemas_to_create, deleted_schemas
+    return actually_created, deleted_schemas
 
 
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:

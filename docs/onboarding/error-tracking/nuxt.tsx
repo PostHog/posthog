@@ -65,7 +65,7 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                                       },
                                     },
                                     posthogConfig: {
-                                      publicKey: '<ph_project_api_key>', // Find it in project settings https://app.posthog.com/settings/project
+                                      publicKey: '<ph_project_token>', // Find it in project settings https://app.posthog.com/settings/project
                                       host: 'https://us.i.posthog.com', // Optional: defaults to https://us.i.posthog.com. Use https://eu.i.posthog.com for EU region
                                       clientConfig: {
                                         capture_exceptions: true, // Enables automatic exception capture on the client side (Vue)

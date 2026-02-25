@@ -145,6 +145,21 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
+    "SUPPORT_SLACK_APP_CLIENT_ID": (
+        get_from_env("SUPPORT_SLACK_APP_CLIENT_ID", default=""),
+        "Used to enable the 'Add to Slack' button for the SupportHog Slack app.",
+        str,
+    ),
+    "SUPPORT_SLACK_APP_CLIENT_SECRET": (
+        get_from_env("SUPPORT_SLACK_APP_CLIENT_SECRET", default=""),
+        "Used by the SupportHog Slack OAuth callback to exchange authorization codes.",
+        str,
+    ),
+    "SUPPORT_SLACK_SIGNING_SECRET": (
+        get_from_env("SUPPORT_SLACK_SIGNING_SECRET", default=""),
+        "Used to validate incoming webhook events for the Support Slack bot.",
+        str,
+    ),
     "GITHUB_WEBHOOK_SECRET": (
         get_from_env("GITHUB_WEBHOOK_SECRET", default=""),
         "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
@@ -164,6 +179,11 @@ CONSTANCE_CONFIG = {
         get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool),
         "Whether rate limiting is enabled",
         bool,
+    ),
+    "CLICKHOUSE_KILL_SWITCH": (
+        get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
+        "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
+        str,
     ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
@@ -218,11 +238,15 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "SUPPORT_SLACK_APP_CLIENT_ID",
+    "SUPPORT_SLACK_APP_CLIENT_SECRET",
+    "SUPPORT_SLACK_SIGNING_SECRET",
     "GITHUB_WEBHOOK_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
+    "CLICKHOUSE_KILL_SWITCH",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
@@ -234,5 +258,7 @@ SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "SUPPORT_SLACK_SIGNING_SECRET",
+    "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "GITHUB_WEBHOOK_SECRET",
 ]

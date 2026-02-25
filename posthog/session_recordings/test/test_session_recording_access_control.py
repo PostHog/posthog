@@ -88,11 +88,11 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.assertIn("You do not have editor access", response.json()["detail"])
 
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._should_use_recording_api",
-        return_value=False,
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
+        return_value=True,
     )
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
-    def test_editor_can_delete_recording(self, mock_load_metadata, _mock_should_use_recording_api):
+    def test_editor_can_delete_recording(self, mock_load_metadata, _mock_delete_via_recording_api):
         """Test that a user with editor access can delete a recording"""
         self._create_access_control(self.editor_user, access_level="editor")
 
@@ -106,11 +106,11 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.assertTrue(self.recording.deleted)
 
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._should_use_recording_api",
-        return_value=False,
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        return_value=[],
     )
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
-    def test_editor_can_bulk_delete_recordings(self, mock_list_recordings, _mock_should_use_recording_api):
+    def test_editor_can_bulk_delete_recordings(self, mock_list_recordings, _mock_bulk_delete_via_recording_api):
         """Test that a user with editor access can bulk delete recordings"""
         # Create additional recordings
         recording2 = SessionRecording.objects.create(

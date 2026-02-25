@@ -14,6 +14,7 @@ from rest_framework import status
 from posthog.models import Team
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -450,7 +451,7 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
         ) as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE")]}
+            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -633,6 +634,137 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="table_a", supports_incremental=False, supports_append=False),
+            SourceSchema(name="table_b", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 2)
+        self.assertEqual(data["deleted"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
+        )
+        names = list(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).values_list(
+                "name", flat=True
+            )
+        )
+        self.assertCountEqual(names, ["table_a", "table_b"])
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="new_table", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(name="existing", team_id=self.team.pk, source_id=source.pk, should_sync=False)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 1)
+        self.assertEqual(data["deleted"], 1)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 1
+        )
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=True).count(), 1
+        )
+        names = list(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).values_list(
+                "name", flat=True
+            )
+        )
+        self.assertCountEqual(names, ["new_table"])
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_adds_only_new_schemas(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="existing", supports_incremental=False, supports_append=False),
+            SourceSchema(name="new_table", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(name="existing", team_id=self.team.pk, source_id=source.pk, should_sync=False)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 1)
+        self.assertEqual(data["deleted"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
+        )
+        self.assertTrue(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="new_table", deleted=False
+            ).exists()
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_idempotent_no_duplicates(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="only_one", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+
+        self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/")
+        response2 = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response2.status_code, 200)
+        self.assertEqual(response2.json()["added"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="only_one", deleted=False
+            ).count(),
+            1,
+        )
+
+    def test_refresh_schemas_returns_400_when_no_job_inputs(self):
+        source = self._create_external_data_source()
+        source.job_inputs = None
+        source.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("configuration", response.json().get("message", ""))
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_returns_400_when_get_schemas_raises(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.side_effect = Exception("Connection failed")
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
+
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
             host=settings.PG_HOST,
@@ -796,7 +928,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
-        return_value={"table_1": [("id", "integer")]},
+        return_value={"table_1": [("id", "integer", True)]},
     )
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
@@ -828,7 +960,9 @@ class TestExternalDataSource(APIBaseTest):
                     "table": "table_1",
                     "should_sync": False,
                     "rows": 42,
-                    "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+                    "incremental_fields": [
+                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                    ],
                     "incremental_available": True,
                     "append_available": True,
                     "incremental_field": "id",
@@ -875,7 +1009,9 @@ class TestExternalDataSource(APIBaseTest):
                     "table": "table_1",
                     "should_sync": False,
                     "rows": 42,
-                    "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+                    "incremental_fields": [
+                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                    ],
                     "incremental_available": True,
                     "append_available": True,
                     "incremental_field": "id",
@@ -1520,7 +1656,7 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.temporal.data_imports.sources.snowflake.source.get_snowflake_schemas"
         ) as mocked_get_snowflake_schemas:
-            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE")]}
+            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             # Create a Snowflake source with password auth
             response = self.client.post(
@@ -1615,7 +1751,7 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
         ) as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE")]}
+            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             # Create a BigQuery source
             response = self.client.post(
