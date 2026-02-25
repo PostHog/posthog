@@ -677,7 +677,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as Partial<FeatureFlagType> | null,
             {
                 setSectionEditing: () => null,
-                updateSectionDraft: (state, { draft }) => ({ ...state, ...draft }),
+                updateSectionDraft: (state, { draft }) => {
+                    const merged = { ...state, ...draft }
+                    if (state?.filters && draft.filters) {
+                        merged.filters = {
+                            ...state.filters,
+                            ...draft.filters,
+                            multivariate: draft.filters.multivariate
+                                ? { ...state.filters?.multivariate, ...draft.filters.multivariate }
+                                : state.filters?.multivariate,
+                        }
+                    }
+                    return merged
+                },
                 cancelSectionEdit: () => null,
                 saveFeatureFlagSuccess: () => null,
             },
@@ -1601,7 +1613,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (!draft) {
                 return
             }
-            const updatedFlag = { ...values.featureFlag, ...draft }
+            const flag = values.featureFlag
+            const mergedFilters = draft.filters
+                ? {
+                      ...flag.filters,
+                      ...draft.filters,
+                      multivariate: draft.filters.multivariate
+                          ? { ...flag.filters?.multivariate, ...draft.filters.multivariate }
+                          : flag.filters?.multivariate,
+                  }
+                : flag.filters
+            const updatedFlag = { ...flag, ...draft, filters: mergedFilters }
             actions.submitFeatureFlagWithValidation(updatedFlag)
         },
         updateDraftVariant: ({ index, field, value }) => {
