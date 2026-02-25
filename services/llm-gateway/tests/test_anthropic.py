@@ -4,6 +4,78 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from llm_gateway.api.anthropic import (
+    extract_wizard_flags_from_headers,
+    extract_wizard_meta_from_headers,
+)
+
+
+class TestExtractWizardFlagsFromHeaders:
+    def test_extracts_x_wizard_flag_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-WIZARD-FLAG-EXPERIMENT-FEATURE-FLAG-KEY", "variant-name"),
+            ("X-WIZARD-FLAG-ANOTHER-FLAG", "control"),
+            ("Content-Type", "application/json"),
+        ]
+        result = extract_wizard_flags_from_headers(request)
+        assert result == {
+            "experiment-feature-flag-key": "variant-name",
+            "another-flag": "control",
+        }
+
+    def test_extract_case_insensitive(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("x-wizard-flag-my-flag", "value"),
+        ]
+        result = extract_wizard_flags_from_headers(request)
+        assert result == {"my-flag": "value"}
+
+    def test_extract_ignores_non_matching_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-WIZARD-META-FOO", "meta"),
+            ("Authorization", "Bearer x"),
+        ]
+        result = extract_wizard_flags_from_headers(request)
+        assert result == {}
+
+
+class TestExtractWizardMetaFromHeaders:
+    def test_extracts_x_wizard_meta_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-WIZARD-META-VARIANT", "memes"),
+            ("X-WIZARD-META-FOO", "bar"),
+            ("Content-Type", "application/json"),
+        ]
+        result = extract_wizard_meta_from_headers(request)
+        assert result == {"wizard-meta-variant": "memes", "wizard-meta-foo": "bar"}
+
+    def test_extract_case_insensitive(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("x-wizard-meta-key", "value"),
+        ]
+        result = extract_wizard_meta_from_headers(request)
+        assert result == {"wizard-meta-key": "value"}
+
+    def test_extract_ignores_non_matching_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-Other-Header", "other"),
+            ("Authorization", "Bearer x"),
+        ]
+        result = extract_wizard_meta_from_headers(request)
+        assert result == {}
+
 
 class TestAnthropicMessagesEndpoint:
     @pytest.fixture
@@ -123,6 +195,31 @@ class TestAnthropicMessagesEndpoint:
             "/wizard/v1/messages",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "msg_123"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_wizard_meta_headers(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/wizard/v1/messages",
+            json=valid_request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-WIZARD-META-VARIANT": "memes",
+            },
         )
 
         assert response.status_code == 200
