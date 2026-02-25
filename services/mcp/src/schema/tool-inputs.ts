@@ -266,7 +266,7 @@ export const ExperimentCreateSchema = z.object({
     filter_test_accounts: z.boolean().default(true).describe('Whether to filter out internal test accounts'),
 
     target_properties: z
-        .record(z.any())
+        .record(z.string(), z.any())
         .optional()
         .describe('Properties to target specific user segments (e.g., country, subscription type)'),
 
