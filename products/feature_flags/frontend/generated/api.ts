@@ -284,7 +284,7 @@ export const featureFlagsDashboardCreate = async (
 }
 
 /**
- * Get other active flags that depend on this flag.
+ * Get other non-deleted flags that depend on this flag.
  */
 export const getFeatureFlagsDependentFlagsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
