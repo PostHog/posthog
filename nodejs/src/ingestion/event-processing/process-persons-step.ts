@@ -4,7 +4,6 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Person, Team } from '../../types'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { PersonContext } from '../../worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../worker/ingestion/persons/person-merge-service'
@@ -13,6 +12,7 @@ import { PersonPropertyService } from '../../worker/ingestion/persons/person-pro
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
+import { EventPipelineRunnerOptions } from './event-pipeline-options'
 
 export type ProcessPersonsInput = {
     normalizedEvent: PluginEvent

@@ -4484,5 +4484,131 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 })
             }
         )
+
+        testWithTeamIngester(
+            'should scrub IPs when team.anonymize_ips=true',
+            { teamOverrides: { anonymize_ips: true } },
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$pageview')
+                            .withProperties({ $ip: '11.12.13.14' })
+                            .build(),
+                    ])
+                )
+
+                await waitForKafkaMessages(hub)
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(hub, team.id)
+                    expect(events.length).toBe(1)
+                    expect(events[0].properties.$ip).toBeUndefined()
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'should use $elements_chain string directly as elements_chain',
+            {},
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$autocapture')
+                            .withProperties({ $elements_chain: 'button:nth-child="1"', a: 1 })
+                            .build(),
+                    ])
+                )
+
+                await waitForKafkaMessages(hub)
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(hub, team.id)
+                    expect(events.length).toBe(1)
+                    expect(events[0].elements_chain).toBeDefined()
+                    expect(events[0].properties.$elements_chain).toBeUndefined()
+                    expect(events[0].properties.a).toBe(1)
+                })
+            }
+        )
+
+        testWithTeamIngester('should convert $elements array to elements_chain', {}, async (ingester, hub, team) => {
+            const distinctId = new UUIDT().toString()
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$autocapture')
+                        .withProperties({
+                            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
+                            a: 1,
+                        })
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toBe(1)
+                expect(events[0].elements_chain).toBeDefined()
+                expect(events[0].properties.$elements).toBeUndefined()
+                expect(events[0].properties.a).toBe(1)
+            })
+        })
+
+        testWithTeamIngester(
+            'should prefer $elements_chain over $elements when both are present',
+            {},
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$autocapture')
+                            .withProperties({
+                                $elements_chain: 'span:nth-child="1"',
+                                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
+                            })
+                            .build(),
+                    ])
+                )
+
+                await waitForKafkaMessages(hub)
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(hub, team.id)
+                    expect(events.length).toBe(1)
+                    // elements_chain is parsed back into element objects by parseRawClickHouseEvent
+                    // so we check the first element's tag_name to verify $elements_chain was used
+                    expect(events[0].elements_chain).toBeDefined()
+                    expect(events[0].elements_chain![0].tag_name).toBe('span')
+                    expect(events[0].properties.$elements_chain).toBeUndefined()
+                    expect(events[0].properties.$elements).toBeUndefined()
+                })
+            }
+        )
+        testWithTeamIngester(
+            'should drop $$heatmap events when team.heatmaps_opt_in=false',
+            { teamOverrides: { heatmaps_opt_in: false } },
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$$heatmap')
+                            .withProperties({
+                                $heatmap_data: {
+                                    'http://localhost:3000/': [{ x: 100, y: 200, target_fixed: false, type: 'click' }],
+                                },
+                            })
+                            .build(),
+                    ])
+                )
+
+                await waitForKafkaMessages(hub)
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toBe(0)
+            }
+        )
     }
 )

@@ -653,6 +653,9 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "payload_count": 0,
                 "creation_context": "early_access_features",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -746,14 +749,12 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature_flag2 = FeatureFlag.objects.create(
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket2",
-            rollout_percentage=10,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -818,7 +819,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -865,7 +865,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -909,21 +908,18 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature_flag2 = FeatureFlag.objects.create(
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket2",
-            rollout_percentage=10,
             created_by=self.user,
         )
         feature_flag3 = FeatureFlag.objects.create(
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket3",
-            rollout_percentage=10,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -1004,7 +1000,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         payload = {"customKey": "customValue", "nested": {"data": 123}}

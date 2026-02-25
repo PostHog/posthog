@@ -158,8 +158,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'createDataWarehouseSavedQuerySuccess',
                 'runDataWarehouseSavedQuery',
                 'materializeDataWarehouseSavedQuery',
-                'resetDataModelingJobs',
-                'loadDataModelingJobs',
                 'updateDataWarehouseSavedQuerySuccess',
                 'updateDataWarehouseSavedQueryFailure',
                 'updateDataWarehouseSavedQuery',
@@ -1050,8 +1048,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
         editingView: (editingView) => {
             if (editingView) {
-                actions.resetDataModelingJobs()
-                actions.loadDataModelingJobs(editingView.id)
                 actions.loadUpstream(editingView.id)
             }
         },

@@ -1972,6 +1972,7 @@ class FunnelVizType(StrEnum):
     STEPS = "steps"
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
+    FLOW = "flow"
 
 
 class Position(StrEnum):

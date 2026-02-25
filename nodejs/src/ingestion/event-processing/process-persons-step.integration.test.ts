@@ -16,7 +16,7 @@ import { Hub, Person, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { UUIDT } from '../../utils/utils'
 import { normalizeEventStep } from '../../worker/ingestion/event-pipeline/normalizeEventStep'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
+import { EventPipelineRunnerOptions } from './event-pipeline-options'
 import { ProcessPersonsInput, createProcessPersonsStep } from './process-persons-step'
 
 describe('createProcessPersonsStep', () => {
@@ -30,8 +30,6 @@ describe('createProcessPersonsStep', () => {
 
     const options: EventPipelineRunnerOptions = {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
-        TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: 0,
-        PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30000,
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_ASYNC_TOPIC: '',
