@@ -647,7 +647,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""
         instance: ExternalDataSource = self.get_object()
-        logger.info(
+        logger.debug(
             "refresh_schemas called",
             source_id=str(instance.id),
             team_id=self.team_id,
@@ -681,7 +681,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names, source_id=str(instance.id), team_id=self.team_id
             )
-        logger.info(
+        logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
             team_id=self.team_id,
