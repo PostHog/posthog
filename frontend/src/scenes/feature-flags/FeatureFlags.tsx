@@ -620,6 +620,7 @@ export function OverViewTab({
                 dataSource={displayedFlags}
                 columns={columns}
                 rowKey="key"
+                rowClassName={(record) => (!record.active ? 'opacity-60' : null)}
                 defaultSorting={{
                     columnKey: 'created_at',
                     order: -1,

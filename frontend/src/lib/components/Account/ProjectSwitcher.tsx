@@ -215,7 +215,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                             value={item}
                                             onClick={() => handleItemClick(item)}
                                             render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active className="flex-1">
+                                                <ButtonPrimitive {...props} menuItem active className="flex-1" truncate>
                                                     <IconCheck className="text-tertiary" />
                                                     <ProjectName team={item.team} />
                                                 </ButtonPrimitive>

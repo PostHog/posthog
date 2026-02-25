@@ -99,12 +99,14 @@ export function FeatureFlagReleaseConditions({
     showTrashIconWithOneCondition = false,
     removedLastConditionCallback,
     evaluationRuntime,
+    isDisabled,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
     showTrashIconWithOneCondition?: boolean
     removedLastConditionCallback?: () => void
+    isDisabled?: boolean
 }): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -598,6 +600,12 @@ export function FeatureFlagReleaseConditions({
                 )
             }
         >
+            {isDisabled && !readOnly && (
+                <LemonBanner type="info" className="mb-3">
+                    This flag is currently <b>disabled</b>. These release conditions won't take effect until you enable
+                    it.
+                </LemonBanner>
+            )}
             {!readOnly &&
                 !filterGroups.every(
                     (group) => filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2
