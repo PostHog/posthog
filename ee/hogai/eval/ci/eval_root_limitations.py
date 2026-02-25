@@ -50,7 +50,7 @@ Focus on whether the response suggests UI workarounds. A response that says "I c
                 "misleading": 0.0,
                 "empty": None,
             },
-            model="gpt-4.1",
+            model="gpt-5.2",
             **kwargs,
         )
 
