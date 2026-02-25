@@ -16,32 +16,32 @@ export interface DashboardLayoutHclExportOptions extends HclExportOptions {
 
 function generateTileBlock(tile: DashboardTile, insightIdReplacements?: Map<number, string>): string[] {
     const lines: string[] = []
-    lines.push('  tiles {')
+    lines.push('    {')
 
     if (tile.insight?.id) {
         const tfRef = insightIdReplacements?.get(tile.insight.id)
         if (tfRef) {
-            lines.push(`    insight_id = ${tfRef}`)
+            lines.push(`      insight_id = ${tfRef}`)
         } else {
-            lines.push(`    insight_id = ${tile.insight.id}`)
+            lines.push(`      insight_id = ${tile.insight.id}`)
         }
     }
 
     if (tile.text?.body) {
         lines.push(
-            `    text_body = "${tile.text.body.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`
+            `      text_body = "${tile.text.body.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`
         )
     }
 
     if (tile.color) {
-        lines.push(`    color = "${tile.color}"`)
+        lines.push(`      color = "${tile.color}"`)
     }
 
     if (tile.layouts && Object.keys(tile.layouts).length > 0) {
-        lines.push(`    layouts_json = jsonencode(${formatJsonForHcl(tile.layouts, '    ')})`)
+        lines.push(`      layouts_json = jsonencode(${formatJsonForHcl(tile.layouts, '      ')})`)
     }
 
-    lines.push('  }')
+    lines.push('    },')
     return lines
 }
 
@@ -86,9 +86,13 @@ export function generateDashboardLayoutHCL(
         )
     }
 
-    for (const tile of activeTiles) {
+    if (activeTiles.length > 0) {
         lines.push('')
-        lines.push(...generateTileBlock(tile, options.insightIdReplacements))
+        lines.push('  tiles = [')
+        for (const tile of activeTiles) {
+            lines.push(...generateTileBlock(tile, options.insightIdReplacements))
+        }
+        lines.push('  ]')
     }
 
     lines.push('}')

@@ -21,6 +21,7 @@ describe('dashboardLayoutHclExporter test', () => {
 
             expect(result.hcl).toContain('resource "posthog_dashboard_layout" "my_dashboard"')
             expect(result.hcl).toContain('dashboard_id = posthog_dashboard.my_dashboard.id')
+            expect(result.hcl).toContain('tiles = [')
             expect(result.hcl).toContain('insight_id = posthog_insight.my_insight.id')
             expect(result.warnings).toHaveLength(0)
         })
