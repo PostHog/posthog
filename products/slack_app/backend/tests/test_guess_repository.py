@@ -109,6 +109,7 @@ class TestSelectRepository:
         )
 
         self.thread_messages = [{"user": "Dev", "text": "please update readme"}]
+        self.channel = "C001"
 
     def test_single_connected_repo_auto(self):
         decision = select_repository(
@@ -116,6 +117,7 @@ class TestSelectRepository:
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
             user=self.user,
+            channel=self.channel,
             all_repos=["posthog/posthog"],
         )
 
@@ -130,6 +132,7 @@ class TestSelectRepository:
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
             user=self.user,
+            channel=self.channel,
             all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
         )
 
@@ -144,6 +147,7 @@ class TestSelectRepository:
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
             user=self.user,
+            channel=self.channel,
             all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
         )
 
@@ -158,6 +162,7 @@ class TestSelectRepository:
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
             user=self.user,
+            channel=self.channel,
             all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
         )
 
@@ -170,6 +175,7 @@ class TestSelectRepository:
         SlackUserRepoPreference.objects.create(
             team=self.team,
             user=self.user,
+            channel=self.channel,
             repository="posthog/posthog-js",
         )
 
@@ -178,6 +184,7 @@ class TestSelectRepository:
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
             user=self.user,
+            channel=self.channel,
             all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
         )
 
@@ -186,10 +193,31 @@ class TestSelectRepository:
         assert decision.reason == "user_default_repo"
         assert decision.llm_called is False
 
+    def test_user_default_repo_is_channel_scoped(self):
+        SlackUserRepoPreference.objects.create(
+            team=self.team,
+            user=self.user,
+            channel="C_OTHER",
+            repository="posthog/posthog-js",
+        )
+
+        decision = select_repository(
+            event_text="add yolo to readme",
+            thread_messages=self.thread_messages,
+            integration=self.slack_integration,
+            user=self.user,
+            channel=self.channel,
+            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
+        )
+
+        assert decision.mode == "picker"
+        assert decision.reason == "no_explicit_multi_repo"
+
     def test_invalid_user_default_repo_is_cleared(self):
         SlackUserRepoPreference.objects.create(
             team=self.team,
             user=self.user,
+            channel=self.channel,
             repository="posthog/deleted-repo",
         )
 
@@ -198,12 +226,13 @@ class TestSelectRepository:
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
             user=self.user,
+            channel=self.channel,
             all_repos=["posthog/posthog", "posthog/posthog-js"],
         )
 
         assert decision.mode == "picker"
         assert decision.reason == "no_explicit_multi_repo"
-        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user).count() == 0
+        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user, channel=self.channel).count() == 0
 
     def test_no_repos_picker(self):
         decision = select_repository(
@@ -211,6 +240,7 @@ class TestSelectRepository:
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
             user=self.user,
+            channel=self.channel,
             all_repos=[],
         )
 

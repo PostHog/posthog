@@ -16,12 +16,51 @@ def process_twig_mention(event: dict, integration_id: int, slack_team_id: str) -
 
     from products.slack_app.backend.api import handle_twig_app_mention
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=integration_id,
-        kind="slack-twig",
-        integration_id=slack_team_id,
+    logger.info(
+        "twig_mention_task_started",
+        integration_id=integration_id,
+        slack_team_id=slack_team_id,
+        channel=event.get("channel"),
+        thread_ts=event.get("thread_ts") or event.get("ts"),
+        slack_user_id=event.get("user"),
     )
-    handle_twig_app_mention(event, integration)
+
+    try:
+        integration = Integration.objects.select_related("team", "team__organization").get(
+            id=integration_id,
+            kind="slack-twig",
+            integration_id=slack_team_id,
+        )
+        handle_twig_app_mention(event, integration)
+    except Exception as e:
+        logger.exception(
+            "twig_mention_task_failed",
+            integration_id=integration_id,
+            slack_team_id=slack_team_id,
+            error=str(e),
+        )
+
+        channel = event.get("channel")
+        thread_ts = event.get("thread_ts") or event.get("ts")
+        if not channel or not thread_ts:
+            return
+
+        try:
+            integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
+            from posthog.models.integration import SlackIntegration
+
+            SlackIntegration(integration).client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="Sorry, I hit an internal error while processing that request. Please try again.",
+            )
+        except Exception:
+            logger.warning(
+                "twig_mention_task_feedback_failed",
+                integration_id=integration_id,
+                channel=channel,
+                thread_ts=thread_ts,
+            )
 
 
 @shared_task(ignore_result=True)
@@ -122,7 +161,7 @@ def process_twig_repo_selection(payload: dict) -> None:
 
     auth_response = slack.client.auth_test()
     our_bot_id = auth_response.get("bot_id")
-    thread_messages = _collect_thread_messages(slack, channel, thread_ts, our_bot_id)
+    thread_messages = _collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id)
     if not thread_messages:
         return
 
@@ -150,7 +189,7 @@ def process_twig_repo_selection(payload: dict) -> None:
             logger.warning("twig_repo_selection_update_failed", channel=channel)
 
     if action_id == "twig_default_repo_select":
-        _set_user_default_repo(integration.team_id, user_context.user.id, selected_repo)
+        _set_user_default_repo(integration.team_id, user_context.user.id, channel, selected_repo)
         try:
             slack.client.chat_postMessage(
                 channel=channel,
@@ -232,7 +271,14 @@ def process_twig_task_termination(payload: dict) -> None:
         logger.warning("twig_terminate_missing_slack_team", run_id=run_id)
         return
 
-    if expected_user_id and requesting_user_id and expected_user_id != requesting_user_id:
+    if not expected_user_id:
+        logger.warning(
+            "twig_terminate_missing_expected_user",
+            run_id=run_id,
+        )
+        return
+
+    if requesting_user_id != expected_user_id:
         logger.warning(
             "twig_terminate_user_mismatch",
             expected=expected_user_id,

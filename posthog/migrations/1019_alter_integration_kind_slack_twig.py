@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1017_survey_form_content"),
+        ("posthog", "1018_migrate_event_definition_models"),
     ]
 
     operations = [

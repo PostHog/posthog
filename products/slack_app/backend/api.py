@@ -12,6 +12,7 @@ from urllib.parse import urlparse, urlunparse
 from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
+from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -50,6 +51,7 @@ ROUTE_NO_INTEGRATION = "no_integration"
 
 PICKER_TOKEN_SALT = "twig_repo_picker"
 PICKER_TOKEN_MAX_AGE_SECONDS = 900
+SLACK_USER_INFO_CACHE_TTL_SECONDS = 600
 
 
 @dataclass
@@ -72,20 +74,146 @@ class DefaultRepoCommand:
     repository: str | None = None
 
 
+def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
+    return f"twig_slack_user_info:{integration_id}:{slack_user_id}"
+
+
+def _format_slack_user_info_payload(*, email: str | None, display_name: str, real_name: str) -> dict[str, Any]:
+    return {
+        "user": {
+            "profile": {
+                "email": email,
+                "display_name": display_name,
+                "real_name": real_name,
+            }
+        }
+    }
+
+
+def _normalize_slack_response(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, dict):
+        return payload
+
+    data = getattr(payload, "data", None)
+    if isinstance(data, dict):
+        return data
+
+    return {}
+
+
+def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -> dict[str, Any] | None:
+    from products.slack_app.backend.models import SlackUserProfileCache
+
+    try:
+        profile = SlackUserProfileCache.objects.filter(
+            integration_id=integration.id, slack_user_id=slack_user_id
+        ).first()
+    except DatabaseError:
+        logger.warning("twig_slack_user_cache_db_unavailable", integration_id=integration.id)
+        return None
+    if not profile:
+        return None
+
+    return _format_slack_user_info_payload(
+        email=profile.email,
+        display_name=profile.display_name,
+        real_name=profile.real_name,
+    )
+
+
+def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
+    from products.slack_app.backend.models import SlackUserProfileCache
+
+    profile = user_info.get("user", {}).get("profile", {})  # type: ignore[call-overload]
+    try:
+        SlackUserProfileCache.objects.update_or_create(
+            integration_id=integration.id,
+            slack_user_id=slack_user_id,
+            defaults={
+                "email": profile.get("email") or None,
+                "display_name": profile.get("display_name") or "",
+                "real_name": profile.get("real_name") or "",
+            },
+        )
+    except DatabaseError:
+        logger.warning("twig_slack_user_cache_db_unavailable", integration_id=integration.id)
+
+
+def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> dict[str, Any]:
+    cache_key = _slack_user_info_cache_key(integration.id, slack_user_id)
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+
+    cached_db = _get_slack_user_info_from_db(integration, slack_user_id)
+    if isinstance(cached_db, dict):
+        cache.set(cache_key, cached_db, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return cached_db
+
+    user_info = _normalize_slack_response(slack.client.users_info(user=slack_user_id))
+    if user_info:
+        _persist_slack_user_info(integration, slack_user_id, user_info)
+        cache.set(cache_key, user_info, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return user_info
+    return {}
+
+
+def _post_slack_user_feedback(
+    slack: SlackIntegration,
+    channel: str,
+    slack_user_id: str,
+    thread_ts: str,
+    text: str,
+    *,
+    prefer_thread_message: bool = False,
+) -> None:
+    if prefer_thread_message:
+        try:
+            slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+            return
+        except Exception:
+            logger.warning("slack_user_feedback_thread_post_failed", channel=channel, slack_user_id=slack_user_id)
+
+    try:
+        slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
+    except Exception:
+        try:
+            slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+        except Exception:
+            logger.warning("slack_user_feedback_failed", channel=channel, slack_user_id=slack_user_id)
+
+
 def resolve_slack_user(
     slack: SlackIntegration, integration: Integration, slack_user_id: str, channel: str, thread_ts: str
 ) -> SlackUserContext | None:
     """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure."""
     try:
-        slack_user_info = slack.client.users_info(user=slack_user_id)
+        slack_user_info = _get_slack_user_info(slack, integration, slack_user_id)
         slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")  # type: ignore[call-overload]
         if not slack_email:
+            fresh_user_info = _normalize_slack_response(slack.client.users_info(user=slack_user_id))
+            if fresh_user_info:
+                _persist_slack_user_info(integration, slack_user_id, fresh_user_info)
+                cache.set(
+                    _slack_user_info_cache_key(integration.id, slack_user_id),
+                    fresh_user_info,
+                    timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS,
+                )
+                slack_email = fresh_user_info.get("user", {}).get("profile", {}).get("email")  # type: ignore[call-overload]
+
+        if not slack_email:
             logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
-            slack.client.chat_postEphemeral(
-                channel=channel,
-                user=slack_user_id,
-                thread_ts=thread_ts,
-                text="Sorry, I couldn't find your email address in Slack. Please make sure your email is visible in your Slack profile.",
+            _post_slack_user_feedback(
+                slack,
+                channel,
+                slack_user_id,
+                thread_ts,
+                (
+                    "Sorry, I couldn't find your email address in Slack. "
+                    "Please make sure your email is visible in your Slack profile, "
+                    "and that the app has `users:read.email` scope."
+                ),
+                prefer_thread_message=True,
             )
             return None
 
@@ -98,11 +226,12 @@ def resolve_slack_user(
         )
         if not membership or not membership.user:
             organization_name = integration.team.organization.name
-            slack.client.chat_postEphemeral(
-                channel=channel,
-                user=slack_user_id,
-                thread_ts=thread_ts,
-                text=(
+            _post_slack_user_feedback(
+                slack,
+                channel,
+                slack_user_id,
+                thread_ts,
+                (
                     f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
                     f"Please make sure you're a member of that PostHog organization."
                 ),
@@ -119,11 +248,12 @@ def resolve_slack_user(
                 team_id=integration.team_id,
                 organization_id=integration.team.organization_id,
             )
-            slack.client.chat_postEphemeral(
-                channel=channel,
-                user=slack_user_id,
-                thread_ts=thread_ts,
-                text=(
+            _post_slack_user_feedback(
+                slack,
+                channel,
+                slack_user_id,
+                thread_ts,
+                (
                     "Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
                     "Please ask an admin of your PostHog organization to grant you access."
                 ),
@@ -133,11 +263,12 @@ def resolve_slack_user(
         return SlackUserContext(user=posthog_user, slack_email=slack_email)
     except Exception as e:
         logger.exception("slack_app_user_lookup_failed", error=str(e))
-        slack.client.chat_postEphemeral(
-            channel=channel,
-            user=slack_user_id,
-            thread_ts=thread_ts,
-            text="Sorry, I encountered an error looking up your user account. Please try again later.",
+        _post_slack_user_feedback(
+            slack,
+            channel,
+            slack_user_id,
+            thread_ts,
+            "Sorry, I encountered an error looking up your user account. Please try again later.",
         )
         return None
 
@@ -517,27 +648,30 @@ def _parse_default_repo_command(text: str) -> DefaultRepoCommand | None:
     return None
 
 
-def _get_user_default_repo(team_id: int, user_id: int) -> str | None:
+def _get_user_default_repo(team_id: int, user_id: int, channel: str) -> str | None:
     from products.slack_app.backend.models import SlackUserRepoPreference
 
-    preference = SlackUserRepoPreference.objects.filter(team_id=team_id, user_id=user_id).first()
+    preference = SlackUserRepoPreference.objects.filter(team_id=team_id, user_id=user_id, channel=channel).first()
     return preference.repository if preference else None
 
 
-def _set_user_default_repo(team_id: int, user_id: int, repository: str) -> None:
+def _set_user_default_repo(team_id: int, user_id: int, channel: str, repository: str) -> None:
     from products.slack_app.backend.models import SlackUserRepoPreference
 
     SlackUserRepoPreference.objects.update_or_create(
         team_id=team_id,
         user_id=user_id,
+        channel=channel,
         defaults={"repository": repository},
     )
 
 
-def _clear_user_default_repo(team_id: int, user_id: int) -> bool:
+def _clear_user_default_repo(team_id: int, user_id: int, channel: str) -> bool:
     from products.slack_app.backend.models import SlackUserRepoPreference
 
-    deleted_count, _ = SlackUserRepoPreference.objects.filter(team_id=team_id, user_id=user_id).delete()
+    deleted_count, _ = SlackUserRepoPreference.objects.filter(
+        team_id=team_id, user_id=user_id, channel=channel
+    ).delete()
     return bool(deleted_count)
 
 
@@ -614,7 +748,7 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
 
 
 def _collect_thread_messages(
-    slack: SlackIntegration, channel: str, thread_ts: str, our_bot_id: str | None
+    slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, our_bot_id: str | None
 ) -> list[dict[str, str]]:
     """Fetch thread messages, strip bot mentions, and resolve user display names."""
     thread_response = slack.client.conversations_replies(channel=channel, ts=thread_ts)
@@ -625,7 +759,7 @@ def _collect_thread_messages(
     def resolve_user(uid: str) -> str:
         if uid not in user_cache:
             try:
-                user_info = slack.client.users_info(user=uid)
+                user_info = _get_slack_user_info(slack, integration, uid)
                 profile = user_info.get("user", {}).get("profile", {})  # type: ignore[call-overload]
                 user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
             except Exception:
@@ -693,7 +827,7 @@ def guess_repository(
     conversation_text = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
 
     response = client.chat.completions.create(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-haiku-4-5",
         messages=[
             {
                 "role": "system",
@@ -732,6 +866,7 @@ def select_repository(
     thread_messages: list[dict[str, str]],
     integration: Integration,
     user: User,
+    channel: str,
     all_repos: list[str],
 ) -> RepoDecision:
     if not all_repos:
@@ -744,12 +879,12 @@ def select_repository(
     if explicit_repo:
         return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_called=False)
 
-    user_default_repo = _get_user_default_repo(integration.team_id, user.id)
+    user_default_repo = _get_user_default_repo(integration.team_id, user.id, channel)
     if user_default_repo and user_default_repo in all_repos:
         return RepoDecision(mode="auto", repository=user_default_repo, reason="user_default_repo", llm_called=False)
 
     if user_default_repo and user_default_repo not in all_repos:
-        _clear_user_default_repo(integration.team_id, user.id)
+        _clear_user_default_repo(integration.team_id, user.id, channel)
 
     return RepoDecision(mode="picker", repository=None, reason="no_explicit_multi_repo", llm_called=False)
 
@@ -917,6 +1052,7 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
         team_id=integration.team_id,
     )
 
+    slack: SlackIntegration | None = None
     try:
         slack = SlackIntegration(integration)
 
@@ -929,24 +1065,32 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
             all_repos = _get_full_repo_names(integration)
 
             if default_repo_command.action == "show":
-                default_repo = _get_user_default_repo(integration.team_id, user_context.user.id)
+                default_repo = _get_user_default_repo(integration.team_id, user_context.user.id, channel)
                 if default_repo:
                     slack.client.chat_postMessage(
                         channel=channel,
                         thread_ts=thread_ts,
-                        text=f"Your default repository is `{default_repo}`.",
+                        text=f"Your default repository in this channel is `{default_repo}`.",
                     )
                 else:
                     slack.client.chat_postMessage(
                         channel=channel,
                         thread_ts=thread_ts,
-                        text="You don't have a default repository set. Use `@Twig default repo set org/repo`.",
+                        text=(
+                            "You don't have a default repository set. "
+                            "Use `@Twig default repo set org/repo`, "
+                            "or include `org/repo` directly in a single task request."
+                        ),
                     )
                 return
 
             if default_repo_command.action == "clear":
-                cleared = _clear_user_default_repo(integration.team_id, user_context.user.id)
-                text = "Cleared your default repository." if cleared else "You don't have a default repository set."
+                cleared = _clear_user_default_repo(integration.team_id, user_context.user.id, channel)
+                text = (
+                    "Cleared your default repository for this channel."
+                    if cleared
+                    else "You don't have a default repository set for this channel."
+                )
                 slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
                 return
 
@@ -993,18 +1137,18 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
                 )
                 return
 
-            _set_user_default_repo(integration.team_id, user_context.user.id, explicit_repo)
+            _set_user_default_repo(integration.team_id, user_context.user.id, channel, explicit_repo)
             slack.client.chat_postMessage(
                 channel=channel,
                 thread_ts=thread_ts,
-                text=f"Set your default repository to `{explicit_repo}`.",
+                text=f"Set your default repository for this channel to `{explicit_repo}`.",
             )
             return
 
         auth_response = slack.client.auth_test()
         our_bot_id = auth_response.get("bot_id")
 
-        thread_messages = _collect_thread_messages(slack, channel, thread_ts, our_bot_id)
+        thread_messages = _collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id)
         if not thread_messages:
             return
 
@@ -1014,6 +1158,7 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
             thread_messages=thread_messages,
             integration=integration,
             user=user_context.user,
+            channel=channel,
             all_repos=all_repos,
         )
         logger.info(
@@ -1073,6 +1218,15 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
 
     except Exception as e:
         logger.exception("twig_app_mention_failed", error=str(e))
+        if slack and channel and thread_ts:
+            try:
+                slack.client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text="Sorry, I hit an internal error while processing that request. Please try again.",
+                )
+            except Exception:
+                logger.warning("twig_error_notification_failed", channel=channel, thread_ts=thread_ts)
 
 
 @csrf_exempt

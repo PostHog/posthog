@@ -191,7 +191,7 @@ class TestRepoPickerOptions(TestCase):
         }
         response = self._post_interactivity(payload)
         assert response.status_code == 200
-        mock_delay.assert_called_once_with(payload)
+        mock_delay.assert_called_once_with({"team": {"id": "T12345"}, **payload})
 
     @patch("products.slack_app.backend.tasks.process_twig_task_termination.delay")
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
@@ -218,7 +218,7 @@ class TestRepoPickerOptions(TestCase):
         }
         response = self._post_interactivity(payload)
         assert response.status_code == 200
-        mock_delay.assert_called_once_with(payload)
+        mock_delay.assert_called_once_with({"team": {"id": "T12345"}, **payload})
 
     @patch("products.slack_app.backend.tasks.process_twig_repo_selection.delay")
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
@@ -240,7 +240,7 @@ class TestRepoPickerOptions(TestCase):
         }
         response = self._post_interactivity(payload)
         assert response.status_code == 200
-        mock_delay.assert_called_once_with(payload)
+        mock_delay.assert_called_once_with({"team": {"id": "T12345"}, **payload})
 
 
 class TestProcessTwigRepoSelection(TestCase):
@@ -410,7 +410,7 @@ class TestProcessTwigRepoSelection(TestCase):
         process_twig_repo_selection(self._make_payload(action_id="twig_default_repo_select", repo="posthog/posthog-js"))
 
         mock_create_task.assert_not_called()
-        preference = SlackUserRepoPreference.objects.get(team=self.team, user=self.user)
+        preference = SlackUserRepoPreference.objects.get(team=self.team, user=self.user, channel="C001")
         assert preference.repository == "posthog/posthog-js"
 
     @patch("products.tasks.backend.models.TaskRun")
@@ -475,6 +475,41 @@ class TestProcessTwigRepoSelection(TestCase):
     @patch("posthog.models.integration.Integration")
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.temporal.common.client.sync_connect")
+    def test_terminate_action_without_expected_user_is_denied(
+        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
+    ):
+        from products.slack_app.backend.tasks import process_twig_task_termination
+
+        payload = {
+            "type": "block_actions",
+            "team": {"id": "T12345"},
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "twig_terminate_task",
+                    "value": json.dumps(
+                        {
+                            "run_id": "run-1",
+                            "integration_id": self.twig_integration.id,
+                        }
+                    ),
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+
+        process_twig_task_termination(payload)
+
+        mock_integration_model.objects.get.assert_not_called()
+        mock_task_run_model.objects.select_related.assert_not_called()
+        mock_sync_connect.assert_not_called()
+        mock_slack_integration.assert_not_called()
+
+    @patch("products.tasks.backend.models.TaskRun")
+    @patch("posthog.models.integration.Integration")
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.common.client.sync_connect")
     def test_terminate_action_on_terminal_run_posts_feedback(
         self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
     ):
@@ -526,20 +561,16 @@ class TestProcessTwigRepoSelection(TestCase):
     @patch("posthog.models.integration.Integration")
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.temporal.common.client.sync_connect")
-    def test_terminate_action_on_team_mismatch_posts_feedback(
+    def test_terminate_action_with_mismatched_team_run_is_noop(
         self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
     ):
         from products.slack_app.backend.tasks import process_twig_task_termination
 
-        mock_run = MagicMock()
-        mock_run.id = "run-1"
-        mock_run.task_id = "task-1"
-        mock_run.team_id = 999999
-        mock_run.status = "in_progress"
+        mock_task_run_model.DoesNotExist = Exception
         mock_task_run_model.Status.COMPLETED = "completed"
         mock_task_run_model.Status.FAILED = "failed"
         mock_task_run_model.Status.CANCELLED = "cancelled"
-        mock_task_run_model.objects.select_related.return_value.get.return_value = mock_run
+        mock_task_run_model.objects.select_related.return_value.get.side_effect = mock_task_run_model.DoesNotExist
 
         mock_integration = MagicMock()
         mock_integration.team_id = self.team.id
@@ -571,4 +602,4 @@ class TestProcessTwigRepoSelection(TestCase):
         process_twig_task_termination(payload)
 
         mock_sync_connect.assert_not_called()
-        mock_slack_client.chat_postMessage.assert_called_once()
+        mock_slack_client.chat_postMessage.assert_not_called()

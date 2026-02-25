@@ -26,6 +26,7 @@ class Migration(migrations.Migration):
                         verbose_name="ID",
                     ),
                 ),
+                ("channel", models.CharField(max_length=64)),
                 ("repository", models.CharField(max_length=255)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
@@ -49,6 +50,44 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="slackuserrepopreference",
-            constraint=models.UniqueConstraint(fields=("team", "user"), name="uniq_slack_repo_pref_team_user"),
+            constraint=models.UniqueConstraint(
+                fields=("team", "user", "channel"),
+                name="uniq_slack_repo_pref_team_user_channel",
+            ),
+        ),
+        migrations.CreateModel(
+            name="SlackUserProfileCache",
+            fields=[
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("slack_user_id", models.CharField(max_length=64)),
+                ("email", models.EmailField(blank=True, max_length=254, null=True)),
+                ("display_name", models.CharField(blank=True, default="", max_length=255)),
+                ("real_name", models.CharField(blank=True, default="", max_length=255)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "integration",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="slack_user_profile_cache",
+                        to="posthog.integration",
+                    ),
+                ),
+            ],
+        ),
+        migrations.AddConstraint(
+            model_name="slackuserprofilecache",
+            constraint=models.UniqueConstraint(
+                fields=("integration", "slack_user_id"),
+                name="uniq_slack_user_profile_cache_integration_user",
+            ),
         ),
     ]

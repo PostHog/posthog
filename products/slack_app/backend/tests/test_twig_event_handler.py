@@ -457,7 +457,7 @@ class TestHandleTwigAppMention(TestCase):
         event = self._make_event(text="<@UBOT> default repo set posthog/posthog-js", ts="7.007")
         handle_twig_app_mention(event, self.twig_integration)
 
-        preference = SlackUserRepoPreference.objects.get(team=self.team, user=self.user)
+        preference = SlackUserRepoPreference.objects.get(team=self.team, user=self.user, channel="C001")
         assert preference.repository == "posthog/posthog-js"
         mock_client.chat_postMessage.assert_called_once()
         assert "Set your default repository" in mock_client.chat_postMessage.call_args.kwargs["text"]
@@ -467,7 +467,12 @@ class TestHandleTwigAppMention(TestCase):
     def test_default_repo_show_command_posts_current_value(self, mock_webclient_class, mock_resolve):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        SlackUserRepoPreference.objects.create(team=self.team, user=self.user, repository="posthog/posthog")
+        SlackUserRepoPreference.objects.create(
+            team=self.team,
+            user=self.user,
+            channel="C001",
+            repository="posthog/posthog",
+        )
 
         from products.slack_app.backend.api import SlackUserContext, handle_twig_app_mention
 
@@ -483,7 +488,12 @@ class TestHandleTwigAppMention(TestCase):
     def test_default_repo_clear_command_deletes_value(self, mock_webclient_class, mock_resolve):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        SlackUserRepoPreference.objects.create(team=self.team, user=self.user, repository="posthog/posthog")
+        SlackUserRepoPreference.objects.create(
+            team=self.team,
+            user=self.user,
+            channel="C001",
+            repository="posthog/posthog",
+        )
 
         from products.slack_app.backend.api import SlackUserContext, handle_twig_app_mention
 
@@ -491,7 +501,7 @@ class TestHandleTwigAppMention(TestCase):
         event = self._make_event(text="<@UBOT> default repo clear", ts="9.009")
         handle_twig_app_mention(event, self.twig_integration)
 
-        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user).count() == 0
+        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user, channel="C001").count() == 0
         mock_client.chat_postMessage.assert_called_once()
         assert "Cleared your default repository" in mock_client.chat_postMessage.call_args.kwargs["text"]
 
