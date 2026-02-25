@@ -108,9 +108,10 @@ export function getLevelOptionsForResource(
     const maximum = options?.maximum
     const customDisabledReason = options?.disabledReason
 
+    const minIndex = minimum ? availableLevels.indexOf(minimum) : -1
+    const maxIndex = maximum ? availableLevels.indexOf(maximum) : availableLevels.length
+
     return availableLevels.map((level) => {
-        const minIndex = minimum ? availableLevels.indexOf(minimum) : -1
-        const maxIndex = maximum ? availableLevels.indexOf(maximum) : availableLevels.length
         const currentIndex = availableLevels.indexOf(level)
         const isDisabled = (minIndex >= 0 && currentIndex < minIndex) || (maxIndex >= 0 && currentIndex > maxIndex)
 
