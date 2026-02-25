@@ -43,7 +43,7 @@ function isValidSentimentResult(value: unknown): value is SentimentResult {
     return !!value && typeof value === 'object' && 'label' in value && !('error' in value)
 }
 
-const BATCH_MAX_SIZE = 10
+const BATCH_MAX_SIZE = 5
 
 function chunk<T>(arr: T[], size: number): T[][] {
     const chunks: T[][] = []
