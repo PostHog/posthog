@@ -24,6 +24,7 @@ import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { isExperimentCreationIncomplete } from '../experimentsLogic'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -484,7 +485,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         lemonToast.success('Experiment updated successfully!')
                     } else {
                         // Create flow
-                        actions.reportExperimentCreated(response)
+                        const isWizard = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]
+                        actions.reportExperimentCreated(response, {
+                            creation_source: isWizard ? 'wizard' : 'classic_form',
+                            has_linked_flag: !!response.feature_flag?.id,
+                        })
                         actions.addProductIntent({
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
@@ -498,7 +503,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.saveExperimentSuccess()
                     clearDraftStorage(props.tabId)
 
-                    if (props.tabId) {
+                    if (isExperimentCreationIncomplete(response)) {
+                        router.actions.push(urls.experiments())
+                    } else if (props.tabId) {
                         const sceneLogicInstance = experimentSceneLogic({ tabId: props.tabId })
                         sceneLogicInstance.actions.setSceneState(response.id, FORM_MODES.update)
                         const logicRef = sceneLogicInstance.values.experimentLogicRef

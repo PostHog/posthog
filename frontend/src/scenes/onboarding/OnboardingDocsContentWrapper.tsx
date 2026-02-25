@@ -133,7 +133,7 @@ function CodeBlock({
 
     const replacePlaceholders = (codeString: string): string => {
         return codeString
-            .replace(/<ph_project_api_key>/g, currentTeam?.api_token ?? '<ph_project_api_key>')
+            .replace(/<ph_project_token>/g, currentTeam?.api_token ?? '<ph_project_token>')
             .replace(/<ph_client_api_host>/g, host)
             .replace(/<team_id>/g, currentTeam?.id?.toString() ?? '<team_id>')
     }

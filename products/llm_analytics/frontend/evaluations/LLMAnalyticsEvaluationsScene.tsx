@@ -28,15 +28,15 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import { providerKeyStateLabel, providerLabel } from '../settings/providerKeyStateUtils'
-import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
+import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import {
     EvaluationMetrics,
     PASS_RATE_SUCCESS_THRESHOLD,
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
+import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig } from './types'
 

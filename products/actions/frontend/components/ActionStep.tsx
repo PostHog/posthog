@@ -5,12 +5,12 @@ import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/le
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
 import { groupsModel } from '~/models/groupsModel'
 import {

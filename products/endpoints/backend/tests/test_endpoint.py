@@ -12,6 +12,7 @@ from rest_framework import status
 from posthog.schema import EndpointLastExecutionTimesRequest
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -120,8 +121,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("event_name", response.json()["detail"])
 
     def test_create_endpoint_with_defined_variable_placeholders(self):
-        from posthog.models.insight_variable import InsightVariable
-
         variable = InsightVariable.objects.create(
             team=self.team, name="Event Name", code_name="event_name", type="String"
         )
@@ -146,8 +145,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
 
     def test_cannot_create_endpoint_with_partially_defined_variables(self):
-        from posthog.models.insight_variable import InsightVariable
-
         variable = InsightVariable.objects.create(
             team=self.team, name="Event Name", code_name="event_name", type="String"
         )
@@ -192,6 +189,68 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
         self.assertIn("event_name", response.json()["detail"])
+
+    def test_update_endpoint_syncs_query_variables_from_placeholders(self):
+        event_name_variable = InsightVariable.objects.create(
+            team=self.team, name="Event Name", code_name="event_name", type="String", default_value="$pageview"
+        )
+        browser_variable = InsightVariable.objects.create(
+            team=self.team, name="Browser", code_name="browser", type="String", default_value="Chrome"
+        )
+        city_variable = InsightVariable.objects.create(
+            team=self.team, name="City", code_name="city", type="String", default_value="Paris"
+        )
+
+        create_data = {
+            "name": "test_query",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.$browser = {variables.browser}",
+                "variables": {
+                    str(event_name_variable.id): {
+                        "variableId": str(event_name_variable.id),
+                        "code_name": "event_name",
+                        "value": "$identify",
+                    },
+                    str(browser_variable.id): {
+                        "variableId": str(browser_variable.id),
+                        "code_name": "browser",
+                        "value": "Safari",
+                    },
+                },
+            },
+        }
+        create_response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
+        self.assertEqual(status.HTTP_201_CREATED, create_response.status_code, create_response.json())
+
+        update_data = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.$geoip_city_name = {variables.city}",
+                "variables": {
+                    str(event_name_variable.id): {
+                        "variableId": str(event_name_variable.id),
+                        "code_name": "event_name",
+                        "value": "$pageleave",
+                    },
+                    str(browser_variable.id): {
+                        "variableId": str(browser_variable.id),
+                        "code_name": "browser",
+                        "value": "Firefox",
+                    },
+                },
+            }
+        }
+        update_response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/test_query/", update_data, format="json"
+        )
+
+        self.assertEqual(status.HTTP_200_OK, update_response.status_code, update_response.json())
+
+        variables = update_response.json()["query"]["variables"]
+        self.assertEqual({v["code_name"] for v in variables.values()}, {"event_name", "city"})
+        self.assertEqual(variables[str(event_name_variable.id)]["value"], "$pageleave")
+        self.assertEqual(variables[str(city_variable.id)]["value"], "Paris")
 
     def test_cannot_create_endpoint_with_non_uuid_variable_id(self):
         create_data = {
@@ -309,7 +368,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("is_active", changed_fields)
 
     def test_delete_endpoint(self):
-        """Test deleting a endpoint."""
         endpoint = create_endpoint_with_version(
             name="delete_test",
             team=self.team,
@@ -318,14 +376,72 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/delete_test/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
+        # Endpoint still exists in database but is soft-deleted
+        endpoint.refresh_from_db()
+        self.assertTrue(endpoint.deleted)
+        self.assertIsNotNone(endpoint.deleted_at)
+
+        # Not visible in list
+        list_response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        names = [e["name"] for e in list_response.json()["results"]]
+        self.assertNotIn("delete_test", names)
+
+        # Not accessible via retrieve
+        retrieve_response = self.client.get(f"/api/environments/{self.team.id}/endpoints/delete_test/")
+        self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Activity log still created
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Endpoint", activity="deleted")
         self.assertEqual(logs.count(), 1, list(logs.values("activity", "scope", "item_id")))
         log = logs.latest("created_at")
         self.assertEqual(log.item_id, str(endpoint.id))
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "delete_test")
+
+    def test_delete_endpoint_prevents_hard_delete(self):
+        endpoint = create_endpoint_with_version(
+            name="hard_delete_test",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        with self.assertRaises(Exception, msg="Cannot hard delete Endpoint"):
+            endpoint.delete()
+
+    def test_create_endpoint_after_soft_delete_reuses_name(self):
+        endpoint = create_endpoint_with_version(
+            name="reusable_name",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+
+        delete_response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/reusable_name/")
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        endpoint.refresh_from_db()
+        self.assertTrue(endpoint.deleted)
+
+        # Create a new endpoint with the same name
+        data = {"name": "reusable_name", "query": self.sample_hogql_query}
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.json()["name"], "reusable_name")
+
+    def test_soft_deleted_endpoint_not_runnable(self):
+        create_endpoint_with_version(
+            name="run_deleted",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        self.client.delete(f"/api/environments/{self.team.id}/endpoints/run_deleted/")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/run_deleted/run/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_invalid_query_name_validation(self):
         """Test validation of invalid query names."""

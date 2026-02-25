@@ -15,9 +15,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { GraphsHog, PopUpBinocularsHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { GraphsHog, PopUpBinocularsHog } from 'lib/components/hedgehogs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -27,8 +27,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SourcesModal } from './SourcesModal'
 import { inboxSceneLogic } from './inboxSceneLogic'
+import { SourcesModal } from './SourcesModal'
 import { SignalReport, SignalReportArtefact } from './types'
 
 export const scene: SceneExport = {

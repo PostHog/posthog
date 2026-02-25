@@ -61,14 +61,18 @@ from posthog.models import (
     Insight,
     InsightViewed,
 )
-from posthog.models.event_definition import EventDefinition
 from posthog.models.oauth import OAuthApplication
-from posthog.models.property_definition import PropertyType
-from posthog.models.schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from posthog.storage import object_storage
 
 from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.event_definitions.backend.models.property_definition import PropertyType
+from products.event_definitions.backend.models.schema import (
+    EventSchema,
+    SchemaPropertyGroup,
+    SchemaPropertyGroupProperty,
+)
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (

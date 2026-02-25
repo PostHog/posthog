@@ -7,6 +7,7 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, Lemo
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -193,9 +194,27 @@ export function SupportTicketsScene(): JSX.Element {
                             ? () => setCurrentPage(currentPage + 1)
                             : undefined,
                 }}
-                onRow={(ticket) => ({
-                    onClick: () => push(urls.supportTicketDetail(ticket.id)),
-                })}
+                onRow={(ticket) => {
+                    const ticketUrl = urls.supportTicketDetail(ticket.id)
+                    return {
+                        onClick: (e: React.MouseEvent) => {
+                            if (e.metaKey || e.ctrlKey) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            } else {
+                                push(ticketUrl)
+                            }
+                        },
+                        onAuxClick: (e: React.MouseEvent) => {
+                            if (e.button === 1) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            }
+                        },
+                    }
+                }}
                 rowClassName={(ticket) =>
                     clsx({
                         'bg-primary-alt-highlight': ticket.unread_team_count > 0,
