@@ -519,6 +519,12 @@ tools:
     tool:download-mmdb:
         bin_script: download-mmdb
         description: Download and cache GeoLite2 MaxMind database with retry logic
+    tool:download-sentiment-model:
+        bin_script: download-sentiment-model
+        description: Download and export sentiment ONNX model for local LLM Analytics
+            development
+        services:
+            - temporal
     tool:hog:
         bin_script: hog
         description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode
