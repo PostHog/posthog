@@ -111,7 +111,7 @@ export function Navigation({
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative lg:mr-1 lg:mb-1',
+                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1',
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
                                 'rounded-r-none': sidePanelOpen,
