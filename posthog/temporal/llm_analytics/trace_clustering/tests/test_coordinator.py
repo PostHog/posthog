@@ -80,6 +80,7 @@ class TestTraceClusteringCoordinatorWorkflow:
 
         assert inputs.remaining_team_ids == [100, 200, 300]
         assert inputs.per_team_filters == {"100": [{"event": "$ai_generation"}]}
+        assert inputs.results_so_far is not None
         assert inputs.results_so_far["teams_succeeded"] == 5
 
     def test_empty_clustering_results(self):
