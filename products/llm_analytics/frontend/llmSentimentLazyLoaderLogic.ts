@@ -199,29 +199,31 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
 
                     const chunks = chunk(allIds, BATCH_MAX_SIZE)
 
-                    for (const batch of chunks) {
-                        try {
-                            const response = await api.create<BatchSentimentResponse>(
-                                `api/environments/${teamId}/llm_analytics/sentiment/`,
-                                {
-                                    trace_ids: batch,
-                                    date_from: dateRangeForBatch?.dateFrom || undefined,
-                                    date_to: dateRangeForBatch?.dateTo || undefined,
+                    await Promise.allSettled(
+                        chunks.map(async (batch) => {
+                            try {
+                                const response = await api.create<BatchSentimentResponse>(
+                                    `api/environments/${teamId}/llm_analytics/sentiment/`,
+                                    {
+                                        trace_ids: batch,
+                                        date_from: dateRangeForBatch?.dateFrom || undefined,
+                                        date_to: dateRangeForBatch?.dateTo || undefined,
+                                    }
+                                )
+
+                                const results: Record<string, SentimentResult | null> = {}
+
+                                for (const traceId of batch) {
+                                    const raw = response.results[traceId]
+                                    results[traceId] = isValidSentimentResult(raw) ? raw : null
                                 }
-                            )
 
-                            const results: Record<string, SentimentResult | null> = {}
-
-                            for (const traceId of batch) {
-                                const raw = response.results[traceId]
-                                results[traceId] = isValidSentimentResult(raw) ? raw : null
+                                actions.loadSentimentBatchSuccess(results, batch)
+                            } catch {
+                                actions.loadSentimentBatchFailure(batch)
                             }
-
-                            actions.loadSentimentBatchSuccess(results, batch)
-                        } catch {
-                            actions.loadSentimentBatchFailure(batch)
-                        }
-                    }
+                        })
+                    )
                 }, 0)
             },
         }
