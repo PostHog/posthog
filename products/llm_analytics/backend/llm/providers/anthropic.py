@@ -325,8 +325,24 @@ class AnthropicAdapter:
 
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
-        """List available Anthropic models."""
-        return AnthropicConfig.SUPPORTED_MODELS
+        """List available Anthropic models.
+
+        Without a key, returns the curated SUPPORTED_MODELS list.
+        With a key, returns SUPPORTED_MODELS first, then remaining Claude models
+        from the API sorted alphabetically.
+        """
+        if not api_key:
+            return AnthropicConfig.SUPPORTED_MODELS
+
+        supported = set(AnthropicConfig.SUPPORTED_MODELS)
+        try:
+            client = anthropic.Anthropic(api_key=api_key, timeout=AnthropicConfig.TIMEOUT)
+            api_models = client.models.list(limit=1000)
+            other = sorted(m.id for m in api_models.data if m.id not in supported and m.id.startswith("claude-"))
+            return list(AnthropicConfig.SUPPORTED_MODELS) + other
+        except Exception:
+            logger.exception("Error fetching Anthropic models from API")
+            return AnthropicConfig.SUPPORTED_MODELS
 
     @staticmethod
     def get_api_key() -> str:
