@@ -5,7 +5,7 @@ import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
-import { Hub } from '../../../types'
+import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -13,30 +13,31 @@ import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
 
-export type EmailServiceHub = Pick<
-    Hub,
-    | 'SES_ACCESS_KEY_ID'
-    | 'SES_SECRET_ACCESS_KEY'
-    | 'SES_REGION'
-    | 'SES_ENDPOINT'
-    | 'SITE_URL'
-    | 'ENCRYPTION_SALT_KEYS'
-    | 'integrationManager'
->
+export interface EmailServiceConfig {
+    sesAccessKeyId: string
+    sesSecretAccessKey: string
+    sesRegion: string
+    sesEndpoint: string
+}
 
 export class EmailService {
     sesV2Client: SESv2Client | null
 
     private recipientTokensService: RecipientTokensService
 
-    constructor(private hub: EmailServiceHub) {
-        this.sesV2Client = this.hub.SES_REGION
+    constructor(
+        private sesConfig: EmailServiceConfig,
+        private integrationManager: IntegrationManagerService,
+        encryptionSaltKeys: string,
+        siteUrl: string
+    ) {
+        this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
-                  region: this.hub.SES_REGION,
-                  endpoint: this.hub.SES_ENDPOINT || undefined,
+                  region: this.sesConfig.sesRegion,
+                  endpoint: this.sesConfig.sesEndpoint || undefined,
               })
             : null
-        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
     }
 
     // Send email
@@ -57,7 +58,7 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         const params = invocation.queueParameters
-        const integration = await this.hub.integrationManager.get(params.from.integrationId)
+        const integration = await this.integrationManager.get(params.from.integrationId)
 
         let success: boolean = false
 
