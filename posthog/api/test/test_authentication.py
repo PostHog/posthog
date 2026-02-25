@@ -1465,7 +1465,8 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertFalse(self.user.check_password("a12345678"))
 
-    def test_password_change_invalidates_reset_token(self):
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_password_change_invalidates_reset_token(self, mock_send_email):
         token = password_reset_token_generator.make_token(self.user)
         self.assertTrue(password_reset_token_generator.check_token(self.user, token))
 
