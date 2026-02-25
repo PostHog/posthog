@@ -317,20 +317,24 @@ def _create_dashboards(
     return created
 
 
+def _count_events_in_clickhouse(team_id: int) -> int:
+    from posthog.clickhouse.client import sync_execute
+
+    rows: list[tuple[int]] = sync_execute(  # type: ignore[assignment]
+        "SELECT count() FROM events WHERE team_id = %(team_id)s",
+        {"team_id": team_id},
+    )
+    return rows[0][0]
+
+
 def _wait_for_events_in_clickhouse(team_id: int, expected_count: int, timeout_seconds: int = 10) -> None:
     """Poll ClickHouse until the expected number of events appear, or timeout."""
     import time
 
-    from posthog.clickhouse.client import sync_execute
-
     deadline = time.monotonic() + timeout_seconds
     count = 0
     while time.monotonic() < deadline:
-        result = sync_execute(
-            "SELECT count() FROM events WHERE team_id = %(team_id)s",
-            {"team_id": team_id},
-        )
-        count = int(result[0][0])  # type: ignore[index]
+        count = _count_events_in_clickhouse(team_id)
         if count >= expected_count:
             return
         time.sleep(0.5)
@@ -369,8 +373,10 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
     for event_name in event_names:
         EventDefinition.objects.get_or_create(team=team, name=event_name, defaults={"project_id": team.project_id})
 
+    baseline_count = _count_events_in_clickhouse(team.pk)
+
     for event_spec in data.events:
-        ts = datetime.fromisoformat(event_spec.timestamp)
+        ts = datetime.fromisoformat(event_spec.timestamp.replace("Z", "+00:00"))
         create_event(
             event_uuid=UUIDT(unix_time_ms=int(ts.timestamp() * 1000)),
             event=event_spec.event,
@@ -381,7 +387,7 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
             person_id=uuid_module.UUID(person_uuids[event_spec.distinct_id]),
         )
 
-    _wait_for_events_in_clickhouse(team.pk, len(data.events))
+    _wait_for_events_in_clickhouse(team.pk, baseline_count + len(data.events))
 
 
 @dataclass(frozen=True)
