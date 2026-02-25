@@ -72,19 +72,6 @@ class AnthropicConfig:
         "claude-sonnet-4-0",
     ]
 
-    # Models shown prominently in the picker UI, newest first.
-    # Other models from the API are shown in a collapsed section.
-    RECOMMENDED_MODELS: list[str] = [
-        "claude-sonnet-4-6",
-        "claude-opus-4-6",
-        "claude-opus-4-5",
-        "claude-haiku-4-5",
-        "claude-sonnet-4-5",
-        "claude-opus-4-1",
-        "claude-opus-4-0",
-        "claude-sonnet-4-0",
-    ]
-
 
 class AnthropicAdapter:
     """Anthropic provider implementing the unified Client interface."""
@@ -325,7 +312,7 @@ class AnthropicAdapter:
 
     @staticmethod
     def recommended_models() -> set[str]:
-        return set(AnthropicConfig.RECOMMENDED_MODELS)
+        return set(AnthropicConfig.SUPPORTED_MODELS)
 
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:

@@ -40,24 +40,11 @@ class GeminiConfig:
     TIMEOUT: int = 300_000
 
     SUPPORTED_MODELS: list[str] = [
+        "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview",
         "gemini-3-flash-preview",
-        "gemini-2.5-flash-preview-09-2025",
-        "gemini-2.5-flash-lite-preview-09-2025",
         "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-    ]
-
-    # Models shown prominently in the picker UI, newest first.
-    # Other models from the API are shown in a collapsed section.
-    RECOMMENDED_MODELS: list[str] = [
-        "gemini-3-flash-preview",
-        "gemini-2.5-flash-preview-09-2025",
-        "gemini-2.5-flash-lite-preview-09-2025",
-        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
@@ -228,7 +215,7 @@ class GeminiAdapter:
 
     @staticmethod
     def recommended_models() -> set[str]:
-        return set(GeminiConfig.RECOMMENDED_MODELS)
+        return set(GeminiConfig.SUPPORTED_MODELS)
 
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
@@ -236,7 +223,7 @@ class GeminiAdapter:
 
         Without a key, returns the curated SUPPORTED_MODELS list.
         With a key, returns SUPPORTED_MODELS first, then remaining Gemini models
-        sorted reverse alphabetically (Gemini's API doesn't expose creation timestamps).
+        from the API sorted alphabetically.
         """
         if not api_key:
             return GeminiConfig.SUPPORTED_MODELS
