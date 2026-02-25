@@ -8,8 +8,8 @@ category: Cohorts
 feature: cohorts
 url_prefix: /cohorts
 tools:
-    persons-cohorts-retrieve:
-        operation: persons_cohorts_retrieve
+    environments-persons-cohorts-retrieve:
+        operation: environments_persons_cohorts_retrieve
         enabled: false
     cohorts-list:
         operation: cohorts_list
@@ -24,9 +24,9 @@ tools:
         list: true
         title: List all cohorts
         description: >
-            List all cohorts in the project. Cohorts are groups of users that share common properties
-            or behaviors. Returns both static cohorts (manually defined user lists) and dynamic cohorts
-            (automatically updated based on filters). Use the 'type' parameter to filter by cohort type.
+            List all cohorts in the project. Cohorts are groups of users that share common properties or behaviors.
+            Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based
+            on filters). Use the 'type' parameter to filter by cohort type.
         mcp_version: 1
     cohorts-create:
         operation: cohorts_create
@@ -40,11 +40,10 @@ tools:
         enrich_url: '{id}'
         title: Create cohort
         description: >
-            Create a new cohort. For dynamic cohorts, provide 'filters' with property conditions.
-            For static cohorts, set 'is_static: true', then use 'cohorts-add-persons-to-static-cohort'
-            to add person UUIDs. Dynamic cohort filters use a nested structure with AND/OR groups
-            containing person property filters (type: "person"), behavioral filters (type: "behavioral"),
-            or references to other cohorts (type: "cohort").
+            Create a new cohort. For dynamic cohorts, provide 'filters' with property conditions. For static cohorts,
+            set 'is_static: true', then use 'cohorts-add-persons-to-static-cohort' to add person UUIDs. Dynamic cohort
+            filters use a nested structure with AND/OR groups containing person property filters (type: "person"),
+            behavioral filters (type: "behavioral"), or references to other cohorts (type: "cohort").
         exclude_params:
             - groups
             - deleted
@@ -71,8 +70,8 @@ tools:
         enrich_url: '{id}'
         title: Get cohort
         description: >
-            Get a specific cohort by ID. Returns the cohort configuration including name, description,
-            filters (for dynamic cohorts), count of matching users, and calculation status.
+            Get a specific cohort by ID. Returns the cohort configuration including name, description, filters (for
+            dynamic cohorts), count of matching users, and calculation status.
         mcp_version: 1
     cohorts-update:
         operation: cohorts_update
@@ -89,10 +88,9 @@ tools:
         enrich_url: '{id}'
         title: Update cohort
         description: >
-            Update an existing cohort. Can update name, description, and filters. For dynamic cohorts,
-            changing filters will trigger a recalculation of matching users. Note: cohorts used in
-            active feature flags cannot have behavioral filters added. To delete a cohort, set
-            'deleted: true' (soft delete).
+            Update an existing cohort. Can update name, description, and filters. For dynamic cohorts, changing filters
+            will trigger a recalculation of matching users. Note: cohorts used in active feature flags cannot have
+            behavioral filters added. To delete a cohort, set 'deleted: true' (soft delete).
         exclude_params:
             - groups
             - version
@@ -107,7 +105,6 @@ tools:
             - experiment_set
         mcp_version: 1
     cohorts-destroy:
-        # Disabled: backend uses ForbidDestroyModel (returns 405). Use cohorts-partial-update with deleted: true instead.
         operation: cohorts_destroy
         enabled: false
     cohorts-activity-retrieve:
@@ -125,8 +122,8 @@ tools:
         enrich_url: '{id}'
         title: Add persons to static cohort
         description: >
-            Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
-            Provide a list of person UUIDs in 'person_ids'. Maximum batch size is limited.
+            Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true). Provide a
+            list of person UUIDs in 'person_ids'. Maximum batch size is limited.
         mcp_version: 1
     cohorts-calculation-history-retrieve:
         operation: cohorts_calculation_history_retrieve
@@ -146,7 +143,9 @@ tools:
         enrich_url: '{id}'
         title: Remove person from static cohort
         description: >
-            Remove a person from a static cohort by their UUID. Only works for static cohorts
-            (is_static: true). This operation is idempotent - removing a person who isn't in the
-            cohort will succeed without error.
+            Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). This
+            operation is idempotent - removing a person who isn't in the cohort will succeed without error.
         mcp_version: 1
+    persons-cohorts-retrieve:
+        operation: persons_cohorts_retrieve
+        enabled: false
