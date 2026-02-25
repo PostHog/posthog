@@ -29,7 +29,7 @@ export interface TaskDetailPageProps {
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
     const { task, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll } = useValues(sceneLogic)
-    const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
+    const { setSelectedRunId, runTask, deleteTask, updateTask } = useActions(sceneLogic)
 
     if (!task) {
         return <div className="text-center py-8 text-muted">Task not found</div>
@@ -103,7 +103,10 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 description={null}
                 resourceType={{ type: 'task' }}
                 isLoading={false}
-                canEdit={false}
+                canEdit={true}
+                onNameChange={(newTitle) => updateTask({ data: { title: newTitle } })}
+                saveOnBlur={true}
+                renameDebounceMs={0}
                 forceBackTo={{
                     key: 'tasks',
                     name: 'Tasks',

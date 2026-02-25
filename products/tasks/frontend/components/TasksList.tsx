@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus } from '@posthog/icons'
+import { IconEllipsis, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
     LemonInput,
+    LemonMenu,
     LemonSelect,
     type LemonSelectOption,
     ProfilePicture,
@@ -26,7 +27,7 @@ export function TasksList(): JSX.Element {
     const { tasksLoading, repositories } = useValues(tasksLogic)
     const { setSearchQuery, setRepository, setStatus, openCreateModal, closeCreateModal } =
         useActions(taskTrackerSceneLogic)
-    const { openTask } = useActions(tasksLogic)
+    const { openTask, deleteTask } = useActions(tasksLogic)
 
     const columns: LemonTableColumn<Task, keyof Task | undefined>[] = [
         {
@@ -92,6 +93,25 @@ export function TasksList(): JSX.Element {
                 const days = Math.floor(diffInHours / 24)
                 return <span className="text-sm">{days}d ago</span>
             },
+        },
+        {
+            title: '',
+            key: undefined,
+            width: 0,
+            render: (_: any, task: Task) => (
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Delete',
+                            icon: <IconTrash />,
+                            status: 'danger',
+                            onClick: () => deleteTask({ taskId: task.id }),
+                        },
+                    ]}
+                >
+                    <LemonButton size="small" icon={<IconEllipsis />} onClick={(e) => e.stopPropagation()} />
+                </LemonMenu>
+            ),
         },
     ]
 
