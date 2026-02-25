@@ -1,31 +1,17 @@
-import { DateTime } from 'luxon'
-
-import { ParsedMessageData } from '../../session-recording/kafka/types'
 import { TeamForReplay } from '../../session-recording/teams/types'
+import { EventHeaders } from '../../types'
 import { PipelineResultType } from '../pipelines/results'
 import { TeamFilterStepInput, TeamTokenResolver, createTeamFilterStep } from './team-filter-step'
 
 describe('createTeamFilterStep', () => {
-    const createParsedMessage = (sessionId: string, token: string | null = 'test-token'): ParsedMessageData => ({
-        metadata: {
-            partition: 0,
-            topic: 'test-topic',
-            offset: 1,
-            timestamp: 1234567890,
-            rawSize: 100,
-        },
-        headers: token ? [{ token: Buffer.from(token) }] : [],
-        distinct_id: 'distinct_id',
-        session_id: sessionId,
+    const createHeaders = (token?: string): EventHeaders => ({
         token,
-        eventsByWindowId: { window1: [] },
-        eventsRange: { start: DateTime.fromMillis(0), end: DateTime.fromMillis(0) },
-        snapshot_source: null,
-        snapshot_library: null,
+        force_disable_person_processing: false,
+        historical_migration: false,
     })
 
-    const createInput = (sessionId: string, token: string | null = 'test-token'): TeamFilterStepInput => ({
-        parsedMessage: createParsedMessage(sessionId, token),
+    const createInput = (token?: string): TeamFilterStepInput => ({
+        headers: createHeaders(token),
     })
 
     const defaultTeam: TeamForReplay = {
@@ -40,14 +26,13 @@ describe('createTeamFilterStep', () => {
         }
 
         const step = createTeamFilterStep(mockTeamService)
-        const input = createInput('session-1')
+        const input = createInput('test-token')
 
         const result = await step(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             expect(result.value.team.teamId).toBe(1)
-            expect(result.value.parsedMessage.session_id).toBe('session-1')
         }
     })
 
@@ -58,7 +43,7 @@ describe('createTeamFilterStep', () => {
         }
 
         const step = createTeamFilterStep(mockTeamService)
-        const input = createInput('session-1', null)
+        const input = createInput(undefined)
 
         const result = await step(input)
 
@@ -76,7 +61,7 @@ describe('createTeamFilterStep', () => {
         }
 
         const step = createTeamFilterStep(mockTeamService)
-        const input = createInput('session-1')
+        const input = createInput('test-token')
 
         const result = await step(input)
 
@@ -94,7 +79,7 @@ describe('createTeamFilterStep', () => {
         }
 
         const step = createTeamFilterStep(mockTeamService)
-        const input = createInput('session-1')
+        const input = createInput('test-token')
 
         const result = await step(input)
 
@@ -111,7 +96,7 @@ describe('createTeamFilterStep', () => {
         }
 
         const step = createTeamFilterStep(mockTeamService)
-        const input = createInput('my-session', 'my-token')
+        const input = createInput('my-token')
 
         await step(input)
 
@@ -128,16 +113,15 @@ describe('createTeamFilterStep', () => {
         }
 
         const step = createTeamFilterStep(mockTeamService)
-        const input = createInput('my-session', 'my-token')
+        const input = createInput('my-token')
 
         const result = await step(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // Verify input is preserved
-            expect(result.value.parsedMessage).toBe(input.parsedMessage)
-            expect(result.value.parsedMessage.session_id).toBe('my-session')
-            expect(result.value.parsedMessage.token).toBe('my-token')
+            expect(result.value.headers).toBe(input.headers)
+            expect(result.value.headers.token).toBe('my-token')
             // Verify team is added
             expect(result.value.team).toBe(defaultTeam)
         }

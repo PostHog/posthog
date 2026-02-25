@@ -8,9 +8,10 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId, QueryBasedInsightModel } from '~/types'
+import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { sqlEditorLogic } from './sqlEditorLogic'
+import { OutputTab } from './outputPaneLogic'
+import { getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -122,6 +123,71 @@ describe('sqlEditorLogic', () => {
         await expectLogic(teamLogic).toFinishAllListeners()
     })
 
+    describe('title section', () => {
+        it('shows loading view title when opening a view from URL before view loads', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            window.history.replaceState({}, '', `${urls.sqlEditor()}?open_view=test-view`)
+
+            expect(logic.values.titleSectionProps.name).toEqual('Loading view...')
+        })
+
+        it('shows loading insight title when opening an insight from URL before insight loads', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            window.history.replaceState({}, '', `${urls.sqlEditor()}?open_insight=${MOCK_INSIGHT_SHORT_ID}`)
+
+            expect(logic.values.titleSectionProps.name).toEqual('Loading insight...')
+        })
+    })
+
+    describe('getDisplayTypeToSaveInsight', () => {
+        it.each([
+            {
+                name: 'saves table when results tab is selected',
+                outputTab: OutputTab.Results,
+                sourceQueryDisplay: ChartDisplayType.Auto,
+                effectiveVisualizationType: ChartDisplayType.ActionsBar,
+                expected: ChartDisplayType.ActionsTable,
+            },
+            {
+                name: 'saves explicit display from source query when not auto',
+                outputTab: OutputTab.Visualization,
+                sourceQueryDisplay: ChartDisplayType.ActionsAreaGraph,
+                effectiveVisualizationType: ChartDisplayType.ActionsBar,
+                expected: ChartDisplayType.ActionsAreaGraph,
+            },
+            {
+                name: 'saves effective visualization when source query is auto',
+                outputTab: OutputTab.Visualization,
+                sourceQueryDisplay: ChartDisplayType.Auto,
+                effectiveVisualizationType: ChartDisplayType.BoldNumber,
+                expected: ChartDisplayType.BoldNumber,
+            },
+            {
+                name: 'falls back to line graph when there is no effective visualization',
+                outputTab: OutputTab.Visualization,
+                sourceQueryDisplay: ChartDisplayType.Auto,
+                effectiveVisualizationType: undefined,
+                expected: ChartDisplayType.ActionsLineGraph,
+            },
+        ])('$name', ({ outputTab, sourceQueryDisplay, effectiveVisualizationType, expected }) => {
+            expect(getDisplayTypeToSaveInsight(outputTab, sourceQueryDisplay, effectiveVisualizationType)).toEqual(
+                expected
+            )
+        })
+    })
+
     describe('open_insight URL parameter', () => {
         it('sets editingInsight when opening an insight via open_insight search param', async () => {
             logic = sqlEditorLogic({
@@ -172,6 +238,48 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
                 .toNotHaveDispatchedActions(['syncUrlWithQuery'])
+        })
+    })
+
+    describe('source URL parameter', () => {
+        it('remembers endpoint source when URL sync removes search params', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'endpoint' }, { q: 'SELECT 1' })
+
+            await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.searchParams.source).toBeUndefined()
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(logic.values.editorSource).toEqual('endpoint')
+        })
+
+        it('shows back button to endpoints when endpoint source is active', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'endpoint' })
+
+            await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
+
+            expect(logic.values.titleSectionProps.forceBackTo).toEqual({
+                key: 'endpoints',
+                name: 'Endpoints',
+                path: urls.endpoints(),
+                iconType: 'endpoints',
+            })
         })
     })
 })

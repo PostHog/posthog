@@ -55,15 +55,6 @@ def update_team_service_flags_cache(team_id: int) -> None:
     ).inc()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
-def sync_all_flags_cache() -> None:
-    # Meant to ensure we have all flags cache in sync in case something failed
-
-    # Only select the id from the team queryset
-    for team_id in Team.objects.values_list("id", flat=True):
-        update_team_flags_cache.delay(team_id)
-
-
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
 def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
     """

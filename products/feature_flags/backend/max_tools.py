@@ -251,6 +251,8 @@ class CreateFeatureFlagTool(MaxTool):
                 successful_authenticator=None,
                 session={},
                 data=serializer_data,
+                META={},
+                headers={},
             )
             team = self._team
             context = {
