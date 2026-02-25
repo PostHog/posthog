@@ -3,17 +3,17 @@ import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-export type PropertiesTableProps = {
-    entries: ([string, unknown] | { key: string; value: unknown; filterKey?: string; filterValue?: unknown })[]
-    alternatingColors?: boolean
-    onFilterValue?: (key: string, value: string | number | boolean) => void
-}
-
 type PropertyTableRow = {
     key: string
     value: unknown
     filterKey?: string
     filterValue?: unknown
+}
+
+export type PropertiesTableProps = {
+    entries: ([string, unknown] | PropertyTableRow)[]
+    alternatingColors?: boolean
+    onFilterValue?: (key: string, value: string | number | boolean) => void
 }
 
 export function PropertiesTable({

@@ -170,7 +170,7 @@ const LeftHandColumn = (): JSX.Element => {
     const ref = useRef<HTMLDivElement>(null)
     const resizerLogicProps: ResizerLogicProps = {
         containerRef: ref,
-        logicKey: 'error-tracking-issue',
+        logicKey: 'error-tracking-issue-v2',
         persistent: true,
         placement: 'right',
     }
