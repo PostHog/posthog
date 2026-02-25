@@ -59,6 +59,9 @@ export class WarpstreamFetchTester {
 
         if (username && password) {
             this.authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64')
+            console.info(`[WarpstreamFetchTester] auth configured with username=${username}`)
+        } else {
+            console.info(`[WarpstreamFetchTester] no SASL credentials found, requests will be unauthenticated`)
         }
     }
 
@@ -97,7 +100,7 @@ export class WarpstreamFetchTester {
                 try {
                     const start = performance.now()
                     const response = await fetch(url, { headers: this.getHeaders() })
-                    await response.text()
+                    const body = await response.text()
                     const latencyMs = performance.now() - start
 
                     cdpSeekLatencyMs.observe(latencyMs)
@@ -105,9 +108,13 @@ export class WarpstreamFetchTester {
                     if (response.status >= 200 && response.status < 300) {
                         cdpSeekResult.labels({ result: 'success', method: 'individual' }).inc()
                     } else {
+                        console.warn(
+                            `[WarpstreamFetchTester] individual fetch failed: status=${response.status} url=${url} body=${body.slice(0, 500)}`
+                        )
                         cdpSeekResult.labels({ result: 'error', method: 'individual' }).inc()
                     }
-                } catch {
+                } catch (e) {
+                    console.warn(`[WarpstreamFetchTester] individual fetch exception: ${e}`)
                     cdpSeekResult.labels({ result: 'error', method: 'individual' }).inc()
                 }
             })
@@ -152,13 +159,14 @@ export class WarpstreamFetchTester {
                     const headers = this.getHeaders()
                     headers['Content-Type'] = 'application/json'
 
+                    const serializedBody = JSON.stringify(body)
                     const start = performance.now()
                     const response = await fetch(url, {
                         method: 'POST',
                         headers,
-                        body: JSON.stringify(body),
+                        body: serializedBody,
                     })
-                    await response.text()
+                    const responseBody = await response.text()
                     const latencyMs = performance.now() - start
 
                     cdpSeekBatchLatencyMs.observe(latencyMs)
@@ -166,9 +174,13 @@ export class WarpstreamFetchTester {
                     if (response.status >= 200 && response.status < 300) {
                         cdpSeekResult.labels({ result: 'success', method: 'batch' }).inc()
                     } else {
+                        console.warn(
+                            `[WarpstreamFetchTester] batch fetch failed: status=${response.status} url=${url} requestBody=${serializedBody.slice(0, 500)} responseBody=${responseBody.slice(0, 500)}`
+                        )
                         cdpSeekResult.labels({ result: 'error', method: 'batch' }).inc()
                     }
-                } catch {
+                } catch (e) {
+                    console.warn(`[WarpstreamFetchTester] batch fetch exception: ${e}`)
                     cdpSeekResult.labels({ result: 'error', method: 'batch' }).inc()
                 }
             })
