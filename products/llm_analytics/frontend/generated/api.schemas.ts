@@ -391,7 +391,7 @@ export interface PatchedLLMProviderKeyApi {
 export interface SentimentRequestApi {
     /**
      * @minItems 1
-     * @maxItems 25
+     * @maxItems 10
      */
     trace_ids: string[]
     force_refresh?: boolean

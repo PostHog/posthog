@@ -17,7 +17,7 @@ export class HogInputsService {
     private recipientTokensService: RecipientTokensService
 
     constructor(private hub: HogInputsServiceHub) {
-        this.recipientTokensService = new RecipientTokensService(hub)
+        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
     }
 
     public async buildInputs(

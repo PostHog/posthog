@@ -50,8 +50,8 @@ import { FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
-import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
@@ -762,6 +762,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
+                                        isDisabled={!featureFlag.active}
                                     />
                                 </div>
                             )}

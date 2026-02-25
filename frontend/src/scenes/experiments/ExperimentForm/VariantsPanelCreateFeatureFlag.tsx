@@ -32,6 +32,7 @@ interface VariantsPanelCreateFeatureFlagProps {
         }
     }) => void
     disabled?: boolean
+    layout?: 'horizontal' | 'vertical'
 }
 
 interface RolloutPercentageControlProps {
@@ -80,7 +81,11 @@ interface TrafficPreviewProps {
 }
 
 // Visualizes the bucketing logic performed by the backend
-const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }: TrafficPreviewProps): JSX.Element => {
+export const TrafficPreview = ({
+    variants,
+    rolloutPercentage,
+    areVariantRolloutsValid,
+}: TrafficPreviewProps): JSX.Element => {
     const excludedPercentage = Math.max(0, 100 - rolloutPercentage)
 
     let cumulativeStart = 0
@@ -103,18 +108,20 @@ const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }
         <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
                 <h4 className="m-0">Traffic preview</h4>
-                <div className="flex items-center gap-2 text-sm text-secondary">
-                    <span
-                        className="inline-block h-3 w-3 rounded-sm border border-primary"
-                        style={{
-                            backgroundImage:
-                                'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
-                        }}
-                    />
-                    <span>
-                        Not released to {formatPercentage(excludedPercentage, { precise: true, compact: true })}
-                    </span>
-                </div>
+                {excludedPercentage > 0 && (
+                    <div className="flex items-center gap-2 text-sm text-secondary">
+                        <span
+                            className="inline-block h-3 w-3 rounded-sm border border-primary"
+                            style={{
+                                backgroundImage:
+                                    'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
+                            }}
+                        />
+                        <span>
+                            Not released to {formatPercentage(excludedPercentage, { precise: true, compact: true })}
+                        </span>
+                    </div>
+                )}
             </div>
             <div className="h-10 rounded bg-fill-secondary border border-primary overflow-hidden flex relative">
                 {rolloutPercentage > 0 ? (
@@ -184,6 +191,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
     disabled = false,
+    layout = 'horizontal',
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
     const [isCustomSplit, setIsCustomSplit] = useState(false)
 
@@ -298,7 +306,7 @@ export const VariantsPanelCreateFeatureFlag = ({
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex gap-4">
+            <div className={`flex gap-4 ${layout === 'vertical' ? 'flex-col' : 'flex-row'}`}>
                 <div className="flex-1">
                     <LemonField.Pure label="Variants">
                         <div className="border border-primary rounded p-4">

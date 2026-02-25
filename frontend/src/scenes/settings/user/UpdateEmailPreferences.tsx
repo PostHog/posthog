@@ -210,8 +210,8 @@ export function UpdateEmailPreferences(): JSX.Element {
             <div className="border rounded p-4">
                 <SimpleSwitch
                     setting="project_api_key_exposed"
-                    label="Project API key exposure"
-                    description="Get notified when project API keys are publicly exposed"
+                    label="Private API key exposure"
+                    description="Get notified when private API keys are publicly exposed"
                     dataAttr="project_api_key_exposure_enabled"
                 />
             </div>

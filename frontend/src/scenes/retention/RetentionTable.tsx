@@ -210,7 +210,7 @@ export function RetentionTable({
                                                             percentage={column.percentage}
                                                             value={
                                                                 isPropertyValueAggregation
-                                                                    ? column.aggregation_value
+                                                                    ? (column.aggregation_value ?? 0)
                                                                     : undefined
                                                             }
                                                             clickable={true}

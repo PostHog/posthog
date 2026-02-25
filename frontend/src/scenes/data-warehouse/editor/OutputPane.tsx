@@ -22,8 +22,8 @@ import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip }
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -31,17 +31,17 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
+import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
-import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
@@ -51,11 +51,11 @@ import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
-import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
+import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -640,7 +640,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element | null {
     const {
         query,
-        visualizationType,
+        effectiveVisualizationType,
         showEditingUI,
         response,
         responseLoading,
@@ -665,7 +665,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <LoadingBar />
             </div>
         )
-    } else if (visualizationType === ChartDisplayType.ActionsTable) {
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
                 uniqueKey={props.uniqueKey}
@@ -676,10 +676,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             />
         )
     } else if (
-        visualizationType === ChartDisplayType.ActionsLineGraph ||
-        visualizationType === ChartDisplayType.ActionsBar ||
-        visualizationType === ChartDisplayType.ActionsAreaGraph ||
-        visualizationType === ChartDisplayType.ActionsStackedBar
+        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     ) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
@@ -688,16 +688,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
-                visualizationType={visualizationType}
+                visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
                 presetChartHeight={presetChartHeight}
             />
         )
-    } else if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+    } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
-    } else if (visualizationType === ChartDisplayType.BoldNumber) {
+    } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
 

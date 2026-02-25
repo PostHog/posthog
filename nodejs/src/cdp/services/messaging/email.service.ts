@@ -36,7 +36,7 @@ export class EmailService {
                   endpoint: this.hub.SES_ENDPOINT || undefined,
               })
             : null
-        this.recipientTokensService = new RecipientTokensService(hub)
+        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
     }
 
     // Send email

@@ -165,7 +165,6 @@ class SignupSerializer(serializers.Serializer):
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
 
-        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
         auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
         evaluate_auth_attempt(
             request=request._request,
@@ -385,8 +384,6 @@ class InviteSignupSerializer(serializers.Serializer):
         except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
-        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
-        # Only for new users, not existing authenticated users
         if not user and invite.target_email:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
             evaluate_auth_attempt(

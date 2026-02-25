@@ -29,8 +29,8 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { DateRangeFilter } from '../DateRangeFilter'
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
