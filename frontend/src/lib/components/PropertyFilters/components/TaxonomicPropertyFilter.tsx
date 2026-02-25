@@ -86,13 +86,12 @@ export function TaxonomicPropertyFilter({
     const groupTypes = showQuickFilters
         ? [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
         : baseGroupTypes
-    const taxonomicOnChange: (
-        group: TaxonomicFilterGroup,
-        value: TaxonomicFilterValue,
-        item: any,
-        originalQuery?: string
-    ) => void = (taxonomicGroup, value, item, originalQuery) => {
-        selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
+    const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
+        taxonomicGroup,
+        value,
+        item
+    ) => {
+        selectItem(taxonomicGroup, value, item?.propertyFilterType, item)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
             taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters

@@ -20,7 +20,7 @@ const getSlackAppManifest = (): any => ({
     features: {
         app_home: {
             home_tab_enabled: false,
-            messages_tab_enabled: false,
+            messages_tab_enabled: true,
             messages_tab_read_only_enabled: true,
         },
         bot_user: {
@@ -32,13 +32,32 @@ const getSlackAppManifest = (): any => ({
     oauth_config: {
         redirect_urls: [`${window.location.origin.replace('http://', 'https://')}/integrations/slack/callback`],
         scopes: {
-            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
+            bot: [
+                'app_mentions:read',
+                'assistant:write',
+                'channels:history',
+                'channels:join',
+                'channels:read',
+                'chat:write',
+                'chat:write.public',
+                'commands',
+                'groups:history',
+                'im:history',
+                'im:write',
+                'links:read',
+                'links:write',
+                'reactions:read',
+                'reactions:write',
+                'team:read',
+                'users:read',
+                'users:read.email',
+            ],
         },
     },
     settings: {
         event_subscriptions: {
-            request_url: `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`,
-            bot_events: ['link_shared'],
+            request_url: `${window.location.origin.replace('http://', 'https://')}/slack/event-callback`,
+            bot_events: ['app_mention', 'link_shared'],
         },
         org_deploy_enabled: false,
         socket_mode_enabled: false,

@@ -12,7 +12,7 @@ def _get_installations(team: Team, user: User) -> list[dict]:
     from products.mcp_store.backend.models import MCPServerInstallation
 
     return list(
-        MCPServerInstallation.objects.filter(team=team, user=user)
+        MCPServerInstallation.objects.filter(team=team, user=user)  # type: ignore[arg-type]
         .select_related("server")
         .values(
             "id",
@@ -54,6 +54,9 @@ def _refresh_token_sync(installation: dict) -> SensitiveConfig:
         raise TokenRefreshError("No refresh token available")
 
     kind = installation.get("server__oauth_provider_kind") or ""
+    token_url: str = ""
+    client_id: str = ""
+    client_secret: str | None = None
 
     if kind:
         try:

@@ -171,7 +171,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 className="z-[var(--z-popover)]"
                                                 collisionPadding={{ top: 50, bottom: 50 }}
                                             >
-                                                <Menu.Popup className="primitive-menu-content">
+                                                <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
                                                     {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                     <div onKeyDown={(e) => e.stopPropagation()}>
                                                         <ProjectSwitcher dialog={false} />
@@ -275,7 +275,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             className="z-[var(--z-popover)]"
                                             collisionPadding={{ top: 50, bottom: 50 }}
                                         >
-                                            <Menu.Popup className="primitive-menu-content">
+                                            <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
                                                 {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                 <div onKeyDown={(e) => e.stopPropagation()}>
                                                     <OrgSwitcher dialog={false} />

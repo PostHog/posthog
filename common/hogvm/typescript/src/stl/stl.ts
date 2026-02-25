@@ -921,6 +921,19 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 1,
         maxArgs: 1,
     },
+    tryDecodeURLComponent: {
+        fn: (args) => {
+            try {
+                return decodeURIComponent(args[0])
+            } catch {
+                return null
+            }
+        },
+        description: 'Safely URL-decodes a string, returns null on error',
+        example: 'tryDecodeURLComponent($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
     replaceOne: {
         fn: (args) => {
             return args[0].replace(args[1], args[2])

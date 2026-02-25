@@ -2164,6 +2164,7 @@ dependencies = [
  "chrono",
  "dateparser",
  "jiff",
+ "metrics",
  "rdkafka",
  "regex",
  "rust_decimal",

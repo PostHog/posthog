@@ -1,6 +1,6 @@
 import time
 import secrets
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 from django.conf import settings
@@ -19,6 +19,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import User
 from posthog.models.integration import OauthIntegration
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
@@ -384,9 +385,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 },
             )
         except IntegrityError:
-            server = MCPServer.objects.filter(url=issuer_url).first()
-            if not server:
+            existing = MCPServer.objects.filter(url=issuer_url).first()
+            if not existing:
                 return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+            server = existing
             created = False
 
         if not created and not server.oauth_client_id:
@@ -419,7 +421,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         # Look up the user's installation to get the MCP URL for RFC 9728 discovery
         installation = MCPServerInstallation.objects.filter(
-            team_id=self.team_id, user=request.user, server=server
+            team_id=self.team_id, user=cast(User, request.user), server=server
         ).first()
         mcp_url = installation.url if installation else server.url
 
