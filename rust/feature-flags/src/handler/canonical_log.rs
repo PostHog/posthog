@@ -851,13 +851,15 @@ mod tests {
             let mut log = FlagsCanonicalLogLine::default();
 
             for &(device_id, cohorts, hits, misses, person, group) in deltas {
-                let mut delta = FlagsCanonicalLogLine::default();
-                delta.flags_device_id_bucketing = device_id;
-                delta.cohorts_evaluated = cohorts;
-                delta.property_cache_hits = hits;
-                delta.property_cache_misses = misses;
-                delta.person_properties_not_cached = person;
-                delta.group_properties_not_cached = group;
+                let delta = FlagsCanonicalLogLine {
+                    flags_device_id_bucketing: device_id,
+                    cohorts_evaluated: cohorts,
+                    property_cache_hits: hits,
+                    property_cache_misses: misses,
+                    person_properties_not_cached: person,
+                    group_properties_not_cached: group,
+                    ..Default::default()
+                };
                 log.merge_rayon_delta(&delta);
             }
 
@@ -875,10 +877,12 @@ mod tests {
             log.team_id = Some(123);
             log.flags_evaluated = 50;
 
-            let mut delta = FlagsCanonicalLogLine::default();
-            delta.team_id = Some(999);
-            delta.flags_evaluated = 42;
-            delta.property_cache_hits = 5;
+            let delta = FlagsCanonicalLogLine {
+                team_id: Some(999),
+                flags_evaluated: 42,
+                property_cache_hits: 5,
+                ..Default::default()
+            };
 
             log.merge_rayon_delta(&delta);
 
@@ -895,7 +899,7 @@ mod tests {
 
         #[test]
         fn test_install_and_take_round_trip() {
-            install_rayon_canonical_log();
+            let _guard = install_rayon_canonical_log();
 
             // Modify via with_canonical_log (outside tokio scope, falls back to thread-local)
             with_canonical_log(|log| {
@@ -919,7 +923,7 @@ mod tests {
 
         #[test]
         fn test_take_clears_the_thread_local() {
-            install_rayon_canonical_log();
+            let _guard = install_rayon_canonical_log();
             with_canonical_log(|log| log.property_cache_hits = 1);
 
             let first = take_rayon_canonical_log();
@@ -931,11 +935,11 @@ mod tests {
 
         #[test]
         fn test_install_replaces_previous() {
-            install_rayon_canonical_log();
+            let _guard = install_rayon_canonical_log();
             with_canonical_log(|log| log.property_cache_hits = 99);
 
             // Re-install should reset
-            install_rayon_canonical_log();
+            let _guard = install_rayon_canonical_log();
             let delta = take_rayon_canonical_log().unwrap();
             assert_eq!(delta.property_cache_hits, 0);
         }
@@ -952,7 +956,7 @@ mod tests {
         #[tokio::test]
         async fn test_tokio_scope_takes_precedence_over_thread_local() {
             // Install a rayon thread-local
-            install_rayon_canonical_log();
+            let _guard = install_rayon_canonical_log();
 
             // Run inside a tokio canonical log scope
             let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
@@ -979,7 +983,7 @@ mod tests {
 
             let b1 = barrier.clone();
             rayon::spawn(move || {
-                install_rayon_canonical_log();
+                let _guard = install_rayon_canonical_log();
                 with_canonical_log(|log| log.property_cache_hits = 111);
                 b1.wait(); // sync so both threads are alive simultaneously
                 let delta = take_rayon_canonical_log().unwrap();
@@ -988,7 +992,7 @@ mod tests {
 
             let b2 = barrier.clone();
             rayon::spawn(move || {
-                install_rayon_canonical_log();
+                let _guard = install_rayon_canonical_log();
                 with_canonical_log(|log| log.property_cache_hits = 222);
                 b2.wait();
                 let delta = take_rayon_canonical_log().unwrap();
