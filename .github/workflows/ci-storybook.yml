@@ -35,8 +35,8 @@ jobs:
                   filters: |
                       frontend:
                         - 'frontend/**'
-                        - 'products/!(mcp)/**/*.{ts,tsx}'
-                        - 'products/!(mcp)/**/frontend/**'
+                        - 'products/**/*.{ts,tsx}'
+                        - 'products/**/frontend/**'
                         - 'common/{esbuilder,storybook,tailwind}/**'
                         - 'ee/frontend/**'
                         - '.storybook/**'
