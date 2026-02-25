@@ -1702,3 +1702,50 @@ def test_creating_S3_batch_export_fails_if_using_invalid_endpoint_url(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert f"Invalid endpoint_url: '{endpoint_url}'" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "https://192.168.1.1",
+        "http://127.0.0.1",
+        "http://[::1]/",
+        "http://10.0.0.1:9000/",
+        "http://169.254.0.0:8080/data",
+        "http://localhost",
+    ],
+)
+def test_create_redshift_or_postgres_batch_export_fails_with_invalid_host(
+    client: HttpClient, temporal, organization, team, user, host
+):
+    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'."""
+
+    for type in ("Redshift", "Postgres"):
+        destination_data = {
+            "type": type,
+            "config": {
+                "user": "user",
+                "password": "my-password",
+                "database": "my-db",
+                "host": host,
+                "schema": "public",
+                "table_name": "my_events",
+            },
+        }
+
+        batch_export_data = {
+            "name": "my-production-destination",
+            "destination": destination_data,
+            "interval": "hour",
+        }
+
+        client.force_login(user)
+
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert f"Invalid host: '{host}'" in response.json()["detail"]
