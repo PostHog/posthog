@@ -194,12 +194,16 @@ export function MultipleChoiceQuestionViz({
         const existingIndex = updatedFilters.findIndex((f) => f.key === responseFilterKey)
 
         if (existingIndex >= 0) {
-            updatedFilters[existingIndex] = {
-                ...updatedFilters[existingIndex],
-                key: responseFilterKey,
-                type: PropertyFilterType.Event,
-                operator: PropertyOperator.IContains,
-                value: choiceLabel ?? [],
+            if (choiceLabel) {
+                updatedFilters[existingIndex] = {
+                    ...updatedFilters[existingIndex],
+                    key: responseFilterKey,
+                    type: PropertyFilterType.Event,
+                    operator: PropertyOperator.IContains,
+                    value: choiceLabel,
+                }
+            } else {
+                updatedFilters.splice(existingIndex, 1)
             }
         } else if (choiceLabel) {
             updatedFilters.push({
@@ -327,10 +331,14 @@ export function MultipleChoiceQuestionViz({
                                 backgroundColor: barColors,
                                 borderColor: barColors,
                                 hoverBackgroundColor: barColors,
-                                totalResponses,
                             },
                         ]}
                         labels={chartData.map((d) => d.label)}
+                        datalabelFormatter={(value) => {
+                            const total = totalResponses || 1
+                            const percentage = ((value / total) * 100).toFixed(1)
+                            return `${value} (${percentage}%)`
+                        }}
                     />
                 </BindLogic>
             </div>

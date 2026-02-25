@@ -927,10 +927,15 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     listeners(({ actions, values }) => {
+        let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null
         const reloadAllSurveyResults = (): void => {
-            // Load survey stats data
-            actions.loadSurveyBaseStats()
-            actions.loadSurveyDismissedAndSentCount()
+            if (reloadDebounceTimer) {
+                clearTimeout(reloadDebounceTimer)
+            }
+            reloadDebounceTimer = setTimeout(() => {
+                actions.loadSurveyBaseStats()
+                actions.loadSurveyDismissedAndSentCount()
+            }, 300)
         }
 
         return {

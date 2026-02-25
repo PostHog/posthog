@@ -239,6 +239,7 @@ export interface LineGraphProps {
     isStacked?: boolean
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
+    datalabelFormatter?: (value: number, datasetIndex: number) => string
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -285,6 +286,7 @@ export function LineGraph_({
     isStacked = true,
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
+    datalabelFormatter,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -563,18 +565,14 @@ export function LineGraph_({
                 }
             }
             const hasAnyDottedDataset = processedDatasets.some((dataset) => dataset.dotted)
-            const datalabelTotalsByDatasetIndex = processedDatasets.map((dataset) => {
-                const totalResponses = (dataset as any).totalResponses
-                if (totalResponses !== undefined && totalResponses !== null) {
-                    return totalResponses
-                }
-                return Array.isArray(dataset.data)
+            const datalabelTotalsByDatasetIndex = processedDatasets.map((dataset) =>
+                Array.isArray(dataset.data)
                     ? dataset.data.reduce(
                           (sum: number, value: unknown) => sum + (typeof value === 'number' ? value : 0),
                           0
                       )
                     : 0
-            })
+            )
 
             const tickOptions: Partial<TickOptions> = {
                 color: colors.axisLabel as Color,
@@ -642,27 +640,24 @@ export function LineGraph_({
                         },
                         display: (context) => {
                             const datum = context.dataset?.data[context.dataIndex]
-                            if (showValuesOnSeries && inSurveyView) {
-                                return typeof datum === 'number' && datum !== 0 ? 'auto' : false
+                            if (
+                                typeof datum === 'number' &&
+                                datum !== 0 &&
+                                (datalabelFormatter || (showValuesOnSeries && inSurveyView))
+                            ) {
+                                return 'auto'
                             }
                             return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0
                                 ? 'auto'
                                 : false
                         },
                         formatter: (value: number, context) => {
+                            if (typeof value === 'number' && value !== 0 && datalabelFormatter) {
+                                return datalabelFormatter(value, context.datasetIndex)
+                            }
+
                             if (typeof value === 'number' && value !== 0 && inSurveyView && showValuesOnSeries) {
-                                const dataset = context.dataset as any
-                                // Use totalResponses if provided (for per-respondent %), otherwise sum of values.
-                                // Prefer precomputed totals where available to avoid recomputing every label render.
-                                const fallbackTotal =
-                                    datalabelTotalsByDatasetIndex[context.datasetIndex] ??
-                                    (Array.isArray(dataset.data)
-                                        ? dataset.data.reduce(
-                                              (sum: number, val: unknown) => sum + (typeof val === 'number' ? val : 0),
-                                              0
-                                          )
-                                        : 0)
-                                const total = dataset.totalResponses ?? fallbackTotal ?? 1
+                                const total = datalabelTotalsByDatasetIndex[context.datasetIndex] ?? 1
                                 const percentage = ((value / total) * 100).toFixed(1)
                                 return `${value} (${percentage}%)`
                             }

@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
@@ -530,16 +530,6 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
     }
 
     const responseFilterKey = question.id ? getSurveyIdBasedResponseKey(question.id) : null
-    const [armedRatingLabel, setArmedRatingLabel] = useState<string | null>(null)
-
-    useEffect(() => {
-        if (!armedRatingLabel) {
-            return
-        }
-
-        const timeout = setTimeout(() => setArmedRatingLabel(null), 2500)
-        return () => clearTimeout(timeout)
-    }, [armedRatingLabel])
 
     const currentQuestionFilter = useMemo(
         () =>
@@ -565,7 +555,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
             : null
     }, [currentQuestionFilter])
 
-    const highlightedRatingLabel = activeRatingLabel || armedRatingLabel
+    const highlightedRatingLabel = activeRatingLabel
 
     const ratingBarColors = useMemo((): string[] => {
         return chartLabels.map((label) => {
@@ -590,12 +580,16 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
         const existingIndex = updatedFilters.findIndex((f) => f.key === responseFilterKey)
 
         if (existingIndex >= 0) {
-            updatedFilters[existingIndex] = {
-                ...updatedFilters[existingIndex],
-                key: responseFilterKey,
-                type: PropertyFilterType.Event,
-                operator: PropertyOperator.Exact,
-                value: ratingLabel ? [ratingLabel] : [],
+            if (ratingLabel) {
+                updatedFilters[existingIndex] = {
+                    ...updatedFilters[existingIndex],
+                    key: responseFilterKey,
+                    type: PropertyFilterType.Event,
+                    operator: PropertyOperator.Exact,
+                    value: [ratingLabel],
+                }
+            } else {
+                updatedFilters.splice(existingIndex, 1)
             }
         } else if (ratingLabel) {
             updatedFilters.push({
@@ -621,23 +615,9 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
 
         if (activeRatingLabel === clickedRatingLabel) {
             upsertRatingAnswerFilter(null)
-            setArmedRatingLabel(null)
-            return
-        }
-
-        if (activeRatingLabel && activeRatingLabel !== clickedRatingLabel) {
+        } else {
             upsertRatingAnswerFilter(clickedRatingLabel)
-            setArmedRatingLabel(null)
-            return
         }
-
-        if (armedRatingLabel === clickedRatingLabel) {
-            upsertRatingAnswerFilter(clickedRatingLabel)
-            setArmedRatingLabel(null)
-            return
-        }
-
-        setArmedRatingLabel(clickedRatingLabel)
     }
 
     if (isThumbQuestion(question)) {
@@ -677,7 +657,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                                             return 'Click to switch filter'
                                         }
 
-                                        return 'Double click to filter'
+                                        return 'Click to filter'
                                     },
                                     renderSeries: (_value, datum) => {
                                         const ratingLabel = chartLabels[datum.dataIndex] ?? String(datum.dataIndex + 1)
@@ -719,10 +699,14 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                                         backgroundColor: ratingBarColors,
                                         borderColor: ratingBarColors,
                                         hoverBackgroundColor: ratingBarColors,
-                                        totalResponses,
                                     },
                                 ]}
                                 labels={chartLabels}
+                                datalabelFormatter={(value) => {
+                                    const total = totalResponses || 1
+                                    const percentage = ((value / total) * 100).toFixed(1)
+                                    return `${value} (${percentage}%)`
+                                }}
                             />
                         </BindLogic>
                     </div>
@@ -744,10 +728,8 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                                 </button>{' '}
                                 or click another bar to switch.
                             </>
-                        ) : armedRatingLabel ? (
-                            `Click rating ${armedRatingLabel} again to filter by this score.`
                         ) : (
-                            'Double-click a rating to filter by that score.'
+                            'Click a rating to filter by that score.'
                         )}
                     </div>
                 )}
