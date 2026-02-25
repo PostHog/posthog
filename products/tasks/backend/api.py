@@ -396,6 +396,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with timer("s3_append"):
             task_run.append_log(entries)
 
+        task_run.heartbeat_workflow()
+
         response = Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
         response["Server-Timing"] = timer.to_header_string()
         return response
