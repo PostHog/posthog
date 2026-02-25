@@ -10,7 +10,7 @@ import posthog.helpers.encrypted_fields
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1017_survey_form_content"),
+        ("posthog", "1018_migrate_event_definition_models"),
     ]
 
     operations = [
