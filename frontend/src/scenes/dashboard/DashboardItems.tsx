@@ -3,7 +3,7 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactGridLayout, { useContainerWidth } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
@@ -29,6 +29,12 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 8
+const VIRTUALIZATION_OVERSCAN_ROWS = 8
+const ROW_SIZE = GRID_ROW_HEIGHT + GRID_VERTICAL_MARGIN
+
+const isTileVisibleInRange = (layout: TileLayout, startRow: number, endRow: number): boolean => {
+    return layout.y < endRow && layout.y + layout.h > startRow
+}
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -71,6 +77,7 @@ export function DashboardItems(): JSX.Element {
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
+    const [visibleRows, setVisibleRows] = useState<{ start: number; end: number } | null>(null)
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
@@ -80,8 +87,9 @@ export function DashboardItems(): JSX.Element {
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
 
     const { width: gridWrapperWidth, containerRef: gridWrapperRef, mounted } = useContainerWidth()
+    const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         return () => {
             if (scrollAnimationRef.current) {
                 cancelAnimationFrame(scrollAnimationRef.current)
@@ -89,52 +97,28 @@ export function DashboardItems(): JSX.Element {
         }
     }, [])
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const scrollContainer = document.getElementById('main-content')
-        const scenceStickyBarContainer = document.getElementsByClassName('scene-sticky-bar')[0]
+        const stickyBarContainer = document.getElementsByClassName('scene-sticky-bar')[0]
         const gridWrapper = gridWrapperRef.current
 
         if (!scrollContainer || !gridWrapper) {
-            // setVisibleRows(null)
+            setVisibleRows(null)
             return
         }
 
         let animationFrame: number | null = null
         const updateVisibleRows = (): void => {
-            // ~container padding 16px~
-            // scene-title-section 51px
-            // scene-description 38px
-            // gap 16px
-            // scene-sticky-bar 51px
-            // 156 calculated
-            // 157px
+            const wrapperRect = gridWrapper.getBoundingClientRect()
+            const stickyBarRect = stickyBarContainer.getBoundingClientRect()
 
-            const containerRect = scrollContainer.getBoundingClientRect() // outer rect
-            const wrapperRect = gridWrapper.getBoundingClientRect() // inner rect
-            const stickyBarRect = scenceStickyBarContainer.getBoundingClientRect()
-            console.debug('containerRect', containerRect)
-            console.debug('wrapperRect', wrapperRect)
-            console.debug('stickyBarRect', stickyBarRect)
-            //wrapperRect.y or top - (stickyBarRect.y or top + stickyBarRect.height) = 0
-            const hidden = stickyBarRect.y + stickyBarRect.height
-            const top = -(wrapperRect.y - hidden)
-            console.debug('calc top', top)
-            // console.debug('clientHeight', scrollContainer.clientHeight)
-            console.debug('calc bottom', top + scrollContainer.clientHeight - stickyBarRect.y)
+            const visibleTopPx = -(wrapperRect.y - (stickyBarRect.y + stickyBarRect.height))
+            const visibleBottomPx = visibleTopPx + scrollContainer.clientHeight - stickyBarRect.y
 
-            // scene-sticky-bar
-
-            const gridOffsetTop = wrapperRect.top - containerRect.top + scrollContainer.scrollTop
-            const visibleTopPx = scrollContainer.scrollTop - gridOffsetTop
-            const visibleBottomPx = visibleTopPx + scrollContainer.clientHeight
-            // const rowSize = GRID_ROW_HEIGHT + GRID_VERTICAL_MARGIN
-            // console.debug('visibleTopPx', visibleTopPx)
-            // console.debug('visibleBottomPx', visibleBottomPx)
-
-            // setVisibleRows({
-            //     start: Math.max(0, Math.floor(visibleTopPx / rowSize) - VIRTUALIZATION_OVERSCAN_ROWS),
-            //     end: Math.max(1, Math.ceil(visibleBottomPx / rowSize) + VIRTUALIZATION_OVERSCAN_ROWS),
-            // })
+            setVisibleRows({
+                start: Math.max(0, Math.floor(visibleTopPx / ROW_SIZE) - VIRTUALIZATION_OVERSCAN_ROWS),
+                end: Math.max(1, Math.ceil(visibleBottomPx / ROW_SIZE) + VIRTUALIZATION_OVERSCAN_ROWS),
+            })
         }
 
         const scheduleUpdate = (): void => {
@@ -158,17 +142,17 @@ export function DashboardItems(): JSX.Element {
             scrollContainer.removeEventListener('scroll', scheduleUpdate)
             window.removeEventListener('resize', scheduleUpdate)
         }
-    }, [gridWrapperWidth])
+    }, [isMobileView])
 
     const className = clsx({
         'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
         'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
     })
 
-    const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
     const dashboardLayoutSize: DashboardLayoutSize = isMobileView ? 'xs' : 'sm'
     const canEditLayout = dashboardMode === DashboardMode.Edit && !isMobileView
     const dashboardId = dashboard?.id
+
     const gridChildren = useMemo(
         () =>
             tiles?.map((tile) => {
