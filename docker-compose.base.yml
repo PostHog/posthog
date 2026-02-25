@@ -105,6 +105,7 @@ services:
 
                     @objectstorage {
                         path /posthog
+                        path /posthog/
                         path /posthog/*
                     }
 
