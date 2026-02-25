@@ -78,7 +78,20 @@ Be skeptical of any group with 5+ signals. Large groups are rarely coherent — 
 
 For single-signal groups: score as null (not applicable).
 
-For the overall score: weight multi-signal groups by size. A large group (5+) with weak chaining is worse than a small group (2-3) with weak chaining because it means the algorithm drifted further. A run with many singletons also indicates failure to find real connections.
+For the overall score: weight multi-signal groups by size. A large group (5+) with weak chaining is worse than a small group (2-3) with weak chaining because it means the algorithm drifted further.
+
+## Under-grouping detection
+
+Over-grouping (weak chaining) is bad, but under-grouping is also a failure. For EVERY singleton group, ask:
+
+> "Is there another group (or another singleton) that this signal clearly belongs with?"
+
+If yes, the algorithm missed a real connection. Common patterns:
+- Two singletons that are obviously the same issue (e.g., two different reports of the same bug)
+- A singleton that clearly belongs in an existing multi-signal group (e.g., a "date picker" singleton when there's already a "date picker improvements" group)
+- Related singletons that should have formed a group together
+
+A run with many avoidable singletons is a sign the algorithm is too conservative — it fails to find real connections.
 
 ## Response format
 
