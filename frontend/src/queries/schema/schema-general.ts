@@ -1732,7 +1732,7 @@ export type RefreshType =
 export interface EndpointRequest {
     name?: string
     description?: string
-    query?: HogQLQuery | InsightQueryNode
+    query?: HogQLQuery | InsightQueryNode | CalendarHeatmapQuery
     is_active?: boolean
     cache_age_seconds?: number
     /** Whether this endpoint's query results are materialized to S3 */

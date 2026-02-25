@@ -18247,6 +18247,7 @@ class EndpointRequest(BaseModel):
         | LifecycleQuery
         | WebStatsTableQuery
         | WebOverviewQuery
+        | CalendarHeatmapQuery
         | None
     ) = None
     sync_frequency: DataWarehouseSyncInterval | None = Field(

@@ -193,6 +193,7 @@ class EndpointVersion(models.Model):
             "RetentionQuery",
             "PathsQuery",
             "StickinessQuery",
+            "CalendarHeatmapQuery",
         }
 
         if query_kind not in MATERIALIZABLE_QUERY_TYPES:
