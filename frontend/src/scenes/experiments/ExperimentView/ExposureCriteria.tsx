@@ -21,12 +21,20 @@ type ExposureCriteriaModalProps = {
     onSave: (exposureCriteria: ExperimentExposureCriteria) => void
 }
 
-export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): JSX.Element {
+export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): JSX.Element | null {
     const { isExposureCriteriaModalOpen, exposureCriteria } = useValues(exposureCriteriaModalLogic)
     const { closeExposureCriteriaModal, setExposureCriteria } = useActions(exposureCriteriaModalLogic)
 
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+
+    /**
+     * exposureCriteria is null only when the modal is not open.
+     * Otherwise, it's always a valid object.
+     */
+    if (!exposureCriteria) {
+        return null
+    }
 
     return (
         <LemonModal
@@ -49,9 +57,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     <LemonButton
                         form="edit-experiment-exposure-form"
                         onClick={() => {
-                            if (exposureCriteria) {
-                                onSave(exposureCriteria)
-                            }
+                            onSave(exposureCriteria)
                             closeExposureCriteriaModal()
                         }}
                         type="primary"
