@@ -149,6 +149,8 @@ export const QueryDatabase = (): JSX.Element => {
                 return 'materialized view'
             case 'managed-view':
                 return 'managed view'
+            case 'endpoint':
+                return 'materialized endpoint'
             case 'view':
             case 'view-table':
                 return item.record.view?.is_materialized ? 'materialized view' : 'view'
@@ -377,6 +379,35 @@ export const QueryDatabase = (): JSX.Element => {
                     )
                 }
 
+                // Show menu for endpoint tables
+                if (item.record?.type === 'endpoint') {
+                    const tableName = item.record.tableName
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    router.actions.push(urls.endpoint(item.name))
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Edit endpoint</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sceneLogic.actions.newTab(
+                                        urls.sqlEditor({ query: `SELECT * FROM \`${tableName}\`` })
+                                    )
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Query</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
                 // Show menu for views
                 if (item.record?.type === 'view' || item.record?.type === 'managed-view') {
                     // Extract view ID from item.id (format: 'view-{id}' or 'search-view-{id}')
@@ -548,7 +579,7 @@ export const QueryDatabase = (): JSX.Element => {
             }}
             renderItemTooltip={(item) => {
                 // Show tooltip with full name for items that could be truncated
-                const tooltipTypes = ['table', 'view', 'managed-view', 'draft', 'column', 'unsaved-query']
+                const tooltipTypes = ['table', 'view', 'managed-view', 'endpoint', 'draft', 'column', 'unsaved-query']
                 if (tooltipTypes.includes(item.record?.type)) {
                     if (item.record?.type === 'column' && item.record?.field?.type === 'field_traverser') {
                         const traversalChain = formatTraversalChain(item.record.field.chain)

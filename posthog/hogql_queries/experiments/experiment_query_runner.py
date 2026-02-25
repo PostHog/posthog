@@ -80,12 +80,14 @@ class ExperimentQueryRunner(QueryRunner):
         override_end_date: Optional[datetime] = None,
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
+        force_precomputation: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
+        self.force_precomputation = force_precomputation
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -102,7 +104,8 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.baseline_variant_key = CONTROL_VARIANT_KEY
+        stats_config = self.experiment.stats_config or {}
+        self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
 
         self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
         self.date_range_query = QueryDateRange(
@@ -210,6 +213,7 @@ class ExperimentQueryRunner(QueryRunner):
             entity_key=self.entity_key,
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
+            force_precomputation=self.force_precomputation,
         )
 
         if self.experiment.exposure_preaggregation_enabled:

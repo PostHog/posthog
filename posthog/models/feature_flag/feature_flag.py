@@ -11,6 +11,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 import structlog
+from django_deprecate_fields import deprecate_field
 
 from posthog.caching.flags_redis_cache import write_flags_to_cache
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
@@ -41,7 +42,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
     filters = models.JSONField(default=dict)
-    rollout_percentage = models.IntegerField(null=True, blank=True)
+    # DEPRECATED: rollout percentage now lives in filters["groups"][N]["rollout_percentage"]
+    rollout_percentage = deprecate_field(models.IntegerField(null=True, blank=True))
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)

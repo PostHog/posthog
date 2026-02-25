@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.6.2
+
+- fix: endpoints now save to YAML with proper newlines
+
 # 0.6.1
 
 - chore: bump `cargo-dist` version

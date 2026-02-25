@@ -49,6 +49,10 @@ pub async fn record_usage(
     team_id: i32,
     library: Library,
 ) {
+    if *context.state.config.skip_writes {
+        return;
+    }
+
     let has_billable_flags = contains_billable_flags(filtered_flags);
 
     if has_billable_flags {

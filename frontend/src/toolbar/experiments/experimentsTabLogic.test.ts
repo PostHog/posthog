@@ -3,6 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: { success: jest.fn(), error: jest.fn() },
+}))
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -61,6 +65,9 @@ describe('experimentsTabLogic', () => {
     let theToolbarConfigLogic: ReturnType<typeof toolbarConfigLogic.build>
 
     beforeEach(() => {
+        const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+        ;(lemonToast.success as jest.Mock).mockClear()
+        ;(lemonToast.error as jest.Mock).mockClear()
         useMocks({
             get: {
                 '/api/projects/:team/web_experiments/': () => web_experiments,
@@ -262,6 +269,71 @@ describe('experimentsTabLogic', () => {
                 .toMatchValues({
                     elementSelector: 'h1,h2,h3,h4,h5,h6',
                 })
+        })
+    })
+
+    describe('form submission error handling', () => {
+        const savedFetch = global.fetch
+
+        afterEach(() => {
+            global.fetch = savedFetch
+        })
+
+        it('shows error toast when API returns error with detail', async () => {
+            const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+
+            global.fetch = jest.fn(() =>
+                Promise.resolve({
+                    ok: false,
+                    status: 400,
+                    json: () => Promise.resolve({ detail: 'Invalid experiment config' }),
+                } as any as Response)
+            )
+
+            theExperimentsTabLogic.actions.newExperiment()
+            theExperimentsTabLogic.actions.setExperimentFormValue('name', 'Bad Experiment')
+
+            await expectLogic(theExperimentsTabLogic, () => {
+                theExperimentsTabLogic.actions.submitExperimentForm()
+            }).delay(0)
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Invalid experiment config')
+        })
+
+        it('shows generic error when API returns error and json parsing fails', async () => {
+            const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+
+            global.fetch = jest.fn(() =>
+                Promise.resolve({
+                    ok: false,
+                    status: 500,
+                    json: () => Promise.reject(new Error('parse error')),
+                } as any as Response)
+            )
+
+            theExperimentsTabLogic.actions.newExperiment()
+            theExperimentsTabLogic.actions.setExperimentFormValue('name', 'Server Error Experiment')
+
+            await expectLogic(theExperimentsTabLogic, () => {
+                theExperimentsTabLogic.actions.submitExperimentForm()
+            }).delay(0)
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Request failed: 500')
+        })
+
+        it('handles network error gracefully', async () => {
+            const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+
+            global.fetch = jest.fn(() => Promise.reject(new Error('Network error')))
+
+            theExperimentsTabLogic.actions.newExperiment()
+            theExperimentsTabLogic.actions.setExperimentFormValue('name', 'Network Error Experiment')
+
+            await expectLogic(theExperimentsTabLogic, () => {
+                theExperimentsTabLogic.actions.submitExperimentForm()
+            }).delay(0)
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Network error')
         })
     })
 
