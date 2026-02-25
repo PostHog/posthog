@@ -564,65 +564,51 @@ class ClickHousePrinter(HogQLPrinter):
             else:
                 return None
 
-    def _wrap_constant_as_session_uuid(self, constant_sql: str) -> str:
-        return f"toUInt128(accurateCastOrNull({constant_sql}, 'UUID'))"
-
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
-        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            return self._get_optimized_session_id_eq_operation(node)
-        elif node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
-            return self._get_optimized_session_id_in_operation(node)
-        return None
+        op_name = {
+            ast.CompareOperationOp.Eq: "equals",
+            ast.CompareOperationOp.NotEq: "notEquals",
+            ast.CompareOperationOp.In: "in",
+            ast.CompareOperationOp.NotIn: "notIn",
+        }.get(node.op)
+        if op_name is None:
+            return None
 
-    def _get_optimized_session_id_eq_operation(self, node: ast.CompareOperation) -> str | None:
         session_id_table: ast.BaseTableType | None = None
-        constant: ast.Constant | None = None
+        constants: list[ast.Constant] = []
 
-        if (table := self._get_events_session_id_table_type(node.left)) and isinstance(node.right, ast.Constant):
-            session_id_table, constant = table, node.right
-        elif (table := self._get_events_session_id_table_type(node.right)) and isinstance(node.left, ast.Constant):
-            session_id_table, constant = table, node.left
+        if table := self._get_events_session_id_table_type(node.left):
+            session_id_table = table
+            constants = self._extract_uuid_constants(node.right)
+        elif node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            if table := self._get_events_session_id_table_type(node.right):
+                session_id_table = table
+                constants = self._extract_uuid_constants(node.left)
 
-        if session_id_table is None or constant is None:
+        if session_id_table is None or not constants:
             return None
 
-        if not UUIDT.is_valid_uuid(constant.value):
-            return None
+        field_sql = f"{self.visit(session_id_table)}.{self._print_identifier('$session_id_uuid')}"
+        wrapped = [f"toUInt128(accurateCastOrNull({self.visit(c)}, 'UUID'))" for c in constants]
 
-        table_sql = self.visit(session_id_table)
-        field_sql = f"{table_sql}.{self._print_identifier('$session_id_uuid')}"
-        constant_sql = self._wrap_constant_as_session_uuid(self.visit(constant))
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return f"{op_name}({field_sql}, {wrapped[0]})"
+        return f"{op_name}({field_sql}, tuple({', '.join(wrapped)}))"
 
-        op_name = "equals" if node.op == ast.CompareOperationOp.Eq else "notEquals"
-        return f"{op_name}({field_sql}, {constant_sql})"
-
-    def _get_optimized_session_id_in_operation(self, node: ast.CompareOperation) -> str | None:
-        session_id_table = self._get_events_session_id_table_type(node.left)
-        if session_id_table is None:
-            return None
-
-        if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
-            constants: list[ast.Constant] = [node.right]
-        elif isinstance(node.right, (ast.Tuple, ast.Array)):
-            constants = []
-            for expr in node.right.exprs:
-                if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
-                    constants.append(expr)
-                else:
-                    return None
-        else:
-            return None
-
-        if not constants or not all(UUIDT.is_valid_uuid(c.value) for c in constants):
-            return None
-
-        table_sql = self.visit(session_id_table)
-        field_sql = f"{table_sql}.{self._print_identifier('$session_id_uuid')}"
-        values_sql = ", ".join(self._wrap_constant_as_session_uuid(self.visit(c)) for c in constants)
-
-        op_name = "in" if node.op == ast.CompareOperationOp.In else "notIn"
-        return f"{op_name}({field_sql}, tuple({values_sql}))"
+    @staticmethod
+    def _extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
+        """Extract UUID string constants from an expression. Returns empty list if any value is not a valid UUID."""
+        if isinstance(node, ast.Constant):
+            return [node] if UUIDT.is_valid_uuid(node.value) else []
+        if isinstance(node, (ast.Tuple, ast.Array)):
+            result: list[ast.Constant] = []
+            for expr in node.exprs:
+                if not isinstance(expr, ast.Constant) or not UUIDT.is_valid_uuid(expr.value):
+                    return []
+                result.append(expr)
+            return result
+        return []
 
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
