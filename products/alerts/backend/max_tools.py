@@ -36,7 +36,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - User wants to enable or disable an alert
 
     # Actions
-    - **create**: Create a new alert (requires name and condition_type)
+    - **create**: Create a new alert (requires insight_id, name and condition_type)
     - **update**: Edit an existing alert (requires alert_id, all other fields are optional)
 
     # Requirements
