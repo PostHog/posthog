@@ -190,7 +190,7 @@ class KafkaConsumerService:
 
                 logger.debug("batch_received", message_count=len(messages))
 
-                self._process_batch_with_retry(messages)
+                self._process_batch_with_retry(messages, health_reporter=health_reporter)
 
         except Exception as e:
             logger.exception("consumer_error")
@@ -199,7 +199,9 @@ class KafkaConsumerService:
         finally:
             self._cleanup()
 
-    def _process_batch_with_retry(self, messages: list[Any]) -> None:
+    def _process_batch_with_retry(
+        self, messages: list[Any], health_reporter: Optional[Callable[[], None]] = None
+    ) -> None:
         """Process a batch of messages with retry logic for transient errors.
 
         Non-transient errors on individual messages are sent to the DLQ so a
@@ -218,6 +220,8 @@ class KafkaConsumerService:
                         continue
                     try:
                         self._process_message(message)
+                        if health_reporter:
+                            health_reporter()
                     except TRANSIENT_ERRORS:
                         raise
                     except Exception as e:
