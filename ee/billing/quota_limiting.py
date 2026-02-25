@@ -607,7 +607,7 @@ def _timed_query(name, fn, *args, **kwargs):
 def update_all_orgs_billing_quotas(
     dry_run: bool = False,
     progress_callback: Callable[[str, str, str], None] | None = None,
-) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]]]:
+) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]], dict[str, float | int]]:
     """
     This is called on a cron job every 30 minutes to update all orgs with their quotas.
     Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
