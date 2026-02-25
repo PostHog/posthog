@@ -67,6 +67,7 @@ export function AnalyticsStep(): JSX.Element {
                                 [context.type]: [...sharedMetrics[context.type], ...metrics],
                             })
                         }}
+                        onSaveExposureCriteria={setExposureCriteria}
                     />
                 </div>
             </div>

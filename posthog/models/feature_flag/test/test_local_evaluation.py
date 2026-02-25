@@ -6,6 +6,7 @@ from parameterized import parameterized
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.feature_flag.local_evaluation import (
+    _extract_cohort_ids_from_filters,
     _get_flags_response_for_local_evaluation,
     _get_flags_response_for_local_evaluation_batch,
     clear_flag_caches,
@@ -579,6 +580,52 @@ class TestSurveyFlagExclusion(BaseTest):
         assert regular_flag.key in flag_keys
 
 
+class TestExtractCohortIdsFromFilters(BaseTest):
+    @parameterized.expand(
+        [
+            ("empty_filters", {}, set()),
+            ("no_groups", {"multivariate": {}}, set()),
+            ("empty_groups", {"groups": []}, set()),
+            (
+                "person_properties_only",
+                {"groups": [{"properties": [{"type": "person", "key": "email", "value": "test@example.com"}]}]},
+                set(),
+            ),
+            ("single_cohort", {"groups": [{"properties": [{"type": "cohort", "value": 123}]}]}, {123}),
+            (
+                "multiple_cohorts_same_group",
+                {"groups": [{"properties": [{"type": "cohort", "value": 1}, {"type": "cohort", "value": 2}]}]},
+                {1, 2},
+            ),
+            (
+                "cohorts_across_groups",
+                {
+                    "groups": [
+                        {"properties": [{"type": "cohort", "value": 10}]},
+                        {"properties": [{"type": "cohort", "value": 20}]},
+                    ]
+                },
+                {10, 20},
+            ),
+            ("string_value_coerced", {"groups": [{"properties": [{"type": "cohort", "value": "456"}]}]}, {456}),
+            ("invalid_string_skipped", {"groups": [{"properties": [{"type": "cohort", "value": "bad"}]}]}, set()),
+            ("none_value_skipped", {"groups": [{"properties": [{"type": "cohort", "value": None}]}]}, set()),
+            (
+                "duplicates_collapsed",
+                {
+                    "groups": [
+                        {"properties": [{"type": "cohort", "value": 5}]},
+                        {"properties": [{"type": "cohort", "value": 5}]},
+                    ]
+                },
+                {5},
+            ),
+        ]
+    )
+    def test_extract_cohort_ids(self, _name: str, filters: dict, expected: set):
+        assert _extract_cohort_ids_from_filters(filters) == expected
+
+
 class TestLocalEvaluationBatch(BaseTest):
     def _create_team_with_project(self, name: str) -> Team:
         project, team = Project.objects.create_with_team(
@@ -693,6 +740,244 @@ class TestLocalEvaluationBatch(BaseTest):
 
         assert str(cohort_b.pk) in cohort_ids_b
         assert str(cohort_a.pk) not in cohort_ids_b
+
+    def test_batch_only_loads_referenced_cohorts(self):
+        """Cohorts not referenced by any flag filter should not appear in the response."""
+        team = self._create_team_with_project("Selective Cohort Team")
+
+        referenced_cohort = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+            name="referenced-cohort",
+        )
+        unreferenced_cohort = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "b@b.com", "type": "person"}]}],
+                }
+            },
+            name="unreferenced-cohort",
+        )
+
+        FeatureFlag.objects.create(
+            team=team,
+            key="flag-with-cohort",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": referenced_cohort.pk}]}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team], True)
+
+        assert str(referenced_cohort.pk) in results[team.id]["cohorts"]
+        assert str(unreferenced_cohort.pk) not in results[team.id]["cohorts"]
+
+    def test_batch_static_cohort_excluded(self):
+        """Static cohorts cannot be locally evaluated and should not appear in the response."""
+        team = self._create_team_with_project("Static Cohort Team")
+
+        static_cohort = Cohort.objects.create(
+            team=team,
+            name="static-cohort",
+            is_static=True,
+        )
+        dynamic_cohort = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+            name="dynamic-cohort",
+        )
+
+        FeatureFlag.objects.create(
+            team=team,
+            key="flag-with-both",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "id", "type": "cohort", "value": static_cohort.pk},
+                            {"key": "id", "type": "cohort", "value": dynamic_cohort.pk},
+                        ]
+                    }
+                ]
+            },
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team], True)
+
+        assert str(dynamic_cohort.pk) in results[team.id]["cohorts"]
+        assert str(static_cohort.pk) not in results[team.id]["cohorts"]
+
+    def test_batch_loads_nested_cohort_dependencies(self):
+        """Cohorts referenced transitively through other cohorts should be loaded."""
+        team = self._create_team_with_project("Nested Cohort Team")
+
+        leaf_cohort = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+            name="leaf-cohort",
+        )
+        parent_cohort = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "OR", "values": [{"key": "id", "value": leaf_cohort.pk, "type": "cohort"}]},
+                    ],
+                }
+            },
+            name="parent-cohort",
+        )
+
+        FeatureFlag.objects.create(
+            team=team,
+            key="flag-with-nested-cohort",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": parent_cohort.pk}]}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team], True)
+
+        assert str(parent_cohort.pk) in results[team.id]["cohorts"]
+        assert str(leaf_cohort.pk) in results[team.id]["cohorts"]
+
+    def test_batch_loads_deeply_nested_cohort_chain(self):
+        """Three-level cohort chain (grandparent -> parent -> leaf) exercises multiple iterations of the loading loop."""
+        team = self._create_team_with_project("Deep Nesting Team")
+
+        leaf = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+            name="leaf",
+        )
+        parent = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "id", "value": leaf.pk, "type": "cohort"}]}],
+                }
+            },
+            name="parent",
+        )
+        grandparent = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "id", "value": parent.pk, "type": "cohort"}]}],
+                }
+            },
+            name="grandparent",
+        )
+
+        FeatureFlag.objects.create(
+            team=team,
+            key="deep-flag",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": grandparent.pk}]}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        cohort_ids = set(results[team.id]["cohorts"].keys())
+
+        assert str(grandparent.pk) in cohort_ids
+        assert str(parent.pk) in cohort_ids
+        assert str(leaf.pk) in cohort_ids
+
+    def test_batch_circular_cohort_references_terminate(self):
+        """Circular cohort dependencies (A -> B -> A) should not cause an infinite loop."""
+        team = self._create_team_with_project("Circular Cohort Team")
+
+        cohort_a = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+            name="cohort-a",
+        )
+        cohort_b = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "id", "value": cohort_a.pk, "type": "cohort"}]}],
+                }
+            },
+            name="cohort-b",
+        )
+
+        # Create the circular reference: A -> B -> A
+        cohort_a.filters = {
+            "properties": {
+                "type": "OR",
+                "values": [{"type": "OR", "values": [{"key": "id", "value": cohort_b.pk, "type": "cohort"}]}],
+            }
+        }
+        cohort_a.save()
+
+        FeatureFlag.objects.create(
+            team=team,
+            key="circular-flag",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.pk}]}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        cohort_ids = set(results[team.id]["cohorts"].keys())
+
+        assert str(cohort_a.pk) in cohort_ids
+        assert str(cohort_b.pk) in cohort_ids
+
+    def test_batch_no_cohort_flags_skips_cohort_loading(self):
+        """When no flags reference cohorts, the cohort query should be skipped entirely."""
+        team = self._create_team_with_project("No Cohort Team")
+
+        Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+            name="unused-cohort",
+        )
+
+        FeatureFlag.objects.create(
+            team=team,
+            key="simple-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        with self.assertNumQueries(3):
+            # Expected queries: survey flag IDs, flags (with evaluation
+            # tags via ArrayAgg), and group type mappings. No cohort
+            # query should be issued.
+            results = _get_flags_response_for_local_evaluation_batch([team], True)
+
+        assert results[team.id]["cohorts"] == {}
+        assert len(results[team.id]["flags"]) == 1
 
     def test_batch_deleted_cohort_handled_gracefully(self):
         team = self._create_team_with_project("Deleted Cohort Team")

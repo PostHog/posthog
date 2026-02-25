@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -11,8 +11,9 @@ import { isObject } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { byokModelPickerLogic } from './byokModelPickerLogic'
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
-import { LLMProviderKey } from './settings/llmProviderKeysLogic'
+import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from './settings/llmProviderKeysLogic'
 import { normalizeRole } from './utils'
 
 export interface ModelOption {
@@ -20,6 +21,14 @@ export interface ModelOption {
     name: string
     provider: string
     description: string
+    providerKeyId?: string
+}
+
+export interface ProviderModelGroup {
+    provider: LLMProvider
+    providerKeyId: string
+    label: string
+    models: ModelOption[]
 }
 
 export interface PlaygroundResponse {
@@ -123,8 +132,13 @@ function matchClosestModel(targetModel: string, availableModels: ModelOption[]):
 export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsPlaygroundLogic']),
 
+    connect(() => ({
+        values: [byokModelPickerLogic, ['byokModels', 'hasByokKeys'], llmProviderKeysLogic, ['providerKeys']],
+        actions: [byokModelPickerLogic, ['loadByokModelsSuccess']],
+    })),
+
     actions({
-        setModel: (model: string) => ({ model }),
+        setModel: (model: string, providerKeyId?: string) => ({ model, providerKeyId }),
         setSystemPrompt: (systemPrompt: string) => ({ systemPrompt }),
         setMaxTokens: (maxTokens: number | null) => ({ maxTokens }),
         setThinking: (thinking: boolean) => ({ thinking }),
@@ -154,10 +168,12 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         clearResponseError: true,
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
         setSubscriptionRequired: (required: boolean) => ({ required }),
+        setActiveProviderKeyId: (id: string | null) => ({ id }),
     }),
 
     reducers({
         model: ['', { setModel: (_, { model }) => model }],
+        selectedProviderKeyId: [null as string | null, { setModel: (_, { providerKeyId }) => providerKeyId ?? null }],
         modelOptionsErrorStatus: [
             null as number | null,
             {
@@ -310,18 +326,41 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 setSubscriptionRequired: (_, { required }) => required,
             },
         ],
+        activeProviderKeyId: [
+            null as string | null,
+            {
+                setActiveProviderKeyId: (_, { id }) => id,
+            },
+        ],
+        pendingTargetModel: [
+            null as string | null,
+            {
+                setupPlaygroundFromEvent: (_, { payload }) => payload.model ?? null,
+                loadByokModelsSuccess: () => null,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         modelOptions: {
             __default: [] as ModelOption[],
             loadModelOptions: async () => {
-                const response = await api.get('/api/llm_proxy/models/')
+                const teamId = teamLogic.values.currentTeamId
 
-                if (!response) {
-                    return []
+                if (teamId) {
+                    try {
+                        const config = (await api.get(
+                            `/api/environments/${teamId}/llm_analytics/evaluation_config/`
+                        )) as { active_provider_key: { id: string } | null }
+                        llmAnalyticsPlaygroundLogic.actions.setActiveProviderKeyId(
+                            config?.active_provider_key?.id ?? null
+                        )
+                    } catch (e) {
+                        console.warn('Failed to load evaluation config', e)
+                    }
                 }
 
-                const options = response as ModelOption[]
+                const trialModels = (await api.get('/api/llm_proxy/models/')) as ModelOption[]
+                const options = trialModels ?? []
                 const closestMatch = matchClosestModel(values.model, options)
 
                 if (values.model !== closestMatch) {
@@ -331,19 +370,18 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 return options
             },
         },
-        providerKeys: {
-            __default: [] as LLMProviderKey[],
-            loadProviderKeys: async () => {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return []
-                }
-                const response = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
-                return response.results ?? []
-            },
-        },
     })),
     listeners(({ actions, values }) => ({
+        loadByokModelsSuccess: ({ byokModels }) => {
+            if (byokModels.length > 0) {
+                const targetModel = values.pendingTargetModel ?? values.model
+                const closestMatch = matchClosestModel(targetModel, byokModels)
+                if (values.model !== closestMatch) {
+                    const matchedModel = byokModels.find((m) => m.id === closestMatch)
+                    actions.setModel(closestMatch, matchedModel?.providerKeyId)
+                }
+            }
+        },
         finalizeAssistantMessage: () => {
             const toolCalls = values.currentToolCalls
             if (toolCalls.length > 0) {
@@ -360,8 +398,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             actions.clearToolCalls()
         },
         submitPrompt: async (_, breakpoint) => {
-            const requestModel = values.model
             const requestSystemPrompt = values.systemPrompt
+            const requestModel = values.model
             const messagesToSend = values.messages.filter(
                 (m) => (m.role === 'user' || m.role === 'assistant' || m.role === 'system') && m.content.trim()
             )
@@ -392,22 +430,22 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 // Start timer for latency? Might be inaccurate due to network etc.
                 startTime = performance.now()
 
-                const selectedModel = values.modelOptions.find((m) => m.id === requestModel)
+                const selectedModel = values.effectiveModelOptions.find((m) => m.id === requestModel)
                 if (!selectedModel?.provider) {
                     lemonToast.error('Selected model not found in available models')
                     actions.finalizeAssistantMessage()
                     return
                 }
 
+                const providerKeyId = values.providerKeyForCurrentModel?.id ?? values.activeProviderKeyId
+
                 const requestData: any = {
                     system: requestSystemPrompt,
                     messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
-                    model: requestModel,
+                    model: selectedModel.id,
                     provider: selectedModel.provider.toLowerCase(),
                     thinking: values.thinking,
-                    ...(values.providerKeyForCurrentModel
-                        ? { provider_key_id: values.providerKeyForCurrentModel.id }
-                        : {}),
+                    ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
                 }
 
                 // Include tools if available
@@ -509,7 +547,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             if (values.currentResponse !== null) {
                 const runDetails: ComparisonItem = {
                     id: uuid(),
-                    model: requestModel,
+                    model: values.model,
                     systemPrompt: requestSystemPrompt,
                     requestMessages: requestMessages,
                     response: values.currentResponse,
@@ -529,7 +567,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             const { model, input, tools } = payload
 
             if (model) {
-                actions.setModel(matchClosestModel(model, values.modelOptions))
+                actions.setModel(matchClosestModel(model, values.effectiveModelOptions))
             }
 
             // Set tools if available
@@ -604,15 +642,60 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
     })),
     afterMount(({ actions }) => {
         actions.loadModelOptions()
-        actions.loadProviderKeys()
     }),
     selectors({
+        effectiveModelOptions: [
+            (s) => [s.hasByokKeys, s.byokModels, s.modelOptions],
+            (hasByokKeys: boolean, byokModels: ModelOption[], modelOptions: ModelOption[]): ModelOption[] =>
+                hasByokKeys && byokModels.length > 0 ? byokModels : modelOptions,
+        ],
+        groupedModelOptions: [
+            (s) => [s.modelOptions],
+            (modelOptions: ModelOption[]) => {
+                const options = Array.isArray(modelOptions) ? modelOptions : []
+                const byProvider: Record<string, ModelOption[]> = {}
+                for (const option of options) {
+                    const provider = option.provider || 'Unknown'
+                    if (!byProvider[provider]) {
+                        byProvider[provider] = []
+                    }
+                    byProvider[provider].push(option)
+                }
+                return Object.entries(byProvider)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([provider, providerModels]) => ({
+                        title: provider,
+                        options: providerModels.map((option) => ({
+                            label: option.name,
+                            value: option.id,
+                            tooltip: option.description || `Provider: ${option.provider}`,
+                        })),
+                    }))
+            },
+        ],
         providerKeyForCurrentModel: [
-            (s) => [s.model, s.modelOptions, s.providerKeys],
-            (model: string, modelOptions: ModelOption[], providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
+            (s) => [s.model, s.selectedProviderKeyId, s.effectiveModelOptions, s.providerKeys],
+            (
+                model: string,
+                selectedProviderKeyId: string | null,
+                modelOptions: ModelOption[],
+                providerKeys: LLMProviderKey[]
+            ): LLMProviderKey | null => {
+                if (selectedProviderKeyId) {
+                    const exactMatch = providerKeys.find((k) => k.id === selectedProviderKeyId)
+                    if (exactMatch) {
+                        return exactMatch
+                    }
+                }
                 const selectedModel = modelOptions.find((m) => m.id === model)
                 if (!selectedModel) {
                     return null
+                }
+                if (selectedModel.providerKeyId) {
+                    const exactMatch = providerKeys.find((k) => k.id === selectedModel.providerKeyId)
+                    if (exactMatch) {
+                        return exactMatch
+                    }
                 }
                 const provider = selectedModel.provider.toLowerCase()
                 return providerKeys.find((k) => k.provider === provider && k.state !== 'invalid') ?? null

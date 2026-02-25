@@ -88,7 +88,13 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                     clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                     groupId,
                 }),
-                [count('emitted_events', (input) => ({ team_id: String(input.eventToEmit.team_id) }))]
+                [
+                    count('emitted_events', (input) => ({ team_id: String(input.eventToEmit.team_id) })),
+                    count('emitted_events_per_distinct_id', (input) => ({
+                        team_id: String(input.eventToEmit.team_id),
+                        distinct_id: input.eventToEmit.distinct_id,
+                    })),
+                ]
             )
         )
 }
