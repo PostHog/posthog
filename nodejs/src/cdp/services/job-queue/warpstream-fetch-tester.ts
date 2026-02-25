@@ -3,6 +3,7 @@ import { Counter, Histogram } from 'prom-client'
 
 import { getKafkaConfigFromEnv } from '../../../kafka/config'
 import { PluginsServerConfig } from '../../../types'
+import { logger } from '../../../utils/logger'
 import { internalFetch as fetch } from '../../../utils/request'
 
 export const cdpSeekLatencyMs = new Histogram({
@@ -59,9 +60,9 @@ export class WarpstreamFetchTester {
 
         if (username && password) {
             this.authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64')
-            console.info(`[WarpstreamFetchTester] auth configured with username=${username}`)
+            logger.info('🔄', 'WarpStream fetch tester auth configured', { username })
         } else {
-            console.info(`[WarpstreamFetchTester] no SASL credentials found, requests will be unauthenticated`)
+            logger.info('🔄', 'WarpStream fetch tester: no SASL credentials, requests will be unauthenticated')
         }
     }
 
@@ -108,13 +109,15 @@ export class WarpstreamFetchTester {
                     if (response.status >= 200 && response.status < 300) {
                         cdpSeekResult.labels({ result: 'success', method: 'individual' }).inc()
                     } else {
-                        console.warn(
-                            `[WarpstreamFetchTester] individual fetch failed: status=${response.status} url=${url} body=${body.slice(0, 500)}`
-                        )
+                        logger.warn('🔄', 'WarpStream individual fetch failed', {
+                            status: response.status,
+                            url,
+                            body: body.slice(0, 500),
+                        })
                         cdpSeekResult.labels({ result: 'error', method: 'individual' }).inc()
                     }
                 } catch (e) {
-                    console.warn(`[WarpstreamFetchTester] individual fetch exception: ${e}`)
+                    logger.warn('🔄', 'WarpStream individual fetch exception', { error: String(e), url })
                     cdpSeekResult.labels({ result: 'error', method: 'individual' }).inc()
                 }
             })
@@ -174,13 +177,16 @@ export class WarpstreamFetchTester {
                     if (response.status >= 200 && response.status < 300) {
                         cdpSeekResult.labels({ result: 'success', method: 'batch' }).inc()
                     } else {
-                        console.warn(
-                            `[WarpstreamFetchTester] batch fetch failed: status=${response.status} url=${url} requestBody=${serializedBody.slice(0, 500)} responseBody=${responseBody.slice(0, 500)}`
-                        )
+                        logger.warn('🔄', 'WarpStream batch fetch failed', {
+                            status: response.status,
+                            url,
+                            requestBody: serializedBody.slice(0, 500),
+                            responseBody: responseBody.slice(0, 500),
+                        })
                         cdpSeekResult.labels({ result: 'error', method: 'batch' }).inc()
                     }
                 } catch (e) {
-                    console.warn(`[WarpstreamFetchTester] batch fetch exception: ${e}`)
+                    logger.warn('🔄', 'WarpStream batch fetch exception', { error: String(e), url })
                     cdpSeekResult.labels({ result: 'error', method: 'batch' }).inc()
                 }
             })
