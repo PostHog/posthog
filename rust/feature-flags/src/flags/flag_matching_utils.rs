@@ -35,6 +35,7 @@ use crate::{
         FLAG_PERSONHOG_COHORT_QUERY_TIME, FLAG_PERSONHOG_GROUP_QUERY_TIME,
         FLAG_PERSONHOG_HASH_KEY_QUERY_TIME, FLAG_PERSONHOG_PERSON_QUERY_TIME,
         FLAG_PERSONHOG_UPSERT_TIME, FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
+        FLAG_PROPERTIES_FETCH_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -177,7 +178,9 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<(), FlagError> {
     if let Some(client) = personhog_client {
-        return fetch_properties_via_personhog(
+        let labels = [("source".to_string(), "personhog".to_string())];
+        let timer = common_metrics::timing_guard(FLAG_PROPERTIES_FETCH_TIME, &labels);
+        let result = fetch_properties_via_personhog(
             flag_evaluation_state,
             client,
             distinct_id,
@@ -187,7 +190,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             static_cohort_ids,
         )
         .await;
+        timer
+            .label("outcome", if result.is_ok() { "success" } else { "error" })
+            .fin();
+        return result;
     }
+    let sql_labels = [("source".to_string(), "sql".to_string())];
+    let sql_fetch_timer = common_metrics::timing_guard(FLAG_PROPERTIES_FETCH_TIME, &sql_labels);
+
     // Add the test-specific counter increment
     #[cfg(test)]
     increment_fetch_calls_count();
@@ -239,6 +249,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 "Failed to acquire database connection"
             );
 
+            sql_fetch_timer.label("outcome", "error").fin();
             return Err(FlagError::from(e));
         }
     };
@@ -446,6 +457,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         group_processing_timer.fin();
     }
 
+    sql_fetch_timer.label("outcome", "success").fin();
     Ok(())
 }
 

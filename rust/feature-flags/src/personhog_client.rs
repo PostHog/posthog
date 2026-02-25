@@ -17,6 +17,7 @@ use tracing::warn;
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_group_type_mapping::GroupTypeIndex;
+use crate::metrics::consts::FLAG_PERSONHOG_ERRORS_COUNTER;
 
 /// Abstraction over person/group data fetching from the personhog service.
 ///
@@ -105,9 +106,19 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .get_person_by_distinct_id(request)
             .await
-            .map_err(|s| FlagError::PersonhogError {
-                code: s.code(),
-                message: format!("GetPersonByDistinctId failed: {}", s.message()),
+            .map_err(|s| {
+                common_metrics::inc(
+                    FLAG_PERSONHOG_ERRORS_COUNTER,
+                    &[
+                        ("method".to_string(), "GetPersonByDistinctId".to_string()),
+                        ("grpc_code".to_string(), format!("{:?}", s.code())),
+                    ],
+                    1,
+                );
+                FlagError::PersonhogError {
+                    code: s.code(),
+                    message: format!("GetPersonByDistinctId failed: {}", s.message()),
+                }
             })?;
 
         let proto_person = match response.into_inner().person {
@@ -162,9 +173,19 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .check_cohort_membership(request)
             .await
-            .map_err(|s| FlagError::PersonhogError {
-                code: s.code(),
-                message: format!("CheckCohortMembership failed: {}", s.message()),
+            .map_err(|s| {
+                common_metrics::inc(
+                    FLAG_PERSONHOG_ERRORS_COUNTER,
+                    &[
+                        ("method".to_string(), "CheckCohortMembership".to_string()),
+                        ("grpc_code".to_string(), format!("{:?}", s.code())),
+                    ],
+                    1,
+                );
+                FlagError::PersonhogError {
+                    code: s.code(),
+                    message: format!("CheckCohortMembership failed: {}", s.message()),
+                }
             })?;
 
         let memberships = response
@@ -197,6 +218,14 @@ impl PersonhogFetcher for PersonhogClient {
         });
 
         let response = self.client.clone().get_groups(request).await.map_err(|s| {
+            common_metrics::inc(
+                FLAG_PERSONHOG_ERRORS_COUNTER,
+                &[
+                    ("method".to_string(), "GetGroups".to_string()),
+                    ("grpc_code".to_string(), format!("{:?}", s.code())),
+                ],
+                1,
+            );
             FlagError::PersonhogError {
                 code: s.code(),
                 message: format!("GetGroups failed: {}", s.message()),
@@ -240,9 +269,22 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .get_hash_key_override_context(request)
             .await
-            .map_err(|s| FlagError::PersonhogError {
-                code: s.code(),
-                message: format!("GetHashKeyOverrideContext failed: {}", s.message()),
+            .map_err(|s| {
+                common_metrics::inc(
+                    FLAG_PERSONHOG_ERRORS_COUNTER,
+                    &[
+                        (
+                            "method".to_string(),
+                            "GetHashKeyOverrideContext".to_string(),
+                        ),
+                        ("grpc_code".to_string(), format!("{:?}", s.code())),
+                    ],
+                    1,
+                );
+                FlagError::PersonhogError {
+                    code: s.code(),
+                    message: format!("GetHashKeyOverrideContext failed: {}", s.message()),
+                }
             })?;
 
         let results = response.into_inner().results;
@@ -270,9 +312,19 @@ impl PersonhogFetcher for PersonhogClient {
             .clone()
             .upsert_hash_key_overrides(request)
             .await
-            .map_err(|s| FlagError::PersonhogError {
-                code: s.code(),
-                message: format!("UpsertHashKeyOverrides failed: {}", s.message()),
+            .map_err(|s| {
+                common_metrics::inc(
+                    FLAG_PERSONHOG_ERRORS_COUNTER,
+                    &[
+                        ("method".to_string(), "UpsertHashKeyOverrides".to_string()),
+                        ("grpc_code".to_string(), format!("{:?}", s.code())),
+                    ],
+                    1,
+                );
+                FlagError::PersonhogError {
+                    code: s.code(),
+                    message: format!("UpsertHashKeyOverrides failed: {}", s.message()),
+                }
             })?;
 
         Ok(())

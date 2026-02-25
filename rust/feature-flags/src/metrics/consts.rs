@@ -48,6 +48,13 @@ pub const FLAG_PERSONHOG_GROUP_QUERY_TIME: &str = "flags_personhog_group_query_t
 pub const FLAG_PERSONHOG_HASH_KEY_QUERY_TIME: &str = "flags_personhog_hash_key_query_time";
 pub const FLAG_PERSONHOG_UPSERT_TIME: &str = "flags_personhog_upsert_time";
 
+// Personhog error counter — labels: method (rpc name), grpc_code (tonic status code)
+pub const FLAG_PERSONHOG_ERRORS_COUNTER: &str = "flags_personhog_errors_total";
+
+// Unified property-fetch histogram — labels: source=sql|personhog
+// Wraps the entire property-fetch operation (person + cohort + groups) for apples-to-apples comparison
+pub const FLAG_PROPERTIES_FETCH_TIME: &str = "flags_properties_fetch_time";
+
 // Flag request kludges (to see how often we have to massage our request data to be able to parse it)
 pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";
 

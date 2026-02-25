@@ -1977,7 +1977,14 @@ impl FeatureFlagMatcher {
         flags_have_experience_continuity_enabled: bool,
         hash_key_override: Option<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
-        let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
+        let source = if self.personhog_client.is_some() {
+            "personhog"
+        } else {
+            "sql"
+        };
+        let hash_key_labels = [("source".to_string(), source.to_string())];
+        let hash_key_timer =
+            common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &hash_key_labels);
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
                 common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
