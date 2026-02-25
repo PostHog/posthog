@@ -223,7 +223,7 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/viewed': [201],
                 '/api/environments/:team_id/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, ...(req.body as any) },
+                    { ...(req.body as any), id: 12, short_id: Insight12 },
                 ],
                 '/api/environments/997/insights/cancel/': [201],
             },
@@ -890,6 +890,68 @@ describe('insightLogic', () => {
                     action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
                     action.payload.insight.deleted === false,
             ])
+        })
+    })
+
+    describe('duplicateInsight', () => {
+        beforeEach(async () => {
+            const insightProps: InsightLogicProps = { dashboardItemId: Insight42 }
+            logic = insightLogic(insightProps)
+            logic.mount()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: partial({ id: 42 }),
+                })
+        })
+
+        it('fetches clean insight before duplicating', async () => {
+            jest.spyOn(api, 'create')
+
+            logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The POST body should contain the clean insight fetched via getByShortId,
+            // not the one passed in (which may have dashboard filter overrides)
+            expect(api.create).toHaveBeenCalledWith(
+                expect.stringContaining('/insights'),
+                expect.objectContaining({ name: 'original name (copy)' }),
+                expect.anything()
+            )
+        })
+
+        it('falls back to original insight when fetch fails', async () => {
+            jest.spyOn(api, 'create')
+
+            const insightWithBadShortId = {
+                ...(logic.values.insight as QueryBasedInsightModel),
+                short_id: '500' as InsightShortId,
+                name: 'fallback name',
+            }
+            logic.actions.duplicateInsight(insightWithBadShortId, false)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.create).toHaveBeenCalledWith(
+                expect.stringContaining('/insights'),
+                expect.objectContaining({ name: 'fallback name (copy)' }),
+                expect.anything()
+            )
+        })
+
+        it('with redirectToInsight=true navigates to edit URL', async () => {
+            // POST mock returns short_id: Insight12 — listen on router before dispatching
+            await expectLogic(router, () => {
+                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            }).toDispatchActions([router.actionCreators.push(urls.insightEdit(Insight12))])
+        })
+
+        it('with redirectToInsight=false does not navigate', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, false)
+            }).toFinishAllListeners()
+
+            await expectLogic(router).toNotHaveDispatchedActions(['push'])
         })
     })
 })
