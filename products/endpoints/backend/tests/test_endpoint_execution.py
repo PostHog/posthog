@@ -811,10 +811,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             # (test_name, query_limit, request_limit, expected_limit)
+            # When request_limit is provided, the +1 trick is applied for hasMore detection
             ("original_limit_preserved", 50, None, 50),
-            ("request_limit_used_when_no_original", None, 25, 25),
-            ("request_limit_capped_by_original", 50, 200, 50),
-            ("request_limit_lower_than_original", 50, 10, 10),
+            ("request_limit_used_when_no_original", None, 25, 26),
+            ("request_limit_capped_by_original", 50, 200, 51),
+            ("request_limit_lower_than_original", 50, 10, 11),
             ("no_limit_set", None, None, None),
         ]
     )
@@ -1194,3 +1195,162 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props),
                 "Breakdown property filter should be applied",
             )
+
+    # =========================================================================
+    # OFFSET-BASED PAGINATION
+    # =========================================================================
+
+    @parameterized.expand(
+        [
+            # (name, sql_limit, req_limit, req_offset, num_result_rows, expected_sql_limit, expected_sql_offset)
+            ("first_page", 1000, 100, 0, 101, 101, None),
+            ("near_ceiling", 1000, 100, 950, 50, 51, 950),
+            ("past_ceiling", 1000, 100, 1100, 0, 0, None),
+            ("no_ceiling", None, 100, 0, 101, 101, None),
+            ("at_ceiling", 1000, 100, 1000, 0, 0, None),
+        ]
+    )
+    def test_inline_pagination(
+        self,
+        _name,
+        sql_limit,
+        req_limit,
+        req_offset,
+        num_result_rows,
+        expected_sql_limit,
+        expected_sql_offset,
+    ):
+        query_sql = "SELECT event, distinct_id FROM events WHERE event = '$pageview'"
+        if sql_limit is not None:
+            query_sql += f" LIMIT {sql_limit}"
+
+        endpoint = create_endpoint_with_version(
+            name="pagination_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": query_sql},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        fake_results = [{"event": "$pageview", "distinct_id": "user1"}] * num_result_rows
+
+        with mock.patch.object(
+            EndpointViewSet,
+            "_execute_query_and_respond",
+            return_value=Response({"results": fake_results}),
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"limit": req_limit, "offset": req_offset},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_exec.assert_called()
+
+            # Verify SQL limit/offset were set correctly
+            query_payload = mock_exec.call_args[0][0]["query"]
+            sql = query_payload["query"].lower()
+
+            assert f"limit {expected_sql_limit}" in sql, f"Expected LIMIT {expected_sql_limit} in: {sql}"
+
+            if expected_sql_offset is not None:
+                assert f"offset {expected_sql_offset}" in sql, f"Expected OFFSET {expected_sql_offset} in: {sql}"
+            elif req_offset == 0:
+                assert "offset" not in sql, f"Expected no OFFSET in: {sql}"
+
+            # Verify pagination kwarg was passed
+            pagination = mock_exec.call_args[1].get("pagination")
+            assert pagination is not None
+            assert pagination.limit == req_limit
+            assert pagination.offset == req_offset
+
+    @parameterized.expand(
+        [
+            # (name, sql_limit, req_limit, req_offset, num_result_rows)
+            ("first_page", 1000, 100, 0, 101),
+            ("near_ceiling", 1000, 100, 950, 50),
+            ("past_ceiling", 1000, 100, 1100, 0),
+            ("no_ceiling", None, 100, 0, 101),
+        ]
+    )
+    def test_materialized_pagination(self, _name, sql_limit, req_limit, req_offset, num_result_rows):
+        query_sql = "SELECT event, distinct_id FROM events WHERE event = '$pageview'"
+        if sql_limit is not None:
+            query_sql += f" LIMIT {sql_limit}"
+
+        endpoint = create_endpoint_with_version(
+            name="mat_pagination_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": query_sql},
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        fake_results = [{"event": "$pageview", "distinct_id": "user1"}] * num_result_rows
+
+        with mock.patch.object(
+            EndpointViewSet,
+            "_execute_query_and_respond",
+            return_value=Response({"results": fake_results}),
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"limit": req_limit, "offset": req_offset},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_exec.assert_called()
+
+            # Verify pagination kwarg was passed
+            pagination = mock_exec.call_args[1].get("pagination")
+            assert pagination is not None
+            assert pagination.limit == req_limit
+            assert pagination.offset == req_offset
+
+    @parameterized.expand(
+        [
+            ("negative_offset", {"limit": 10, "offset": -1}, "Invalid offset parameter"),
+            ("offset_without_limit", {"offset": 10}, "offset requires limit"),
+        ]
+    )
+    def test_pagination_validation_errors(self, _name, run_data, expected_error):
+        endpoint = create_endpoint_with_version(
+            name="validation_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            run_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_error, response.json()["error"])
+
+    def test_offset_on_insight_endpoint_returns_400(self):
+        endpoint = create_endpoint_with_version(
+            name="trends_offset_test",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange={"date_from": "-30d"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"limit": 10, "offset": 5},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("only supported for HogQL", response.json()["error"])

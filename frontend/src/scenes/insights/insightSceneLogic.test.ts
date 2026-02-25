@@ -143,6 +143,54 @@ describe('insightSceneLogic', () => {
         expect(logic.values.insightLogicRef?.logic.values.insight.dashboards).toEqual([6])
     })
 
+    it('reloads insight when navigating back to the same insight via PUSH', async () => {
+        const insightApiCall = jest
+            .fn()
+            .mockReturnValue([200, { results: [{ id: 42, short_id: Insight42, result: ['result from api'] }] }])
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': insightApiCall,
+            },
+            post: {
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
+            },
+        })
+
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+
+        router.actions.push(urls.insightView(Insight42))
+        await expectLogic(logic).toMatchValues({ insightId: Insight42 })
+        await expectLogic(logic).delay(150) // wait for loadInsight debounce
+
+        // Simulate the Insight scene being active so the early-return guard fires,
+        // just like in production when the user is already viewing an insight
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightView',
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} }
+        )
+        sceneLogic.actions.setScene(
+            Scene.Insight,
+            'insightView',
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} },
+            false
+        )
+
+        const callCountAfterInitialLoad = insightApiCall.mock.calls.length
+
+        // Simulate navigating away and back to the same insight (e.g. from insights list)
+        router.actions.push(urls.insightView(Insight42))
+        await expectLogic(logic).delay(150)
+
+        // Should have reloaded the insight since this is a PUSH navigation,
+        // even though activeSceneId is already Scene.Insight with the same insightId
+        expect(insightApiCall.mock.calls.length).toBeGreaterThan(callCountAfterInitialLoad)
+    })
+
     it.each([
         ['new subscription', 'new', 'new'],
         ['a specific subscription', '5', 5],

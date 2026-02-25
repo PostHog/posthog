@@ -150,6 +150,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
         title: 'Get started with Web analytics',
         tasks: [
             INGEST_FIRST_EVENT(ProductKey.WEB_ANALYTICS),
+            SET_UP_REVERSE_PROXY,
             {
                 id: SetupTaskId.AddAuthorizedDomain,
                 title: 'Add your domain',
@@ -363,6 +364,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
         title: 'Get started with Surveys',
         tasks: [
             INGEST_FIRST_EVENT(ProductKey.SURVEYS),
+            SET_UP_REVERSE_PROXY,
             {
                 id: SetupTaskId.CreateSurvey,
                 title: 'Create your first survey',
@@ -488,6 +490,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                     urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL }),
                 targetSelector: '[data-attr="menu-item-llm_analytics"]',
             },
+            SET_UP_REVERSE_PROXY,
             {
                 id: SetupTaskId.ViewFirstTrace,
                 title: 'View your first trace',

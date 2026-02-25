@@ -77,6 +77,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             "message_count": F("message_count") + 1,
             "last_message_at": created_at,
             "last_message_text": (content or "")[:500],  # Truncate to 500 chars
+            "updated_at": created_at,
         }
 
         if is_team_message:

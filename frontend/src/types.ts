@@ -2566,6 +2566,7 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 }
 
 export enum ChartDisplayType {
+    Auto = 'Auto',
     ActionsLineGraph = 'ActionsLineGraph',
     // TODO: remove this as ActionsBar was meant to be for unstacked bar charts
     // but with current logic for all insights with this setting saved in the query
@@ -5409,6 +5410,7 @@ export interface IncrementalField {
     type: IncrementalFieldType // the field type shown in the UI
     field: string // the actual database field name
     field_type: IncrementalFieldType // the actual database field type
+    nullable?: boolean // whether the field allows null values
 }
 
 export interface ExternalDataSourceSyncSchema {

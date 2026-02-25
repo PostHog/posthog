@@ -56,6 +56,7 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.message_count == 1
         assert self.ticket.last_message_at == comment.created_at
         assert self.ticket.last_message_text == "Hello from customer"
+        assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 0  # Customer messages don't increment this
 
     def test_team_message_updates_stats_and_unread(self, mock_on_commit):
@@ -65,6 +66,7 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.message_count == 1
         assert self.ticket.last_message_at == comment.created_at
         assert self.ticket.last_message_text == "Response from team"
+        assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 1  # Team messages increment this
 
     def test_multiple_messages_accumulate(self, mock_on_commit):
@@ -75,6 +77,7 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.message_count == 3
         assert self.ticket.last_message_at == last.created_at
+        assert self.ticket.updated_at == last.created_at
         assert self.ticket.last_message_text == "Third"
         assert self.ticket.unread_customer_count == 1  # Only 1 team message
 
@@ -192,14 +195,16 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.message_count == 1
         assert self.ticket.last_message_text == "Public message"
         assert self.ticket.last_message_at == public_msg.created_at
+        assert self.ticket.updated_at == public_msg.created_at
 
-        # Now send a private message - should not change last_message_*
+        # Now send a private message - should not change last_message_* or updated_at
         self._create_team_message("Private note for team only", is_private=True)
 
         self.ticket.refresh_from_db()
         assert self.ticket.message_count == 1  # Still 1
         assert self.ticket.last_message_text == "Public message"  # Unchanged
         assert self.ticket.last_message_at == public_msg.created_at  # Unchanged
+        assert self.ticket.updated_at == public_msg.created_at  # Unchanged
 
     def test_soft_delete_private_message_does_not_decrement_count(self, mock_on_commit):
         """Deleting a private message should not decrement message_count (since it wasn't counted)."""

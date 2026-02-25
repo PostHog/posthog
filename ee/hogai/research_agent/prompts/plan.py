@@ -15,6 +15,8 @@ PLAN_AGENT_PROMPT = """
 
 {{{task_management}}}
 
+{{{product_advocacy}}}
+
 {{{onboarding_task}}}
 
 {{{planning_task}}}

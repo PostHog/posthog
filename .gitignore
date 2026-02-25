@@ -134,6 +134,7 @@ posthog/management/commands/clear_demo_data.py
 
 # Ignore Claude Code settings
 .claude/settings.local.json
+.claude/worktrees/
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml

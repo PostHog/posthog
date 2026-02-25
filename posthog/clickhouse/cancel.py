@@ -14,7 +14,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
     try:
         result = sync_execute(
             """
-            SELECT hostname(), query_id
+            SELECT FQDN(), query_id
             FROM distributed_system_processes
             WHERE query_id LIKE %(client_query_id)s
             SETTINGS max_execution_time = 2

@@ -161,17 +161,16 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                 row_counts = {}
 
         for table_name, columns in db_schemas.items():
-            column_info = [(col_name, col_type) for col_name, col_type in columns]
-
-            incremental_field_tuples = filter_redshift_incremental_fields(column_info)
+            incremental_field_tuples = filter_redshift_incremental_fields(columns)
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
                     "type": field_type,
                     "field": field_name,
                     "field_type": field_type,
+                    "nullable": nullable,
                 }
-                for field_name, field_type in incremental_field_tuples
+                for field_name, field_type, nullable in incremental_field_tuples
             ]
 
             schemas.append(

@@ -1,4 +1,5 @@
-import { Hub, Team } from '~/types'
+import { InternalFetchService } from '~/common/services/internal-fetch'
+import { Team } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 
@@ -15,17 +16,16 @@ export interface BlastRadiusPersonsResponse {
     has_more: boolean
 }
 
-export interface HogFlowBatchPersonQueryServiceHub {
-    SITE_URL: string
-}
-
 /**
  * Service for querying persons via Django internal API for batch HogFlow processing.
  * Calls internal endpoints authenticated with INTERNAL_API_SECRET.
  * Endpoints: /internal/hog_flows/user_blast_radius and /internal/hog_flows/user_blast_radius_persons
  */
 export class HogFlowBatchPersonQueryService {
-    constructor(private hub: Pick<Hub, 'SITE_URL' | 'internalFetchService'>) {}
+    constructor(
+        private siteUrl: string,
+        private internalFetchService: InternalFetchService
+    ) {}
 
     /**
      * Get count of users affected by filters
@@ -35,10 +35,10 @@ export class HogFlowBatchPersonQueryService {
         filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>,
         groupTypeIndex?: number
     ): Promise<BlastRadiusResponse> {
-        const url = `${this.hub.SITE_URL}/api/projects/${team.id}/internal/hog_flows/user_blast_radius`
+        const url = `${this.siteUrl}/api/projects/${team.id}/internal/hog_flows/user_blast_radius`
 
         try {
-            const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
+            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
                 url,
                 fetchParams: {
                     method: 'POST',
@@ -85,10 +85,10 @@ export class HogFlowBatchPersonQueryService {
         groupTypeIndex?: number,
         cursor?: string | null
     ): Promise<BlastRadiusPersonsResponse> {
-        const url = `${this.hub.SITE_URL}/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons`
+        const url = `${this.siteUrl}/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons`
 
         try {
-            const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
+            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
                 url,
                 fetchParams: {
                     method: 'POST',

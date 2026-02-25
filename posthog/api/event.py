@@ -41,7 +41,12 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    EventValuesBurstThrottle,
+    EventValuesSustainedThrottle,
+)
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, generate_short_id, relative_date_parse
 
@@ -161,6 +166,11 @@ class EventViewSet(
     serializer_class = ClickhouseEventSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     pagination_class = UncountedLimitOffsetPagination
+
+    def get_throttles(self):
+        if self.action == "values":
+            return [EventValuesBurstThrottle(), EventValuesSustainedThrottle()]
+        return super().get_throttles()
 
     def _build_next_url(
         self,
@@ -441,6 +451,15 @@ class EventViewSet(
         event_names = request.GET.getlist("event_name", None)
         has_event_name = bool(event_names and len(event_names) > 0)
         is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+
+        # Reject personal API key requests without event_name filter
+        if is_personal_api_key and not has_event_name:
+            raise serializers.ValidationError(
+                "The event_name parameter is required when using a personal API key. "
+                "For queries without event filters, please use the Query endpoint instead: "
+                "https://posthog.com/docs/api/query"
+            )
+
         EVENT_VALUES_COUNTER.labels(
             has_event_name=str(has_event_name),
             auth="personal_api_key" if is_personal_api_key else "app",
