@@ -304,6 +304,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                         isLoading={loadingFullTraces.has(trace.id)}
                                                         expandedEventIds={expandedGenerationIds}
                                                         onToggleEventExpand={toggleGenerationExpanded}
+                                                        traceId={trace.id}
                                                     />
                                                 </div>
                                             </div>
