@@ -215,8 +215,6 @@ class TestUpsertAlertTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_create_alert_requires_insight_id(self):
-        """insight_id is required on CreateAlertAction — omitting it is a validation error."""
-
         with pytest.raises(pydantic.ValidationError, match="insight_id"):
             CreateAlertAction(
                 name="No insight",
@@ -594,7 +592,10 @@ class TestUpsertAlertTool(BaseTest):
         alert = await self._create_alert(insight, name="My Alert")
         tool = self._setup_tool()
         action = make_action(insight.id, str(alert.id))
-        assert await tool.is_dangerous_operation(action=action) is expected_dangerous
+
+        is_dangerous = await tool.is_dangerous_operation(action=action)
+        assert is_dangerous == expected_dangerous
+
         if expected_preview is not None:
             preview = await tool.format_dangerous_operation_preview(action=action)
             assert preview == expected_preview
