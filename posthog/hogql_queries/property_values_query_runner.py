@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 
 from pydantic import BaseModel
 
@@ -58,7 +58,9 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     cached_response: CachedPropertyValuesQueryResponse
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
-        # Property values don't change frequently — treat as daily-interval data (6h staleness)
+        # Property values don't change frequently — treat as daily-interval data (6h staleness).
+        # On cache miss the first request blocks; on stale cache the old results are returned immediately
+        # and a background refresh is enqueued via RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS.
         if last_refresh is None:
             return None
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
@@ -67,22 +69,41 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def to_query(self) -> ast.SelectQuery:
         if self.query.property_type == PropertyType.EVENT:
             return self._event_query()
-        return self._person_query()
+        raise NotImplementedError("Person property values use raw SQL via _calculate_person()")
 
     def _calculate(self) -> PropertyValuesQueryResponse:
-        query = self.to_query()
+        if self.query.property_type == PropertyType.PERSON:
+            return self._calculate_person()
+        return self._calculate_event()
+
+    def _calculate_event(self) -> PropertyValuesQueryResponse:
         result = execute_hogql_query(
-            query,
+            self._event_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-        results = self._format_results(result.results)
         return PropertyValuesQueryResponse(
-            results=results,
+            results=self._format_event_results(result.results),
             timings=self.timings.to_list(),
             hogql=result.hogql,
+            modifiers=self.modifiers,
+        )
+
+    def _calculate_person(self) -> PropertyValuesQueryResponse:
+        # Use the raw SQL person query — the HogQL persons virtual table does full argMax dedup
+        # which is correct but much slower (30s vs 4s on large teams). The raw SQL approximates
+        # dedup with uniq(id) - uniqIf(id, is_deleted != 0) and caps at 100k rows, which is
+        # fast enough and good enough for autocomplete.
+        from posthog.queries.property_values import get_person_property_values_for_key
+
+        rows = cast(
+            list, get_person_property_values_for_key(self.query.property_key, self.team, self.query.search_value)
+        )
+        return PropertyValuesQueryResponse(
+            results=self._format_person_results(rows),
+            timings=self.timings.to_list(),
             modifiers=self.modifiers,
         )
 
@@ -152,65 +173,6 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             order_by=order_by,
             limit=ast.Constant(value=10),
         )
-
-    def _person_query(self) -> ast.SelectQuery:
-        key = self.query.property_key
-        chain: list[str | int] = ["properties", key]
-
-        conditions: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Field(chain=chain),
-                right=ast.Constant(value=None),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                right=ast.Constant(value=""),
-            ),
-        ]
-
-        if self.query.search_value:
-            conditions.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.ILike,
-                    left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{self.query.search_value}%"),
-                )
-            )
-
-        order_by: list[ast.OrderExpr] = (
-            [
-                ast.OrderExpr(
-                    expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
-                    order="ASC",
-                )
-            ]
-            if self.query.search_value
-            else [ast.OrderExpr(expr=ast.Field(chain=["count"]), order="DESC")]
-        )
-
-        return ast.SelectQuery(
-            select=[
-                ast.Alias(alias="value", expr=ast.Field(chain=chain)),
-                ast.Alias(alias="count", expr=ast.Call(name="count", args=[])),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-            where=ast.And(exprs=conditions),
-            group_by=[ast.Field(chain=chain)],
-            having=ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=ast.Field(chain=["count"]),
-                right=ast.Constant(value=0),
-            ),
-            order_by=order_by,
-            limit=ast.Constant(value=20),
-        )
-
-    def _format_results(self, rows: list) -> list[PropertyValueItem]:
-        if self.query.property_type == PropertyType.PERSON:
-            return self._format_person_results(rows)
-        return self._format_event_results(rows)
 
     def _format_event_results(self, rows: list) -> list[PropertyValueItem]:
         values = []
