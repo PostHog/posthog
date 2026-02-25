@@ -91,6 +91,13 @@ const handleRequest = async (
         })
     }
 
+    // OpenAI ChatGPT App Directory domain verification
+    if (url.pathname === '/.well-known/openai-apps-challenge') {
+        return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
+            headers: { 'content-type': 'text/plain' },
+        })
+    }
+
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
     // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
     const effectiveRegion = getRegionFromRequest(request)

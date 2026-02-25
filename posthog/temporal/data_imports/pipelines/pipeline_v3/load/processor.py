@@ -149,7 +149,8 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         id=export_signal.job_id
     )
     schema = job.schema
-    assert schema is not None
+    if schema is None:
+        raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
 
     delta_table_helper = DeltaTableHelper(
         resource_name=export_signal.resource_name,
@@ -228,7 +229,8 @@ def process_message(message: Any) -> None:
         id=export_signal.job_id
     )
     schema = job.schema
-    assert schema is not None
+    if schema is None:
+        raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
 
     delta_table_helper = DeltaTableHelper(
         resource_name=export_signal.resource_name,

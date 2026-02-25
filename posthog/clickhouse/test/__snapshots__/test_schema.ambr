@@ -636,6 +636,25 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String),
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_tophog_test', kafka_group_name = 'clickhouse_tophog', kafka_format = 'JSONEachRow')
+  SETTINGS date_time_input_format = 'best_effort', kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_table_query[app_metrics2]
   '''
   
@@ -2180,6 +2199,25 @@
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String),
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_tophog_test', kafka_group_name = 'clickhouse_tophog', kafka_format = 'JSONEachRow')
+  SETTINGS date_time_input_format = 'best_effort', kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -5033,6 +5071,66 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String) DEFAULT 'sum',
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64 DEFAULT 0,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.tophog', '{replica}')
+  
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (pipeline, lane, metric, timestamp, key)
+  
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String) DEFAULT 'sum',
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64 DEFAULT 0,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_tophog', cityHash64(toString(key)))
+  
+  '''
+# ---
+# name: test_create_table_query[tophog_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS tophog_mv
+  TO writable_tophog
+  AS SELECT
+      timestamp,
+      metric,
+      type,
+      key,
+      value,
+      count,
+      pipeline,
+      lane,
+      labels
+  FROM kafka_tophog
+  
+  '''
+# ---
 # name: test_create_table_query[web_bounces_daily]
   '''
   
@@ -6344,6 +6442,24 @@
       pageview_count SimpleAggregateFunction(sum, Int64),
       autocapture_count SimpleAggregateFunction(sum, Int64),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_sessions', sipHash64(session_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String) DEFAULT 'sum',
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64 DEFAULT 0,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_tophog', cityHash64(toString(key)))
   
   '''
 # ---
@@ -8072,6 +8188,29 @@
       -- hopefully, this is a good balance between the two
       ORDER BY (toStartOfDay(min_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String) DEFAULT 'sum',
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64 DEFAULT 0,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.tophog', '{replica}')
+  
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (pipeline, lane, metric, timestamp, key)
+  
+  SETTINGS ttl_only_drop_parts = 1
   
   '''
 # ---

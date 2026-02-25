@@ -60,7 +60,13 @@ describe('LegacyWebhookService', () => {
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
         team2 = (await getTeam(hub, team2Id))!
 
-        service = new LegacyWebhookService(hub)
+        service = new LegacyWebhookService(
+            hub.postgres,
+            hub.teamManager,
+            hub.groupTypeManager,
+            hub.groupRepository,
+            hub.pubSub
+        )
         await service.start()
 
         mockFetch.mockResolvedValue({

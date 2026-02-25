@@ -11,6 +11,7 @@ from posthog.models import Dashboard, DashboardTile, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
+from posthog.models.team.team import SessionRecordingRetentionPeriod
 
 from .base import BaseTest
 
@@ -205,3 +206,16 @@ class TestTeam(BaseTest):
             initiating_user=self.user, organization=self.organization, extra_settings=input_extra_settings
         )
         self.assertEqual(team.extra_settings, expected_extra_settings)
+
+    @parameterized.expand(
+        [
+            ("self_hosted", False, "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS),
+            ("cloud", True, "session_recording_retention_period", SessionRecordingRetentionPeriod.THIRTY_DAYS),
+            ("self_hosted", False, "session_recording_encryption", False),
+            ("cloud", True, "session_recording_encryption", False),
+        ]
+    )
+    def test_create_team_session_recording_defaults(self, _label, is_cloud, field, expected):
+        with self.is_cloud(is_cloud):
+            team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+            assert getattr(team, field) == expected

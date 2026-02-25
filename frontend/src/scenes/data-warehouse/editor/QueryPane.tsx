@@ -26,7 +26,7 @@ interface QueryPaneProps {
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
-    const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
+    const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const {
         setSuggestedQueryInput,
         onAcceptSuggestedQueryInput,
@@ -43,6 +43,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     height: `${queryPaneHeight}px`,
+                    maxHeight: queryPaneDesiredSize === null ? '35%' : undefined,
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >

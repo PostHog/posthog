@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { USER_AGENT } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import {
@@ -115,7 +116,7 @@ export type SearchResult = z.infer<typeof SearchResultSchema>
 
 export const SearchResponseSchema = z.object({
     results: z.array(SearchResultSchema),
-    counts: z.record(z.number().nullable()),
+    counts: z.record(z.number().nullable()).optional(),
 })
 export type SearchResponse = z.infer<typeof SearchResponseSchema>
 
@@ -141,19 +142,62 @@ export class ApiClient {
         this.generated = createApiClient(buildApiFetcher(this.config), this.baseUrl)
     }
 
-    private buildHeaders(): Record<string, string> {
-        return {
-            Authorization: `Bearer ${this.config.apiToken}`,
-            'Content-Type': 'application/json',
-        }
-    }
-
     getProjectBaseUrl(projectId: string): string {
         if (projectId === '@current') {
             return this.baseUrl
         }
 
         return `${this.baseUrl}/project/${projectId}`
+    }
+
+    private async fetch(url: string, options?: RequestInit): Promise<Response> {
+        // TODO: should we move rate limiting from `fetchWithSchema` to here?
+        const defaultHeaders: HeadersInit = {
+            Authorization: `Bearer ${this.config.apiToken}`,
+            'User-Agent': USER_AGENT,
+        }
+        if (options?.body) {
+            defaultHeaders['Content-Type'] = 'application/json'
+        }
+        return fetch(url, {
+            ...options,
+            headers: {
+                ...defaultHeaders,
+                ...options?.headers,
+            },
+        })
+    }
+
+    /**
+     * Generic HTTP request with auth, rate limiting, and retries.
+     * Used by generated tool handlers to avoid duplicating endpoint-specific methods.
+     */
+    async request<T = unknown>(opts: {
+        method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
+        path: string
+        body?: Record<string, unknown>
+        query?: Record<string, string | number | undefined>
+    }): Promise<T> {
+        const searchParams = new URLSearchParams()
+        if (opts.query) {
+            for (const [k, v] of Object.entries(opts.query)) {
+                if (v !== undefined) {
+                    searchParams.append(k, String(v))
+                }
+            }
+        }
+        const qs = searchParams.toString()
+        const url = `${this.baseUrl}${opts.path}${qs ? `?${qs}` : ''}`
+
+        const result = await this.fetchWithSchema(url, z.any(), {
+            method: opts.method,
+            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+        })
+
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data as T
     }
 
     private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
@@ -166,13 +210,7 @@ export class ApiClient {
                 // Apply rate limiting before making the request
                 await globalRateLimiter.throttle()
 
-                const response = await fetch(url, {
-                    ...options,
-                    headers: {
-                        ...this.buildHeaders(),
-                        ...options?.headers,
-                    },
-                })
+                const response = await this.fetch(url, options)
 
                 // Handle rate limiting with exponential backoff
                 if (response.status === 429) {
@@ -365,11 +403,7 @@ export class ApiClient {
 
                     const url = `${this.baseUrl}/api/projects/${projectId}/property_definitions/?${searchParams}`
 
-                    const response = await fetch(url, {
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                        },
-                    })
+                    const response = await this.fetch(url)
 
                     if (!response.ok) {
                         throw new Error(`Failed to fetch property definitions: ${response.statusText}`)
@@ -409,11 +443,7 @@ export class ApiClient {
 
                     const requestUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/?${searchParams}`
 
-                    const response = await fetch(requestUrl, {
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                        },
-                    })
+                    const response = await this.fetch(requestUrl)
 
                     if (!response.ok) {
                         throw new Error(`Failed to fetch event definitions: ${response.statusText}`)
@@ -448,11 +478,7 @@ export class ApiClient {
                     const searchParams = new URLSearchParams({ name: eventName })
                     const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
 
-                    const findResponse = await fetch(findUrl, {
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                        },
-                    })
+                    const findResponse = await this.fetch(findUrl)
 
                     if (findResponse.status === 404) {
                         return {
@@ -471,12 +497,8 @@ export class ApiClient {
                     // Updating the event definition by ID
                     const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${parsedEventDef.id}/`
 
-                    const updateResponse = await fetch(updateUrl, {
+                    const updateResponse = await this.fetch(updateUrl, {
                         method: 'PATCH',
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                            'Content-Type': 'application/json',
-                        },
                         body: JSON.stringify(data),
                     })
 
@@ -783,11 +805,10 @@ export class ApiClient {
                 experimentId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const deleteResponse = await fetch(
+                    const deleteResponse = await this.fetch(
                         `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
                         {
                             method: 'PATCH',
-                            headers: this.buildHeaders(),
                             body: JSON.stringify({ deleted: true }),
                         }
                     )
@@ -930,11 +951,13 @@ export class ApiClient {
 
             delete: async ({ flagId }: { flagId: number }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`, {
-                        method: 'PATCH',
-                        headers: this.buildHeaders(),
-                        body: JSON.stringify({ deleted: true }),
-                    })
+                    const response = await this.fetch(
+                        `${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`,
+                        {
+                            method: 'PATCH',
+                            body: JSON.stringify({ deleted: true }),
+                        }
+                    )
 
                     if (!response.ok) {
                         throw new Error(`Failed to delete feature flag: ${response.statusText}`)
@@ -1042,11 +1065,13 @@ export class ApiClient {
                 insightId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`, {
-                        method: 'PATCH',
-                        headers: this.buildHeaders(),
-                        body: JSON.stringify({ deleted: true }),
-                    })
+                    const response = await this.fetch(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
+                        {
+                            method: 'PATCH',
+                            body: JSON.stringify({ deleted: true }),
+                        }
+                    )
 
                     if (!response.ok) {
                         throw new Error(`Failed to delete insight: ${response.statusText}`)
@@ -1210,11 +1235,10 @@ export class ApiClient {
                 dashboardId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await fetch(
+                    const response = await this.fetch(
                         `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
                         {
                             method: 'PATCH',
-                            headers: this.buildHeaders(),
                             body: JSON.stringify({ deleted: true }),
                         }
                     )
@@ -1429,14 +1453,13 @@ export class ApiClient {
                 try {
                     const fetchOptions: RequestInit = {
                         method: softDelete ? 'PATCH' : 'DELETE',
-                        headers: this.buildHeaders(),
                     }
 
                     if (softDelete) {
                         fetchOptions.body = JSON.stringify({ archived: true })
                     }
 
-                    const response = await fetch(
+                    const response = await this.fetch(
                         `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
                         fetchOptions
                     )
@@ -1638,10 +1661,12 @@ export class ApiClient {
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
                     // First fetch the action to get its name (required by backend validation)
-                    const getResponse = await fetch(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`, {
-                        method: 'GET',
-                        headers: this.buildHeaders(),
-                    })
+                    const getResponse = await this.fetch(
+                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                        {
+                            method: 'GET',
+                        }
+                    )
 
                     if (!getResponse.ok) {
                         throw new Error(`Failed to fetch action: ${getResponse.statusText}`)
@@ -1649,11 +1674,13 @@ export class ApiClient {
 
                     const action = (await getResponse.json()) as { name: string }
 
-                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`, {
-                        method: 'PATCH',
-                        headers: this.buildHeaders(),
-                        body: JSON.stringify({ name: action.name, deleted: true }),
-                    })
+                    const response = await this.fetch(
+                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                        {
+                            method: 'PATCH',
+                            body: JSON.stringify({ name: action.name, deleted: true }),
+                        }
+                    )
 
                     if (!response.ok) {
                         throw new Error(`Failed to delete action: ${response.statusText}`)

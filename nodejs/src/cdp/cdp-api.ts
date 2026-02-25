@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
@@ -20,6 +20,7 @@ import {
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerHub, HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogInputsService } from './services/hog-inputs.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
@@ -27,6 +28,7 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
+import { EmailService } from './services/messaging/email.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
@@ -75,20 +77,45 @@ export class CdpApi {
     private emailTrackingService: EmailTrackingService
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
+    private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
 
     constructor(private hub: CdpApiHub) {
-        this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
         this.recipientsManager = new RecipientsManagerService(hub.postgres)
-        this.hogExecutor = new HogExecutorService(hub)
+        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const emailService = new EmailService(
+            {
+                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                sesRegion: hub.SES_REGION,
+                sesEndpoint: hub.SES_ENDPOINT,
+            },
+            hub.integrationManager,
+            hub.ENCRYPTION_SALT_KEYS,
+            hub.SITE_URL
+        )
+        this.hogExecutor = new HogExecutorService(
+            {
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+            },
+            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+            hogInputsService,
+            emailService,
+            this.recipientTokensService
+        )
         this.hogFlowFunctionsService = new HogFlowFunctionsService(
             hub.SITE_URL,
             this.hogFunctionTemplateManager,
             this.hogExecutor
         )
         this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
-        this.recipientTokensService = new RecipientTokensService(hub)
         this.hogFlowExecutor = new HogFlowExecutorService(
             this.hogFlowFunctionsService,
             this.recipientPreferencesService
@@ -97,7 +124,24 @@ export class CdpApi {
         this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
         // CDP uses its own Redis instance with fallback to default
         this.hogWatcher = new HogWatcherService(
-            hub,
+            hub.teamManager,
+            {
+                hogCostTimingLowerMs: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                hogCostTiming: hub.CDP_WATCHER_HOG_COST_TIMING,
+                asyncCostTimingLowerMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+                asyncCostTimingUpperMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+                asyncCostTiming: hub.CDP_WATCHER_ASYNC_COST_TIMING,
+                sendEvents: hub.CDP_WATCHER_SEND_EVENTS,
+                bucketSize: hub.CDP_WATCHER_BUCKET_SIZE,
+                refillRate: hub.CDP_WATCHER_REFILL_RATE,
+                ttl: hub.CDP_WATCHER_TTL,
+                automaticallyDisableFunctions: hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
+                thresholdDegraded: hub.CDP_WATCHER_THRESHOLD_DEGRADED,
+                stateLockTtl: hub.CDP_WATCHER_STATE_LOCK_TTL,
+                observeResultsBufferTimeMs: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
+                observeResultsBufferMaxResults: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
+            },
             createRedisV2PoolFromConfig({
                 connection: hub.CDP_REDIS_HOST
                     ? {
@@ -111,7 +155,13 @@ export class CdpApi {
             })
         )
         this.hogTransformer = new HogTransformerService(hub)
-        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
+        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(
+            hub.kafkaProducer,
+            hub.internalCaptureService,
+            hub.teamManager,
+            hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+            hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
+        )
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
@@ -129,11 +179,15 @@ export class CdpApi {
     }
 
     async start(): Promise<void> {
+        this.cdpWarehouseKafkaProducer = await KafkaProducerWrapper.create(
+            this.hub.KAFKA_CLIENT_RACK,
+            'WAREHOUSE_PRODUCER'
+        )
         await this.cdpSourceWebhooksConsumer.start()
     }
 
     async stop(): Promise<void> {
-        await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
+        await Promise.all([this.cdpWarehouseKafkaProducer?.disconnect(), this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy(): HealthCheckResult {
@@ -641,7 +695,7 @@ export class CdpApi {
                     return res.status(500).json({ error: 'Missing schema_id on hog function' })
                 }
 
-                const kafkaProducer = this.hub.kafkaProducer
+                const kafkaProducer = this.cdpWarehouseKafkaProducer
                 if (!kafkaProducer) {
                     return res.status(500).json({ error: 'Kafka producer not available' })
                 }

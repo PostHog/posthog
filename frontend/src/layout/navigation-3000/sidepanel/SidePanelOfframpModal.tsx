@@ -29,7 +29,7 @@ interface OfframpStep {
 
 export function SidePanelOfframpModal(): JSX.Element {
     const { shouldShowOfframpModal } = useValues(sidePanelOfframpLogic)
-    const { dismissOfframpModal } = useActions(sidePanelOfframpLogic)
+    const { hideOfframpModal, dismissOfframpModal } = useActions(sidePanelOfframpLogic)
     const contentRef = useRef<HTMLDivElement>(null)
     const steps: OfframpStep[] = [
         {
@@ -75,9 +75,10 @@ export function SidePanelOfframpModal(): JSX.Element {
     return (
         <DialogPrimitive
             open={shouldShowOfframpModal}
-            onOpenChange={(open, details) => {
+            onOpenChange={(open) => {
                 if (!open) {
-                    dismissOfframpModal(activeIndex, details?.reason || 'unknown')
+                    hideOfframpModal('close')
+                    dismissOfframpModal()
                 }
             }}
             className="group bg-surface-popover w-[300px] md:w-[640px] max-h-[none]"
@@ -168,7 +169,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                         <LemonButton
                             type="primary"
                             size="small"
-                            onClick={() => dismissOfframpModal(activeIndex)}
+                            onClick={() => dismissOfframpModal()}
                             className="justify-self-end"
                             data-attr="context-panel-offramp-dont-show-again-button"
                         >

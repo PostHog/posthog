@@ -9,8 +9,9 @@ from posthog.hogql_queries.web_analytics.pre_aggregated.property_transformer imp
     PreAggregatedPropertyTransformer,
 )
 
-get_stats_table = lambda use_v2: "web_pre_aggregated_stats" if use_v2 else "web_stats_combined"
-get_bounces_table = lambda use_v2: "web_pre_aggregated_bounces" if use_v2 else "web_bounces_combined"
+# V1 tables have been removed - always use v2 tables
+get_stats_table = lambda use_v2: "web_pre_aggregated_stats"
+get_bounces_table = lambda use_v2: "web_pre_aggregated_bounces"
 
 
 class WebAnalyticsPreAggregatedQueryBuilder:

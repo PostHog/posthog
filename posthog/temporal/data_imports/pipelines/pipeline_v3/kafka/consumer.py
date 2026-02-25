@@ -73,13 +73,39 @@ class KafkaConsumerService:
             if isinstance(self._kafka_hosts, list)
             else self._kafka_hosts,
             "group.id": self._config.consumer_group,
-            "auto.offset.reset": "earliest",
+            "auto.offset.reset": "latest",
             "enable.auto.commit": False,
             "security.protocol": self._kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
         }
         consumer = ConfluentConsumer(config)
-        consumer.subscribe([self._config.input_topic])
+        consumer.subscribe(
+            [self._config.input_topic],
+            on_assign=self._on_assign,
+            on_revoke=self._on_revoke,
+        )
         return consumer
+
+    def _on_assign(self, consumer: ConfluentConsumer, partitions: list) -> None:
+        for p in partitions:
+            logger.info(
+                "partition_assigned",
+                topic=p.topic,
+                partition=p.partition,
+                offset=p.offset,
+            )
+
+    def _on_revoke(self, consumer: ConfluentConsumer, partitions: list) -> None:
+        for p in partitions:
+            logger.info(
+                "partition_revoked",
+                topic=p.topic,
+                partition=p.partition,
+                offset=p.offset,
+            )
+        try:
+            consumer.commit(asynchronous=False)
+        except Exception:
+            logger.warning("failed_to_commit_on_revoke")
 
     def _get_dlq_producer(self) -> _KafkaProducer:
         if self._dlq_producer is None:
