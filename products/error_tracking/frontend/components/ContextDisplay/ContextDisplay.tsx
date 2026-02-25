@@ -5,6 +5,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { concatValues } from 'lib/components/Errors/utils'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { identifierToHuman } from 'lib/utils'
 
 import {
@@ -33,7 +34,13 @@ export function ContextDisplay({
     const { filterGroup } = useValues(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
     const { setFilterGroup } = useActions(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
     const onFilterValue = (key: string, value: string | number | boolean): void => {
-        const firstGroup = filterGroup.values[0] as UniversalFiltersGroup
+        const firstValue = filterGroup.values[0]
+        const firstGroup: UniversalFiltersGroup = isUniversalGroupFilterLike(firstValue)
+            ? firstValue
+            : {
+                  type: FilterLogicalOperator.And,
+                  values: firstValue ? [firstValue] : [],
+              }
         const newFilter: AnyPropertyFilter = {
             key,
             type: PropertyFilterType.Event,
@@ -47,6 +54,7 @@ export function ContextDisplay({
                     ...firstGroup,
                     values: [...firstGroup.values, newFilter],
                 },
+                ...filterGroup.values.slice(1),
             ],
         })
     }
