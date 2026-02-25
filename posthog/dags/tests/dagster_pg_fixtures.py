@@ -6,8 +6,10 @@
 # causes intermittent "database table is locked" errors. Replacing the storage
 # backend with PostgreSQL eliminates these locking failures.
 #
-# This module is registered as a pytest plugin via ``pytest_plugins`` in any
-# conftest.py that needs it (posthog/dags/tests and products/**/dags/tests).
+# This module is imported directly in conftest.py files that need it
+# (posthog/dags/tests and products/**/dags/tests). Direct import is used
+# instead of ``pytest_plugins`` because pytest disallows ``pytest_plugins``
+# in non-top-level conftest files.
 # ---------------------------------------------------------------------------
 
 import os
