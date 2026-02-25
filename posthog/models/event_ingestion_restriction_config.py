@@ -83,6 +83,35 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     def get_redis_key(self):
         return f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{self.restriction_type}"
 
+    def add_distinct_id(self, distinct_id: str) -> bool:
+        """Add a distinct_id to this restriction. Returns True if added, False if already present."""
+        current = self.distinct_ids or []
+        if distinct_id in current:
+            return False
+        self.distinct_ids = [*current, distinct_id]
+        self.save()
+        return True
+
+    @classmethod
+    def add_distinct_id_for_token(
+        cls, token: str, restriction_type: str, distinct_id: str
+    ) -> tuple["EventIngestionRestrictionConfig", bool, bool]:
+        """Get or create a restriction and add a distinct_id.
+
+        Returns (restriction, was_created, was_added).
+        """
+        try:
+            restriction = cls.objects.get(token=token, restriction_type=restriction_type)
+            added = restriction.add_distinct_id(distinct_id)
+            return restriction, False, added
+        except cls.DoesNotExist:
+            restriction = cls.objects.create(
+                token=token,
+                restriction_type=restriction_type,
+                distinct_ids=[distinct_id],
+            )
+            return restriction, True, True
+
 
 def regenerate_redis_for_restriction_type(restriction_type: str):
     """

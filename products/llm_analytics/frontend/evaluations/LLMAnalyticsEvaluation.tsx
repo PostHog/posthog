@@ -9,6 +9,7 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
+    LemonSearchableSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -307,7 +308,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
 
                                 <Field name="model" label="Model">
                                     <>
-                                        <LemonSelect
+                                        <LemonSearchableSelect
                                             value={selectedModel || undefined}
                                             onChange={(value) => setSelectedModel(value || '')}
                                             options={availableModels.map((model) => ({
@@ -318,10 +319,11 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                                         ? 'Requires API key'
                                                         : undefined,
                                             }))}
+                                            searchPlaceholder="Search models..."
                                             loading={availableModelsLoading}
                                             placeholder="Select a model"
                                             fullWidth
-                                            disabled={!selectedKeyId}
+                                            disabledReason={!selectedKeyId ? 'Select a provider key first' : undefined}
                                         />
                                         {!selectedKeyId && (
                                             <p className="text-xs text-muted mt-1">

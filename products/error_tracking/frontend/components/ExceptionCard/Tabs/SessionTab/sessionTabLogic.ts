@@ -5,6 +5,8 @@ import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { SessionPlayerData } from '~/types'
+
 import type { sessionTabLogicType } from './sessionTabLogicType'
 
 export type SessionTabLogicProps = {
@@ -38,7 +40,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
     connect(({ sessionId }: SessionTabLogicProps) => ({
         values: [
             sessionRecordingDataCoordinatorLogic(getRecordingProps(sessionId)),
-            ['isNotFound', 'sessionPlayerMetaDataLoading'],
+            ['isNotFound', 'sessionPlayerMetaDataLoading', 'sessionPlayerData'],
         ],
         actions: [
             sessionRecordingPlayerLogic(getRecordingProps(sessionId)),
@@ -58,12 +60,16 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
 
     defaults({
         recordingTimestamp: null as number | null,
+        exceptionTimestamp: null as number | null,
     }),
 
     reducers({
         recordingTimestamp: {
             setRecordingTimestamp: (_, { timestamp, offset }: { timestamp: Dayjs; offset: number }) =>
                 dayjs(timestamp).valueOf() - offset,
+        },
+        exceptionTimestamp: {
+            setRecordingTimestamp: (_, { timestamp }: { timestamp: Dayjs }) => dayjs(timestamp).valueOf(),
         },
     }),
     selectors({
@@ -73,6 +79,27 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             (_, p) => [p.sessionId],
             (sessionId) => {
                 return getRecordingProps(sessionId)
+            },
+        ],
+        isTimestampOutsideRecording: [
+            (s) => [s.exceptionTimestamp, s.sessionPlayerData, s.sessionPlayerMetaDataLoading],
+            (
+                exceptionTimestamp: number | null,
+                sessionPlayerData: SessionPlayerData,
+                sessionPlayerMetaDataLoading: boolean
+            ): boolean => {
+                if (
+                    sessionPlayerMetaDataLoading ||
+                    exceptionTimestamp === null ||
+                    !sessionPlayerData.start ||
+                    !sessionPlayerData.end
+                ) {
+                    return false
+                }
+                return (
+                    exceptionTimestamp < sessionPlayerData.start.valueOf() ||
+                    exceptionTimestamp > sessionPlayerData.end.valueOf()
+                )
             },
         ],
     }),

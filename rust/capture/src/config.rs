@@ -83,7 +83,7 @@ pub struct Config {
     pub global_rate_limit_window_interval_secs: u64,
 
     /// Time bucket granularity in seconds for the sliding window counters
-    #[envconfig(default = "10")]
+    #[envconfig(default = "20")]
     pub global_rate_limit_bucket_interval_secs: u64,
 
     /// CSV list of key=value pairs assigning custom global rate limit thresholds
