@@ -452,7 +452,7 @@ describe('HogWatcher', () => {
         let observeResultsSpy: jest.SpyInstance
         beforeEach(() => {
             observeResultsSpy = jest.spyOn(watcher, 'observeResults')
-            hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS = 3
+            watcherConfig.observeResultsBufferMaxResults = 3
         })
 
         it('should buffer results and observe them', async () => {

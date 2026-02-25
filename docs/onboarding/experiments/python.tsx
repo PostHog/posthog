@@ -8,9 +8,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
     // Get installation steps from product-analytics only (exclude "Send events")
-    const installationSteps = getPythonStepsPA(ctx).filter(
-        (step: StepDefinition) => step.title !== 'Send events'
-    )
+    const installationSteps = getPythonStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [

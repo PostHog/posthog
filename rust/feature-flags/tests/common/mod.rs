@@ -13,6 +13,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
 use feature_flags::config::Config;
+use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::serve;
 
 pub struct ServerHandle {
@@ -27,8 +28,12 @@ impl ServerHandle {
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
+        let rayon_dispatcher = RayonDispatcher::new(2);
         tokio::spawn(async move {
-            serve(config, listener, async move { notify.notified().await }).await
+            serve(config, listener, rayon_dispatcher, async move {
+                notify.notified().await
+            })
+            .await
         });
         ServerHandle { addr, shutdown }
     }
@@ -322,6 +327,7 @@ impl ServerHandle {
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,
+                RayonDispatcher::new(2),
                 config,
             );
 

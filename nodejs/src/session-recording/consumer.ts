@@ -43,8 +43,6 @@ import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
 import { MessageWithTeam } from './teams/types'
 import { TopTracker } from './top-tracker'
-import { CaptureIngestionWarningFn } from './types'
-import { LibVersionMonitor } from './versions/lib-version-monitor'
 
 /**
  * Configuration for SessionRecordingIngester.
@@ -81,7 +79,6 @@ export class SessionRecordingIngester {
     private readonly redisPool: RedisPool
     private readonly restrictionRedisPool: RedisPool
     private readonly teamService: TeamService
-    private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
@@ -91,7 +88,6 @@ export class SessionRecordingIngester {
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
     private readonly kafkaMessageProducer: KafkaProducerWrapper
-    private readonly ingestionWarningProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
     private readonly topTracker: TopTracker
     private topTrackerLogInterval?: NodeJS.Timeout
@@ -103,8 +99,7 @@ export class SessionRecordingIngester {
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         kafkaMetadataProducer: KafkaProducerWrapper,
-        kafkaMessageProducer: KafkaProducerWrapper,
-        ingestionWarningProducer?: KafkaProducerWrapper
+        kafkaMessageProducer: KafkaProducerWrapper
     ) {
         this.topic = config.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
         this.overflowTopic = config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC
@@ -123,7 +118,6 @@ export class SessionRecordingIngester {
 
         this.kafkaMetadataProducer = kafkaMetadataProducer
         this.kafkaMessageProducer = kafkaMessageProducer
-        this.ingestionWarningProducer = ingestionWarningProducer
 
         let s3Client: S3Client | null = null
         if (
@@ -188,12 +182,6 @@ export class SessionRecordingIngester {
         this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.restrictionRedisPool, {
             pipeline: 'session_recordings',
         })
-        if (ingestionWarningProducer) {
-            const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
-                await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
-            }
-            this.libVersionMonitor = new LibVersionMonitor(captureWarning)
-        }
 
         const retentionService = new RetentionService(this.redisPool, this.teamService)
 
@@ -267,6 +255,7 @@ export class SessionRecordingIngester {
             promiseScheduler: this.promiseScheduler,
             teamService: this.teamService,
             topTracker: this.topTracker,
+            ingestionWarningProducer: this.kafkaMetadataProducer,
         })
     }
 
@@ -320,16 +309,10 @@ export class SessionRecordingIngester {
             message: output.parsedMessage,
         }))
 
-        const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.filterBatch`, async () => {
-            return this.libVersionMonitor
-                ? await this.libVersionMonitor.processBatch(messagesWithTeam)
-                : messagesWithTeam
-        })
-
         this.kafkaConsumer.heartbeat()
 
         await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () =>
-            this.processMessages(processedMessages)
+            this.processMessages(messagesWithTeam)
         )
 
         this.kafkaConsumer.heartbeat()
@@ -463,11 +446,9 @@ export class SessionRecordingIngester {
         // Clean up resources owned by this ingester
         this.keyStore.stop()
         // Note: kafkaMetadataProducer may be shared (e.g., config.kafkaProducer in production),
-        // so callers are responsible for disconnecting it if they created it
+        // so callers are responsible for disconnecting it. We only disconnect kafkaMessageProducer
+        // which we always own.
         await this.kafkaMessageProducer.disconnect()
-        if (this.ingestionWarningProducer) {
-            await this.ingestionWarningProducer.disconnect()
-        }
         await this.redisPool.drain()
         await this.redisPool.clear()
         await this.restrictionRedisPool.drain()

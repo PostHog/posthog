@@ -4,7 +4,8 @@ export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
 
 export type IngestionConsumerConfig = {
-    INGESTION_LANE?: IngestionLane
+    INGESTION_PIPELINE?: string | null
+    INGESTION_LANE?: IngestionLane | null
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
