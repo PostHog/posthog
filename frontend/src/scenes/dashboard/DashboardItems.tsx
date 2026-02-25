@@ -1,382 +1,347 @@
-import "./DashboardItems.scss";
+import './DashboardItems.scss'
 
-import clsx from "clsx";
-import { useActions, useValues } from "kea";
-import { router } from "kea-router";
-import { useEffect, useRef, useState } from "react";
-import { Responsive as ReactGridLayout } from "react-grid-layout/legacy";
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useEffect, useRef, useState } from 'react'
+import { Responsive as ReactGridLayout } from 'react-grid-layout/legacy'
 
-import { InsightCard } from "lib/components/Cards/InsightCard";
-import { TextCard } from "lib/components/Cards/TextCard/TextCard";
-import { useResizeObserver } from "lib/hooks/useResizeObserver";
-import { LemonButton, LemonButtonWithDropdown } from "lib/lemon-ui/LemonButton";
-import { LemonDivider } from "lib/lemon-ui/LemonDivider";
-import { dashboardLogic } from "scenes/dashboard/dashboardLogic";
+import { InsightCard } from 'lib/components/Cards/InsightCard'
+import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
-  BREAKPOINTS,
-  BREAKPOINT_COLUMN_COUNTS,
-  GRID_HORIZONTAL_MARGIN,
-  GRID_ROW_HEIGHT,
-  GRID_VERTICAL_MARGIN,
-} from "scenes/dashboard/dashboardUtils";
-import { useSurveyLinkedInsights } from "scenes/surveys/hooks/useSurveyLinkedInsights";
-import { getBestSurveyOpportunityFunnel } from "scenes/surveys/utils/opportunityDetection";
-import { urls } from "scenes/urls";
+    BREAKPOINTS,
+    BREAKPOINT_COLUMN_COUNTS,
+    GRID_HORIZONTAL_MARGIN,
+    GRID_ROW_HEIGHT,
+    GRID_VERTICAL_MARGIN,
+} from 'scenes/dashboard/dashboardUtils'
+import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
+import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
+import { urls } from 'scenes/urls'
 
-import { getCurrentExporterData } from "~/exporter/exporterViewLogic";
-import { dashboardsModel } from "~/models/dashboardsModel";
-import { insightsModel } from "~/models/insightsModel";
-import { DashboardMode, DashboardPlacement, DashboardType } from "~/types";
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
-const DRAG_AUTO_SCROLL_THRESHOLD = 100;
-const DRAG_AUTO_SCROLL_SPEED = 8;
+const DRAG_AUTO_SCROLL_THRESHOLD = 100
+const DRAG_AUTO_SCROLL_SPEED = 8
 
 export function DashboardItems(): JSX.Element {
-  const {
-    dashboard,
-    tiles,
-    layouts,
-    dashboardMode,
-    placement,
-    isRefreshingQueued,
-    isRefreshing,
-    highlightedInsightId,
-    refreshStatus,
-    itemsLoading,
-    dashboardStreaming,
-    effectiveEditBarFilters,
-    effectiveDashboardVariableOverrides,
-    temporaryBreakdownColors,
-    dataColorThemeId,
-  } = useValues(dashboardLogic);
-  const {
-    updateLayouts,
-    updateContainerWidth,
-    updateTileColor,
-    removeTile,
-    duplicateTile,
-    refreshDashboardItem,
-    moveToDashboard,
-    setTileOverride,
-  } = useActions(dashboardLogic);
-  const { renameInsight } = useActions(insightsModel);
-  const { push } = useActions(router);
-  const { nameSortedDashboards } = useValues(dashboardsModel);
-  const otherDashboards = nameSortedDashboards.filter(
-    (nsdb) => nsdb.id !== dashboard?.id,
-  );
-  const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } =
-    useSurveyLinkedInsights({});
+    const {
+        dashboard,
+        tiles,
+        layouts,
+        dashboardMode,
+        placement,
+        isRefreshingQueued,
+        isRefreshing,
+        highlightedInsightId,
+        refreshStatus,
+        itemsLoading,
+        dashboardStreaming,
+        effectiveEditBarFilters,
+        effectiveDashboardVariableOverrides,
+        temporaryBreakdownColors,
+        dataColorThemeId,
+    } = useValues(dashboardLogic)
+    const {
+        updateLayouts,
+        updateContainerWidth,
+        updateTileColor,
+        removeTile,
+        duplicateTile,
+        refreshDashboardItem,
+        moveToDashboard,
+        setTileOverride,
+    } = useActions(dashboardLogic)
+    const { renameInsight } = useActions(insightsModel)
+    const { push } = useActions(router)
+    const { nameSortedDashboards } = useValues(dashboardsModel)
+    const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
-  const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
-    ? null
-    : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights);
+    const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
+        ? null
+        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
-  const [resizingItem, setResizingItem] = useState<any>(null);
+    const [resizingItem, setResizingItem] = useState<any>(null)
 
-  // cannot click links when dragging and 250ms after
-  const isDragging = useRef(false);
-  const dragEndTimeout = useRef<number | null>(null);
-  const scrollAnimationRef = useRef<number | null>(null);
-  const scrollContainerRef = useRef<HTMLElement | null>(null);
-  const scrollContainerRectRef = useRef<DOMRect | null>(null);
+    // cannot click links when dragging and 250ms after
+    const isDragging = useRef(false)
+    const dragEndTimeout = useRef<number | null>(null)
+    const scrollAnimationRef = useRef<number | null>(null)
+    const scrollContainerRef = useRef<HTMLElement | null>(null)
+    const scrollContainerRectRef = useRef<DOMRect | null>(null)
 
-  useEffect(() => {
-    return () => {
-      if (scrollAnimationRef.current) {
-        cancelAnimationFrame(scrollAnimationRef.current);
-      }
-    };
-  }, []);
-  const className = clsx({
-    "dashboard-view-mode": dashboardMode !== DashboardMode.Edit,
-    "dashboard-edit-mode": dashboardMode === DashboardMode.Edit,
-  });
-
-  const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver();
-  const isMobileView =
-    gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS["sm"];
-  const canEditLayout = dashboardMode === DashboardMode.Edit && !isMobileView;
-
-  return (
-    <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
-      {gridWrapperWidth && (
-        <ReactGridLayout
-          width={gridWrapperWidth}
-          className={className}
-          draggableHandle=".CardMeta,.TextCard__body"
-          isDraggable={canEditLayout}
-          isResizable={canEditLayout}
-          layouts={layouts}
-          rowHeight={GRID_ROW_HEIGHT}
-          margin={[GRID_HORIZONTAL_MARGIN, GRID_VERTICAL_MARGIN]}
-          containerPadding={[0, 0]}
-          onLayoutChange={(_, newLayouts) => {
-            if (dashboardMode === DashboardMode.Edit) {
-              updateLayouts(newLayouts);
-            }
-          }}
-          onWidthChange={(containerWidth, _, newCols) => {
-            updateContainerWidth(containerWidth, newCols);
-          }}
-          breakpoints={BREAKPOINTS}
-          resizeHandles={["s", "e", "se"]}
-          cols={BREAKPOINT_COLUMN_COUNTS}
-          onResize={(_layout: any, _oldItem: any, newItem: any) => {
-            if (
-              !resizingItem ||
-              resizingItem.w !== newItem.w ||
-              resizingItem.h !== newItem.h
-            ) {
-              setResizingItem(newItem);
-            }
-          }}
-          onResizeStop={() => {
-            setResizingItem(null);
-          }}
-          onDragStart={() => {
-            scrollContainerRef.current =
-              document.getElementById("main-content");
-            scrollContainerRectRef.current =
-              scrollContainerRef.current?.getBoundingClientRect() ?? null;
-          }}
-          onDrag={(_layout, _oldItem, _newItem, _placeholder, e) => {
-            if (!(e instanceof MouseEvent)) {
-              return;
-            }
-
-            isDragging.current = true;
-            if (dragEndTimeout.current) {
-              window.clearTimeout(dragEndTimeout.current);
-            }
+    useEffect(() => {
+        return () => {
             if (scrollAnimationRef.current) {
-              cancelAnimationFrame(scrollAnimationRef.current);
-              scrollAnimationRef.current = null;
+                cancelAnimationFrame(scrollAnimationRef.current)
             }
+        }
+    }, [])
+    const className = clsx({
+        'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
+        'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
+    })
 
-            const scrollContainer = scrollContainerRef.current;
-            const containerRect = scrollContainerRectRef.current;
-            if (!scrollContainer || !containerRect) {
-              return;
-            }
+    const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
+    const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
+    const canEditLayout = dashboardMode === DashboardMode.Edit && !isMobileView
 
-            const mouseY = e.clientY;
-
-            let scrollSpeed = 0;
-            if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
-              scrollSpeed = -DRAG_AUTO_SCROLL_SPEED;
-            } else if (
-              mouseY >
-              containerRect.bottom - DRAG_AUTO_SCROLL_THRESHOLD
-            ) {
-              scrollSpeed = DRAG_AUTO_SCROLL_SPEED;
-            }
-
-            if (scrollSpeed !== 0) {
-              const scroll = (): void => {
-                const atTop =
-                  scrollSpeed < 0 && scrollContainer.scrollTop === 0;
-                const atBottom =
-                  scrollSpeed > 0 &&
-                  scrollContainer.scrollTop + scrollContainer.clientHeight >=
-                    scrollContainer.scrollHeight;
-                if (atTop || atBottom) {
-                  return;
-                }
-                scrollContainer.scrollBy(0, scrollSpeed);
-                scrollAnimationRef.current = requestAnimationFrame(scroll);
-              };
-              scrollAnimationRef.current = requestAnimationFrame(scroll);
-            }
-          }}
-          onDragStop={() => {
-            if (scrollAnimationRef.current) {
-              cancelAnimationFrame(scrollAnimationRef.current);
-              scrollAnimationRef.current = null;
-            }
-            scrollContainerRef.current = null;
-            scrollContainerRectRef.current = null;
-            if (dragEndTimeout.current) {
-              window.clearTimeout(dragEndTimeout.current);
-            }
-            dragEndTimeout.current = window.setTimeout(() => {
-              isDragging.current = false;
-            }, 250);
-          }}
-          draggableCancel="a,table,button,.Popover"
-        >
-          {tiles?.map((tile) => {
-            const { insight, text } = tile;
-            const smLayout = layouts["sm"]?.find((l) => {
-              return l.i == tile.id.toString();
-            });
-
-            const commonTileProps = {
-              dashboardId: dashboard?.id,
-              showResizeHandles: canEditLayout,
-              showEditingControls: [
-                DashboardPlacement.Dashboard,
-                DashboardPlacement.ProjectHomepage,
-                DashboardPlacement.Builtin,
-              ].includes(placement),
-              moveToDashboard: ({
-                id,
-                name,
-              }: Pick<DashboardType, "id" | "name">) => {
-                if (!dashboard) {
-                  throw new Error("must be on a dashboard to move this tile");
-                }
-                moveToDashboard(tile, dashboard.id, id, name);
-              },
-              removeFromDashboard: () => removeTile(tile),
-            };
-
-            if (insight) {
-              // Check if this insight has an error from the server
-              const isErrorTile = !!tile.error;
-              const apiErrored =
-                isErrorTile ||
-                refreshStatus[insight.short_id]?.errored ||
-                false;
-              const apiError = isErrorTile
-                ? ({
-                    status: 400,
-                    detail: `${tile.error!.type}: ${tile.error!.message}`,
-                  } as any)
-                : refreshStatus[insight.short_id]?.error;
-              const loadingQueued = isErrorTile
-                ? false
-                : isRefreshingQueued(insight.short_id);
-              const loading = isErrorTile
-                ? false
-                : isRefreshing(insight.short_id);
-
-              return (
-                <InsightCard
-                  key={tile.id}
-                  tile={tile}
-                  insight={insight}
-                  loadingQueued={loadingQueued}
-                  loading={loading}
-                  apiErrored={apiErrored}
-                  apiError={apiError}
-                  highlighted={
-                    highlightedInsightId &&
-                    insight.short_id === highlightedInsightId
-                  }
-                  updateColor={(color) => updateTileColor(tile.id, color)}
-                  ribbonColor={tile.color}
-                  refresh={() => refreshDashboardItem({ tile })}
-                  refreshEnabled={!itemsLoading}
-                  rename={() => renameInsight(insight)}
-                  duplicate={() => duplicateTile(tile)}
-                  setOverride={() => setTileOverride(tile)}
-                  showDetailsControls={
-                    placement != DashboardPlacement.Export &&
-                    !getCurrentExporterData()?.hideExtraDetails
-                  }
-                  placement={placement}
-                  loadPriority={
-                    smLayout ? smLayout.y * 1000 + smLayout.x : undefined
-                  }
-                  filtersOverride={effectiveEditBarFilters}
-                  variablesOverride={effectiveDashboardVariableOverrides}
-                  // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                  breakdownColorOverride={temporaryBreakdownColors}
-                  dataColorThemeId={dataColorThemeId}
-                  surveyOpportunity={
-                    tile.id === bestSurveyOpportunityFunnel?.id
-                  }
-                  {...commonTileProps}
-                  // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
-                />
-              );
-            } else if (text) {
-              return (
-                <TextCard
-                  key={tile.id}
-                  textTile={tile}
-                  placement={placement}
-                  moreButtonOverlay={
-                    <>
-                      <LemonButton
-                        fullWidth
-                        onClick={() =>
-                          dashboard?.id &&
-                          push(urls.dashboardTextTile(dashboard?.id, tile.id))
+    return (
+        <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
+            {gridWrapperWidth && (
+                <ReactGridLayout
+                    width={gridWrapperWidth}
+                    className={className}
+                    draggableHandle=".CardMeta,.TextCard__body"
+                    isDraggable={canEditLayout}
+                    isResizable={canEditLayout}
+                    layouts={layouts}
+                    rowHeight={GRID_ROW_HEIGHT}
+                    margin={[GRID_HORIZONTAL_MARGIN, GRID_VERTICAL_MARGIN]}
+                    containerPadding={[0, 0]}
+                    onLayoutChange={(_, newLayouts) => {
+                        if (dashboardMode === DashboardMode.Edit) {
+                            updateLayouts(newLayouts)
                         }
-                        data-attr="edit-text"
-                      >
-                        Edit text
-                      </LemonButton>
+                    }}
+                    onWidthChange={(containerWidth, _, newCols) => {
+                        updateContainerWidth(containerWidth, newCols)
+                    }}
+                    breakpoints={BREAKPOINTS}
+                    resizeHandles={['s', 'e', 'se']}
+                    cols={BREAKPOINT_COLUMN_COUNTS}
+                    onResize={(_layout: any, _oldItem: any, newItem: any) => {
+                        if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
+                            setResizingItem(newItem)
+                        }
+                    }}
+                    onResizeStop={() => {
+                        setResizingItem(null)
+                    }}
+                    onDragStart={() => {
+                        scrollContainerRef.current = document.getElementById('main-content')
+                        scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
+                    }}
+                    onDrag={(_layout, _oldItem, _newItem, _placeholder, e) => {
+                        if (!(e instanceof MouseEvent)) {
+                            return
+                        }
 
-                      {commonTileProps.moveToDashboard && (
-                        <LemonButtonWithDropdown
-                          disabledReason={
-                            otherDashboards.length > 0
-                              ? undefined
-                              : "No other dashboards"
-                          }
-                          dropdown={{
-                            overlay: otherDashboards.map((otherDashboard) => (
-                              <LemonButton
-                                key={otherDashboard.id}
-                                onClick={() => {
-                                  commonTileProps.moveToDashboard(
-                                    otherDashboard,
-                                  );
-                                }}
-                                fullWidth
-                              >
-                                {otherDashboard.name || <i>Untitled</i>}
-                              </LemonButton>
-                            )),
-                            placement: "right-start",
-                            fallbackPlacements: ["left-start"],
-                            actionable: true,
-                            closeParentPopoverOnClickInside: true,
-                          }}
-                          fullWidth
-                        >
-                          Move to
-                        </LemonButtonWithDropdown>
-                      )}
-                      <LemonButton
-                        onClick={() => duplicateTile(tile)}
-                        fullWidth
-                        data-attr="duplicate-text-from-dashboard"
-                      >
-                        Duplicate
-                      </LemonButton>
-                      <LemonDivider />
-                      {commonTileProps.removeFromDashboard && (
-                        <LemonButton
-                          status="danger"
-                          onClick={() => commonTileProps.removeFromDashboard()}
-                          fullWidth
-                          data-attr="remove-text-tile-from-dashboard"
-                        >
-                          Delete
-                        </LemonButton>
-                      )}
-                    </>
-                  }
-                  {...commonTileProps}
-                  // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
-                />
-              );
-            }
-          })}
-        </ReactGridLayout>
-      )}
-      {dashboardStreaming && (
-        <div className="mt-4 flex items-center justify-center">
-          <div className="flex items-center gap-2 text-muted">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
-            <span>Loading tiles...</span>
-          </div>
+                        isDragging.current = true
+                        if (dragEndTimeout.current) {
+                            window.clearTimeout(dragEndTimeout.current)
+                        }
+                        if (scrollAnimationRef.current) {
+                            cancelAnimationFrame(scrollAnimationRef.current)
+                            scrollAnimationRef.current = null
+                        }
+
+                        const scrollContainer = scrollContainerRef.current
+                        const containerRect = scrollContainerRectRef.current
+                        if (!scrollContainer || !containerRect) {
+                            return
+                        }
+
+                        const mouseY = e.clientY
+
+                        let scrollSpeed = 0
+                        if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
+                            scrollSpeed = -DRAG_AUTO_SCROLL_SPEED
+                        } else if (mouseY > containerRect.bottom - DRAG_AUTO_SCROLL_THRESHOLD) {
+                            scrollSpeed = DRAG_AUTO_SCROLL_SPEED
+                        }
+
+                        if (scrollSpeed !== 0) {
+                            const scroll = (): void => {
+                                const atTop = scrollSpeed < 0 && scrollContainer.scrollTop === 0
+                                const atBottom =
+                                    scrollSpeed > 0 &&
+                                    scrollContainer.scrollTop + scrollContainer.clientHeight >=
+                                        scrollContainer.scrollHeight
+                                if (atTop || atBottom) {
+                                    return
+                                }
+                                scrollContainer.scrollBy(0, scrollSpeed)
+                                scrollAnimationRef.current = requestAnimationFrame(scroll)
+                            }
+                            scrollAnimationRef.current = requestAnimationFrame(scroll)
+                        }
+                    }}
+                    onDragStop={() => {
+                        if (scrollAnimationRef.current) {
+                            cancelAnimationFrame(scrollAnimationRef.current)
+                            scrollAnimationRef.current = null
+                        }
+                        scrollContainerRef.current = null
+                        scrollContainerRectRef.current = null
+                        if (dragEndTimeout.current) {
+                            window.clearTimeout(dragEndTimeout.current)
+                        }
+                        dragEndTimeout.current = window.setTimeout(() => {
+                            isDragging.current = false
+                        }, 250)
+                    }}
+                    draggableCancel="a,table,button,.Popover"
+                >
+                    {tiles?.map((tile) => {
+                        const { insight, text } = tile
+                        const smLayout = layouts['sm']?.find((l) => {
+                            return l.i == tile.id.toString()
+                        })
+
+                        const commonTileProps = {
+                            dashboardId: dashboard?.id,
+                            showResizeHandles: canEditLayout,
+                            showEditingControls: [
+                                DashboardPlacement.Dashboard,
+                                DashboardPlacement.ProjectHomepage,
+                                DashboardPlacement.Builtin,
+                            ].includes(placement),
+                            moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                if (!dashboard) {
+                                    throw new Error('must be on a dashboard to move this tile')
+                                }
+                                moveToDashboard(tile, dashboard.id, id, name)
+                            },
+                            removeFromDashboard: () => removeTile(tile),
+                        }
+
+                        if (insight) {
+                            // Check if this insight has an error from the server
+                            const isErrorTile = !!tile.error
+                            const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
+                            const apiError = isErrorTile
+                                ? ({
+                                      status: 400,
+                                      detail: `${tile.error!.type}: ${tile.error!.message}`,
+                                  } as any)
+                                : refreshStatus[insight.short_id]?.error
+                            const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
+                            const loading = isErrorTile ? false : isRefreshing(insight.short_id)
+
+                            return (
+                                <InsightCard
+                                    key={tile.id}
+                                    tile={tile}
+                                    insight={insight}
+                                    loadingQueued={loadingQueued}
+                                    loading={loading}
+                                    apiErrored={apiErrored}
+                                    apiError={apiError}
+                                    highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
+                                    updateColor={(color) => updateTileColor(tile.id, color)}
+                                    ribbonColor={tile.color}
+                                    refresh={() => refreshDashboardItem({ tile })}
+                                    refreshEnabled={!itemsLoading}
+                                    rename={() => renameInsight(insight)}
+                                    duplicate={() => duplicateTile(tile)}
+                                    setOverride={() => setTileOverride(tile)}
+                                    showDetailsControls={
+                                        placement != DashboardPlacement.Export &&
+                                        !getCurrentExporterData()?.hideExtraDetails
+                                    }
+                                    placement={placement}
+                                    loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                    filtersOverride={effectiveEditBarFilters}
+                                    variablesOverride={effectiveDashboardVariableOverrides}
+                                    // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
+                                    breakdownColorOverride={temporaryBreakdownColors}
+                                    dataColorThemeId={dataColorThemeId}
+                                    surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                                    {...commonTileProps}
+                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
+                                />
+                            )
+                        } else if (text) {
+                            return (
+                                <TextCard
+                                    key={tile.id}
+                                    textTile={tile}
+                                    placement={placement}
+                                    moreButtonOverlay={
+                                        <>
+                                            <LemonButton
+                                                fullWidth
+                                                onClick={() =>
+                                                    dashboard?.id &&
+                                                    push(urls.dashboardTextTile(dashboard?.id, tile.id))
+                                                }
+                                                data-attr="edit-text"
+                                            >
+                                                Edit text
+                                            </LemonButton>
+
+                                            {commonTileProps.moveToDashboard && (
+                                                <LemonButtonWithDropdown
+                                                    disabledReason={
+                                                        otherDashboards.length > 0 ? undefined : 'No other dashboards'
+                                                    }
+                                                    dropdown={{
+                                                        overlay: otherDashboards.map((otherDashboard) => (
+                                                            <LemonButton
+                                                                key={otherDashboard.id}
+                                                                onClick={() => {
+                                                                    commonTileProps.moveToDashboard(otherDashboard)
+                                                                }}
+                                                                fullWidth
+                                                            >
+                                                                {otherDashboard.name || <i>Untitled</i>}
+                                                            </LemonButton>
+                                                        )),
+                                                        placement: 'right-start',
+                                                        fallbackPlacements: ['left-start'],
+                                                        actionable: true,
+                                                        closeParentPopoverOnClickInside: true,
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    Move to
+                                                </LemonButtonWithDropdown>
+                                            )}
+                                            <LemonButton
+                                                onClick={() => duplicateTile(tile)}
+                                                fullWidth
+                                                data-attr="duplicate-text-from-dashboard"
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                            <LemonDivider />
+                                            {commonTileProps.removeFromDashboard && (
+                                                <LemonButton
+                                                    status="danger"
+                                                    onClick={() => commonTileProps.removeFromDashboard()}
+                                                    fullWidth
+                                                    data-attr="remove-text-tile-from-dashboard"
+                                                >
+                                                    Delete
+                                                </LemonButton>
+                                            )}
+                                        </>
+                                    }
+                                    {...commonTileProps}
+                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
+                                />
+                            )
+                        }
+                    })}
+                </ReactGridLayout>
+            )}
+            {dashboardStreaming && (
+                <div className="mt-4 flex items-center justify-center">
+                    <div className="flex items-center gap-2 text-muted">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+                        <span>Loading tiles...</span>
+                    </div>
+                </div>
+            )}
         </div>
-      )}
-    </div>
-  );
+    )
 }
