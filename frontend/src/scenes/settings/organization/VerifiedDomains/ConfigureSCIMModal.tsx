@@ -95,9 +95,7 @@ export function ConfigureSCIMModal(): JSX.Element {
                             checked={scimConfig.scim_enabled ?? false}
                             onChange={handleToggleScim}
                             disabled={scimConfigLoading}
-                            label={
-                                <span className="font-normal">{scimConfig.scim_enabled ? 'Enabled' : 'Disabled'}</span>
-                            }
+                            label="Enable SCIM"
                         />
                     </div>
 
