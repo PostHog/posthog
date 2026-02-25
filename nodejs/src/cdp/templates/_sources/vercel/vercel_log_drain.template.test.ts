@@ -345,6 +345,137 @@ describe('vercel log drain template', () => {
         expect(response.capturedPostHogEvents).toHaveLength(1)
         expect(response.capturedPostHogEvents[0].properties.vercel_log_id).toBe('body1')
     })
+
+    it('should extract $pathname and $host from URL', async () => {
+        const response = await tester.invoke(
+            {},
+            {
+                request: createVercelRequest(vercelLogDrain),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        const props = response.capturedPostHogEvents[0].properties
+        expect(props.$pathname).toBe('/api/users')
+        expect(props.$host).toBe('my-app.vercel.app')
+        expect(props.$referrer).toBe('https://my-app.vercel.app')
+    })
+
+    it('should extract UTM parameters from URL query string', async () => {
+        const logWithUtm = {
+            ...vercelLogDrain,
+            proxy: {
+                ...vercelLogDrain.proxy,
+                path: '/api/users?utm_source=google&utm_medium=cpc&utm_campaign=summer_sale&utm_term=shoes&utm_content=banner_ad',
+            },
+        }
+
+        const response = await tester.invoke(
+            {},
+            {
+                request: createVercelRequest(logWithUtm),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        const props = response.capturedPostHogEvents[0].properties
+        expect(props.utm_source).toBe('google')
+        expect(props.utm_medium).toBe('cpc')
+        expect(props.utm_campaign).toBe('summer_sale')
+        expect(props.utm_term).toBe('shoes')
+        expect(props.utm_content).toBe('banner_ad')
+    })
+
+    it('should decode URL-encoded UTM values', async () => {
+        const logWithEncodedUtm = {
+            ...vercelLogDrain,
+            proxy: {
+                ...vercelLogDrain.proxy,
+                path: '/api/users?utm_source=hello%20world&utm_campaign=summer%2B2024',
+            },
+        }
+
+        const response = await tester.invoke(
+            {},
+            {
+                request: createVercelRequest(logWithEncodedUtm),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        const props = response.capturedPostHogEvents[0].properties
+        expect(props.utm_source).toBe('hello world')
+        expect(props.utm_campaign).toBe('summer+2024')
+    })
+
+    it('should set UTM properties to null when not present in URL', async () => {
+        const logWithoutUtm = {
+            ...vercelLogDrain,
+            proxy: {
+                ...vercelLogDrain.proxy,
+                path: '/api/users?page=1&sort=name',
+            },
+        }
+
+        const response = await tester.invoke(
+            {},
+            {
+                request: createVercelRequest(logWithoutUtm),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        const props = response.capturedPostHogEvents[0].properties
+        expect(props.utm_source).toBeNull()
+        expect(props.utm_medium).toBeNull()
+        expect(props.utm_campaign).toBeNull()
+        expect(props.utm_term).toBeNull()
+        expect(props.utm_content).toBeNull()
+    })
+
+    it('should handle URLs without query strings', async () => {
+        const logWithoutQuery = {
+            ...vercelLogDrain,
+            proxy: {
+                ...vercelLogDrain.proxy,
+                path: '/api/users',
+            },
+        }
+
+        const response = await tester.invoke(
+            {},
+            {
+                request: createVercelRequest(logWithoutQuery),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        const props = response.capturedPostHogEvents[0].properties
+        expect(props.$pathname).toBe('/api/users')
+        expect(props.utm_source).toBeNull()
+    })
+
+    it('should treat empty UTM values as null', async () => {
+        const logWithEmptyUtm = {
+            ...vercelLogDrain,
+            proxy: {
+                ...vercelLogDrain.proxy,
+                path: '/api/users?utm_source=&utm_medium=cpc',
+            },
+        }
+
+        const response = await tester.invoke(
+            {},
+            {
+                request: createVercelRequest(logWithEmptyUtm),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        const props = response.capturedPostHogEvents[0].properties
+        expect(props.utm_source).toBeNull()
+        expect(props.utm_medium).toBe('cpc')
+    })
 })
 
 const createVercelRequest = (body: Record<string, any> | Record<string, any>[]) => {

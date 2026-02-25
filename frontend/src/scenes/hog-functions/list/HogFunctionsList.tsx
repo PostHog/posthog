@@ -20,8 +20,8 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
@@ -332,6 +332,7 @@ export function HogFunctionList({
                     size="small"
                     loading={loading}
                     columns={columns}
+                    pagination={{ pageSize: 30 }}
                     emptyState={
                         hogFunctions.length === 0 && !loading ? (
                             (emptyText ?? `No ${humanizedType}s found`)

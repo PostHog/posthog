@@ -42,10 +42,10 @@ import {
 
 import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
 
-import { GroupOverview } from './GroupOverview'
-import { RelatedGroups } from './RelatedGroups'
 import { GroupNotebookCard } from './cards/GroupNotebookCard'
 import { GroupCaption } from './components/GroupCaption'
+import { GroupOverview } from './GroupOverview'
+import { RelatedGroups } from './RelatedGroups'
 
 export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
