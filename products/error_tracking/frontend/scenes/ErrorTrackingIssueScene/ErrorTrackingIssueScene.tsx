@@ -154,6 +154,7 @@ const RightHandColumn = (): JSX.Element => {
                     loading={issueLoading || initialEventLoading}
                     event={selectedEvent ?? undefined}
                     label={tagRenderer(selectedEvent)}
+                    issueFiltersLogicKey={ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY}
                     renderStackTraceActions={() => {
                         return issue ? <StackTraceActions issue={issue} /> : null
                     }}
