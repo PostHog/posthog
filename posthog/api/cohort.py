@@ -12,7 +12,7 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from pydantic import (
@@ -94,7 +94,9 @@ def validate_filters_and_compute_realtime_support(
         clean_filters = validated_filters.model_dump(exclude_none=True)
 
         cohort_type = (
-            CohortType.REALTIME if _calculate_realtime_support(cast(Group, validated_filters.properties)) else None
+            CohortType.REALTIME
+            if _calculate_realtime_support(cast(CohortFilterGroup, validated_filters.properties))
+            else None
         )
 
         # Check if cohort exceeds the maximum person count for real-time evaluation
@@ -261,22 +263,24 @@ PropertyFilter = Annotated[
     Field(discriminator="type"),
 ]
 
-FilterOrGroup = Annotated[Union[PropertyFilter, "Group"], Field(discriminator="type")]
+FilterOrGroup = Annotated[Union[PropertyFilter, "CohortFilterGroup"], Field(discriminator="type")]
 
 
-class Group(BaseModel, extra="forbid"):
+class CohortFilterGroup(BaseModel, extra="forbid"):
+    """AND/OR group containing cohort filters. Named to avoid collision with analytics Group model."""
+
     type: Literal["AND", "OR"]
     values: list[FilterOrGroup]
 
 
-Group.model_rebuild()
+CohortFilterGroup.model_rebuild()
 
 
-def _calculate_realtime_support(group: Group) -> bool:
+def _calculate_realtime_support(group: CohortFilterGroup) -> bool:
     """Check if all filters in the group have valid bytecode to determine realtime support."""
     for value in group.values:
         if hasattr(value, "values"):  # It's another group
-            if not _calculate_realtime_support(cast(Group, value)):
+            if not _calculate_realtime_support(cast(CohortFilterGroup, value)):
                 return False
         else:  # It's a filter
             # Check if filter has FilterBytecodeMixin and valid bytecode
@@ -290,7 +294,7 @@ def _calculate_realtime_support(group: Group) -> bool:
 
 
 class CohortFilters(BaseModel, extra="forbid"):
-    properties: Group
+    properties: CohortFilterGroup
 
 
 API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
@@ -370,11 +374,21 @@ class CohortMinimalSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "count"]
 
 
+@extend_schema_field(CohortFilters)
+class CohortFiltersField(serializers.JSONField):
+    """Custom JSONField that exposes proper OpenAPI schema for cohort filters."""
+
+    pass
+
+
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _create_static_person_ids = serializers.ListField(required=False, child=serializers.CharField(), write_only=True)
+
+    # Explicit filters field with proper OpenAPI schema
+    filters = CohortFiltersField(required=False, allow_null=True)
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)

@@ -7,13 +7,9 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * * `AND` - AND
- * `OR` - OR
- */
-export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
+export type Type150EnumApi = (typeof Type150EnumApi)[keyof typeof Type150EnumApi]
 
-export const PropertyTypeEnumApi = {
+export const Type150EnumApi = {
     And: 'AND',
     Or: 'OR',
 } as const
@@ -177,7 +173,7 @@ Or you can create more complicated queries with AND and OR:
 
 * `AND` - AND
 * `OR` - OR */
-    type?: PropertyTypeEnumApi
+    type?: Type150EnumApi
     values: PropertyItemApi[]
 }
 

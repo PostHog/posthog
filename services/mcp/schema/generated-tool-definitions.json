@@ -74,6 +74,96 @@
             "readOnlyHint": false
         }
     },
+    "cohorts-list": {
+        "description": "List all cohorts in the project. Cohorts are groups of users that share common properties or behaviors. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on filters). Use the 'type' parameter to filter by cohort type.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "List all cohorts",
+        "title": "List all cohorts",
+        "required_scopes": ["cohort:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cohorts-create": {
+        "description": "Create a new cohort. For dynamic cohorts, provide 'filters' with property conditions. For static cohorts, set 'is_static: true' and optionally provide '_create_static_person_ids' with a list of person UUIDs to include. Dynamic cohort filters use a nested structure with AND/OR groups containing person property filters (type: \"person\"), behavioral filters (type: \"behavioral\"), or references to other cohorts (type: \"cohort\").",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Create cohort",
+        "title": "Create cohort",
+        "required_scopes": ["cohort:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cohorts-retrieve": {
+        "description": "Get a specific cohort by ID. Returns the cohort configuration including name, description, filters (for dynamic cohorts), count of matching users, and calculation status.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Get cohort",
+        "title": "Get cohort",
+        "required_scopes": ["cohort:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cohorts-partial-update": {
+        "description": "Update an existing cohort. Can update name, description, and filters. For dynamic cohorts, changing filters will trigger a recalculation of matching users. Note: cohorts used in active feature flags cannot have behavioral filters added. To delete a cohort, set 'deleted: true' (soft delete).",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Update cohort",
+        "title": "Update cohort",
+        "required_scopes": ["cohort:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cohorts-add-persons-to-static-cohort-partial-update": {
+        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true). Provide a list of person UUIDs in 'person_ids'. Maximum batch size is limited.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Add persons to static cohort",
+        "title": "Add persons to static cohort",
+        "required_scopes": ["cohort:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cohorts-remove-person-from-static-cohort-partial-update": {
+        "description": "Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). This operation is idempotent - removing a person who isn't in the cohort will succeed without error.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Remove person from static cohort",
+        "title": "Remove person from static cohort",
+        "required_scopes": ["cohort:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
