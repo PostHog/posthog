@@ -9,6 +9,7 @@ from django.conf import settings
 from django.test import override_settings
 
 import psycopg
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
@@ -1035,6 +1036,59 @@ class TestExternalDataSource(APIBaseTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+
+    @parameterized.expand(
+        [
+            ("192.168.1.1",),
+            ("169.254.169.254",),
+            ("localhost",),
+            ("127.0.0.1",),
+            ("0.0.0.0",),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+        return_value={"table_1": [("id", "integer", True)]},
+    )
+    def test_blocks_internal_host(self, host, _patch_schemas):
+        endpoints = [
+            {
+                "url": f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                "data": {
+                    "source_type": "Postgres",
+                    "host": host,
+                    "port": int(settings.PG_PORT),
+                    "database": settings.PG_DATABASE,
+                    "user": settings.PG_USER,
+                    "password": settings.PG_PASSWORD,
+                    "schema": "public",
+                },
+            },
+            {
+                "url": f"/api/environments/{self.team.pk}/external_data_sources/",
+                "data": {
+                    "source_type": "Postgres",
+                    "payload": {
+                        "host": host,
+                        "port": 5432,
+                        "database": "mydb",
+                        "user": "user",
+                        "password": "pass",
+                        "schema": "public",
+                    },
+                    "schemas": [],
+                },
+            },
+        ]
+        with override_settings(CLOUD_DEPLOYMENT="US"):
+            for endpoint in endpoints:
+                response = self.client.post(endpoint["url"], data=endpoint["data"])
+                self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {endpoint['url']}")
+                self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+
+            self.assertFalse(
+                ExternalDataSource.objects.filter(team=self.team, source_type="Postgres").exists(),
+            )
 
     def test_source_jobs(self):
         source = self._create_external_data_source()
