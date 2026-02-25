@@ -1445,7 +1445,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 ])
             } finally {
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
-                const refreshSummaries = cache.refreshSummariesById?.[refreshId] ?? []
+                const refreshSummaries: MetricLoadingSummary[] = cache.refreshSummariesById?.[refreshId] ?? []
                 if (cache.refreshSummariesById) {
                     delete cache.refreshSummariesById[refreshId]
                 }
