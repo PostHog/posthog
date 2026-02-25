@@ -4,6 +4,14 @@ import type { errorTrackingIssueSceneConfigurationLogicType } from './errorTrack
 
 export type ErrorTrackingIssueSceneCategory = 'exceptions' | 'breakdowns' | 'autofix' | 'similar_issues'
 
+export const VALID_CATEGORIES: ErrorTrackingIssueSceneCategory[] = [
+    'exceptions',
+    'breakdowns',
+    'autofix',
+    'similar_issues',
+]
+export const DEFAULT_CATEGORY: ErrorTrackingIssueSceneCategory = 'exceptions'
+
 export const errorTrackingIssueSceneConfigurationLogic = kea<errorTrackingIssueSceneConfigurationLogicType>([
     path([
         'products',
@@ -18,7 +26,7 @@ export const errorTrackingIssueSceneConfigurationLogic = kea<errorTrackingIssueS
     }),
 
     defaults({
-        category: 'exceptions' as ErrorTrackingIssueSceneCategory,
+        category: DEFAULT_CATEGORY as ErrorTrackingIssueSceneCategory,
     }),
 
     reducers(() => ({

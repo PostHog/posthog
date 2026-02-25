@@ -193,7 +193,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (!Object.entries(insightUpdate).length) {
                         return values.insight
                     }
-                    const response = await insightsApi.update(values.insight.id as number, insightUpdate)
+                    // Resolve the numeric ID. When updateInsight races with loadInsight
+                    // (e.g. adding to a dashboard right after save), values.insight.id
+                    // may still be undefined. Fall back to resolving via short_id.
+                    const insightId =
+                        values.insight.id ||
+                        (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
+                    if (!insightId) {
+                        throw new Error('Cannot update insight: unable to resolve insight id')
+                    }
+                    const response = await insightsApi.update(insightId, insightUpdate)
                     // Call the callback before breakpoint so it fires even if a newer loader
                     // action was dispatched while the API call was in flight. The API call
                     // succeeded, so the callback (e.g. navigation after adding to dashboard)
@@ -555,7 +564,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             if (isTrendsQuery(query)) {
                 tasksToComplete.push(SetupTaskId.ExploreTrendsInsight)
             } else if (isFunnelsQuery(query)) {
-                tasksToComplete.push(SetupTaskId.ExploreFunnelInsight)
+                tasksToComplete.push(SetupTaskId.CreateFunnel)
             } else if (isRetentionQuery(query)) {
                 tasksToComplete.push(SetupTaskId.ExploreRetentionInsight)
             } else if (isPathsQuery(query)) {

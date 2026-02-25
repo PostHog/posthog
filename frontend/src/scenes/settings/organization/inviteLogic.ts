@@ -6,8 +6,8 @@ import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { pluralize } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { AccessControlLevel, OrganizationInviteType } from '~/types'
 

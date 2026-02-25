@@ -33,18 +33,18 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
@@ -60,8 +60,8 @@ import {
     ReplayTabs,
 } from '~/types'
 
-import { InstructionsModal } from './InstructionsModal'
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import { InstructionsModal } from './InstructionsModal'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
@@ -702,7 +702,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
 
     return (
         <div className="relative">
-            {/* 
+            {/*
             NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query
             UPDATE: Absolute postion was overlapping with filters, so we put a bit on top. Still need to find a better solution.       
              */}

@@ -7,6 +7,7 @@ class ConsumerConfig:
 
     input_topic: str
     consumer_group: str
+    dlq_topic: str
     batch_size: int = 1000
     batch_timeout_seconds: float = 5.0
     health_port: int = 8080

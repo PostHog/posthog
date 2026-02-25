@@ -112,7 +112,7 @@ capabilities:
     nodejs_logs:
         description: 'Node.js Logs - log ingestion'
         requires: [event_ingestion]
-        docker_profiles: []
+        docker_profiles: [observability]
 
     nodejs_feature_flags:
         description: 'Node.js Feature Flags - evaluation scheduler'
@@ -175,7 +175,7 @@ intents:
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
-        capabilities: [event_ingestion, replay_storage, property_definitions]
+        capabilities: [event_ingestion, replay_storage, property_definitions, livestream]
 
     surveys:
         description: 'User surveys and feedback collection'

@@ -122,6 +122,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setPiiMaskingColor: (color: string) => ({ color }),
         startGracefulExit: true,
         completeGracefulExit: true,
+        setCspBlocksNewFunction: (blocked: boolean) => ({ blocked }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -198,6 +199,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             { persist: true },
             {
                 setHedgehogModeEnabled: (_, { hedgehogModeEnabled }) => hedgehogModeEnabled,
+                setCspBlocksNewFunction: (state, { blocked }) => (blocked ? false : state), // if the CSP blocks new Function, disable hedgehod mode
             },
         ],
         isEmbeddedInApp: [
@@ -231,6 +233,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
             {
                 startGracefulExit: () => true,
                 completeGracefulExit: () => false,
+            },
+        ],
+        cspBlocksNewFunction: [
+            false,
+            {
+                setCspBlocksNewFunction: (_, { blocked }) => blocked,
             },
         ],
     })),
@@ -422,6 +430,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 allExperimentsLoading ||
                 remoteWebVitalsLoading,
         ],
+        hedgehogModeAvailable: [
+            (s) => [s.cspBlocksNewFunction],
+            (cspBlocksNewFunction: boolean): boolean => !cspBlocksNewFunction,
+        ],
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
@@ -605,6 +617,14 @@ export const toolbarLogic = kea<toolbarLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
+        // Detect whether the page's CSP blocks new Function() — if so, hedgehog mode
+        // (which relies on pixi.js) cannot work and should be disabled.
+        try {
+            new Function('return true')()
+        } catch {
+            actions.setCspBlocksNewFunction(true)
+        }
+
         // Add window event listeners using disposables
         cache.disposables.add(() => {
             const clickListener = (e: MouseEvent): void => {

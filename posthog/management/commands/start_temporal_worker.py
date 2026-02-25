@@ -29,6 +29,8 @@ from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+    EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
 )
 from posthog.temporal.data_modeling import (
@@ -83,6 +85,8 @@ from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
     EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
+    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
+    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
@@ -129,6 +133,10 @@ from posthog.temporal.weekly_digest import (
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
+from products.signals.backend.temporal import (
+    ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -221,8 +229,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS + SIGNALS_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES + SIGNALS_ACTIVITIES,
+        VIDEO_EXPORT_WORKFLOWS + SIGNALS_WORKFLOWS + SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
+        VIDEO_EXPORT_ACTIVITIES + SIGNALS_ACTIVITIES + SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -249,6 +257,11 @@ _task_queue_specs = [
         settings.LLMA_EVALS_TASK_QUEUE,
         LLM_ANALYTICS_EVAL_WORKFLOWS,
         LLM_ANALYTICS_EVAL_ACTIVITIES,
+    ),
+    (
+        settings.LLMA_SENTIMENT_TASK_QUEUE,
+        LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
+        LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
     ),
     (
         settings.LLMA_TASK_QUEUE,

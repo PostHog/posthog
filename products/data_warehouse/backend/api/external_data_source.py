@@ -51,6 +51,7 @@ from products.data_warehouse.backend.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.util import validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
@@ -636,6 +637,61 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         instance.status = "Running"
         instance.save()
         return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    @extend_schema(
+        responses={
+            200: {"type": "object", "properties": {"added": {"type": "integer"}, "deleted": {"type": "integer"}}}
+        }
+    )
+    def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""
+        instance: ExternalDataSource = self.get_object()
+        logger.debug(
+            "refresh_schemas called",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            source_type=instance.source_type,
+        )
+        if not instance.job_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration."},
+            )
+        try:
+            source_type = ExternalDataSourceType(instance.source_type)
+            source = SourceRegistry.get_source(source_type)
+            config = source.parse_config(instance.job_inputs)
+            schemas = source.get_schemas(config, self.team_id)
+            schema_names = [s.name for s in schemas]
+            logger.info(
+                "refresh_schemas fetched from source",
+                source_id=str(instance.id),
+                schema_count=len(schema_names),
+                schema_names=schema_names,
+            )
+        except Exception as e:
+            logger.exception("Could not fetch schemas from source", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not fetch schemas from source."},
+            )
+        with transaction.atomic():
+            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
+                schema_names, source_id=str(instance.id), team_id=self.team_id
+            )
+        logger.debug(
+            "refresh_schemas completed",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            added=len(schemas_created),
+            deleted=len(schemas_deleted),
+        )
+        return Response(
+            status=status.HTTP_200_OK,
+            data={"added": len(schemas_created), "deleted": len(schemas_deleted)},
+        )
 
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):

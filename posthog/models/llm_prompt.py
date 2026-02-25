@@ -1,6 +1,9 @@
-from django.db import models
+from django.db import models, transaction
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 from django.utils import timezone
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import UUIDModel
 
 
@@ -34,3 +37,19 @@ class LLMPrompt(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     deleted = models.BooleanField(default=False)
+
+
+@receiver(post_save, sender=LLMPrompt)
+@receiver(post_delete, sender=LLMPrompt)
+def invalidate_llm_prompt_cache(sender: type[LLMPrompt], instance: LLMPrompt, **kwargs) -> None:
+    team_id = instance.team_id
+
+    def clear_cache() -> None:
+        from posthog.storage.llm_prompt_cache import invalidate_team_prompt_cache
+
+        try:
+            invalidate_team_prompt_cache(team_id)
+        except Exception as err:
+            capture_exception(err)
+
+    transaction.on_commit(clear_cache)

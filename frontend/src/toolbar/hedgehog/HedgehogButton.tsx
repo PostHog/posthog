@@ -5,7 +5,11 @@ import { HedgehogMode } from 'lib/components/HedgehogMode/HedgehogMode'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 
 export function HedgehogButton(): JSX.Element | null {
-    const { hedgehogModeEnabled } = useValues(toolbarLogic)
+    const { hedgehogModeEnabled, hedgehogModeAvailable } = useValues(toolbarLogic)
+
+    if (!hedgehogModeAvailable) {
+        return null
+    }
 
     return <HedgehogMode enabledOverride={hedgehogModeEnabled} />
 }

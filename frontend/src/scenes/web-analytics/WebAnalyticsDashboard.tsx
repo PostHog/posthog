@@ -11,25 +11,22 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconLink, IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconLink, IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
-import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
-import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import {
     ProductTab,
     QueryTile,
@@ -41,20 +38,23 @@ import {
     WebAnalyticsTile,
     tabSplitIndexMap,
 } from 'scenes/web-analytics/common'
+import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
-import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {

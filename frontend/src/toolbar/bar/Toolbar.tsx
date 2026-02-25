@@ -29,9 +29,9 @@ import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
 import { AnimatedLogomark } from 'lib/brand/Logomark'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
@@ -40,11 +40,11 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
 import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
-import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
-import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
+import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
@@ -201,8 +201,15 @@ function piiMaskingMenuItem(
 }
 
 function MoreMenu(): JSX.Element {
-    const { hedgehogModeEnabled, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } =
-        useValues(toolbarLogic)
+    const {
+        hedgehogModeEnabled,
+        hedgehogModeAvailable,
+        theme,
+        posthog,
+        piiMaskingEnabled,
+        piiMaskingColor,
+        piiWarning,
+    } = useValues(toolbarLogic)
     const {
         setHedgehogModeEnabled,
         toggleTheme,
@@ -240,11 +247,14 @@ function MoreMenu(): JSX.Element {
                         {
                             icon: <>🦔</>,
                             label: hedgehogModeEnabled ? 'Disable hedgehog mode' : 'Hedgehog mode',
+                            disabledReason: !hedgehogModeAvailable
+                                ? "Hedgehog mode is disabled. Hedgehog mode uses `new Function` directives to render WebGL, and that requires 'unsafe-eval' in your Content Security Policy's script-src directive"
+                                : undefined,
                             onClick: () => {
                                 setHedgehogModeEnabled(!hedgehogModeEnabled)
                             },
                         },
-                        hedgehogModeEnabled
+                        hedgehogModeEnabled && hedgehogModeAvailable
                             ? {
                                   icon: <IconFlare />,
                                   label: 'Hedgehog options',

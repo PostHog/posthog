@@ -1,7 +1,25 @@
 # serializer version: 1
 # name: TestExperimentBreakdown.test_funnel_metric_with_breakdown_0_new_query_builder
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+            argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -20,17 +38,23 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp,
-            argMinIf(metric_events.breakdown_value_1, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS breakdown_value_1
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+            exposures.breakdown_value_1 AS breakdown_value_1
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time,
+              exposures.breakdown_value_1)
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
          count(entity_metrics.entity_id) AS num_users,
@@ -44,23 +68,43 @@
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_funnel_metric_with_three_breakdowns
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+            argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
+            argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2,
+            argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_3
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -81,19 +125,27 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp,
-            argMinIf(metric_events.breakdown_value_1, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS breakdown_value_1,
-            argMinIf(metric_events.breakdown_value_2, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS breakdown_value_2,
-            argMinIf(metric_events.breakdown_value_3, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS breakdown_value_3
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+            exposures.breakdown_value_1 AS breakdown_value_1,
+            exposures.breakdown_value_2 AS breakdown_value_2,
+            exposures.breakdown_value_3 AS breakdown_value_3
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time,
+              exposures.breakdown_value_1,
+              exposures.breakdown_value_2,
+              exposures.breakdown_value_3)
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
          entity_metrics.breakdown_value_2 AS breakdown_value_2,
@@ -111,23 +163,42 @@
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2,
            entity_metrics.breakdown_value_3
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_funnel_metric_with_two_breakdowns
   '''
-  WITH metric_events AS
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+            argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
+            argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -147,18 +218,25 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
-    (SELECT metric_events.entity_id AS entity_id,
-            if(ifNull(greater(uniqExactIf(metric_events.variant, equals(metric_events.step_0, 1)), 1), 0), '$multiple', anyIf(metric_events.variant, equals(metric_events.step_0, 1))) AS variant,
-            argMinIf(metric_events.uuid, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_event_uuid,
-            argMinIf(metric_events.session_id, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_session_id,
-            argMinIf(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS exposure_timestamp,
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.exposure_event_uuid AS exposure_event_uuid,
+            exposures.exposure_session_id AS exposure_session_id,
+            exposures.first_exposure_time AS exposure_timestamp,
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toTimeZone(metric_events.timestamp, 'UTC'), toDateTime(0, 'UTC')))) AS uuid_to_timestamp,
-            argMinIf(metric_events.breakdown_value_1, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS breakdown_value_1,
-            argMinIf(metric_events.breakdown_value_2, toTimeZone(metric_events.timestamp, 'UTC'), equals(metric_events.step_0, 1)) AS breakdown_value_2
-     FROM metric_events
-     GROUP BY metric_events.entity_id)
+            exposures.breakdown_value_1 AS breakdown_value_1,
+            exposures.breakdown_value_2 AS breakdown_value_2
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.exposure_event_uuid,
+              exposures.exposure_session_id,
+              exposures.first_exposure_time,
+              exposures.breakdown_value_1,
+              exposures.breakdown_value_2)
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
          entity_metrics.breakdown_value_2 AS breakdown_value_2,
@@ -174,18 +252,18 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_breakdown_with_changing_property_values_0_new_query_builder
@@ -240,18 +318,18 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_breakdown
@@ -306,18 +384,18 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_null_breakdown_values
@@ -372,18 +450,18 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_three_breakdowns
@@ -450,18 +528,18 @@
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2,
            entity_metrics.breakdown_value_3
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_two_breakdowns
@@ -522,18 +600,18 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_winsorization_and_breakdown
@@ -601,18 +679,18 @@
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant,
            winsorized_entity_metrics.breakdown_value_1
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_missing_variants_across_breakdown_combinations
@@ -673,18 +751,18 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_breakdown
@@ -770,18 +848,18 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_three_breakdowns
@@ -877,18 +955,18 @@
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2,
            entity_metrics.breakdown_value_3
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_two_breakdowns
@@ -979,18 +1057,18 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_retention_metric_with_breakdown_0_new_query_builder
@@ -1061,18 +1139,18 @@
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_retention_metric_with_two_breakdowns_0_new_query_builder
@@ -1148,17 +1226,17 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---

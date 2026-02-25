@@ -18,10 +18,10 @@ import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-ge
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
-import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
+import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { availableSourcesDataLogic } from './availableSourcesDataLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'

@@ -10,26 +10,26 @@ export interface CreateEventStepInput {
     preparedEvent: PreIngestionEvent
     processPerson: boolean
     historicalMigration: boolean
-    inputHeaders: EventHeaders
-    inputMessage: Message
+    headers: EventHeaders
+    message: Message
 }
 
 export interface CreateEventStepResult {
     eventToEmit: RawKafkaEvent
-    inputHeaders: EventHeaders
-    inputMessage: Message
+    headers: EventHeaders
+    message: Message
 }
 
 export function createCreateEventStep<T extends CreateEventStepInput>(): ProcessingStep<T, CreateEventStepResult> {
     return function createEventStep(input: T): Promise<PipelineResult<CreateEventStepResult>> {
-        const { person, preparedEvent, processPerson, historicalMigration, inputHeaders, inputMessage } = input
+        const { person, preparedEvent, processPerson, historicalMigration, headers, message } = input
 
-        const capturedAt = inputHeaders.now ?? null
+        const capturedAt = headers.now ?? null
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
         const result: CreateEventStepResult = {
             eventToEmit: rawEvent,
-            inputHeaders,
-            inputMessage,
+            headers,
+            message,
         }
 
         return Promise.resolve(ok(result, []))

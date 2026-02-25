@@ -38,21 +38,3 @@ def list_parquet_files(data_folder: str) -> list[str]:
     except FileNotFoundError:
         logger.debug("data_folder_not_found", data_folder=data_folder)
         return []
-
-
-def read_all_batches(data_folder: str) -> pa.Table:
-    parquet_files = list_parquet_files(data_folder)
-
-    if not parquet_files:
-        logger.debug("no_parquet_files_found", data_folder=data_folder)
-        return pa.table({})
-
-    tables = [read_parquet(f) for f in parquet_files]
-
-    if len(tables) == 1:
-        return tables[0]
-
-    combined = pa.concat_tables(tables)
-    logger.debug("batches_combined", data_folder=data_folder, total_rows=combined.num_rows, batch_count=len(tables))
-
-    return combined
