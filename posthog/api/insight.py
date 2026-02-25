@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -1095,15 +1096,13 @@ class InsightViewSet(
         Returns trending insights based on view count in the last 24 hours.
         Defaults to returning top 10 insights.
         """
-        from datetime import timedelta
-
         days = int(request.GET.get("days", "1"))
         limit = min(int(request.GET.get("limit", "10")), 100)
 
         cutoff_date = now() - timedelta(days=days)
 
         queryset = (
-            Insight.objects.filter(team__project_id=self.team.project_id, deleted=False)
+            Insight.objects.filter(team=self.team)
             .annotate(
                 view_count=Count(
                     "insightviewed",

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconChevronRight, IconExternal } from '@posthog/icons'
 
@@ -22,20 +21,24 @@ interface InsightRowProps {
 
 function InsightRow({ insight }: InsightRowProps): JSX.Element {
     const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
-    const [isExpanded, setIsExpanded] = useState(false)
+    const { expandedInsightIds } = useValues(projectHomepageLogic)
+    const { toggleInsightExpanded } = useActions(projectHomepageLogic)
+    const isExpanded = expandedInsightIds.has(insight.short_id)
 
     return (
         <div className="border border-border rounded bg-surface-primary mb-2 last:mb-0">
             <div
                 className="flex items-center gap-3 p-3 cursor-pointer hover:bg-surface-secondary rounded-t"
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={() => toggleInsightExpanded(insight.short_id)}
             >
                 <div className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
                     <IconChevronRight className="text-xl" />
                 </div>
                 <InsightIcon insight={insight} className="text-secondary text-3xl" />
                 <div className="flex flex-col flex-1 truncate">
-                    <span className="font-semibold truncate">{insight.name || insight.derived_name || 'Insight'}</span>
+                    <span className="font-semibold truncate">
+                        {insight.name || <i>{insight.derived_name || 'Insight'}</i>}
+                    </span>
                     <span className="text-muted text-xs mt-0.5 truncate">
                         {`Last modified ${dayjs(insight.last_modified_at).fromNow()}`}
                     </span>
@@ -84,7 +87,7 @@ export function Recents(): JSX.Element {
 
     return (
         <CompactList
-            title="Recents"
+            title="Last viewed"
             viewAllURL={urls.savedInsights(SavedInsightsTabs.All)}
             loading={recentInsightsLoading}
             emptyMessage={{
@@ -94,7 +97,7 @@ export function Recents(): JSX.Element {
                 buttonTo: urls.savedInsights(),
             }}
             items={recentInsights.slice(0, 5)}
-            renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
+            renderRow={(insight: QueryBasedInsightModel) => <InsightRow key={insight.short_id} insight={insight} />}
             contentHeightBehavior="fit-content"
         />
     )

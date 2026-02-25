@@ -15,29 +15,26 @@ export const activeUsersLogic = kea<activeUsersLogicType>([
         persons: {
             __default: [] as PersonType[],
             loadPersons: async () => {
+                // HogQL is used here to get activity-based ranking, which the persons API doesn't support
                 const query = hogql`
-                    SELECT person.id, any(person.properties), any(person.created_at), count() as count
+                    SELECT any(distinct_id), count() as activity_count
                     FROM events
                     SAMPLE 0.1
                     WHERE timestamp > now() - INTERVAL 7 DAY
-                    GROUP BY person.id
-                    ORDER BY count DESC
+                    GROUP BY person_id
+                    ORDER BY activity_count DESC
                     LIMIT 5
                 `
                 try {
-                    const response = await api.queryHogQL(query, { scene: 'SavedInsights', productKey: 'persons' })
-                    return (response.results || []).map((row) => {
-                        const properties = row[1] ? JSON.parse(row[1]) : {}
-                        return {
-                            id: row[0],
-                            uuid: row[0],
-                            distinct_ids: [row[0]],
-                            properties: properties,
-                            created_at: row[2],
-                            is_identified: false,
-                            name: properties.email || properties.name || row[0],
-                        } as unknown as PersonType
+                    const idsResponse = await api.queryHogQL(query, {
+                        scene: 'SavedInsights',
+                        productKey: 'persons',
                     })
+                    const distinctIds = (idsResponse.results || []).map((row) => row[0] as string)
+                    const personResults = await Promise.all(
+                        distinctIds.map((id) => api.persons.list({ distinct_id: id, limit: 1 }))
+                    )
+                    return personResults.flatMap((r) => r.results).filter(Boolean)
                 } catch (error) {
                     console.error('Failed to load active users:', error)
                     return []

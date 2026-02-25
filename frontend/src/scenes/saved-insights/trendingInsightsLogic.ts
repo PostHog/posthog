@@ -1,4 +1,4 @@
-import { afterMount, kea, path } from 'kea'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -9,6 +9,23 @@ import type { trendingInsightsLogicType } from './trendingInsightsLogicType'
 
 export const trendingInsightsLogic = kea<trendingInsightsLogicType>([
     path(['scenes', 'saved-insights', 'trendingInsightsLogic']),
+
+    actions({
+        toggleInsightExpanded: (insightShortId: string) => ({ insightShortId }),
+    }),
+
+    reducers({
+        expandedInsightIds: [
+            new Set<string>(),
+            {
+                toggleInsightExpanded: (state, { insightShortId }) => {
+                    const next = new Set(state)
+                    next.has(insightShortId) ? next.delete(insightShortId) : next.add(insightShortId)
+                    return next
+                },
+            },
+        ],
+    }),
 
     loaders({
         trendingInsights: {
