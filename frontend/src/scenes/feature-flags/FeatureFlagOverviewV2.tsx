@@ -286,7 +286,8 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                                 <LemonSwitch
                                                     checked={
                                                         sectionDraft?.ensure_experience_continuity ??
-                                                        featureFlag.ensure_experience_continuity
+                                                        featureFlag.ensure_experience_continuity ??
+                                                        false
                                                     }
                                                     onChange={(checked) =>
                                                         updateSectionDraft({
@@ -414,7 +415,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                                         ...featureFlag.filters,
                                                         payloads: {
                                                             ...featureFlag.filters?.payloads,
-                                                            true: val,
+                                                            true: val ?? '',
                                                         },
                                                     },
                                                 })
