@@ -28,12 +28,12 @@ import { PlaywrightSetupEvent } from './playwright-setup'
 export const users = {
     alice: 'alice',
     bob: 'bob',
-}
+} as const
 
 export const eventNames = {
     pageview: '$pageview',
     autocapture: '$autocapture',
-}
+} as const
 
 const defaultProperties: Record<string, any> = {
     $browser: 'Chrome',
@@ -102,12 +102,12 @@ export function createEvent(options: CreateEventOptions = {}): EventResult {
 
                 if (repeatOptions.randomizeTimes) {
                     const date = new Date(event.timestamp)
-                    date.setHours(date.getHours() + Math.floor(Math.random() * 24))
+                    date.setHours(date.getHours() - Math.floor(Math.random() * 24))
                     event.timestamp = date.toISOString()
                 }
 
                 if (repeatOptions.randomizeDays != null) {
-                    const date = new Date()
+                    const date = new Date(event.timestamp)
                     date.setDate(date.getDate() - Math.floor(Math.random() * repeatOptions.randomizeDays))
                     event.timestamp = date.toISOString()
                 }

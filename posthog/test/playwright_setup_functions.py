@@ -320,21 +320,15 @@ def _create_dashboards(
 def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -> None:
     if not data.events:
         return
-    from time import sleep
 
-    from posthog.models import Person, PersonDistinctId
-    from posthog.models.event.util import create_event
-    from posthog.models.person.util import create_person, create_person_distinct_id
-    from posthog.models.utils import UUIDT
+    from posthog.models.event.util import bulk_create_events
+    from posthog.models.person.util import bulk_create_persons
 
-    # Derive persons from distinct_ids in events
+    # Derive persons from distinct_ids in events and write to Postgres + ClickHouse
     distinct_ids = {e.distinct_id for e in data.events}
-    for distinct_id in distinct_ids:
-        person_uuid = str(UUIDT())
-        create_person(team_id=team.pk, version=0, uuid=person_uuid)
-        create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
-        pg_person = Person.objects.create(team=team, uuid=person_uuid)
-        PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
+    bulk_create_persons(
+        [{"team_id": team.pk, "team": team, "distinct_ids": [did], "properties": {}} for did in distinct_ids]
+    )
 
     # Register event definitions so the taxonomic filter can find custom events
     from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -343,19 +337,18 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
     for event_name in event_names:
         EventDefinition.objects.get_or_create(team=team, name=event_name, defaults={"project_id": team.project_id})
 
-    for event_spec in data.events:
-        ts = datetime.fromisoformat(event_spec.timestamp)
-        create_event(
-            event_uuid=UUIDT(unix_time_ms=int(ts.timestamp() * 1000)),
-            event=event_spec.event,
-            distinct_id=event_spec.distinct_id,
-            team=team,
-            timestamp=ts,
-            properties=event_spec.properties or {},
-        )
-
-    if distinct_ids:
-        sleep(2)
+    bulk_create_events(
+        [
+            {
+                "event": e.event,
+                "distinct_id": e.distinct_id,
+                "team": team,
+                "timestamp": e.timestamp,
+                "properties": e.properties or {},
+            }
+            for e in data.events
+        ]
+    )
 
 
 @dataclass(frozen=True)
