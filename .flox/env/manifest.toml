@@ -91,6 +91,8 @@ bash = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
   source $UV_PROJECT_ENVIRONMENT/bin/activate
+  # Keep Python packages in sync on re-activate (fast no-op when up to date)
+  uv sync --quiet 2>/dev/null
   # Source hogli bash completions
   [ -f "$FLOX_ENV_CACHE/completions/hogli.bash" ] && source "$FLOX_ENV_CACHE/completions/hogli.bash"
 '''
@@ -103,6 +105,8 @@ zsh = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
   source $UV_PROJECT_ENVIRONMENT/bin/activate
+  # Keep Python packages in sync on re-activate (fast no-op when up to date)
+  uv sync --quiet 2>/dev/null
   # Add hogli completions to zsh
   [[ -f "$FLOX_ENV_CACHE/completions/_hogli" ]] && fpath=("$FLOX_ENV_CACHE/completions" $fpath)
   autoload -Uz compinit && compinit -i
@@ -111,11 +115,15 @@ fish = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   fish_add_path "$FLOX_ENV/bin"
   source $UV_PROJECT_ENVIRONMENT/bin/activate.fish
+  # Keep Python packages in sync on re-activate (fast no-op when up to date)
+  uv sync --quiet 2>/dev/null
 '''
 tcsh = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   setenv PATH "$FLOX_ENV/bin:$PATH"
   source $UV_PROJECT_ENVIRONMENT/bin/activate.csh
+  # Keep Python packages in sync on re-activate (fast no-op when up to date)
+  uv sync --quiet 2>/dev/null
 '''
 
 # The `[services]` section of the manifest allows you to define services.
