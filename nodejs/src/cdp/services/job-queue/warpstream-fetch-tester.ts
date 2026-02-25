@@ -168,7 +168,7 @@ export class WarpstreamFetchTester {
                         headers,
                         body: JSON.stringify(body),
                     })
-                    await response.text()
+                    const responseBody = await response.text()
                     const latencyMs = performance.now() - start
 
                     cdpSeekBatchLatencyMs.observe(latencyMs)
@@ -180,6 +180,7 @@ export class WarpstreamFetchTester {
                         logger.warn('seek_test_batch_error', {
                             status: response.status,
                             recordCount: chunk.length,
+                            responseBody: responseBody.slice(0, 500),
                         })
                     }
                 } catch (error) {
