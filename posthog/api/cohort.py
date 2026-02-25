@@ -374,7 +374,7 @@ class CohortMinimalSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "count"]
 
 
-@extend_schema_field(CohortFilters)
+@extend_schema_field(CohortFilters)  # type: ignore[arg-type]
 class CohortFiltersField(serializers.JSONField):
     """Custom JSONField that exposes proper OpenAPI schema for cohort filters."""
 
