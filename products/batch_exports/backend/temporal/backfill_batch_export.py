@@ -136,12 +136,12 @@ async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillIn
 
     if inputs.finished:
         if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
-            logger.error("Historical export failed")
+            logger.error("Batch export backfill failed")
         elif backfill.status == BatchExportBackfill.Status.CANCELLED:
-            logger.warning("Historical export was cancelled.")
+            logger.warning("Batch export backfill was cancelled.")
         else:
             logger.info(
-                "Successfully finished exporting historical batches in %s - %s",
+                "Successfully finished backfilling batches in range %s - %s",
                 backfill.adjusted_start_at or backfill.start_at,
                 backfill.end_at,
             )
@@ -752,7 +752,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 logger = logger.bind(adjusted_start_at=start_at)
 
             logger.info(
-                "Creating historical export for batches in range %s - %s",
+                "Backfilling batch export batches in range %s - %s",
                 start_at,
                 end_at,
             )
