@@ -1051,40 +1051,33 @@ class TestExternalDataSource(APIBaseTest):
         return_value={"table_1": [("id", "integer", True)]},
     )
     def test_blocks_internal_host(self, host, _patch_schemas):
-        endpoints = [
-            {
-                "url": f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
-                "data": {
-                    "source_type": "Postgres",
-                    "host": host,
-                    "port": int(settings.PG_PORT),
-                    "database": settings.PG_DATABASE,
-                    "user": settings.PG_USER,
-                    "password": settings.PG_PASSWORD,
-                    "schema": "public",
-                },
+        database_schema_url = f"/api/environments/{self.team.pk}/external_data_sources/database_schema/"
+        database_schema_data = {
+            "source_type": "Postgres",
+            "host": host,
+            "port": int(settings.PG_PORT),
+            "database": settings.PG_DATABASE,
+            "user": settings.PG_USER,
+            "password": settings.PG_PASSWORD,
+            "schema": "public",
+        }
+        create_url = f"/api/environments/{self.team.pk}/external_data_sources/"
+        create_data = {
+            "source_type": "Postgres",
+            "payload": {
+                "host": host,
+                "port": 5432,
+                "database": "mydb",
+                "user": "user",
+                "password": "pass",
+                "schema": "public",
             },
-            {
-                "url": f"/api/environments/{self.team.pk}/external_data_sources/",
-                "data": {
-                    "source_type": "Postgres",
-                    "payload": {
-                        "host": host,
-                        "port": 5432,
-                        "database": "mydb",
-                        "user": "user",
-                        "password": "pass",
-                        "schema": "public",
-                    },
-                    "schemas": [],
-                },
-            },
-        ]
+            "schemas": [],
+        }
         with override_settings(CLOUD_DEPLOYMENT="US"):
-            for endpoint in endpoints:
-                url: str = endpoint["url"]
-                response = self.client.post(url, data=endpoint["data"])
-                self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {endpoint['url']}")
+            for url, data in [(database_schema_url, database_schema_data), (create_url, create_data)]:
+                response = self.client.post(url, data=data)
+                self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {url}")
                 self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
 
             self.assertFalse(
