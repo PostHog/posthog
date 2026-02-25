@@ -356,7 +356,7 @@ export const OrganizationGetDetailsSchema = z.object({})
 export const OrganizationGetAllSchema = z.object({})
 
 export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string().uuid(),
+    orgId: z.string(),
 })
 
 export const ProjectGetAllSchema = z.object({})

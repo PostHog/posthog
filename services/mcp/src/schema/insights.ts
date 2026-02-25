@@ -13,7 +13,7 @@ export const InsightSchema = z.object({
     created_by: z
         .object({
             id: z.number(),
-            uuid: z.string().uuid(),
+            uuid: z.string(),
             distinct_id: z.string(),
             first_name: z.string(),
             email: z.string(),
