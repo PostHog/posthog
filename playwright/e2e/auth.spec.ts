@@ -6,17 +6,17 @@ import { LOGIN_PASSWORD, LOGIN_USERNAME, expect, test } from '../utils/playwrigh
 test.describe('Auth', () => {
     let loginPage: LoginPage
     test.beforeEach(async ({ page }) => {
-        await page.locator('[data-attr=menu-item-me]').click()
+        await page.locator('[data-attr=new-account-menu-button]').click()
         loginPage = new LoginPage(page)
     })
 
     test('Logout', async ({ page }) => {
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
         await expect(page).toHaveURL('/login')
     })
 
     test('Logout and login', async ({ page }) => {
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
 
         await loginPage.enterUsername(LOGIN_USERNAME)
         await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)
@@ -32,7 +32,7 @@ test.describe('Auth', () => {
     })
 
     test('Logout and verify Google login button has correct link', async ({ page }) => {
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
 
         await page.setAppContext('preflight', {
             available_social_auth_providers: {
@@ -44,7 +44,7 @@ test.describe('Auth', () => {
     })
 
     test('Try logging in improperly and then properly', async ({ page }) => {
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
 
         await loginPage.enterUsername(LOGIN_USERNAME)
         await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)

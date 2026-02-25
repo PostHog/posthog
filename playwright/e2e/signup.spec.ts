@@ -51,8 +51,8 @@ test.describe('Signup', () => {
             }
             await route.fulfill({ json: response })
         })
-        await page.locator('[data-attr=menu-item-me]').click()
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-button]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
         await expect(page).toHaveURL(/.*\/login/)
         await page.goto('/signup')
     })
