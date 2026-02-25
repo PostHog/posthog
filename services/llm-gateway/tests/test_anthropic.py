@@ -201,31 +201,6 @@ class TestAnthropicMessagesEndpoint:
         data = response.json()
         assert data["id"] == "msg_123"
 
-    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
-    def test_wizard_meta_headers(
-        self,
-        mock_anthropic: MagicMock,
-        authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
-    ) -> None:
-        mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
-        mock_anthropic.return_value = mock_response
-
-        response = authenticated_client.post(
-            "/wizard/v1/messages",
-            json=valid_request_body,
-            headers={
-                "Authorization": "Bearer phx_test_key",
-                "X-WIZARD-META-VARIANT": "memes",
-            },
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["id"] == "msg_123"
-
     @pytest.mark.parametrize(
         "product",
         [

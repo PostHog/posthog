@@ -49,17 +49,16 @@ def get_product() -> str:
 
 def set_wizard_metadata(metadata: dict[str, str] | None) -> None:
     ctx = request_context_var.get()
-    if ctx:
-        request_context_var.set(
-            RequestContext(
-                request_id=ctx.request_id,
-                product=ctx.product,
-                wizard_metadata=metadata,
-                wizard_flags=ctx.wizard_flags,
-            )
+    if ctx is None:
+        return
+    request_context_var.set(
+        RequestContext(
+            request_id=ctx.request_id,
+            product=ctx.product,
+            wizard_metadata=metadata,
+            wizard_flags=ctx.wizard_flags,
         )
-    else:
-        request_context_var.set(RequestContext(request_id="", wizard_metadata=metadata))
+    )
 
 
 def get_wizard_metadata() -> dict[str, str] | None:
@@ -69,17 +68,16 @@ def get_wizard_metadata() -> dict[str, str] | None:
 
 def set_wizard_flags(flags: dict[str, str] | None) -> None:
     ctx = request_context_var.get()
-    if ctx:
-        request_context_var.set(
-            RequestContext(
-                request_id=ctx.request_id,
-                product=ctx.product,
-                wizard_metadata=ctx.wizard_metadata,
-                wizard_flags=flags,
-            )
+    if ctx is None:
+        return
+    request_context_var.set(
+        RequestContext(
+            request_id=ctx.request_id,
+            product=ctx.product,
+            wizard_metadata=ctx.wizard_metadata,
+            wizard_flags=flags,
         )
-    else:
-        request_context_var.set(RequestContext(request_id="", wizard_flags=flags))
+    )
 
 
 def get_wizard_flags() -> dict[str, str] | None:
