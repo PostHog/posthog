@@ -628,7 +628,7 @@ class TestExternalDataSource(APIBaseTest):
 
         source.refresh_from_db()
 
-        mock_reload_schemas.assert_called_once_with(skip_running_and_queued=True)
+        mock_reload_schemas.assert_called_once()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
 

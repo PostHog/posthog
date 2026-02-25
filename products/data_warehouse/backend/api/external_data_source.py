@@ -621,7 +621,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         try:
-            instance.reload_schemas(skip_running_and_queued=True)
+            instance.reload_schemas()
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
             raise
