@@ -143,15 +143,30 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     batch_size: int = 1000
     offset: int = 0
     limit: int | None = None  # Total persons to process (None = all)
+    _cohort_ids: list[int] | None = dataclasses.field(default=None, init=False, repr=False)
+    _total_filters: int | None = dataclasses.field(default=None, init=False, repr=False)
+
+    @property
+    def cohort_ids(self) -> list[int]:
+        """Cached list of cohort IDs."""
+        if self._cohort_ids is None:
+            self._cohort_ids = [cf.cohort_id for cf in self.cohort_filters]
+        return self._cohort_ids
+
+    @property
+    def total_filters(self) -> int:
+        """Cached total number of filters across all cohorts."""
+        if self._total_filters is None:
+            self._total_filters = sum(len(cf.filters) for cf in self.cohort_filters)
+        return self._total_filters
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        total_filters = sum(len(cf.filters) for cf in self.cohort_filters)
         return {
             "team_id": self.team_id,
             "cohort_count": len(self.cohort_filters),
-            "cohort_ids": [cf.cohort_id for cf in self.cohort_filters],
-            "filter_count": total_filters,
+            "cohort_ids": self.cohort_ids,
+            "filter_count": self.total_filters,
             "batch_size": self.batch_size,
             "offset": self.offset,
             "limit": self.limit,
@@ -171,8 +186,8 @@ async def backfill_precalculated_person_properties_activity(
     from all cohorts in a single pass for efficiency.
     """
     bind_contextvars()
-    cohort_ids = [cf.cohort_id for cf in inputs.cohort_filters]
-    total_filters = sum(len(cf.filters) for cf in inputs.cohort_filters)
+    cohort_ids = inputs.cohort_ids
+    total_filters = inputs.total_filters
     logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
 
     logger.info(
@@ -396,8 +411,8 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
     async def run(self, inputs: BackfillPrecalculatedPersonPropertiesInputs) -> None:
         """Run the workflow to backfill precalculated person properties."""
         workflow_logger = temporalio.workflow.logger
-        cohort_ids = [cf.cohort_id for cf in inputs.cohort_filters]
-        total_filters = sum(len(cf.filters) for cf in inputs.cohort_filters)
+        cohort_ids = inputs.cohort_ids
+        total_filters = inputs.total_filters
         workflow_logger.info(
             f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids} "
             f"(team {inputs.team_id}) with {total_filters} total filters"

@@ -42,15 +42,30 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     batch_size: int = 1000  # Persons per batch within each worker
     workflows_per_batch: int = 5  # Number of workflows to start per batch
     batch_delay_minutes: int = 5  # Delay between batches in minutes
+    _cohort_ids: list[int] | None = dataclasses.field(default=None, init=False, repr=False)
+    _total_filters: int | None = dataclasses.field(default=None, init=False, repr=False)
+
+    @property
+    def cohort_ids(self) -> list[int]:
+        """Cached list of cohort IDs."""
+        if self._cohort_ids is None:
+            self._cohort_ids = [cf.cohort_id for cf in self.cohort_filters]
+        return self._cohort_ids
+
+    @property
+    def total_filters(self) -> int:
+        """Cached total number of filters across all cohorts."""
+        if self._total_filters is None:
+            self._total_filters = sum(len(cf.filters) for cf in self.cohort_filters)
+        return self._total_filters
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        total_filters = sum(len(cf.filters) for cf in self.cohort_filters)
         return {
             "team_id": self.team_id,
             "cohort_count": len(self.cohort_filters),
-            "cohort_ids": [cf.cohort_id for cf in self.cohort_filters],
-            "filter_count": total_filters,
+            "cohort_ids": self.cohort_ids,
+            "filter_count": self.total_filters,
             "parallelism": self.parallelism,
             "batch_size": self.batch_size,
             "workflows_per_batch": self.workflows_per_batch,
@@ -120,8 +135,8 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
     async def run(self, inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs) -> None:
         """Run the coordinator workflow that spawns child workflows."""
         workflow_logger = temporalio.workflow.logger
-        cohort_ids = [cf.cohort_id for cf in inputs.cohort_filters]
-        total_filters = sum(len(cf.filters) for cf in inputs.cohort_filters)
+        cohort_ids = inputs.cohort_ids
+        total_filters = inputs.total_filters
         workflow_logger.info(
             f"Starting person properties precalculation coordinator for {len(cohort_ids)} cohorts "
             f"(team {inputs.team_id}, cohorts {cohort_ids}) with parallelism={inputs.parallelism}, "
@@ -241,7 +256,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
         # Explicitly log completion before returning
         workflow_logger.info(
             f"Coordinator workflow completed successfully for team {inputs.team_id} "
-            f"with {len(cohort_ids)} cohorts {cohort_ids}. "
+            f"with {len(inputs.cohort_ids)} cohorts {inputs.cohort_ids}. "
             f"Total workflows scheduled: {workflows_scheduled}"
         )
 
