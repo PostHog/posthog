@@ -133,7 +133,7 @@ describe('createExperimentLogic', () => {
             expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '456')
         })
 
-        it('navigates to experiment page after creation', async () => {
+        it('navigates to experiments list after creating a draft', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...NEW_EXPERIMENT,
@@ -146,7 +146,7 @@ describe('createExperimentLogic', () => {
                 .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toFinishAllListeners()
 
-            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments')
         })
 
         it('shows success toast', async () => {
@@ -166,7 +166,7 @@ describe('createExperimentLogic', () => {
 
             expect(lemonToast.success).toHaveBeenCalledWith('Experiment created successfully!')
             expect(routerPushSpy).toHaveBeenCalledTimes(1)
-            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments')
         })
     })
 

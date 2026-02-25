@@ -1,31 +1,18 @@
+import classNames from 'classnames'
 import { useState } from 'react'
 
-import { IconCursorClick, IconMegaphone, IconMessage } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconCursorClick, IconMegaphone } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
-import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-
-import { ProductTourType } from '~/types'
-
-type ModalStep = 'type-selection' | 'url-selection' | 'announcement-config'
-type AnnouncementPresentation = 'modal' | 'banner'
-
-const MODAL_TITLES: Record<ModalStep, string> = {
-    'type-selection': 'What would you like to create?',
-    'url-selection': 'Create a new product tour',
-    'announcement-config': 'Create a new announcement',
-}
-
-const MODAL_DESCRIPTIONS: Partial<Record<ModalStep, string>> = {
-    'url-selection': 'Select a URL to launch the toolbar and create your product tour',
-}
+type TourType = 'tour' | 'announcement' | 'banner' | undefined
 
 export interface NewProductTourModalProps {
     isOpen: boolean
     onClose: () => void
     onCreateAnnouncement: (name: string) => void
     onCreateBanner: (name: string) => void
+    onCreateTour: (name: string) => void
+    existingTourNames: Set<string>
 }
 
 export function NewProductTourModal({
@@ -33,15 +20,17 @@ export function NewProductTourModal({
     onClose,
     onCreateAnnouncement,
     onCreateBanner,
+    onCreateTour,
+    existingTourNames,
 }: NewProductTourModalProps): JSX.Element {
-    const [modalStep, setModalStep] = useState<ModalStep>('type-selection')
-    const [presentation, setPresentation] = useState<AnnouncementPresentation>('modal')
-    const [announcementName, setAnnouncementName] = useState('')
+    const [tourType, setTourType] = useState<TourType>()
+    const [tourName, setTourName] = useState<string | undefined>()
+    const [tourNameError, setTourNameError] = useState<string | undefined>()
 
     const resetModal = (): void => {
-        setModalStep('type-selection')
-        setPresentation('modal')
-        setAnnouncementName('')
+        setTourName(undefined)
+        setTourType(undefined)
+        setTourNameError(undefined)
     }
 
     const handleClose = (): void => {
@@ -49,192 +38,150 @@ export function NewProductTourModal({
         resetModal()
     }
 
-    const handleTypeSelect = (type: ProductTourType): void => {
-        if (type === 'tour') {
-            setModalStep('url-selection')
-        } else {
-            setModalStep('announcement-config')
+    const handleCreate = (): void => {
+        const name = tourName?.trim()
+        if (!name) {
+            checkTourNameError(tourName ?? '')
+            return
         }
+        if (tourNameError) {
+            return
+        }
+
+        if (tourType === 'tour') {
+            onCreateTour(name)
+        } else if (tourType === 'announcement') {
+            onCreateAnnouncement(name)
+        } else if (tourType === 'banner') {
+            onCreateBanner(name)
+        }
+        handleClose()
     }
 
-    const handleCreate = (): void => {
-        if (announcementName.trim()) {
-            if (presentation === 'banner') {
-                onCreateBanner(announcementName.trim())
-            } else {
-                onCreateAnnouncement(announcementName.trim())
-            }
-            handleClose()
+    const checkTourNameError = (name: string): void => {
+        if (!name.trim()) {
+            setTourNameError('Please enter name for your tour')
+        } else if (existingTourNames.has(name.trim())) {
+            setTourNameError('A tour with this name already exists')
+        } else {
+            setTourNameError(undefined)
         }
     }
 
     return (
-        <LemonModal
-            title={MODAL_TITLES[modalStep]}
-            description={MODAL_DESCRIPTIONS[modalStep]}
-            isOpen={isOpen}
-            onClose={handleClose}
-            width={600}
-        >
-            {modalStep === 'type-selection' ? (
-                <TypeSelectionStep onSelect={handleTypeSelect} />
-            ) : modalStep === 'announcement-config' ? (
-                <AnnouncementConfigStep
-                    presentation={presentation}
-                    onPresentationChange={setPresentation}
-                    name={announcementName}
-                    onNameChange={setAnnouncementName}
-                    onBack={resetModal}
-                    onCreate={handleCreate}
-                />
-            ) : (
-                <UrlSelectionStep onBack={resetModal} />
-            )}
+        <LemonModal title="What would you like to create?" isOpen={isOpen} onClose={handleClose} width={800}>
+            <div className="flex flex-col gap-4">
+                <div className="flex gap-3 mt-2">
+                    <TourTypeButton
+                        icon={IconCursorClick}
+                        title="Product tour"
+                        description="Multi-step walkthrough that guides users through your product"
+                        onClick={() => setTourType('tour')}
+                        active={tourType === 'tour'}
+                    />
+                    <TourTypeButton
+                        icon={IconMegaphone}
+                        title="Announcement"
+                        description="Single popup or element tooltip to announce a feature or share a message"
+                        onClick={() => setTourType('announcement')}
+                        active={tourType === 'announcement'}
+                    />
+                    <TourTypeButton
+                        icon={BannerIcon}
+                        title="Banner"
+                        description="Display a message in a banner at the top of your page"
+                        onClick={() => setTourType('banner')}
+                        active={tourType === 'banner'}
+                    />
+                </div>
+
+                {tourType && (
+                    <>
+                        <div className="flex flex-col gap-1">
+                            <LemonLabel>Name</LemonLabel>
+                            <LemonInput
+                                placeholder={`Enter a name for your ${tourType}`}
+                                value={tourName}
+                                onChange={(val) => {
+                                    setTourName(val)
+                                    checkTourNameError(val)
+                                }}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleCreate()
+                                    }
+                                }}
+                            />
+                            {tourNameError ? (
+                                <p className="text-danger text-xs mt-1">{tourNameError}</p>
+                            ) : (
+                                <p className="text-muted text-xs mt-1">
+                                    This name is just for you - it will not be shown to your users.
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end">
+                            <LemonButton type="primary" onClick={handleCreate} disabledReason={tourNameError}>
+                                Create
+                            </LemonButton>
+                        </div>
+                    </>
+                )}
+            </div>
         </LemonModal>
     )
 }
 
-function TypeSelectionStep({ onSelect }: { onSelect: (type: ProductTourType) => void }): JSX.Element {
+function BannerIcon({ className }: { className?: string }): JSX.Element {
     return (
-        <div className="flex gap-3 mt-2">
-            <button
-                type="button"
-                onClick={() => onSelect('tour')}
-                className="flex-1 flex flex-col items-center gap-3 p-6 rounded-lg border border-border hover:border-primary hover:bg-fill-button-tertiary-hover cursor-pointer transition-colors text-left"
-            >
-                <IconCursorClick className="text-3xl text-muted" />
-                <div>
-                    <div className="font-semibold mb-1">Product tour</div>
-                    <div className="text-muted text-sm">
-                        Multi-step walkthrough that guides users through your product
-                    </div>
-                </div>
-            </button>
-            <button
-                type="button"
-                onClick={() => onSelect('announcement')}
-                className="flex-1 flex flex-col items-center gap-3 p-6 rounded-lg border border-border hover:border-primary hover:bg-fill-button-tertiary-hover cursor-pointer transition-colors text-left"
-            >
-                <IconMegaphone className="text-3xl text-muted" />
-                <div>
-                    <div className="font-semibold mb-1">Announcement</div>
-                    <div className="text-muted text-sm">
-                        Single popup to announce a feature, share news, or display a message
-                    </div>
-                </div>
-            </button>
-        </div>
-    )
-}
-
-function BannerIcon(): JSX.Element {
-    return (
-        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg
+            className={className}
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+        >
             <rect x="2" y="4" width="20" height="6" rx="1" stroke="currentColor" strokeWidth="2" />
             <rect x="2" y="14" width="20" height="6" rx="1" stroke="currentColor" strokeWidth="2" strokeOpacity="0.3" />
         </svg>
     )
 }
 
-function AnnouncementConfigStep({
-    presentation,
-    onPresentationChange,
-    name,
-    onNameChange,
-    onBack,
-    onCreate,
+function TourTypeButton({
+    icon: Icon,
+    title,
+    description,
+    active,
+    onClick,
 }: {
-    presentation: AnnouncementPresentation
-    onPresentationChange: (presentation: AnnouncementPresentation) => void
-    name: string
-    onNameChange: (name: string) => void
-    onBack: () => void
-    onCreate: () => void
+    icon: React.ComponentType<{ className?: string }>
+    title: string
+    description: string
+    active: boolean
+    onClick: () => void
 }): JSX.Element {
-    const placeholder =
-        presentation === 'banner' ? 'e.g. New feature alert, Holiday sale' : 'e.g. New feature launch, Welcome message'
-
     return (
-        <div className="space-y-6">
-            <div>
-                <LemonLabel className="mb-3">Style</LemonLabel>
-                <LemonSegmentedButton
-                    fullWidth
-                    value={presentation}
-                    onChange={(value) => onPresentationChange(value as AnnouncementPresentation)}
-                    options={[
-                        {
-                            value: 'modal',
-                            label: (
-                                <span className="flex items-center gap-2">
-                                    <IconMessage className="text-base" />
-                                    Modal
-                                </span>
-                            ),
-                        },
-                        {
-                            value: 'banner',
-                            label: (
-                                <span className="flex items-center gap-2">
-                                    <BannerIcon />
-                                    Banner
-                                </span>
-                            ),
-                        },
-                    ]}
-                />
-                <p className="text-muted text-xs mt-2">
-                    {presentation === 'modal'
-                        ? 'Popup with rich content, images, and custom positioning'
-                        : 'Horizontal bar at top of page'}
-                </p>
-            </div>
-
-            <div>
-                <LemonLabel className="mb-2">Name</LemonLabel>
-                <LemonInput
-                    placeholder={placeholder}
-                    value={name}
-                    onChange={onNameChange}
-                    autoFocus
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && name.trim()) {
-                            onCreate()
-                        }
-                    }}
-                />
-            </div>
-
-            <div className="flex justify-end gap-2">
-                <LemonButton type="secondary" onClick={onBack}>
-                    Back
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    onClick={onCreate}
-                    disabledReason={!name.trim() ? 'Enter a name' : undefined}
-                >
-                    Create
-                </LemonButton>
-            </div>
-        </div>
-    )
-}
-
-function UrlSelectionStep({ onBack }: { onBack: () => void }): JSX.Element {
-    return (
-        <div className="mt-4 flex flex-col space-y-4">
-            <AuthorizedUrlList
-                type={AuthorizedUrlListType.TOOLBAR_URLS}
-                addText="Add authorized URL"
-                productTourId="new"
-                launchInSameTab={true}
+        <button
+            type="button"
+            onClick={onClick}
+            className={classNames(
+                'group flex-1 flex flex-col items-center gap-3 p-6 rounded-lg border-2 cursor-pointer transition-colors text-left',
+                active ? 'border-accent' : 'border-border hover:border-accent/70'
+            )}
+        >
+            <Icon
+                className={classNames(
+                    'text-3xl transition-colors',
+                    active ? 'text-accent' : 'text-muted group-hover:text-accent/70'
+                )}
             />
-            <div>
-                <LemonButton type="secondary" onClick={onBack}>
-                    &larr; Back
-                </LemonButton>
+            <div className="text-center">
+                <div className="font-semibold mb-1">{title}</div>
+                <div className="text-muted text-sm">{description}</div>
             </div>
-        </div>
+        </button>
     )
 }

@@ -124,7 +124,7 @@ func GetInstallSteps() []InstallStep {
 		{
 			Name: "Copy Docker Compose files",
 			Run: func(cfg InstallConfig) InstallResult {
-				if err := CopyComposeFiles(cfg.Version); err != nil {
+				if err := CopyComposeFiles(); err != nil {
 					return InstallResult{Err: err}
 				}
 				return InstallResult{Detail: "copied"}
@@ -201,7 +201,7 @@ func GetInstallSteps() []InstallStep {
 		{
 			Name: "Wait for PostHog to be ready",
 			Run: func(cfg InstallConfig) InstallResult {
-				if err := WaitForHealth(30 * time.Minute); err != nil {
+				if err := WaitForHealth(45 * time.Minute); err != nil {
 					return InstallResult{Err: err}
 				}
 				return InstallResult{Detail: "PostHog is up!"}

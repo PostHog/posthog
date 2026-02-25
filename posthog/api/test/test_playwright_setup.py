@@ -72,12 +72,14 @@ class TestPlaywrightSetup(APIBaseTest):
         response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    @override_settings(E2E_TESTING=True)
     def test_endpoint_allowed_in_e2e_mode(self):
         """Test that the endpoint works in E2E_TESTING mode"""
-        payload = {"organization_name": "E2E Org"}
-        response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ensure_url_patterns_loaded()
+
+        with override_settings(E2E_TESTING=True):
+            payload = {"organization_name": "E2E Org"}
+            response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @override_settings(TEST=True)
     def test_unknown_setup_function(self):

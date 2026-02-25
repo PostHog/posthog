@@ -60,7 +60,7 @@
       id,
       source
   
-  LIMIT 2000
+  LIMIT 100
   '''
 # ---
 # name: TestConversionGoalProcessor.test_attribution_window_sql_structure_demo_zero_windows
@@ -124,7 +124,7 @@
       id,
       source
   
-  LIMIT 2000
+  LIMIT 100
   '''
 # ---
 # name: TestConversionGoalProcessor.test_integration_actions_node_full_query_execution
@@ -188,7 +188,7 @@
       id,
       source
   
-  LIMIT 2000
+  LIMIT 100
   '''
 # ---
 # name: TestConversionGoalProcessor.test_integration_actions_node_temporal_attribution_sql_validation
@@ -252,7 +252,7 @@
       id,
       source
   
-  LIMIT 2000
+  LIMIT 100
   '''
 # ---
 # name: TestConversionGoalProcessor.test_integration_events_node_full_query_execution
@@ -316,7 +316,7 @@
       id,
       source
   
-  LIMIT 2000
+  LIMIT 100
   '''
 # ---
 # name: TestConversionGoalProcessor.test_integration_multi_event_actions_temporal_attribution
@@ -380,7 +380,7 @@
       id,
       source
   
-  LIMIT 2000
+  LIMIT 100
   '''
 # ---
 # name: TestConversionGoalProcessor.test_integration_sum_math_full_query_execution
@@ -444,7 +444,7 @@
       id,
       source
   
-  LIMIT 2000
+  LIMIT 100
   '''
 # ---
 # name: TestConversionGoalProcessor.test_temporal_attribution_multiple_touchpoints_first_touch
@@ -508,6 +508,6 @@
       id,
       source
   
-  LIMIT 2000
+  LIMIT 100
   '''
 # ---

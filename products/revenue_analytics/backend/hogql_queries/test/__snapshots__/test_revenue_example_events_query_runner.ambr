@@ -111,7 +111,7 @@
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC)
   ORDER BY timestamp DESC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -138,7 +138,7 @@
          0 AS session_id,
          0 AS timestamp
   WHERE 0
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -316,7 +316,7 @@
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC)
   ORDER BY timestamp DESC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -491,7 +491,7 @@
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC)
   ORDER BY timestamp DESC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -556,7 +556,7 @@
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE equals(events.team_id, 99999)
   ORDER BY timestamp DESC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -621,7 +621,7 @@
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE equals(events.team_id, 99999)
   ORDER BY timestamp DESC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -687,7 +687,7 @@
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE equals(events.team_id, 99999)
   ORDER BY timestamp DESC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,

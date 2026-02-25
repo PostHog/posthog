@@ -3,8 +3,8 @@ import { useState } from 'react'
 
 import { LemonButton, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic as featureFlagSceneLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
 import { DEFAULT_TARGETING_FILTERS, productTourLogic } from '../productTourLogic'
 import { AutoShowSection } from './AutoShowSection'
@@ -37,7 +37,7 @@ export function AutoShowModal({ tourId, isOpen, onClose }: AutoShowModalProps): 
             <div className="space-y-6">
                 {/* Who to show */}
                 <div>
-                    <h4 className="font-semibold mb-3">Who to show</h4>
+                    <h5 className="font-semibold mb-2">Who to show</h5>
                     <LemonSegmentedButton
                         size="small"
                         fullWidth
@@ -51,7 +51,7 @@ export function AutoShowModal({ tourId, isOpen, onClose }: AutoShowModalProps): 
                         }}
                         options={[
                             { value: 'everyone', label: 'All users' },
-                            { value: 'conditions', label: 'Matching conditions' },
+                            { value: 'conditions', label: 'Users matching conditions' },
                         ]}
                     />
                     {showUserTargeting && (
