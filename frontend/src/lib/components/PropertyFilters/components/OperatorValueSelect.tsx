@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -297,6 +297,13 @@ export function OperatorValueSelect({
     )
 }
 
+function toOption(op: PropertyOperator): { label: JSX.Element; value: PropertyOperator } {
+    return {
+        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
+        value: op || PropertyOperator.Exact,
+    }
+}
+
 export function OperatorSelect({
     operator,
     operators,
@@ -305,16 +312,38 @@ export function OperatorSelect({
     size,
     startVisible,
 }: OperatorSelectProps): JSX.Element {
-    const operatorOptions = operators.map((op) => ({
-        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
-        value: op || PropertyOperator.Exact,
-    }))
+    const hasSemver = operators.some(isOperatorSemver)
+    const options: LemonSelectSection<PropertyOperator>[] | { label: JSX.Element; value: PropertyOperator }[] =
+        hasSemver
+            ? [
+                  ...(operators.some((op) => !isOperatorSemver(op))
+                      ? [{ options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) }]
+                      : []),
+                  {
+                      title: 'Semver operators',
+                      footer: (
+                          <div className="mx-2 my-1">
+                              <Link
+                                  to="https://posthog.com/docs/data/property-filters#semver-operators"
+                                  target="_blank"
+                                  className="text-xs"
+                              >
+                                  Learn more
+                              </Link>
+                          </div>
+                      ),
+                      options: operators.filter(isOperatorSemver).map(toOption),
+                  },
+              ]
+            : operators.map(toOption)
+
     return (
         <LemonSelect
-            options={operatorOptions}
+            options={options}
             value={operator || '='}
             placeholder="Property key"
             dropdownMatchSelectWidth={false}
+            dropdownPlacement="bottom-start"
             fullWidth
             onChange={(op) => {
                 op && onChange(op)
@@ -323,6 +352,7 @@ export function OperatorSelect({
             size={size}
             menu={{
                 closeParentPopoverOnClickInside: false,
+                ...(hasSemver ? { className: '!max-h-[400px]' } : {}),
             }}
             startVisible={startVisible}
         />

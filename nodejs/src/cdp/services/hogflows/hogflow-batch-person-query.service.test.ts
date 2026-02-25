@@ -29,19 +29,13 @@ describe('HogFlowBatchPersonQueryService', () => {
         fetchMock = jest.fn()
     })
 
-    const createService = (internalApiSecret?: string): HogFlowBatchPersonQueryService => {
-        return new HogFlowBatchPersonQueryService({
-            SITE_URL: 'http://localhost:8000',
-            INTERNAL_API_SECRET: internalApiSecret,
-            internalFetchService: {
-                fetch: fetchMock,
-            },
-        } as any)
+    const createService = (): HogFlowBatchPersonQueryService => {
+        return new HogFlowBatchPersonQueryService('http://localhost:8000', { fetch: fetchMock } as any)
     }
 
     describe('getBlastRadius', () => {
         it('calls the Django endpoint and returns parsed response', async () => {
-            const service = createService('internal-secret')
+            const service = createService()
             const response: BlastRadiusResponse = { users_affected: 12, total_users: 50 }
 
             fetchMock.mockResolvedValue({
@@ -87,7 +81,7 @@ describe('HogFlowBatchPersonQueryService', () => {
         })
 
         it('throws when Django responds with non-200 status', async () => {
-            const service = createService('internal-secret')
+            const service = createService()
 
             fetchMock.mockResolvedValue({
                 fetchResponse: createFetchResponse(500, 'server exploded'),
@@ -100,7 +94,7 @@ describe('HogFlowBatchPersonQueryService', () => {
         })
 
         it('throws fetchError when internal fetch fails', async () => {
-            const service = createService('internal-secret')
+            const service = createService()
 
             fetchMock.mockResolvedValue({
                 fetchResponse: null,
@@ -113,7 +107,7 @@ describe('HogFlowBatchPersonQueryService', () => {
 
     describe('getBlastRadiusPersons', () => {
         it("uses the first page's cursor for the next page request", async () => {
-            const service = createService('internal-secret')
+            const service = createService()
             const firstPageResponse: BlastRadiusPersonsResponse = {
                 users_affected: ['person_1'],
                 cursor: 'next-cursor',
@@ -165,7 +159,7 @@ describe('HogFlowBatchPersonQueryService', () => {
         })
 
         it('sends cursor as null when not provided', async () => {
-            const service = createService('internal-secret')
+            const service = createService()
 
             fetchMock.mockResolvedValue({
                 fetchResponse: createFetchResponse(200, {
@@ -192,7 +186,7 @@ describe('HogFlowBatchPersonQueryService', () => {
         })
 
         it('throws when persons endpoint responds with non-200 status', async () => {
-            const service = createService('internal-secret')
+            const service = createService()
 
             fetchMock.mockResolvedValue({
                 fetchResponse: createFetchResponse(403, 'forbidden'),
@@ -205,7 +199,7 @@ describe('HogFlowBatchPersonQueryService', () => {
         })
 
         it('throws fetchError when persons fetch fails', async () => {
-            const service = createService('internal-secret')
+            const service = createService()
 
             fetchMock.mockResolvedValue({
                 fetchResponse: null,

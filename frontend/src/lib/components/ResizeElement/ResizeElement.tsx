@@ -2,10 +2,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+const SNAP_TO_DEFAULT_THRESHOLD = 16
+
 type ResizableElementProps = {
     defaultWidth: number
     minWidth?: number
     maxWidth?: number
+    snapToDefault?: boolean
     onResize: (width: number) => void
     children?: React.ReactNode
     className?: string
@@ -20,6 +23,7 @@ export function ResizableElement({
     defaultWidth,
     minWidth = 100,
     maxWidth = 1000,
+    snapToDefault = false,
     onResize,
     children,
     className,
@@ -32,6 +36,7 @@ export function ResizableElement({
 }: ResizableElementProps): JSX.Element {
     const [width, setWidth] = useState(defaultWidth)
     const containerRef = useRef<HTMLDivElement>(null)
+    const handleRef = useRef<HTMLDivElement>(null)
     const startXRef = useRef<number>(0)
     const startWidthRef = useRef<number>(0)
     const isResizing = useRef(false)
@@ -91,7 +96,12 @@ export function ResizableElement({
                 const deltaX = clientX - startXRef.current
 
                 // Apply the delta to the starting width
-                const newWidth = Math.min(Math.max(startWidthRef.current + deltaX, minWidth), maxWidth)
+                let newWidth = Math.min(Math.max(startWidthRef.current + deltaX, minWidth), maxWidth)
+                const isSnapping = snapToDefault && Math.abs(newWidth - defaultWidth) <= SNAP_TO_DEFAULT_THRESHOLD
+                if (isSnapping) {
+                    newWidth = defaultWidth
+                }
+                handleRef.current?.classList.toggle('is-snapping', isSnapping)
 
                 // Apply width directly to DOM for smoother animation
                 applyWidth(newWidth)
@@ -102,7 +112,7 @@ export function ResizableElement({
                 rafRef.current = null
             })
         },
-        [applyWidth, maxWidth, minWidth, onResize]
+        [applyWidth, defaultWidth, maxWidth, minWidth, onResize, snapToDefault]
     )
 
     const handleMouseMove = useCallback(
@@ -121,9 +131,15 @@ export function ResizableElement({
 
     const handleEnd = useCallback(() => {
         if (isResizing.current) {
-            // Only update React state once at the end of resize
-            setWidth(currentWidthRef.current)
+            let finalWidth = currentWidthRef.current
+            if (snapToDefault && Math.abs(finalWidth - defaultWidth) <= SNAP_TO_DEFAULT_THRESHOLD) {
+                finalWidth = defaultWidth
+                applyWidth(defaultWidth)
+            }
+            setWidth(finalWidth)
+            currentWidthRef.current = finalWidth
             isResizing.current = false
+            handleRef.current?.classList.remove('is-snapping')
 
             // Clean up any pending animation frame
             if (rafRef.current !== null) {
@@ -133,7 +149,7 @@ export function ResizableElement({
             document.body.classList.remove('is-resizing')
             onResizeEnd?.()
         }
-    }, [onResizeEnd])
+    }, [applyWidth, defaultWidth, onResizeEnd, snapToDefault])
 
     // Use effect for adding/removing global event listeners
     useEffect(() => {
@@ -164,10 +180,11 @@ export function ResizableElement({
         >
             {children}
             <div
+                ref={handleRef}
                 onMouseDown={handleMouseDown}
                 onTouchStart={handleMouseDown}
                 className={cn(
-                    'absolute top-0 right-0 w-1 h-full cursor-ew-resize w-[var(--resizer-thickness)] touch-none overflow-hidden hover:bg-accent-highlight-primary after:content-[""] after:absolute after:top-0 after:w-[1px] after:h-full after:bg-border-primary after:-translate-x-1/2 after:left-1/2',
+                    'absolute top-0 right-0 w-1 h-full cursor-ew-resize w-[var(--resizer-thickness)] touch-none overflow-hidden hover:bg-accent-highlight-primary [&.is-snapping]:bg-accent-primary after:content-[""] after:absolute after:top-0 after:w-[1px] after:h-full after:bg-border-primary after:-translate-x-1/2 after:left-1/2',
                     {
                         'bg-accent-highlight-primary': isResizing.current,
                         'after:left-0': borderPosition === 'left',

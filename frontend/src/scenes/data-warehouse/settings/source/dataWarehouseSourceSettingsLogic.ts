@@ -40,6 +40,8 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
+        refreshSchemas: true,
+        setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -141,6 +143,13 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             false as boolean,
             {
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
+            },
+        ],
+        refreshingSchemas: [
+            false as boolean,
+            {
+                setRefreshingSchemas: (_, { refreshing }) => refreshing,
+                refreshSchemas: () => true,
             },
         ],
         sourceConfigLoading: [
@@ -250,6 +259,34 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 }, REFRESH_INTERVAL)
                 return () => clearTimeout(timerId)
             }, 'sourceRefreshTimeout')
+        },
+        refreshSchemas: async () => {
+            try {
+                const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
+                actions.loadSource()
+                posthog.capture('schemas refreshed', {
+                    sourceType: values.source?.source_type,
+                    added,
+                    deleted,
+                })
+                const parts = ['Schemas refreshed']
+                if (added > 0 || deleted > 0) {
+                    parts.push(
+                        [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                            .filter(Boolean)
+                            .join(' / ')
+                    )
+                }
+                lemonToast.success(parts.join(', '))
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error("Can't refresh schemas at this time")
+                }
+            } finally {
+                actions.setRefreshingSchemas(false)
+            }
         },
         loadJobsSuccess: () => {
             cache.disposables.add(() => {

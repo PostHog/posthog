@@ -16,11 +16,7 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
-    payload::{
-        decompress_payload, extract_and_record_metadata, extract_payload_bytes,
-        types::{GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM, GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL},
-        EventQuery,
-    },
+    payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     v0_request::ProcessingContext,
 };
@@ -139,21 +135,12 @@ pub async fn handle_recording_payload(
             .is_limited(&context.token, events.len() as u64)
             .await
         {
-            let limit_type = if limited.is_custom_limited {
-                GLOBAL_RATE_LIMIT_KEY_TYPE_CUSTOM
-            } else {
-                GLOBAL_RATE_LIMIT_KEY_TYPE_GLOBAL
-            };
-            debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(),
-                limit_type, "global rate limit applied");
-            return Err(CaptureError::GlobalRateLimitExceeded(
-                context.token.clone(),
-                events.len() as u64,
-                limited.window_start,
-                limited.window_end,
-                limited.threshold,
-                limited.window_interval.as_secs(),
-            ));
+            debug_or_info!(chatty_debug_enabled,
+                context=?context,
+                event_count=?events.len(),
+                details=?limited,
+                "global rate limit applied");
+            return Err(CaptureError::GlobalRateLimitExceeded());
         }
     }
 
