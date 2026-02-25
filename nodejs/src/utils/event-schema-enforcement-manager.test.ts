@@ -87,11 +87,35 @@ describe('EventSchemaEnforcementManager', () => {
         await postgres.query(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_schemapropertygroupproperty
-                (id, property_group_id, name, property_type, is_required, is_optional_in_types, description, created_at, updated_at)
+                (id, property_group_id, name, property_type, is_required, is_optional_in_types, validation_rules, description, created_at, updated_at)
              VALUES
-                (gen_random_uuid(), $1, $2, $3, $4, false, '', NOW(), NOW())`,
+                (gen_random_uuid(), $1, $2, $3, $4, false, NULL, '', NOW(), NOW())`,
             [propertyGroupId, propertyName, propertyType, isRequired],
             'create-test-property'
+        )
+    }
+
+    const createPropertyWithRules = async (
+        propertyGroupId: string,
+        propertyName: string,
+        propertyType: string,
+        isRequired: boolean,
+        validationRules: object | null
+    ): Promise<void> => {
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_schemapropertygroupproperty
+                (id, property_group_id, name, property_type, is_required, is_optional_in_types, validation_rules, description, created_at, updated_at)
+             VALUES
+                (gen_random_uuid(), $1, $2, $3, $4, false, $5, '', NOW(), NOW())`,
+            [
+                propertyGroupId,
+                propertyName,
+                propertyType,
+                isRequired,
+                validationRules ? JSON.stringify(validationRules) : null,
+            ],
+            'create-test-property-with-rules'
         )
     }
 
@@ -257,6 +281,54 @@ describe('EventSchemaEnforcementManager', () => {
             const result2 = await schemaManager.getSchemas(99999)
             expect(result2.size).toBe(0)
             expect(fetchSchemasSpy).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('validation_rules aggregation', () => {
+        it('populates property_validation_rules from SQL results', async () => {
+            const eventDefId = await createEventDefinition(teamId, 'test_event', 'reject')
+            const propGroupId = await createPropertyGroup(teamId)
+            await createEventSchema(eventDefId, propGroupId)
+            await createPropertyWithRules(propGroupId, 'status', 'String', true, { enum: ['active', 'pending'] })
+            await createPropertyWithRules(propGroupId, 'amount', 'Numeric', true, { minimum: 0, maximum: 100 })
+
+            const result = await schemaManager.getSchemas(teamId)
+
+            const schema = result.get('test_event')
+            expect(schema).toBeDefined()
+            expect(schema!.property_validation_rules.size).toBe(2)
+            expect(schema!.property_validation_rules.get('status')).toEqual([{ enum: ['active', 'pending'] }])
+            expect(schema!.property_validation_rules.get('amount')).toEqual([{ minimum: 0, maximum: 100 }])
+        })
+
+        it('returns empty map when no validation_rules are set', async () => {
+            await createEnforcedSchema(teamId, 'test_event', [{ name: 'prop', type: 'String', required: true }])
+
+            const result = await schemaManager.getSchemas(teamId)
+
+            const schema = result.get('test_event')
+            expect(schema).toBeDefined()
+            expect(schema!.property_validation_rules.size).toBe(0)
+        })
+
+        it('aggregates validation_rules across multiple property groups', async () => {
+            const eventDefId = await createEventDefinition(teamId, 'test_event', 'reject')
+
+            const propGroup1 = await createPropertyGroup(teamId)
+            await createEventSchema(eventDefId, propGroup1)
+            await createPropertyWithRules(propGroup1, 'status', 'String', true, { enum: ['active', 'pending'] })
+
+            const propGroup2 = await createPropertyGroup(teamId)
+            await createEventSchema(eventDefId, propGroup2)
+            await createPropertyWithRules(propGroup2, 'status', 'String', true, { enum: ['cancelled', 'archived'] })
+
+            const result = await schemaManager.getSchemas(teamId)
+
+            const schema = result.get('test_event')
+            expect(schema!.property_validation_rules.get('status')).toEqual([
+                { enum: ['active', 'pending'] },
+                { enum: ['cancelled', 'archived'] },
+            ])
         })
     })
 })
