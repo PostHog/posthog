@@ -3,8 +3,17 @@ set -eo pipefail
 
 CACHE_DIR="${POSTHOG_SENTIMENT_MODEL_CACHE:-/tmp/posthog-sentiment-onnx-cache}"
 
-if [ -f "$CACHE_DIR/model.onnx" ]; then
-    echo "Sentiment ONNX model already exists at $CACHE_DIR/model.onnx"
+REQUIRED_FILES=("model.onnx" "tokenizer.json" "config.json")
+ALL_PRESENT=true
+for f in "${REQUIRED_FILES[@]}"; do
+    if [ ! -f "$CACHE_DIR/$f" ]; then
+        ALL_PRESENT=false
+        break
+    fi
+done
+
+if [ "$ALL_PRESENT" = true ]; then
+    echo "Sentiment ONNX model already exists at $CACHE_DIR"
     exit 0
 fi
 
@@ -12,7 +21,7 @@ echo "Downloading and exporting sentiment ONNX model to $CACHE_DIR..."
 echo "This requires the sentiment dependency group (uv sync --group sentiment)"
 
 python - <<'PYEOF'
-import os, sys, torch
+import os, torch
 from transformers import AutoTokenizer, pipeline
 from optimum.onnxruntime import ORTModelForSequenceClassification
 
