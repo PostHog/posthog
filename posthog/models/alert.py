@@ -15,7 +15,6 @@ import pydantic
 from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
 
 from posthog.constants import AvailableFeature
-from posthog.event_usage import report_user_action
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
@@ -153,9 +152,13 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return properties
 
     def report_created(self, user: User, additional_properties: dict | None = None) -> None:
+        from posthog.event_usage import report_user_action
+
         report_user_action(user, "alert created", self._get_event_properties(additional_properties))
 
     def report_updated(self, user: User, additional_properties: dict | None = None) -> None:
+        from posthog.event_usage import report_user_action
+
         report_user_action(user, "alert updated", self._get_event_properties(additional_properties))
 
     @classmethod
