@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -62,19 +62,21 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
         ],
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadFromRawIds: () => {
             actions.setLoadStartTime(performance.now())
         },
         loadFromRawIdsSuccess: ({ stackFrameRecords }) => {
-            const durationMs =
+            const requestDurationMs =
                 values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
+            const mountDurationMs = cache.mountedAt ? Math.round(performance.now() - cache.mountedAt) : null
             actions.setLoadStartTime(null)
 
             const recordsWithContext = Object.values(stackFrameRecords).filter((record) => record.context)
 
             posthog.capture('error_tracking_stack_trace_loaded', {
-                duration_ms: durationMs,
+                duration_ms: requestDurationMs,
+                duration_since_mount_ms: mountDurationMs,
                 frame_count: recordsWithContext.length,
             })
         },
@@ -82,4 +84,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
             actions.setLoadStartTime(null)
         },
     })),
+    afterMount(({ cache }) => {
+        cache.mountedAt = performance.now()
+    }),
 ])
