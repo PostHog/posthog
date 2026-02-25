@@ -9,7 +9,6 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
         "db_database",
         "bucket",
         "bucket_region",
-        "staging_bucket",
         "cross_account_role_arn",
         "created_at",
         "updated_at",
@@ -35,7 +34,7 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
         (
             "S3 bucket",
             {
-                "fields": ("bucket", "bucket_region", "staging_bucket"),
+                "fields": ("bucket", "bucket_region"),
             },
         ),
         (

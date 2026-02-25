@@ -37,12 +37,6 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # Bucket settings (no secrets - credentials come from IRSA or storage.py)
     bucket = models.CharField(max_length=255)
     bucket_region = models.CharField(max_length=50, default="us-east-1")
-    staging_bucket = models.CharField(
-        max_length=255,
-        blank=True,
-        default="",
-        help_text="S3 bucket for staging Delta files accessible by duckgres",
-    )
 
     # Cross-account S3 access settings (required - for writing to customer-owned buckets)
     cross_account_role_arn = models.CharField(
