@@ -2,7 +2,7 @@ import json
 import time
 import asyncio
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Optional, cast
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -550,11 +550,12 @@ async def execute_and_format_query(
         try:
             results = await query_runner._compress_results(
                 query,
-                {"results": precalculated_result},
+                cast(dict, precalculated_result),
                 truncate_results=truncate_results,
             )
             used_fallback = False
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to format precalculated result: {str(e)}, falling back to query execution")
             # Fall back to executing the query if formatting the precalculated result fails
             results, used_fallback = await query_runner.arun_and_format_query(
                 query, execution_mode, insight_id, truncate_results=truncate_results
