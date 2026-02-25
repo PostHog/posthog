@@ -768,9 +768,9 @@ class CSPMiddleware:
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
-                f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
+                f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com https://cdn.jsdelivr.net",
                 f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
-                "worker-src 'self'",
+                "worker-src 'self' blob:",
                 "child-src 'none'",
                 "object-src 'none'",
                 "media-src https://res.cloudinary.com",
