@@ -887,7 +887,7 @@ class FeatureFlagSerializer(
                         )
                     try:
                         semver_value = prop.value
-                        if prop.operator == PropertyOperator.SEMVER_WILDCARD:
+                        if str(prop.operator) == PropertyOperator.SEMVER_WILDCARD:
                             semver_value = semver_value.rstrip(".*")
                         parse_semver(semver_value)
                     except (ValueError, IndexError):
