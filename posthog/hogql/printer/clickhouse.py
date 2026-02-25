@@ -539,6 +539,91 @@ class ClickHousePrinter(HogQLPrinter):
             else:
                 return f"notIn({materialized_column_sql}, tuple({values_sql}))"
 
+    def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
+        """If the expression resolves to $session_id on the events table, return the table type."""
+        expr_type = resolve_field_type(node)
+
+        if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
+            table_type = expr_type.table_type
+        elif (
+            isinstance(expr_type, ast.PropertyType)
+            and expr_type.chain == ["$session_id"]
+            and expr_type.field_type.name == "properties"
+        ):
+            table_type = expr_type.field_type.table_type
+        else:
+            return None
+
+        while True:
+            if isinstance(table_type, ast.TableType):
+                if table_type.table.to_printed_hogql() == "events":
+                    return table_type
+                return None
+            elif isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
+            else:
+                return None
+
+    def _wrap_constant_as_session_uuid(self, constant_sql: str) -> str:
+        return f"toUInt128(accurateCastOrNull({constant_sql}, 'UUID'))"
+
+    def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return self._get_optimized_session_id_eq_operation(node)
+        elif node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return self._get_optimized_session_id_in_operation(node)
+        return None
+
+    def _get_optimized_session_id_eq_operation(self, node: ast.CompareOperation) -> str | None:
+        session_id_table: ast.BaseTableType | None = None
+        constant: ast.Constant | None = None
+
+        if (table := self._get_events_session_id_table_type(node.left)) and isinstance(node.right, ast.Constant):
+            session_id_table, constant = table, node.right
+        elif (table := self._get_events_session_id_table_type(node.right)) and isinstance(node.left, ast.Constant):
+            session_id_table, constant = table, node.left
+
+        if session_id_table is None or constant is None:
+            return None
+
+        if not UUIDT.is_valid_uuid(constant.value):
+            return None
+
+        table_sql = self.visit(session_id_table)
+        field_sql = f"{table_sql}.{self._print_identifier('$session_id_uuid')}"
+        constant_sql = self._wrap_constant_as_session_uuid(self.visit(constant))
+
+        op_name = "equals" if node.op == ast.CompareOperationOp.Eq else "notEquals"
+        return f"{op_name}({field_sql}, {constant_sql})"
+
+    def _get_optimized_session_id_in_operation(self, node: ast.CompareOperation) -> str | None:
+        session_id_table = self._get_events_session_id_table_type(node.left)
+        if session_id_table is None:
+            return None
+
+        if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
+            constants: list[ast.Constant] = [node.right]
+        elif isinstance(node.right, (ast.Tuple, ast.Array)):
+            constants = []
+            for expr in node.right.exprs:
+                if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+                    constants.append(expr)
+                else:
+                    return None
+        else:
+            return None
+
+        if not constants or not all(UUIDT.is_valid_uuid(c.value) for c in constants):
+            return None
+
+        table_sql = self.visit(session_id_table)
+        field_sql = f"{table_sql}.{self._print_identifier('$session_id_uuid')}"
+        values_sql = ", ".join(self._wrap_constant_as_session_uuid(self.visit(c)) for c in constants)
+
+        op_name = "in" if node.op == ast.CompareOperationOp.In else "notIn"
+        return f"{op_name}({field_sql}, tuple({values_sql}))"
+
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
     ) -> str | None:
@@ -721,6 +806,9 @@ class ClickHousePrinter(HogQLPrinter):
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
+        if optimized_session_id := self._get_optimized_session_id_compare_operation(node):
+            return optimized_session_id
+
         if optimized_property_group_compare_operation := self._get_optimized_property_group_compare_operation(node):
             return optimized_property_group_compare_operation
 
