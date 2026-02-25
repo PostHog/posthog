@@ -27,6 +27,7 @@ class Migration(migrations.Migration):
                 ),
                 ("host", models.CharField(max_length=255)),
                 ("port", models.IntegerField(default=5432)),
+                ("flight_port", models.IntegerField(default=8815)),
                 ("database", models.CharField(default="ducklake", max_length=255)),
                 ("username", models.CharField(max_length=255)),
                 ("password", posthog.helpers.encrypted_fields.EncryptedTextField(max_length=500)),
