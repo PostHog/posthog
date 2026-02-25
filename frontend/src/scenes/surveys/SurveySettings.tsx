@@ -13,9 +13,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, SurveyAppearance } from '~/types'
 
-import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { NEW_SURVEY, defaultSurveyAppearance } from './constants'
 import { Customization } from './survey-appearance/SurveyCustomization'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 
 export function SurveyEnableToggle(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)

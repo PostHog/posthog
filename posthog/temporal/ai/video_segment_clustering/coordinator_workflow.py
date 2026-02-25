@@ -17,12 +17,13 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.workflow import ChildWorkflowHandle
 
-from posthog.models.team.team import Team
 from posthog.temporal.ai.video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
 from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKBACK_WINDOW
-from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs, WorkflowResult
+from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs, EmitSignalsResult
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+
+from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
 activity_logger = get_logger(__name__)
@@ -65,15 +66,13 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
                 "teams_processed": 0,
                 "teams_succeeded": 0,
                 "teams_failed": 0,
-                "total_reports_created": 0,
-                "total_reports_updated": 0,
+                "total_signals_emitted": 0,
             }
 
         workflow.logger.debug(f"Processing {len(enabled_team_ids)} teams with proactive tasks enabled")
 
         # Track results
-        total_reports_created = 0
-        total_reports_updated = 0
+        total_signals_emitted = 0
         failed_teams: set[int] = set()
         successful_teams: set[int] = set()
 
@@ -82,7 +81,9 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             batch = enabled_team_ids[batch_start : batch_start + DEFAULT_MAX_CONCURRENT_TEAMS]
 
             # Start all workflows in batch concurrently
-            workflow_handles: dict[int, ChildWorkflowHandle[VideoSegmentClusteringWorkflow, WorkflowResult]] = {}
+            workflow_handles: dict[
+                int, ChildWorkflowHandle[VideoSegmentClusteringWorkflow, EmitSignalsResult | None]
+            ] = {}
             for team_id in batch:
                 try:
                     handle = await temporalio.workflow.start_child_workflow(
@@ -113,19 +114,10 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             # Wait for all workflows in batch to complete
             for team_id, handle in workflow_handles.items():
                 try:
-                    workflow_result = await handle
-                    if workflow_result.success:
-                        total_reports_created += workflow_result.reports_created
-                        total_reports_updated += workflow_result.reports_updated
-                        successful_teams.add(team_id)
-                    else:
-                        workflow.logger.error(
-                            f"Video segment clustering failed for team {team_id}: {workflow_result.error}"
-                        )
-                        posthoganalytics.capture_exception(
-                            Exception(workflow_result.error), properties={"team_id": team_id}
-                        )
-                        failed_teams.add(team_id)
+                    emit_result = await handle
+                    if emit_result is not None:
+                        total_signals_emitted += emit_result.signals_emitted
+                    successful_teams.add(team_id)
                 except Exception:
                     workflow.logger.exception(f"Video segment clustering errored for team {team_id}")
                     posthoganalytics.capture_exception(properties={"team_id": team_id})
@@ -136,14 +128,17 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             "teams_succeeded": len(successful_teams),
             "teams_failed": len(failed_teams),
             "failed_team_ids": list(failed_teams),
-            "total_reports_created": total_reports_created,
-            "total_reports_updated": total_reports_updated,
+            "total_signals_emitted": total_signals_emitted,
         }
 
 
 @activity.defn
 async def get_proactive_tasks_enabled_team_ids_activity() -> list[int]:
     enabled_team_ids: list[int] = []
-    async for team in Team.objects.filter(proactive_tasks_enabled=True).only("id"):
-        enabled_team_ids.append(team.id)
+    async for config in SignalSourceConfig.objects.filter(
+        source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+        enabled=True,
+    ).only("team_id"):
+        enabled_team_ids.append(config.team_id)
     return enabled_team_ids

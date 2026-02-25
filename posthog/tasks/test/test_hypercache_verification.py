@@ -19,7 +19,7 @@ from posthog.tasks.hypercache_verification import (
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixFlagsCacheTask(TestCase):
-    @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_flags_cache(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
 
@@ -30,7 +30,7 @@ class TestVerifyAndFixFlagsCacheTask(TestCase):
         assert call_kwargs["cache_type"] == "flags"
 
     @patch("posthog.tasks.hypercache_verification.capture_exception")
-    @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_captures_and_reraises_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
         error = Exception("flags verification failed")
         mock_run_verification.side_effect = error
@@ -41,7 +41,7 @@ class TestVerifyAndFixFlagsCacheTask(TestCase):
         mock_capture.assert_called_once_with(error)
         assert context.exception is error
 
-    @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_does_not_raise_when_succeeds(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
 
@@ -53,7 +53,7 @@ class TestVerifyAndFixFlagsCacheTask(TestCase):
 
 @override_settings(FLAGS_REDIS_URL=None)
 class TestVerifyAndFixFlagsCacheTaskDisabled(TestCase):
-    @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_skips_verification_when_no_redis_url(self, mock_run_verification: MagicMock) -> None:
         verify_and_fix_flags_cache_task()
 
@@ -62,7 +62,7 @@ class TestVerifyAndFixFlagsCacheTaskDisabled(TestCase):
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixTeamMetadataCacheTask(TestCase):
-    @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_team_metadata_cache(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
 
@@ -73,7 +73,7 @@ class TestVerifyAndFixTeamMetadataCacheTask(TestCase):
         assert call_kwargs["cache_type"] == "team_metadata"
 
     @patch("posthog.tasks.hypercache_verification.capture_exception")
-    @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_captures_and_reraises_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
         error = Exception("team_metadata verification failed")
         mock_run_verification.side_effect = error
@@ -84,7 +84,7 @@ class TestVerifyAndFixTeamMetadataCacheTask(TestCase):
         mock_capture.assert_called_once_with(error)
         assert context.exception is error
 
-    @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_does_not_raise_when_succeeds(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
 
@@ -96,7 +96,7 @@ class TestVerifyAndFixTeamMetadataCacheTask(TestCase):
 
 @override_settings(FLAGS_REDIS_URL=None)
 class TestVerifyAndFixTeamMetadataCacheTaskDisabled(TestCase):
-    @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_skips_verification_when_no_redis_url(self, mock_run_verification: MagicMock) -> None:
         verify_and_fix_team_metadata_cache_task()
 

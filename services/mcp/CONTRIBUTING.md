@@ -250,9 +250,9 @@ To add UI visualization to a tool using an existing UI app:
 
    ```typescript
    return {
-       query: params.query,
-       results: queryResult.data.results,
-       _posthogUrl: buildUrl(context, params.query)
+     query: params.query,
+     results: queryResult.data.results,
+     _posthogUrl: buildUrl(context, params.query),
    }
    ```
 

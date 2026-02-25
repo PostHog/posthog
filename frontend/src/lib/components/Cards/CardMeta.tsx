@@ -7,10 +7,10 @@ import { Transition } from 'react-transition-group'
 import { IconPieChart } from '@posthog/icons'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { InsightColor } from '~/types'

@@ -412,6 +412,21 @@ class LLMProxyDailyRateThrottle(UserRateThrottle):
     rate = "20/day"
 
 
+class LLMProxyBYOKBurstRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_byok_burst"
+    rate = "30/minute"
+
+
+class LLMProxyBYOKSustainedRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_byok_sustained"
+    rate = "500/hour"
+
+
+class LLMProxyBYOKDailyRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_byok_daily"
+    rate = "2000/day"
+
+
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     # Lower rate limit for HogQL queries
     scope = "query"
@@ -463,6 +478,16 @@ class LLMAnalyticsTranslationDailyThrottle(PersonalApiKeyRateThrottle):
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_translation_daily"
     rate = "500/day"
+
+
+class LLMAnalyticsSentimentBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_burst"
+    rate = "60/minute"
+
+
+class LLMAnalyticsSentimentSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_sustained"
+    rate = "600/hour"
 
 
 class LLMAnalyticsSummarizationBurstThrottle(PersonalApiKeyRateThrottle):
@@ -661,3 +686,10 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         # Throttle by IP
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class ToolbarOAuthRefreshThrottle(IPThrottle):
+    """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
+
+    scope = "toolbar_oauth_refresh"
+    rate = "30/minute"

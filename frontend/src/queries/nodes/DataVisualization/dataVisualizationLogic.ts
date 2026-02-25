@@ -704,14 +704,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         presetChartHeight: [
             (s, props) => [props.key, s.dashboardId, s.activeSceneId],
             (key, dashboardId, activeSceneId) => {
-                // Key for SQL editor based visiaulizations
-                const sqlEditorScene = activeSceneId === Scene.SQLEditor
+                // Keys for SQL editor visualizations can render outside the SQLEditor scene,
+                // e.g. in embedded mode, so key matching keeps sizing consistent.
+                const sqlEditorVisualization =
+                    activeSceneId === Scene.SQLEditor ||
+                    key.includes('SQLEditor') ||
+                    key.startsWith('data-warehouse-editor-data-node-')
 
                 if (activeSceneId === Scene.Insight) {
                     return true
                 }
 
-                return !key.includes('new-SQL') && !dashboardId && !sqlEditorScene
+                return !key.includes('new-SQL') && !dashboardId && !sqlEditorVisualization
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],

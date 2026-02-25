@@ -3,16 +3,25 @@ import { useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCollapse,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
@@ -26,6 +35,7 @@ import {
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
+    isDisabled?: boolean
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -96,14 +106,12 @@ function ConditionHeader({
             : null
 
     return (
-        <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-2">
-                <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5">{index + 1}</span>
-                <span className="text-sm truncate max-w-[300px]" title={summary}>
-                    {summary}
-                </span>
+        <div className="flex items-start justify-between w-full gap-2">
+            <div className="flex items-start gap-2 min-w-0">
+                <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5 shrink-0">{index + 1}</span>
+                <span className="text-sm break-all">{summary}</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
                 <span className="text-sm text-muted mr-2">
                     ({rollout}%{group.variant && ` · ${group.variant}`}
                     {actualUserCount !== null &&
@@ -170,6 +178,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onChange,
     readOnly,
     variants,
+    isDisabled,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -270,6 +279,13 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 Target users or groups for this flag. Conditions are evaluated top to bottom – the first match wins. A
                 condition matches when all property filters pass AND the target falls within the rollout percentage.
             </p>
+
+            {isDisabled && (
+                <LemonBanner type="info" className="mb-3">
+                    This flag is currently <b>disabled</b>. These release conditions won't take effect until you enable
+                    it.
+                </LemonBanner>
+            )}
 
             {/* Match by selector */}
             {showGroupsOptions && (
@@ -469,7 +485,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                     <>
                                                                         <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
                                                                         of {humanFriendlyNumber(totalUsers)}{' '}
-                                                                        {aggregationTargetName} match these conditions
+                                                                        {aggregationTargetName} match these filters
                                                                     </>
                                                                 )
                                                             }
@@ -478,10 +494,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                     Will match ~
                                                                     <b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
                                                                     {humanFriendlyNumber(totalUsers)}{' '}
-                                                                    {aggregationTargetName} (
-                                                                    {humanFriendlyNumber(affectedUserCount)} matching ×{' '}
-                                                                    {rolloutPct}
-                                                                    %)
+                                                                    {aggregationTargetName} ({rolloutPct}% of{' '}
+                                                                    {humanFriendlyNumber(affectedUserCount)} matching
+                                                                    the filters)
                                                                 </>
                                                             )
                                                         })()}

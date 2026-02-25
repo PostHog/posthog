@@ -36,6 +36,7 @@ export interface SearchItem {
     tags?: string[]
     searchKeywords?: string[]
     record?: Record<string, unknown>
+    rank?: number | null // PostgreSQL full-text search rank (from unified search API)
 }
 
 export interface SearchCategory {
@@ -733,6 +734,7 @@ export const searchLogic = kea<searchLogicType>([
                         category,
                         href,
                         itemType: result.type,
+                        rank: result.rank,
                         record: {
                             type: result.type,
                             ...result.extra_fields,

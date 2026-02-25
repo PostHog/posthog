@@ -7,6 +7,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
 
 from posthog.helpers.email_utils import ESPSuppressionResult
+from posthog.models.user import User
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -360,3 +361,39 @@ class TestEmailMFAAPI(APIBaseTest):
 
         # Email should still only have been sent once (not a second time for reauth)
         self.assertEqual(mock_send_email.call_count, 1)
+
+    @pytest.mark.disable_mock_email_mfa_verifier
+    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.tasks.email.send_email_mfa_link")
+    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
+    def test_email_mfa_enforced_when_different_user_already_authenticated(
+        self,
+        mock_is_http_email_available,
+        mock_is_email_available,
+        mock_send_email,
+        mock_feature_enabled,
+        mock_esp_suppression,
+    ):
+        other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="user2@posthog.com",
+            password="other-user-password-1337!!",
+        )
+
+        # A different user is already authenticated in this session
+        self.client.force_login(other_user)
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Login as the original user with a different session identity
+        response = self.client.post(
+            "/api/login",
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
+        )
+
+        # Email MFA must still be enforced
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "email_mfa_required")
+        mock_send_email.assert_called_once()

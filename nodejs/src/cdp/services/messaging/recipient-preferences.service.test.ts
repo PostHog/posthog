@@ -444,7 +444,7 @@ describe('RecipientPreferencesService', () => {
         let tokensService: RecipientTokensService
 
         beforeEach(() => {
-            tokensService = new RecipientTokensService(hub)
+            tokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         })
 
         it('should generate a preferences URL with a trailing slash', () => {

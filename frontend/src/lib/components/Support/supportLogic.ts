@@ -7,9 +7,9 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -25,8 +25,8 @@ import {
     UserType,
 } from '~/types'
 
-import { openSupportModal } from './SupportModal'
 import type { supportLogicType } from './supportLogicType'
+import { openSupportModal } from './SupportModal'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,

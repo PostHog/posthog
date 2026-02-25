@@ -10,7 +10,8 @@ import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { SignalReport, SignalReportArtefactResponse } from 'scenes/inbox/types'
+import { SignalNode } from 'scenes/debug/signals/types'
+import { SignalReport, SignalReportArtefactResponse, SignalSourceConfig } from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -162,6 +163,8 @@ import {
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
     ProductTour,
+    ProductTourAIGenerationResponse,
+    ProductTourStep,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -1142,6 +1145,15 @@ export class ApiRequest {
 
     public signalReport(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
+    }
+
+    // # Signal Source Configs
+    public signalSourceConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('signal_source_configs')
+    }
+
+    public signalSourceConfig(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.signalSourceConfigs(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -4288,6 +4300,35 @@ const api = {
         async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').get()
         },
+        async listDebugReports(params?: {
+            limit?: number
+            offset?: number
+            status?: string
+            ordering?: string
+        }): Promise<CountedPaginatedResponse<SignalReport>> {
+            return await new ApiRequest().signalReports().withQueryString(params).get()
+        },
+        async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
+            return await new ApiRequest().signalReport(reportId).withAction('signals').get()
+        },
+        async delete(id: SignalReport['id']): Promise<void> {
+            await new ApiRequest().signalReport(id).delete()
+        },
+    },
+
+    signalSourceConfigs: {
+        async list(): Promise<PaginatedResponse<SignalSourceConfig>> {
+            return await new ApiRequest().signalSourceConfigs().get()
+        },
+        async create(data: Partial<SignalSourceConfig>): Promise<SignalSourceConfig> {
+            return await new ApiRequest().signalSourceConfigs().create({ data })
+        },
+        async update(id: string, data: Partial<SignalSourceConfig>): Promise<SignalSourceConfig> {
+            return await new ApiRequest().signalSourceConfig(id).update({ data })
+        },
+        async delete(id: string): Promise<void> {
+            return await new ApiRequest().signalSourceConfig(id).delete()
+        },
     },
 
     tasks: {
@@ -4478,6 +4519,27 @@ const api = {
         },
         async delete(tourId: ProductTour['id']): Promise<void> {
             await new ApiRequest().productTour(tourId).delete()
+        },
+        async generateContent(
+            tourId: ProductTour['id'],
+            title: ProductTour['name'],
+            steps: ProductTourStep[],
+            goal: string
+        ): Promise<ProductTourAIGenerationResponse> {
+            const apiRequest = new ApiRequest().productTour(tourId).withAction('generate')
+            return await apiRequest.create({ data: { title, steps, goal } })
+        },
+        async saveDraft(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).withAction('draft').update({ data })
+        },
+        async publishDraft(tourId: ProductTour['id'], data?: Record<string, any>): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).withAction('publish_draft').create({ data })
+        },
+        async discardDraft(tourId: ProductTour['id']): Promise<void> {
+            await new ApiRequest().productTour(tourId).withAction('discard_draft').delete()
+        },
+        async draftStatus(tourId: ProductTour['id']): Promise<{ updated_at: string; has_draft: boolean }> {
+            return await new ApiRequest().productTour(tourId).withAction('draft_status').get()
         },
     },
 
@@ -5286,7 +5348,7 @@ const api = {
         }
     ): Promise<
         T extends { [response: string]: any }
-            ? T['response'] extends infer P | undefined
+            ? T['response'] extends (infer P) | undefined
                 ? P
                 : T['response']
             : Record<string, any>
@@ -5889,7 +5951,12 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
             }
         }
 
-        throw new ApiError('Non-OK response', response.status, response.headers, data)
+        throw new ApiError(
+            `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
+            response.status,
+            response.headers,
+            data
+        )
     }
 
     return response

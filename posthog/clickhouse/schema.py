@@ -145,7 +145,6 @@ from posthog.models.precalculated_events.sql import (
     PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
     PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
 )
-from posthog.models.property_definition import PROPERTY_DEFINITIONS_TABLE_SQL
 from posthog.models.raw_sessions.sessions_v2 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
@@ -167,6 +166,13 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
     WRITABLE_SESSIONS_TABLE_SQL,
+)
+from posthog.models.tophog.sql import (
+    DISTRIBUTED_TOPHOG_TABLE_SQL,
+    KAFKA_TOPHOG_TABLE_SQL,
+    TOPHOG_DATA_TABLE_SQL,
+    TOPHOG_MV_SQL,
+    WRITABLE_TOPHOG_TABLE_SQL,
 )
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_SQL, WEB_STATS_SQL
 from posthog.session_recordings.sql.session_replay_event_sql import (
@@ -199,6 +205,7 @@ from products.error_tracking.backend.sql import (
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
     WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
 )
+from products.event_definitions.backend.models.property_definition import PROPERTY_DEFINITIONS_TABLE_SQL
 
 # Queries to create tables, you must pass function, otherwise the table is created before
 # objects are mocked and the ambr will go into infinite loop update.
@@ -247,6 +254,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     *[table.sharded_table_sql for table in EMBEDDING_TABLES],
     LOGS32_TABLE_SQL,
     LOG_ATTRIBUTES_TABLE_SQL,
+    TOPHOG_DATA_TABLE_SQL,
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_EVENTS_TABLE_SQL,
@@ -291,6 +299,8 @@ CREATE_DISTRIBUTED_TABLE_QUERIES = (
     DISTRIBUTED_DISTINCT_ID_USAGE_TABLE_SQL,
     WRITABLE_DISTINCT_ID_USAGE_TABLE_SQL,
     LOGS_DISTRIBUTED_TABLE_SQL,
+    WRITABLE_TOPHOG_TABLE_SQL,
+    DISTRIBUTED_TOPHOG_TABLE_SQL,
 )
 CREATE_KAFKA_TABLE_QUERIES = (
     KAFKA_LOG_ENTRIES_TABLE_SQL,
@@ -315,6 +325,7 @@ CREATE_KAFKA_TABLE_QUERIES = (
     KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
     KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
     KAFKA_DISTINCT_ID_USAGE_TABLE_SQL,
+    KAFKA_TOPHOG_TABLE_SQL,
 )
 CREATE_MV_TABLE_QUERIES = (
     LOG_ENTRIES_TABLE_MV_SQL,
@@ -349,6 +360,7 @@ CREATE_MV_TABLE_QUERIES = (
     DISTINCT_ID_USAGE_MV_SQL,
     LOG_ATTRIBUTES_MV,
     LOG_RESOURCE_ATTRIBUTES_MV,
+    TOPHOG_MV_SQL,
 )
 
 CREATE_TABLE_QUERIES = (
