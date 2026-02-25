@@ -83,7 +83,9 @@ class TestTrafficTypeFunctions:
         assert result.name == "if"
         assert len(result.args) == 3
         # Default should be "regular"
-        assert result.args[1].value == "regular"
+        default_arg = result.args[1]
+        assert isinstance(default_arg, ast.Constant)
+        assert default_arg.value == "regular"
 
     def test_get_traffic_category_returns_expected_values(self):
         node = ast.Call(name="__preview_getTrafficCategory", args=[])
@@ -140,7 +142,9 @@ class TestGetBotTypeFunction:
         assert result.name == "if"
         assert len(result.args) == 3
         # Default should be empty string
-        assert result.args[1].value == ""
+        default_arg = result.args[1]
+        assert isinstance(default_arg, ast.Constant)
+        assert default_arg.value == ""
 
     def test_get_bot_type_returns_expected_values(self):
         node = ast.Call(name="__preview_getBotType", args=[])
@@ -178,7 +182,9 @@ class TestGetBotNameFunction:
         assert result.name == "if"
         assert len(result.args) == 3
         # Default should be empty string
-        assert result.args[1].value == ""
+        default_arg = result.args[1]
+        assert isinstance(default_arg, ast.Constant)
+        assert default_arg.value == ""
 
     def test_get_bot_name_returns_expected_values(self):
         node = ast.Call(name="__preview_getBotName", args=[])
@@ -242,7 +248,9 @@ class TestTrafficTypeFunctionPatterns:
         assert isinstance(result, ast.Call)
         assert result.name == "if"
         # Default value
-        assert result.args[1].value == expected_default
+        default_arg = result.args[1]
+        assert isinstance(default_arg, ast.Constant)
+        assert default_arg.value == expected_default
         # multiMatchAnyIndex should use our custom user agent field wrapped in ifNull
         comparison = result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
@@ -277,18 +285,22 @@ class TestNullHandling:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
 
         # Get the multiMatchAnyIndex call from the comparison
         comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
         index_call = comparison.left
+        assert isinstance(index_call, ast.Call)
         # First arg should be ifNull(user_agent, '')
         safe_user_agent = index_call.args[0]
         assert isinstance(safe_user_agent, ast.Call)
         assert safe_user_agent.name == "ifNull"
         assert len(safe_user_agent.args) == 2
         assert safe_user_agent.args[0] == user_agent_arg
-        assert isinstance(safe_user_agent.args[1], ast.Constant)
-        assert safe_user_agent.args[1].value == ""
+        empty_string_arg = safe_user_agent.args[1]
+        assert isinstance(empty_string_arg, ast.Constant)
+        assert empty_string_arg.value == ""
 
     def test_is_bot_wraps_user_agent_in_ifnull(self):
         node = ast.Call(name="__preview_isBot", args=[])
@@ -299,11 +311,14 @@ class TestNullHandling:
 
         # All match calls should use ifNull(user_agent, '')
         for match_call in result.exprs:
+            assert isinstance(match_call, ast.Call)
             safe_user_agent = match_call.args[0]
             assert isinstance(safe_user_agent, ast.Call)
             assert safe_user_agent.name == "ifNull"
             assert safe_user_agent.args[0] == user_agent_arg
-            assert safe_user_agent.args[1].value == ""
+            empty_string_arg = safe_user_agent.args[1]
+            assert isinstance(empty_string_arg, ast.Constant)
+            assert empty_string_arg.value == ""
 
 
 class TestBotDefinitionsDataStructure:
