@@ -11,10 +11,7 @@ pub mod properties;
 pub mod session_recording;
 pub mod types;
 
-pub use canonical_log::{
-    install_rayon_canonical_log, run_with_canonical_log, take_rayon_canonical_log,
-    with_canonical_log, FlagsCanonicalLogLine,
-};
+pub use canonical_log::{run_with_canonical_log, with_canonical_log, FlagsCanonicalLogLine};
 pub use types::*;
 
 use crate::{

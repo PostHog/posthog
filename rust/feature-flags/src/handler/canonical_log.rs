@@ -46,18 +46,30 @@ pub fn with_canonical_log(f: impl FnOnce(&mut FlagsCanonicalLogLine)) {
     }
 }
 
+#[must_use = "guard cleans up the thread-local on drop; dropping immediately is a no-op"]
+pub(crate) struct RayonCanonicalLogGuard;
+
+impl Drop for RayonCanonicalLogGuard {
+    fn drop(&mut self) {
+        drop(take_rayon_canonical_log());
+    }
+}
+
 /// Install a fresh canonical log on the current thread for rayon evaluation.
-/// Call before each flag evaluation on a rayon thread, then call
-/// [`take_rayon_canonical_log`] after to retrieve the accumulated counters.
-pub fn install_rayon_canonical_log() {
+/// Returns an RAII guard that clears the thread-local on drop, ensuring
+/// cleanup even if the evaluation panics. Call [`take_rayon_canonical_log`]
+/// before the guard is dropped to retrieve the accumulated counters.
+pub(crate) fn install_rayon_canonical_log() -> RayonCanonicalLogGuard {
     RAYON_CANONICAL_LOG.with(|cell| {
         *cell.borrow_mut() = Some(FlagsCanonicalLogLine::default());
     });
+
+    RayonCanonicalLogGuard
 }
 
 /// Take the accumulated canonical log from the current rayon thread.
 /// Returns `None` if no log was installed.
-pub fn take_rayon_canonical_log() -> Option<FlagsCanonicalLogLine> {
+pub(crate) fn take_rayon_canonical_log() -> Option<FlagsCanonicalLogLine> {
     RAYON_CANONICAL_LOG.with(|cell| cell.borrow_mut().take())
 }
 

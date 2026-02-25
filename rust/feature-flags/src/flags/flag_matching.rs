@@ -16,7 +16,8 @@ use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters, FlagPropertyGroup,
 };
 use crate::flags::flag_operations::flags_require_db_preparation;
-use crate::handler::{install_rayon_canonical_log, take_rayon_canonical_log, with_canonical_log};
+use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_canonical_log};
+use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
     FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_DB_PROPERTIES_FETCH_TIME,
@@ -1020,7 +1021,7 @@ impl FeatureFlagMatcher {
             flags_to_evaluate
                 .into_par_iter()
                 .map(|flag| {
-                    install_rayon_canonical_log();
+                    let _guard = install_rayon_canonical_log();
                     let result = matcher.evaluate_single_flag(
                         &flag,
                         &precomputed_property_overrides,
