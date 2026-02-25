@@ -51,10 +51,10 @@ In your Vercel integration settings:
 1. **Configuration URL**: Set to your Django tunnel URL (port 8000)
    - Example: `https://abc123.ngrok-free.dev`
 
-2. **Redirect URL**: **Leave this field BLANK/EMPTY**
-   - Vercel marketplace integrations don't need a redirect URL
-   - Installation happens via API calls, not web redirects
-   - SSO flow includes the return URL in the `url` query parameter
+2. **Redirect URL**: Set to `{your_ngrok_url}/connect/vercel/callback`
+   - This enables the "Link Existing Account" connectable account flow
+   - Example: `https://abc123.ngrok-free.dev/connect/vercel/callback`
+   - Also set `VERCEL_EXTERNAL_REDIRECT_URI` in your `.env.vercel` to the same URL
 
 ## Step 4: Start Development Servers
 
