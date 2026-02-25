@@ -146,6 +146,7 @@ export class WarpstreamFetchTester {
                 }
 
                 const body = {
+                    max_bytes: 10485760,
                     topics: Array.from(partitionsByTopic.entries()).map(([topic, partitions]) => ({
                         topic,
                         partitions: partitions.map((p) => ({
