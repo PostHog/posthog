@@ -402,7 +402,14 @@ export const ExperimentUpdateTransformSchema = ToolExperimentUpdateInputSchema.t
         }
     }
 
-    // Handle experiment state management
+    // Handle experiment state management (restart first, then launch to allow restart+relaunch)
+    if (input.restart === true) {
+        updatePayload.start_date = null
+        updatePayload.end_date = null
+        updatePayload.conclusion = null
+        updatePayload.conclusion_comment = null
+    }
+
     if (input.launch === true) {
         updatePayload.start_date = new Date().toISOString()
     }
@@ -413,13 +420,6 @@ export const ExperimentUpdateTransformSchema = ToolExperimentUpdateInputSchema.t
         if (input.conclusion_comment !== undefined) {
             updatePayload.conclusion_comment = input.conclusion_comment
         }
-    }
-
-    if (input.restart === true) {
-        updatePayload.start_date = null
-        updatePayload.end_date = null
-        updatePayload.conclusion = null
-        updatePayload.conclusion_comment = null
     }
 
     if (input.archive !== undefined) {
