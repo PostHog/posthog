@@ -3,10 +3,14 @@ import datetime as dt
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads import pinterest_ads_source
+from posthog.temporal.data_imports.sources.pinterest_ads.source import PinterestAdsSource
 from posthog.temporal.data_imports.sources.pinterest_ads.utils import (
     _chunk_date_range,
     _chunk_list,
+    _make_request,
     _normalize_row,
     build_session,
     fetch_account_currency,
@@ -230,6 +234,47 @@ class TestFetchAnalytics:
         result = fetch_analytics(session, "acc123", "campaign_analytics", [], "2024-01-01", "2024-01-31")
         assert result == []
         mock_request.assert_not_called()
+
+
+class TestMakeRequestErrorHandling:
+    @pytest.mark.parametrize(
+        "status_code",
+        [400, 401, 403, 404],
+    )
+    def test_non_retryable_errors_match_framework(self, status_code):
+        """Verify that HTTP errors from _make_request match get_non_retryable_errors patterns."""
+        mock_response = mock.MagicMock()
+        mock_response.status_code = status_code
+        mock_response.raise_for_status.side_effect = requests.HTTPError(
+            f"{status_code} Client Error: for url: https://api.pinterest.com/v5/test",
+            response=mock_response,
+        )
+
+        mock_session = mock.MagicMock()
+        mock_session.get.return_value = mock_response
+
+        non_retryable_errors = PinterestAdsSource().get_non_retryable_errors()
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            _make_request(mock_session, "https://api.pinterest.com/v5/test")
+
+        error_msg = str(exc_info.value)
+        assert any(pattern in error_msg for pattern in non_retryable_errors), (
+            f"HTTP {status_code} error message '{error_msg}' does not match any non-retryable pattern"
+        )
+
+    @pytest.mark.parametrize("status_code", [200, 201])
+    def test_success_returns_json(self, status_code):
+        mock_response = mock.MagicMock()
+        mock_response.status_code = status_code
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {"items": []}
+
+        mock_session = mock.MagicMock()
+        mock_session.get.return_value = mock_response
+
+        result = _make_request(mock_session, "https://api.pinterest.com/v5/test")
+        assert result == {"items": []}
 
 
 class TestPinterestAdsSource:

@@ -4,7 +4,6 @@ from typing import Any, Optional
 import requests
 import structlog
 from dateutil import parser
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.sources.pinterest_ads.settings import (
     ANALYTICS_COLUMNS,
@@ -20,31 +19,6 @@ from posthog.temporal.data_imports.sources.pinterest_ads.settings import (
 )
 
 logger = structlog.get_logger(__name__)
-
-RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504]
-
-
-class PinterestAdsAPIError(Exception):
-    def __init__(self, message: str, status_code: Optional[int] = None):
-        super().__init__(message)
-        self.status_code = status_code
-
-
-class PinterestAdsRetryableError(PinterestAdsAPIError):
-    pass
-
-
-def _check_response(response: requests.Response) -> None:
-    if response.status_code == 200:
-        return
-
-    if response.status_code in RETRYABLE_STATUS_CODES:
-        raise PinterestAdsRetryableError(
-            f"Pinterest Ads API error (retryable): {response.status_code} {response.text[:500]}",
-            status_code=response.status_code,
-        )
-
-    response.raise_for_status()
 
 
 def build_session(access_token: str) -> requests.Session:
@@ -112,15 +86,9 @@ def _chunk_date_range(start_date: str, end_date: str) -> list[tuple[str, str]]:
     return chunks
 
 
-@retry(
-    retry=retry_if_exception_type(PinterestAdsRetryableError),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=2, max=60),
-    reraise=True,
-)
 def _make_request(session: requests.Session, url: str, params: Optional[dict] = None) -> Any:
     response = session.get(url, params=params, timeout=30)
-    _check_response(response)
+    response.raise_for_status()
     return response.json()
 
 

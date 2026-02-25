@@ -29,8 +29,10 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            "400 Client Error": "Pinterest Ads request failed. Please check your configuration.",
             "401 Client Error": "Pinterest Ads authentication failed. Please reconnect your Pinterest account.",
             "403 Client Error": "Pinterest Ads access forbidden. Please check your account permissions.",
+            "404 Client Error": "Pinterest Ads resource not found. Please check your ad account ID.",
         }
 
     @property
