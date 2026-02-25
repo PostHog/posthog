@@ -1,4 +1,5 @@
 import json
+import uuid
 import typing
 import asyncio
 import datetime as dt
@@ -6,6 +7,7 @@ import dataclasses
 import collections.abc
 
 from django.conf import settings
+from django.db.models import Sum
 
 import temporalio
 import temporalio.client
@@ -16,23 +18,22 @@ import temporalio.exceptions
 from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 
-from posthog.batch_exports.models import BatchExport, BatchExportBackfill
-from posthog.batch_exports.service import BackfillBatchExportInputs, BackfillDetails, unpause_batch_export
+from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportRun
+from posthog.batch_exports.service import (
+    BackfillBatchExportInputs,
+    BackfillDetails,
+    create_batch_export_backfill,
+    unpause_batch_export,
+    update_batch_export_backfill,
+)
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.temporal.batch_exports import (
-    CreateBatchExportBackfillInputs,
-    UpdateBatchExportBackfillInputs,
-    create_batch_export_backfill_model,
-    update_batch_export_backfill_activity,
-)
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
-
-LOGGER = get_write_only_logger(__name__)
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -50,6 +51,100 @@ class HeartbeatDetails(typing.NamedTuple):
     schedule_id: str
     workflow_id: str
     last_batch_data_interval_end: str
+
+
+@dataclasses.dataclass
+class CreateBatchExportBackfillInputs:
+    team_id: int
+    batch_export_id: str
+    start_at: str | None
+    end_at: str | None
+    status: str
+
+
+@temporalio.activity.defn
+async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillInputs) -> str:
+    """Activity that creates an BatchExportBackfill.
+
+    Intended to be used in all batch export backfill workflows, usually at the start, to create a
+    model instance to represent them in our database.
+    """
+
+    backfill = await database_sync_to_async(create_batch_export_backfill)(
+        batch_export_id=uuid.UUID(inputs.batch_export_id),
+        start_at=inputs.start_at,
+        end_at=inputs.end_at,
+        status=inputs.status,
+        team_id=inputs.team_id,
+    )
+
+    return str(backfill.id)
+
+
+@dataclasses.dataclass
+class UpdateBatchExportBackfillInputs:
+    """Inputs for updating a BatchExportBackfill."""
+
+    id: str
+    adjusted_start_at: str | None = None
+    total_records_count: int | None = None
+    status: str | None = None
+    finished: bool = False
+
+
+@temporalio.activity.defn
+async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillInputs) -> None:
+    """Activity that updates a BatchExportBackfill.
+
+    When finished=True, this also sets finished_at and calculates the actual
+    total_records_count from completed runs if total_records_count is not provided.
+    """
+    bind_contextvars(id=inputs.id, status=inputs.status)
+    logger = LOGGER.bind()
+
+    finished_at = None
+    total_records_count = inputs.total_records_count
+
+    if inputs.finished:
+        # Calculate actual total from completed runs when finished successfully or not,
+        # but only if total_records_count was not explicitly provided (e.g. early exit with 0 records)
+        if inputs.status in (
+            BatchExportBackfill.Status.COMPLETED,
+            BatchExportBackfill.Status.FAILED,
+            BatchExportBackfill.Status.CANCELLED,
+        ):
+            if inputs.total_records_count is None:
+                result = await database_sync_to_async(
+                    lambda: BatchExportRun.objects.filter(
+                        backfill_id=inputs.id,
+                        status=BatchExportRun.Status.COMPLETED,
+                    ).aggregate(total=Sum("records_completed"))
+                )()
+                total_records_count = result["total"]
+            else:
+                total_records_count = inputs.total_records_count
+
+        finished_at = dt.datetime.now(dt.UTC)
+
+    backfill = await database_sync_to_async(update_batch_export_backfill)(
+        backfill_id=uuid.UUID(inputs.id),
+        adjusted_start_at=inputs.adjusted_start_at,
+        total_records_count=total_records_count,
+        status=inputs.status,
+        finished_at=finished_at,
+    )
+
+    if inputs.finished:
+        if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
+            logger.error("Historical export failed")
+        elif backfill.status == BatchExportBackfill.Status.CANCELLED:
+            logger.warning("Historical export was cancelled.")
+        else:
+            logger.info(
+                "Successfully finished exporting historical batches in %s - %s",
+                backfill.adjusted_start_at or backfill.start_at,
+                backfill.end_at,
+            )
 
 
 @dataclasses.dataclass
@@ -623,7 +718,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             should_complete_early = backfill_info.total_records_count == 0
 
             await temporalio.workflow.execute_activity(
-                update_batch_export_backfill_activity,
+                update_batch_export_backfill_model,
                 UpdateBatchExportBackfillInputs(
                     id=backfill_id,
                     adjusted_start_at=backfill_info.adjusted_start_at,
@@ -711,7 +806,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
         finally:
             if not completed_early:
                 await temporalio.workflow.execute_activity(
-                    update_batch_export_backfill_activity,
+                    update_batch_export_backfill_model,
                     update_inputs,
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(

@@ -1,14 +1,11 @@
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportWorkflow,
     backfill_schedule,
-    get_backfill_info,
-)
-from products.batch_exports.backend.temporal.batch_exports import (
     create_batch_export_backfill_model,
-    finish_batch_export_run,
-    start_batch_export_run,
-    update_batch_export_backfill_activity,
+    get_backfill_info,
+    update_batch_export_backfill_model,
 )
+from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     AzureBlobBatchExportWorkflow,
     insert_into_azure_blob_activity_from_stage,
@@ -78,7 +75,7 @@ ACTIVITIES = [
     get_backfill_info,
     start_batch_export_run,
     finish_batch_export_run,
-    update_batch_export_backfill_activity,
+    update_batch_export_backfill_model,
     insert_into_bigquery_activity_from_stage,
     insert_into_http_activity,
     insert_into_kafka_activity_from_stage,
