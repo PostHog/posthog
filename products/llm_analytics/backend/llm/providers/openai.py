@@ -57,9 +57,6 @@ class OpenAIConfig:
         "o3",
         "o1-pro",
         "o3-mini",
-        "o1",
-        "gpt-4o-mini",
-        "gpt-4o",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
