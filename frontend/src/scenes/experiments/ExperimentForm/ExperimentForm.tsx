@@ -2,9 +2,10 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
@@ -15,10 +16,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { createExperimentLogic } from './createExperimentLogic'
+import { ExperimentTemplates } from './ExperimentTemplates'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { MetricsPanel } from './MetricsPanel'
 import { VariantsPanel } from './VariantsPanel'
-import { createExperimentLogic } from './createExperimentLogic'
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     return (
@@ -45,6 +47,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         sharedMetrics,
         isExperimentSubmitting,
         isEditMode,
+        featureFlags,
     } = useValues(logic)
     const {
         setExperimentValue,
@@ -166,6 +169,19 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         <div>
             <SceneContent>
                 {renderFormHeader()}
+
+                {!isEditMode && (
+                    <>
+                        {/**
+                         * this is a temporary placement for development purposes only.
+                         * This should go higher up in the form, as a stand alone page or
+                         * step zero of the wizard.
+                         */}
+                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_TEMPLATES] && <ExperimentTemplates />}
+                        <SceneDivider />
+                    </>
+                )}
+
                 <VariantsPanel experiment={experiment} updateFeatureFlag={setFeatureFlagConfig} disabled={isEditMode} />
                 <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} />
                 <MetricsPanel

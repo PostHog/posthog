@@ -4,11 +4,12 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import {
     ClientIngestionWarningSubpipelineInput,
     createClientIngestionWarningSubpipeline,
@@ -32,6 +33,7 @@ export interface PerDistinctIdPipelineConfig {
     groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
     groupId: string
+    topHog: TopHogWrapper
 }
 
 export interface PerDistinctIdPipelineContext {
@@ -56,8 +58,17 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, groupStore, kafkaProducer, groupId } =
-        config
+    const {
+        options,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        personsStore,
+        groupStore,
+        kafkaProducer,
+        groupId,
+        topHog,
+    } = config
 
     return builder.retry(
         (e) =>
@@ -69,7 +80,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             options,
                             teamManager,
                             groupTypeManager,
-                            personsStore,
                             groupStore,
                             kafkaProducer,
                         })
@@ -84,6 +94,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             groupStore,
                             kafkaProducer,
                             groupId,
+                            topHog,
                         })
                     )
             }),

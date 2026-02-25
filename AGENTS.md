@@ -141,7 +141,7 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 - Python: Use type hints, follow mypy strict rules
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
-- Imports: Use prettier-plugin-sort-imports (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
+- Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
 - Error handling: Prefer explicit error handling with typed errors
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
@@ -161,3 +161,7 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 - Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
 - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
+
+## Skills
+
+Skills are created inside [.agents/skills](.agents/skills/) by default and then symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.

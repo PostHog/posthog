@@ -14,9 +14,8 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert len(results) == 3
+        assert len(results) == 2
         names = [s["name"] for s in results]
-        assert "PostHog MCP" in names
         assert "Linear" in names
         assert "Notion" in names
 
@@ -102,25 +101,6 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert response.json()["display_name"] == "Updated"
         assert response.json()["name"] == "Updated"
         assert response.json()["description"] == "New description"
-
-    def test_update_installation_api_key(self):
-        installation = MCPServerInstallation.objects.create(
-            team=self.team,
-            user=self.user,
-            display_name="API Server",
-            url="https://mcp.example.com",
-            auth_type="api_key",
-            sensitive_configuration={"api_key": "old-key"},
-        )
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/",
-            data={"configuration": {"api_key": "new-key"}},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_200_OK
-        installation.refresh_from_db()
-        assert installation.sensitive_configuration["api_key"] == "new-key"
 
     def test_user_isolation(self):
         server = self._create_server()

@@ -437,6 +437,7 @@ export type AssistantTool =
     | 'list_data'
     | 'finalize_plan'
     | 'call_mcp_server'
+    | 'recommend_products'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -446,6 +447,7 @@ export enum AgentMode {
     Plan = 'plan',
     Execution = 'execution',
     Survey = 'survey',
+    Onboarding = 'onboarding',
     Research = 'research',
     Flags = 'flags',
 }

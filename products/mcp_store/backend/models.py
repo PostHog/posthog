@@ -25,13 +25,6 @@ class SensitiveConfig(TypedDict, total=False):
 # The URL in RECOMMENDED_SERVERS is the MCP server URL, not the OAuth server URL.
 RECOMMENDED_SERVERS = [
     {
-        "name": "PostHog MCP",
-        "url": "https://mcp.posthog.com/mcp",
-        "description": "Access PostHog analytics tools including querying events, creating insights, and managing feature flags.",
-        "icon_url": "",
-        "auth_type": "api_key",
-    },
-    {
         "name": "Linear",
         "url": "https://mcp.linear.app/mcp",
         "description": "Manage Linear issues, projects, and teams directly from your AI agent.",
@@ -69,7 +62,6 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     url = models.URLField(max_length=2048, default="")
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="none")
-    configuration = models.JSONField(default=dict, blank=True)
     sensitive_configuration = EncryptedJSONField(default=dict, blank=True)
 
     class Meta:

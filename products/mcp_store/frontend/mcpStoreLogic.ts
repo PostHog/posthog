@@ -1,4 +1,5 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -26,11 +27,26 @@ export interface MCPServerInstallation {
     url: string
     description: string
     auth_type: 'none' | 'api_key' | 'oauth'
-    configuration: Record<string, any>
     needs_reauth: boolean
     pending_oauth: boolean
     created_at: string
     updated_at: string
+}
+
+export interface CustomServerFormValues {
+    name: string
+    url: string
+    description: string
+    auth_type: string
+    api_key: string
+}
+
+const CUSTOM_SERVER_FORM_DEFAULTS: CustomServerFormValues = {
+    name: '',
+    url: '',
+    description: '',
+    auth_type: 'none',
+    api_key: '',
 }
 
 export const mcpStoreLogic = kea<mcpStoreLogicType>([
@@ -50,6 +66,40 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             },
         ],
     }),
+
+    forms(({ actions }) => ({
+        customServerForm: {
+            defaults: CUSTOM_SERVER_FORM_DEFAULTS,
+            errors: ({ name, url }) => ({
+                name: !name ? 'Name is required' : undefined,
+                url: !url ? 'URL is required' : undefined,
+            }),
+            submit: async ({ name, url, description, auth_type, api_key }) => {
+                try {
+                    const result = await api.mcpServerInstallations.installCustom({
+                        name,
+                        url,
+                        auth_type,
+                        api_key,
+                        description,
+                    })
+                    if (result?.redirect_url) {
+                        window.location.href = result.redirect_url
+                        return
+                    }
+                    lemonToast.success('Server added and installed')
+                    actions.loadInstallations()
+                    actions.closeAddCustomServerModal()
+                } catch (e: any) {
+                    if (e.status === 302 || e.detail?.includes?.('redirect')) {
+                        return
+                    }
+                    lemonToast.error(e.detail || 'Failed to add server')
+                    throw e
+                }
+            },
+        },
+    })),
 
     loaders(({ values, actions }) => ({
         servers: [
@@ -134,6 +184,17 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         ],
         recommendedServers: [(s) => [s.servers], (servers: RecommendedServer[]): RecommendedServer[] => servers],
     }),
+
+    listeners(({ actions, values }) => ({
+        closeAddCustomServerModal: () => {
+            actions.resetCustomServerForm()
+        },
+        setCustomServerFormValue: ({ name, value }) => {
+            if (name === 'auth_type' && value !== 'api_key' && values.customServerForm.api_key) {
+                actions.setCustomServerFormValue('api_key', '')
+            }
+        },
+    })),
 
     urlToAction(({ actions }) => ({
         '/settings/mcp-servers': (_, searchParams) => {

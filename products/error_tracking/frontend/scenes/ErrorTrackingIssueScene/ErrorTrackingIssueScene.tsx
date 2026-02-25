@@ -42,9 +42,6 @@ import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { ErrorTrackingIssueScenePanel } from './ScenePanel'
-import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 import {
     ErrorTrackingIssueSceneCategory,
     errorTrackingIssueSceneConfigurationLogic,
@@ -54,6 +51,9 @@ import {
     ErrorTrackingIssueSceneLogicProps,
     errorTrackingIssueSceneLogic,
 } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueScenePanel } from './ScenePanel'
+import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
+import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
@@ -66,7 +66,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { updateAssignee, updateStatus, updateName } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
-        posthog.capture('error_tracking_issue_viewed', { issue_id: issueId })
+        const utmSource = new URLSearchParams(window.location.search).get('utm_source')
+        posthog.capture('error_tracking_issue_viewed', {
+            issue_id: issueId,
+            ...(utmSource ? { utm_source: utmSource } : {}),
+        })
     }, [issueId])
 
     return (
@@ -229,7 +233,7 @@ const LeftHandColumn = (): JSX.Element => {
                     </TabsPrimitiveContent>
                 )}
                 {hasSimilarIssues && (
-                    <TabsPrimitiveContent value="similar_issues">
+                    <TabsPrimitiveContent value="similar_issues" className="flex-1 min-h-0">
                         <SimilarIssuesList />
                     </TabsPrimitiveContent>
                 )}

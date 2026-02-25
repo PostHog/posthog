@@ -9,10 +9,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { Intro } from '../Intro'
-import { Thread } from '../Thread'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
+import { Thread } from '../Thread'
 import { ChatHistoryPanel } from './ChatHistoryPanel'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
@@ -65,7 +65,7 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
                                         closeTabId(tabId, { source: 'open_in_side_panel' })
                                     }}
                                 >
-                                    Open in side panel
+                                    Open in context panel
                                 </LemonButton>
                             ) : undefined}
                         </div>

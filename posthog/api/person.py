@@ -1,12 +1,9 @@
 import json
-import uuid
-import asyncio
 import builtins
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
-from django.conf import settings
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 
@@ -25,7 +22,6 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
-from temporalio import common
 
 from posthog.schema import ProductKey
 
@@ -71,8 +67,6 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateTh
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
 
 logger = structlog.get_logger(__name__)
@@ -1066,34 +1060,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def _queue_delete_recordings(self, persons: builtins.list[Person]) -> None:
-        if not persons:
-            return
-
-        temporal = sync_connect()
-
-        async def start_all_workflows():
-            tasks = []
-            for person in persons:
-                workflow_input = RecordingsWithPersonInput(
-                    distinct_ids=person.distinct_ids,
-                    team_id=self.team_id,
-                )
-                workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
-                tasks.append(
-                    temporal.start_workflow(
-                        "delete-recordings-with-person",
-                        workflow_input,
-                        id=workflow_id,
-                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                        retry_policy=common.RetryPolicy(
-                            maximum_attempts=2,
-                            initial_interval=timedelta(minutes=1),
-                        ),
-                    )
-                )
-            await asyncio.gather(*tasks)
-
-        asyncio.run(start_all_workflows())
+        # Disabled during recording-api rollout. Recording deletion is now handled
+        # by the recording-api via crypto-shredding. The temporal workflows will be
+        # updated to route through the recording-api in a follow-up.
+        pass
 
 
 def paginated_result(

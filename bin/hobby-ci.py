@@ -108,23 +108,52 @@ class HobbyTester:
             "fi"
         )
 
-    def _get_resolve_node_tag_script(self):
-        """Return bash script to resolve the node image tag.
-        The node container build only runs when node-related files change, so
-        posthog/posthog-node:<sha> may not exist for most commits. This checks
-        DockerHub and falls back to 'latest' if the commit-specific tag is missing.
-        Returns a single-line bash command suitable for YAML runcmd.
+    def _get_node_image_fallback_script(self):
+        """Return bash script to check if posthog-node image exists on DockerHub.
+
+        If the node image doesn't exist for this commit (it's only built when
+        node files change), rewrite the compose file to use :latest for the
+        plugins service so that docker compose pull doesn't fail.
         """
         return (
-            'echo "$LOG_PREFIX Checking if node image exists for commit $CURRENT_COMMIT..."; '
-            'if curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/$CURRENT_COMMIT" > /dev/null 2>&1; then '
-            "  export POSTHOG_NODE_TAG=$CURRENT_COMMIT; "
-            '  echo "$LOG_PREFIX Node image found for commit, using tag: $CURRENT_COMMIT"; '
+            "if curl -sf "
+            "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/$CURRENT_COMMIT "
+            "> /dev/null 2>&1; then "
+            "echo posthog-node image found on DockerHub; "
             "else "
-            "  export POSTHOG_NODE_TAG=latest; "
-            '  echo "$LOG_PREFIX Node image not found for commit, falling back to tag: latest"; '
+            "echo posthog-node image not found, using latest for plugins service; "
+            "sed -i "
+            "'s|${REGISTRY_URL}-node:${POSTHOG_APP_TAG}|posthog/posthog-node:latest|g' "
+            "posthog/docker-compose.hobby.yml; "
             "fi"
         )
+
+    def _get_installer_commands(self):
+        """Return cloud-init commands to obtain the hobby-installer binary.
+
+        If INSTALLER_CHANGED is set (Go code was modified in this PR), build
+        from the checked-out source so the e2e test validates the new code.
+        Otherwise download the latest release to keep provisioning fast.
+        """
+        installer_changed = os.environ.get("INSTALLER_CHANGED", "false").lower() == "true"
+
+        if installer_changed:
+            return [
+                'echo "$LOG_PREFIX Building hobby installer from source (installer code changed)..."',
+                "curl -fsSL https://go.dev/dl/go1.24.0.linux-$(dpkg --print-architecture).tar.gz | tar -C /usr/local -xzf -",
+                "export PATH=$PATH:/usr/local/go/bin",
+                "export GOPATH=/tmp/go",
+                "export GOCACHE=/tmp/go-cache",
+                "cd posthog/bin/hobby-installer && go build -o /tmp/hobby-installer . && cd ../../..",
+                "cp /tmp/hobby-installer hobby-installer",
+                "chmod +x hobby-installer",
+            ]
+
+        return [
+            'echo "$LOG_PREFIX Downloading hobby installer from GitHub releases..."',
+            "curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer",
+            "chmod +x hobby-installer",
+        ]
 
     def _build_user_data(self):
         """Build cloud-init user_data script with SSH pubkey in cloud-config"""
@@ -156,10 +185,8 @@ runcmd:
             "cd ..",
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
             self._get_wait_for_image_script(),
-            self._get_resolve_node_tag_script(),
-            'echo "$LOG_PREFIX Downloading hobby installer from GitHub releases..."',
-            "curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer",
-            "chmod +x hobby-installer",
+            self._get_node_image_fallback_script(),
+            *self._get_installer_commands(),
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
             f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
@@ -374,6 +401,21 @@ runcmd:
         if result["exit_code"] != 0:
             raise RuntimeError(f"Failed to update POSTHOG_NODE_TAG: {result['stderr']}")
         print(f"✅ Updated POSTHOG_NODE_TAG to {node_tag}")
+
+        # Update the baked-in image tags in docker-compose.yml.
+        # The hobby-installer substitutes $POSTHOG_APP_TAG and $POSTHOG_NODE_TAG literally
+        # into docker-compose.yml at install time, so updating .env alone has no effect on
+        # which image docker-compose pull/up uses.
+        print("📝 Updating baked-in image tags in docker-compose.yml...")
+        update_compose_cmd = (
+            f"cd /hobby && "
+            f"sed -i 's|posthog/posthog:[a-f0-9]\\{{40\\}}|posthog/posthog:{new_sha}|g' docker-compose.yml && "
+            f"sed -i 's|posthog/posthog-node:[^[:space:]]*|posthog/posthog-node:{node_tag}|g' docker-compose.yml"
+        )
+        result = self.run_ssh_command(update_compose_cmd, timeout=30)
+        if result["exit_code"] != 0:
+            raise RuntimeError(f"Failed to update docker-compose.yml: {result['stderr']}")
+        print("✅ Updated docker-compose.yml image tags")
 
         # Pull new images with retry logic
         print("🐋 Pulling new Docker images...")

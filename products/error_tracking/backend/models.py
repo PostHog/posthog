@@ -6,6 +6,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
+import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
@@ -16,6 +17,8 @@ from posthog.models.utils import UUIDTModel
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+
+logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingIssueManager(models.Manager):
@@ -504,3 +507,18 @@ def delete_symbol_set_contents(upload_path: str) -> None:
             code="object_storage_required",
             detail="Object storage must be available to delete source maps.",
         )
+
+
+class ErrorTrackingSpikeDetectionConfig(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_spike_detection_config",
+    )
+    snooze_duration_minutes = models.IntegerField(default=10)
+    multiplier = models.IntegerField(default=10)
+    threshold = models.IntegerField(default=500)
+
+    class Meta:
+        db_table = "posthog_errortrackingspikedetectionconfig"

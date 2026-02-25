@@ -4,14 +4,16 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
+import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
@@ -44,6 +46,8 @@ export interface JoinedIngestionPipelineConfig {
     groupStore: BatchWritingGroupStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
+    eventSchemaEnforcementEnabled: boolean
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
@@ -59,6 +63,7 @@ export interface JoinedIngestionPipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupId: string
+    topHog: TopHogRegistry
 }
 
 export interface JoinedIngestionPipelineInput {
@@ -115,6 +120,8 @@ export function createJoinedIngestionPipeline<
         groupStore,
         hogTransformer,
         eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
@@ -125,7 +132,10 @@ export function createJoinedIngestionPipeline<
         teamManager,
         groupTypeManager,
         groupId,
+        topHog,
     } = config
+
+    const topHogWrapper = createTopHogWrapper(topHog)
 
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
@@ -135,6 +145,8 @@ export function createJoinedIngestionPipeline<
 
     const postTeamConfig: PostTeamPreprocessingSubpipelineConfig = {
         eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
         cookielessManager: hub.cookielessManager,
         overflowTopic,
         preservePartitionLocality: hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
@@ -155,6 +167,7 @@ export function createJoinedIngestionPipeline<
         groupStore,
         kafkaProducer,
         groupId,
+        topHog: topHogWrapper,
     }
 
     return builder

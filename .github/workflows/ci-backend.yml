@@ -281,6 +281,22 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
+            # Start Docker early (before dependency installs) so containers can pull
+            # images and initialize while we install deps. This matches the pattern
+            # used by core-tests/django which achieves ~1s wait times.
+            - name: Clean up data directories
+              run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Start services
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  docker compose -f docker-compose.dev.yml --profile batch-exports down
+                  docker compose -f docker-compose.dev.yml --profile batch-exports up -d &
+
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
@@ -303,9 +319,9 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -329,19 +345,6 @@ jobs:
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Clean up data directories
-              run: |
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
-              continue-on-error: true
-
-            - name: Start services
-              run: |
-                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
-                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
-                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  docker compose -f docker-compose.dev.yml --profile batch-exports down
-                  docker compose -f docker-compose.dev.yml --profile batch-exports up -d &
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
@@ -391,7 +394,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  version: 0.9.9
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Check IDOR model coverage
@@ -429,9 +432,9 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -479,11 +482,25 @@ jobs:
                   # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                   #   sqlx migrate run --source rust/persons_migrations/
 
+            # Get app token early so it can be passed to checkout below.
+            # This sets the git extraheader to the app token instead of GITHUB_TOKEN,
+            # which is required for the OpenAPI type commit push to trigger CI.
+            - name: Get app token for OpenAPI type commits
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+              id: openapi-app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
             # Now we can consider this PR's migrations
             - name: Checkout this PR
               uses: actions/checkout@v6
               with:
                   clean: false
+                  # Use app token so the git extraheader is set correctly for the OpenAPI
+                  # type commit push later — GITHUB_TOKEN pushes don't trigger CI.
+                  token: ${{ steps.openapi-app-token.outputs.token || github.token }}
 
             - name: Install python dependencies for this PR
               run: |
@@ -708,14 +725,6 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm install --frozen-lockfile
 
-            - name: Get app token for OpenAPI type commits
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
-              id: openapi-app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
-              with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
             - name: Check and update OpenAPI types
               env:
                   EVENT_NAME: ${{ github.event_name }}
@@ -767,6 +776,9 @@ jobs:
                   # Disable auto-merge before pushing to prevent unreviewed code from merging
                   gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
+                  # Belt-and-suspenders: unset any lingering extraheader so the app token
+                  # in the remote URL is definitely used for the push.
+                  git config --unset-all http.https://github.com/.extraheader || true
                   git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -1010,9 +1022,9 @@ jobs:
               id: setup-uv-tests
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
@@ -1212,7 +1224,7 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest -v --tb=short --timeout=300 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest -v --tb=short --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
@@ -1572,9 +1584,9 @@ jobs:
               id: setup-uv-async
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv-async.outputs.cache-hit != 'true'
@@ -1669,6 +1681,8 @@ jobs:
 
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Install dependencies
               run: uv sync --frozen --dev

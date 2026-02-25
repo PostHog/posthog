@@ -20,6 +20,7 @@ import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -47,6 +48,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingStackFrameViewSet,
     ErrorTrackingSuppressionRuleViewSet,
     ErrorTrackingSymbolSetViewSet,
@@ -60,6 +62,7 @@ from products.llm_analytics.backend.api import (
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
+    LLMAnalyticsSentimentViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
@@ -273,6 +276,9 @@ project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs"
 
 # Signal reports endpoints
 projects_router.register(r"signal_reports", signals.SignalReportViewSet, "project_signal_reports", ["team_id"])
+projects_router.register(
+    r"signal_source_configs", signals.SignalSourceConfigViewSet, "project_signal_source_configs", ["team_id"]
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -911,6 +917,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/spike_detection_config",
+    ErrorTrackingSpikeDetectionConfigViewSet,
+    "environment_error_tracking_spike_detection_config",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
     "environment_error_tracking_git_provider_file_links",
@@ -1118,6 +1131,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"marketing_analytics",
+    marketing_analytics.MarketingAnalyticsViewSet,
+    "environment_marketing_analytics",
+    ["team_id"],
+)
+
+environments_router.register(
     r"revenue_analytics/taxonomy",
     revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
     "environment_revenue_analytics_taxonomy",
@@ -1226,6 +1246,13 @@ environments_router.register(
     r"llm_analytics/clustering_config",
     ClusteringConfigViewSet,
     "environment_llm_analytics_clustering_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/sentiment",
+    LLMAnalyticsSentimentViewSet,
+    "environment_llm_analytics_sentiment",
     ["team_id"],
 )
 

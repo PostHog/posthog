@@ -1,14 +1,8 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Literal, Self
+from typing import Literal, Self
 
-if TYPE_CHECKING:
-    from products.mcp_store.backend.models import SensitiveConfig
-
-from django.core.cache import caches
-
-import httpx
 import structlog
 from pydantic import BaseModel, Field, ValidationError
 
@@ -23,15 +17,10 @@ from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
+from .installations import _build_server_headers, _get_installations, _mark_needs_reauth_sync, _refresh_token_sync
 from .mcp_client import MCPClient, MCPClientError
 
 logger = structlog.get_logger(__name__)
-
-SESSION_CACHE_TTL = 3600  # 1 hour
-
-
-def _session_cache_key(conversation_id: str, server_url: str) -> str:
-    return f"mcp_session:{conversation_id}:{server_url}"
 
 
 class MCPToolProperty(BaseModel, extra="ignore"):
@@ -82,6 +71,7 @@ class CallMCPServerTool(MaxTool):
 
     _allowed_server_urls: set[str]
     _installations: list
+    _installations_by_url: dict[str, dict]
     _server_headers: dict[str, dict[str, str]]
 
     @classmethod
@@ -125,130 +115,34 @@ class CallMCPServerTool(MaxTool):
         instance._installations = installations
         instance._installations_by_url = {inst["url"]: inst for inst in installations}
         instance._server_headers = server_headers
-        instance._session_cache: dict[str, str] = {}
         return instance
 
-    def _is_token_expiring(self, server_url: str) -> bool:
-        inst = self._installations_by_url.get(server_url)
-        if not inst:
-            return False
-        sensitive = inst.get("sensitive_configuration") or {}
-        try:
-            token_retrieved_at = float(sensitive.get("token_retrieved_at", 0))
-            expires_in = float(sensitive.get("expires_in", 0))
-        except (TypeError, ValueError):
-            return False
-        if not token_retrieved_at or not expires_in:
-            return False
-        return time.time() > token_retrieved_at + (expires_in / 2)
-
-    async def _refresh_token_for_server(self, server_url: str) -> None:
-        inst = self._installations_by_url.get(server_url)
-        if not inst:
-            raise MaxToolFatalError(f"No installation found for {server_url}")
-
-        sensitive = inst.get("sensitive_configuration") or {}
-        refresh_token = sensitive.get("refresh_token")
-        if not refresh_token:
-            raise MaxToolFatalError(
-                f"No refresh token available for {server_url}. Ask the user to re-authenticate with this MCP server."
-            )
-
-        updated = await database_sync_to_async(_refresh_token_sync)(inst)
-
-        inst["sensitive_configuration"] = updated
-        self._installations_by_url[server_url] = inst
-        self._server_headers[server_url] = {"Authorization": f"Bearer {updated['access_token']}"}
-
-    async def _mark_needs_reauth(self, server_url: str) -> None:
-        inst = self._installations_by_url.get(server_url)
-        if not inst:
-            return
-        await database_sync_to_async(_mark_needs_reauth_sync)(inst["id"])
-
     async def _arun_impl(self, server_url: str, tool_name: str, arguments: dict | None = None) -> tuple[str, None]:
-        if server_url not in self._allowed_server_urls:
-            raise MaxToolRetryableError(
-                f"Server URL '{server_url}' is not in the user's installed MCP servers. "
-                f"Allowed URLs: {', '.join(sorted(self._allowed_server_urls))}"
-            )
-
-        allowed, error = is_url_allowed(server_url)
-        if not allowed:
-            raise MaxToolFatalError(f"MCP server URL blocked by security policy: {error}")
-
-        if self._is_token_expiring(server_url):
-            try:
-                await self._refresh_token_for_server(server_url)
-                self._clear_cached_session(server_url)
-            except Exception:
-                logger.warning("Proactive token refresh failed, continuing with current token", server_url=server_url)
-
-        headers = self._server_headers.get(server_url)
-        session_id = self._get_cached_session(server_url)
-        client = MCPClient(server_url, headers=headers, session_id=session_id)
+        self._validate_server_url(server_url)
+        await self._try_proactive_token_refresh(server_url)
 
         try:
-            try:
-                if not session_id:
-                    await client.initialize()
-                result = await self._execute_mcp_call(client, server_url, tool_name, arguments)
-                self._cache_session(server_url, client.session_id)
-                return result, None
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 401:
-                    await client.close()
-                    return await self._handle_401_refresh(server_url, tool_name, arguments), None
-                if session_id:
-                    self._clear_cached_session(server_url)
-                    await client.close()
-                    client = MCPClient(server_url, headers=headers)
-                    await client.initialize()
-                    result = await self._execute_mcp_call(client, server_url, tool_name, arguments)
-                    self._cache_session(server_url, client.session_id)
-                    return result, None
-                raise
-            except MCPClientError:
-                if session_id:
-                    self._clear_cached_session(server_url)
-                    await client.close()
-                    client = MCPClient(server_url, headers=headers)
-                    await client.initialize()
-                    result = await self._execute_mcp_call(client, server_url, tool_name, arguments)
-                    self._cache_session(server_url, client.session_id)
-                    return result, None
-                raise
+            result = await self._call_server(server_url, tool_name, arguments)
+            return result, None
         except MCPClientError as e:
             raise MaxToolRetryableError(f"MCP server error: {e}")
-        except httpx.HTTPStatusError as e:
-            raise MaxToolRetryableError(f"MCP server returned HTTP {e.response.status_code}: {e.response.text[:500]}")
-        except httpx.TimeoutException:
-            raise MaxToolRetryableError(f"MCP server at {server_url} timed out. The server may be unavailable.")
-        except httpx.ConnectError:
-            raise MaxToolRetryableError(f"Could not connect to MCP server at {server_url}. The server may be down.")
-        finally:
-            await client.close()
 
-    async def _handle_401_refresh(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
-        from products.mcp_store.backend.oauth import TokenRefreshError
-
+    async def _call_server(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
         try:
-            await self._refresh_token_for_server(server_url)
-        except (TokenRefreshError, MaxToolFatalError) as e:
-            await self._mark_needs_reauth(server_url)
-            raise MaxToolFatalError(
-                f"Authentication failed for {server_url} and token refresh failed: {e}. "
-                "Ask the user to re-authenticate with this MCP server in the MCP store settings page."
-            )
+            return await self._attempt_call(server_url, tool_name, arguments)
+        except MCPClientError:
+            if not self._has_auth_configured(server_url):
+                raise
+            await self._refresh_auth_or_mark_reauth(server_url)
+            return await self._attempt_call(server_url, tool_name, arguments)
 
-        self._clear_cached_session(server_url)
+    async def _attempt_call(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
         headers = self._server_headers.get(server_url)
         client = MCPClient(server_url, headers=headers)
+
         try:
             await client.initialize()
-            result = await self._execute_mcp_call(client, server_url, tool_name, arguments)
-            self._cache_session(server_url, client.session_id)
-            return result
+            return await self._execute_mcp_call(client, server_url, tool_name, arguments)
         finally:
             await client.close()
 
@@ -275,142 +169,80 @@ class CallMCPServerTool(MaxTool):
 
         return await client.call_tool(tool_name, arguments or {})
 
-    def _get_cached_session(self, server_url: str) -> str | None:
-        if sid := self._session_cache.get(server_url):
-            return sid
-        conversation_id = self._get_conversation_id()
-        if not conversation_id:
-            return None
-        key = _session_cache_key(conversation_id, server_url)
-        sid = caches["default"].get(key)
-        if sid:
-            self._session_cache[server_url] = sid
-        return sid
+    def _validate_server_url(self, server_url: str) -> None:
+        if server_url not in self._allowed_server_urls:
+            raise MaxToolRetryableError(
+                f"Server URL '{server_url}' is not in the user's installed MCP servers. "
+                f"Allowed URLs: {', '.join(sorted(self._allowed_server_urls))}"
+            )
+        allowed, error = is_url_allowed(server_url)
+        if not allowed:
+            raise MaxToolFatalError(f"MCP server URL blocked by security policy")
 
-    def _cache_session(self, server_url: str, session_id: str | None) -> None:
-        if not session_id:
+    async def _try_proactive_token_refresh(self, server_url: str) -> None:
+        if not self._is_token_expiring(server_url):
             return
-        self._session_cache[server_url] = session_id
-        conversation_id = self._get_conversation_id()
-        if not conversation_id:
-            return
-        key = _session_cache_key(conversation_id, server_url)
-        caches["default"].set(key, session_id, timeout=SESSION_CACHE_TTL)
-
-    def _clear_cached_session(self, server_url: str) -> None:
-        self._session_cache.pop(server_url, None)
-        conversation_id = self._get_conversation_id()
-        if not conversation_id:
-            return
-        key = _session_cache_key(conversation_id, server_url)
-        caches["default"].delete(key)
-
-
-def _get_installations(team: Team, user: User) -> list[dict]:
-    from products.mcp_store.backend.models import MCPServerInstallation
-
-    return list(
-        MCPServerInstallation.objects.filter(team=team, user=user)
-        .select_related("server")
-        .values(
-            "id",
-            "display_name",
-            "url",
-            "auth_type",
-            "server__oauth_provider_kind",
-            "server__oauth_metadata",
-            "server__oauth_client_id",
-            "configuration",
-            "sensitive_configuration",
-        )
-    )
-
-
-def _mark_needs_reauth_sync(installation_id: str) -> None:
-    from products.mcp_store.backend.models import MCPServerInstallation
-
-    try:
-        inst = MCPServerInstallation.objects.get(id=installation_id)
-    except MCPServerInstallation.DoesNotExist:
-        return
-    sensitive = inst.sensitive_configuration or {}
-    sensitive["needs_reauth"] = True
-    inst.sensitive_configuration = sensitive
-    inst.save(update_fields=["sensitive_configuration", "updated_at"])
-
-
-def _refresh_token_sync(installation: dict) -> SensitiveConfig:
-    import time as _time
-
-    from posthog.models.integration import OauthIntegration
-
-    from products.mcp_store.backend.models import MCPServerInstallation
-    from products.mcp_store.backend.oauth import TokenRefreshError, refresh_oauth_token
-
-    sensitive = installation.get("sensitive_configuration") or {}
-    refresh_token = sensitive.get("refresh_token")
-    if not refresh_token:
-        raise TokenRefreshError("No refresh token available")
-
-    kind = installation.get("server__oauth_provider_kind") or ""
-
-    if kind:
         try:
-            oauth_config = OauthIntegration.oauth_config_for_kind(kind)
-            token_url = oauth_config.token_url
-            client_id = oauth_config.client_id
-            client_secret = oauth_config.client_secret
-        except NotImplementedError:
-            kind = None
+            await self._refresh_token_for_server(server_url)
+        except Exception:
+            logger.warning("Proactive token refresh failed, continuing with current token", server_url=server_url)
 
-    if not kind:
-        metadata = installation.get("server__oauth_metadata") or {}
-        token_url = metadata.get("token_endpoint", "")
-        client_id = installation.get("server__oauth_client_id", "")
-        client_secret = None
-        if not token_url or not client_id:
-            raise TokenRefreshError("Missing OAuth metadata for token refresh")
+    async def _refresh_auth_or_mark_reauth(self, server_url: str) -> None:
+        from products.mcp_store.backend.oauth import TokenRefreshError
 
-    token_data = refresh_oauth_token(
-        token_url=token_url,
-        refresh_token=refresh_token,
-        client_id=client_id,
-        client_secret=client_secret,
-    )
+        try:
+            await self._refresh_token_for_server(server_url)
+        except (TokenRefreshError, MaxToolFatalError):
+            await self._mark_needs_reauth(server_url)
+            raise MaxToolFatalError(
+                f"Authentication failed for {server_url} and token refresh failed. "
+                "Ask the user to re-authenticate with this MCP server in the MCP store settings page."
+            )
 
-    updated_sensitive: SensitiveConfig = {
-        "access_token": token_data["access_token"],
-        "token_retrieved_at": int(_time.time()),
-        "refresh_token": token_data.get("refresh_token", refresh_token),
-    }
-    if "expires_in" in token_data:
-        updated_sensitive["expires_in"] = token_data["expires_in"]
-    elif "expires_in" in sensitive:
-        updated_sensitive["expires_in"] = sensitive["expires_in"]
+    def _is_token_expiring(self, server_url: str) -> bool:
+        inst = self._installations_by_url.get(server_url)
+        if not inst:
+            return False
 
-    inst_obj = MCPServerInstallation.objects.get(id=installation["id"])
-    inst_obj.sensitive_configuration = updated_sensitive
-    inst_obj.save(update_fields=["sensitive_configuration", "updated_at"])
-
-    return updated_sensitive
-
-
-def _build_server_headers(installations: list[dict]) -> dict[str, dict[str, str]]:
-    headers: dict[str, dict[str, str]] = {}
-    for inst in installations:
-        url = inst["url"]
-        auth_type = inst.get("auth_type", "none")
         sensitive = inst.get("sensitive_configuration") or {}
 
-        if auth_type == "api_key":
-            api_key = sensitive.get("api_key")
-            if not api_key:
-                config = inst.get("configuration") or {}
-                api_key = config.get("api_key")
-            if api_key:
-                headers[url] = {"Authorization": f"Bearer {api_key}"}
-        elif auth_type == "oauth":
-            if access_token := sensitive.get("access_token"):
-                headers[url] = {"Authorization": f"Bearer {access_token}"}
+        try:
+            token_retrieved_at = float(sensitive.get("token_retrieved_at", 0))
+            expires_in = float(sensitive.get("expires_in", 0))
+        except (TypeError, ValueError):
+            return False
+        if not token_retrieved_at or not expires_in:
+            return False
 
-    return headers
+        # Refreshing half way through expiry to be safe
+        return time.time() > token_retrieved_at + (expires_in / 2)
+
+    async def _refresh_token_for_server(self, server_url: str) -> None:
+        inst = self._installations_by_url.get(server_url)
+        if not inst:
+            raise MaxToolFatalError(f"No installation found for {server_url}")
+
+        sensitive = inst.get("sensitive_configuration") or {}
+        refresh_token = sensitive.get("refresh_token")
+        if not refresh_token:
+            raise MaxToolFatalError(
+                f"No refresh token available for {server_url}. Ask the user to re-authenticate with this MCP server."
+            )
+
+        updated = await database_sync_to_async(_refresh_token_sync)(inst)
+
+        inst["sensitive_configuration"] = updated
+        self._installations_by_url[server_url] = inst
+        self._server_headers[server_url] = {"Authorization": f"Bearer {updated['access_token']}"}
+
+    async def _mark_needs_reauth(self, server_url: str) -> None:
+        inst = self._installations_by_url.get(server_url)
+        if not inst:
+            return
+        await database_sync_to_async(_mark_needs_reauth_sync)(inst["id"])
+
+    def _has_auth_configured(self, server_url: str) -> bool:
+        inst = self._installations_by_url.get(server_url)
+        if not inst:
+            return False
+        return inst.get("auth_type") in ("oauth", "api_key")

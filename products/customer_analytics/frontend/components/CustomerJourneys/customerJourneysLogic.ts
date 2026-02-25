@@ -6,10 +6,10 @@ import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
-import { QueryBasedInsightModel } from '~/types'
+import { FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 import { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -130,9 +130,23 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         ],
         activeJourneyFullQuery: [
             (s) => [s.activeInsight],
-            (activeInsight): InsightVizNode | null => {
+            (activeInsight): InsightVizNode<FunnelsQuery> | null => {
                 const query = activeInsight?.query
-                return query && isInsightVizNode(query) && query.source ? { ...query, full: true } : null
+                if (!query || !isInsightVizNode(query)) {
+                    return null
+                }
+                const source = query.source as FunnelsQuery
+                return {
+                    ...query,
+                    full: true,
+                    source: {
+                        ...source,
+                        funnelsFilter: {
+                            ...source.funnelsFilter,
+                            funnelVizType: FunnelVizType.Flow,
+                        },
+                    },
+                } as InsightVizNode<FunnelsQuery>
             },
         ],
     }),

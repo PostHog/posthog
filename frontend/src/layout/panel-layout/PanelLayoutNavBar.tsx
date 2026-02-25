@@ -55,9 +55,9 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
-import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
@@ -180,7 +180,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                   {
                       identifier: 'ai',
                       label: 'PostHog AI',
-                      icon: <IconSparkles />,
+                      icon: <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />,
                       to: urls.ai(),
                       onClick: () => handleStaticNavbarItemClick(urls.ai(), true),
                       collapsedTooltip: 'PostHog AI',

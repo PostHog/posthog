@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
@@ -75,6 +75,7 @@ export class CdpApi {
     private emailTrackingService: EmailTrackingService
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
+    private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
 
     constructor(private hub: CdpApiHub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -88,7 +89,7 @@ export class CdpApi {
             this.hogExecutor
         )
         this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
-        this.recipientTokensService = new RecipientTokensService(hub)
+        this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         this.hogFlowExecutor = new HogFlowExecutorService(
             this.hogFlowFunctionsService,
             this.recipientPreferencesService
@@ -129,11 +130,15 @@ export class CdpApi {
     }
 
     async start(): Promise<void> {
+        this.cdpWarehouseKafkaProducer = await KafkaProducerWrapper.create(
+            this.hub.KAFKA_CLIENT_RACK,
+            'WAREHOUSE_PRODUCER'
+        )
         await this.cdpSourceWebhooksConsumer.start()
     }
 
     async stop(): Promise<void> {
-        await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
+        await Promise.all([this.cdpWarehouseKafkaProducer?.disconnect(), this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy(): HealthCheckResult {
@@ -641,7 +646,7 @@ export class CdpApi {
                     return res.status(500).json({ error: 'Missing schema_id on hog function' })
                 }
 
-                const kafkaProducer = this.hub.kafkaProducer
+                const kafkaProducer = this.cdpWarehouseKafkaProducer
                 if (!kafkaProducer) {
                     return res.status(500).json({ error: 'Kafka producer not available' })
                 }

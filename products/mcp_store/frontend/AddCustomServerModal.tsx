@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
-import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { mcpStoreLogic } from './mcpStoreLogic'
 
@@ -15,115 +14,54 @@ const AUTH_TYPE_OPTIONS = [
 ]
 
 export function AddCustomServerModal(): JSX.Element {
-    const { addCustomServerModalVisible } = useValues(mcpStoreLogic)
-    const { closeAddCustomServerModal, loadInstallations } = useActions(mcpStoreLogic)
-
-    const [name, setName] = useState('')
-    const [url, setUrl] = useState('')
-    const [description, setDescription] = useState('')
-    const [authType, setAuthType] = useState('none')
-    const [apiKey, setApiKey] = useState('')
-    const [saving, setSaving] = useState(false)
-
-    const handleSubmit = async (): Promise<void> => {
-        setSaving(true)
-        try {
-            const result = await api.mcpServerInstallations.installCustom({
-                name,
-                url,
-                auth_type: authType,
-                api_key: apiKey,
-                description,
-            })
-
-            if (result?.redirect_url) {
-                window.location.href = result.redirect_url
-                return
-            }
-
-            lemonToast.success('Server added and installed')
-            loadInstallations()
-            closeAddCustomServerModal()
-            setName('')
-            setUrl('')
-            setDescription('')
-            setAuthType('none')
-            setApiKey('')
-        } catch (e: any) {
-            if (e.status === 302 || e.detail?.includes?.('redirect')) {
-                return
-            }
-            lemonToast.error(e.detail || 'Failed to add server')
-        } finally {
-            setSaving(false)
-        }
-    }
+    const { addCustomServerModalVisible, customServerForm, isCustomServerFormSubmitting } = useValues(mcpStoreLogic)
+    const { closeAddCustomServerModal, setCustomServerFormValue } = useActions(mcpStoreLogic)
 
     return (
         <LemonModal
             title="Add custom MCP server"
             isOpen={addCustomServerModalVisible}
             onClose={closeAddCustomServerModal}
-            footer={
-                <>
+            simple
+        >
+            <Form logic={mcpStoreLogic} formKey="customServerForm" enableFormOnSubmit className="LemonModal__layout">
+                <LemonModal.Header>
+                    <h3>Add custom MCP server</h3>
+                </LemonModal.Header>
+                <LemonModal.Content>
+                    <div className="flex flex-col gap-3">
+                        <LemonField name="name" label="Name">
+                            <LemonInput placeholder="My MCP server" fullWidth />
+                        </LemonField>
+                        <LemonField name="url" label="URL">
+                            <LemonInput placeholder="https://mcp.example.com" fullWidth />
+                        </LemonField>
+                        <LemonField name="description" label="Description">
+                            <LemonTextArea placeholder="What does this server do?" />
+                        </LemonField>
+                        <LemonField name="auth_type" label="Auth type">
+                            <LemonSelect
+                                onChange={(val) => setCustomServerFormValue('auth_type', val)}
+                                options={AUTH_TYPE_OPTIONS}
+                                fullWidth
+                            />
+                        </LemonField>
+                        {customServerForm.auth_type === 'api_key' && (
+                            <LemonField name="api_key" label="API key">
+                                <LemonInput placeholder="Enter API key" type="password" fullWidth />
+                            </LemonField>
+                        )}
+                    </div>
+                </LemonModal.Content>
+                <LemonModal.Footer>
                     <LemonButton type="secondary" onClick={closeAddCustomServerModal}>
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSubmit}
-                        loading={saving}
-                        disabledReason={!name || !url ? 'Name and URL are required' : undefined}
-                    >
+                    <LemonButton type="primary" htmlType="submit" loading={isCustomServerFormSubmitting}>
                         Add server
                     </LemonButton>
-                </>
-            }
-        >
-            <div className="flex flex-col gap-3">
-                <div>
-                    <label className="font-semibold">Name</label>
-                    <LemonInput value={name} onChange={setName} placeholder="My MCP server" fullWidth />
-                </div>
-                <div>
-                    <label className="font-semibold">URL</label>
-                    <LemonInput value={url} onChange={setUrl} placeholder="https://mcp.example.com" fullWidth />
-                </div>
-                <div>
-                    <label className="font-semibold">Description</label>
-                    <LemonTextArea
-                        value={description}
-                        onChange={setDescription}
-                        placeholder="What does this server do?"
-                    />
-                </div>
-                <div>
-                    <label className="font-semibold">Auth type</label>
-                    <LemonSelect
-                        value={authType}
-                        onChange={(val) => {
-                            setAuthType(val)
-                            if (val !== 'api_key') {
-                                setApiKey('')
-                            }
-                        }}
-                        options={AUTH_TYPE_OPTIONS}
-                        fullWidth
-                    />
-                </div>
-                {authType === 'api_key' && (
-                    <div>
-                        <label className="font-semibold">API key</label>
-                        <LemonInput
-                            value={apiKey}
-                            onChange={setApiKey}
-                            placeholder="Enter API key"
-                            type="password"
-                            fullWidth
-                        />
-                    </div>
-                )}
-            </div>
+                </LemonModal.Footer>
+            </Form>
         </LemonModal>
     )
 }

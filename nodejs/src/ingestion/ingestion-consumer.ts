@@ -4,6 +4,7 @@ import { Gauge } from 'prom-client'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
@@ -15,6 +16,7 @@ import {
     PluginsServerConfig,
 } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
@@ -30,6 +32,7 @@ import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
 import { ok } from './pipelines/results'
+import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
@@ -62,6 +65,10 @@ export type IngestionConsumerHub = HogTransformerHub &
         | 'personRepository'
         // GroupTypeManager
         | 'groupTypeManager'
+        // EventSchemaEnforcementManager
+        | 'postgres'
+        // Prometheus / TopHog labels
+        | 'INGESTION_PIPELINE'
     >
 
 const latestOffsetTimestampGauge = new Gauge({
@@ -90,7 +97,9 @@ export class IngestionConsumer {
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
+    private topHog?: TopHog
 
     private joinedPipeline!: BatchPipeline<
         JoinedIngestionPipelineInput,
@@ -129,6 +138,7 @@ export class IngestionConsumer {
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
+        this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(hub.postgres)
 
         this.name = `ingestion-consumer-${this.topic}`
 
@@ -199,6 +209,14 @@ export class IngestionConsumer {
             }),
         ])
 
+        this.topHog = new TopHog({
+            kafkaProducer: this.kafkaProducer!,
+            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            pipeline: this.hub.INGESTION_PIPELINE ?? 'unknown',
+            lane: this.hub.INGESTION_LANE ?? 'unknown',
+        })
+        this.topHog.start()
+
         // Initialize pipeline
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             hub: this.hub,
@@ -207,6 +225,8 @@ export class IngestionConsumer {
             groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,
+            eventSchemaEnforcementEnabled: this.hub.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic || '',
             dlqTopic: this.dlqTopic,
@@ -217,8 +237,6 @@ export class IngestionConsumer {
                 CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
-                TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
-                PIPELINE_STEP_STALLED_LOG_TIMEOUT: this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.hub.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_ASYNC_TOPIC: this.hub.PERSON_MERGE_ASYNC_TOPIC,
@@ -229,6 +247,7 @@ export class IngestionConsumer {
             teamManager: this.hub.teamManager,
             groupTypeManager: this.hub.groupTypeManager,
             groupId: this.groupId,
+            topHog: this.topHog,
         }
         this.joinedPipeline = createJoinedIngestionPipeline(
             newBatchPipelineBuilder<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>(),
@@ -253,6 +272,8 @@ export class IngestionConsumer {
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         logger.info('🔁', `${this.name} - stopping batch consumer`)
         await this.kafkaConsumer?.disconnect()
+        logger.info('🔁', `${this.name} - stopping tophog`)
+        await this.topHog?.stop()
         logger.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)

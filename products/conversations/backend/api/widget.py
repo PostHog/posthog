@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import WidgetAuthentication
+from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
@@ -158,6 +159,11 @@ class WidgetMessageView(APIView):
                 capture_ticket_created(ticket)
             except Exception as e:
                 # Don't let analytics failures break the widget
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+
+            try:
+                report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
+            except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
 
         # Invalidate caches

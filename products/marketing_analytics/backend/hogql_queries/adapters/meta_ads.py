@@ -149,24 +149,23 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             ],
         )
 
-    def _get_reported_conversion_field(self) -> ast.Expr:
+    def _build_actions_conversion_sum(self, column_name: str, apply_currency: bool = False) -> ast.Expr:
+        """Build a SUM over omni/fallback action types from a JSON array column.
+
+        Used for both conversion counts (actions) and conversion values (action_values).
+        Returns 0 if the column doesn't exist in the table.
+        """
         stats_table_name = self.config.stats_table.name
 
-        # Check if conversions column exists in the table schema. The field exists in Meta Ads but
-        # if it's not used, it won't be in the response, therefore, won't be saved in the table and the column
-        # won't be created in the table.
         try:
             columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "actions" in columns:
-                actions_field = ast.Field(chain=[stats_table_name, "actions"])
-                # Use coalesce to convert Nullable(String) to String, defaulting to empty array '[]'
-                actions_non_null = ast.Call(name="coalesce", args=[actions_field, ast.Constant(value="[]")])
+            if columns and hasattr(columns, "__contains__") and column_name in columns:
+                field = ast.Field(chain=[stats_table_name, column_name])
+                field_non_null = ast.Call(name="coalesce", args=[field, ast.Constant(value="[]")])
 
-                # Prefer omni action types (comprehensive metrics), fallback to individual types
-                omni_sum = self._build_array_sum_for_action_types(actions_non_null, META_OMNI_ACTION_TYPES)
-                fallback_sum = self._build_array_sum_for_action_types(actions_non_null, META_FALLBACK_ACTION_TYPES)
+                omni_sum = self._build_array_sum_for_action_types(field_non_null, META_OMNI_ACTION_TYPES)
+                fallback_sum = self._build_array_sum_for_action_types(field_non_null, META_FALLBACK_ACTION_TYPES)
 
-                # Use IF to prefer omni, fallback if omni returns 0
                 array_sum = ast.Call(
                     name="if",
                     args=[
@@ -180,57 +179,23 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                     ],
                 )
 
-                sum_result = ast.Call(name="SUM", args=[array_sum])
-                return ast.Call(name="toFloat", args=[sum_result])
+                if apply_currency:
+                    converted = self._apply_currency_conversion(
+                        self.config.stats_table, stats_table_name, "account_currency", array_sum
+                    )
+                    if converted:
+                        return ast.Call(name="SUM", args=[converted])
+
+                return ast.Call(name="toFloat", args=[ast.Call(name="SUM", args=[array_sum])])
         except (TypeError, AttributeError, KeyError):
             pass
-        # Column doesn't exist or can't be checked, return 0
         return ast.Constant(value=0)
+
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        return self._build_actions_conversion_sum("actions")
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
-        stats_table_name = self.config.stats_table.name
-
-        # Check if conversion_values column exists in the table schema. Similar to conversions,
-        # this field may not exist if no conversion values were tracked.
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "action_values" in columns:
-                action_values_field = ast.Field(chain=[stats_table_name, "action_values"])
-                # Use coalesce to convert Nullable(String) to String, defaulting to empty array '[]'
-                action_values_non_null = ast.Call(name="coalesce", args=[action_values_field, ast.Constant(value="[]")])
-
-                # Prefer omni action types (comprehensive metrics), fallback to individual types
-                omni_sum = self._build_array_sum_for_action_types(action_values_non_null, META_OMNI_ACTION_TYPES)
-                fallback_sum = self._build_array_sum_for_action_types(
-                    action_values_non_null, META_FALLBACK_ACTION_TYPES
-                )
-
-                # Use IF to prefer omni, fallback if omni returns 0
-                array_sum = ast.Call(
-                    name="if",
-                    args=[
-                        ast.CompareOperation(
-                            left=omni_sum,
-                            op=ast.CompareOperationOp.Gt,
-                            right=ast.Constant(value=0),
-                        ),
-                        omni_sum,
-                        fallback_sum,
-                    ],
-                )
-
-                converted = self._apply_currency_conversion(
-                    self.config.stats_table, stats_table_name, "account_currency", array_sum
-                )
-                if converted:
-                    return ast.Call(name="SUM", args=[converted])
-
-                sum_result = ast.Call(name="SUM", args=[array_sum])
-                return ast.Call(name="toFloat", args=[sum_result])
-        except (TypeError, AttributeError, KeyError):
-            pass
-        # Column doesn't exist or can't be checked, return 0
-        return ast.Constant(value=0)
+        return self._build_actions_conversion_sum("action_values", apply_currency=True)
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""
