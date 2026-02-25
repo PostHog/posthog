@@ -240,6 +240,8 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(waitForSelectors.map((selector) => page.waitForSelector(selector)))
     }
 
+    await waitForCanvasesToStabilize(page)
+
     // Snapshot both light and dark themes
     await takeSnapshotWithTheme(page, context, browser, 'light', storyContext, enableCanvasRendering, waitForSelectors)
     await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext, enableCanvasRendering, waitForSelectors)
@@ -360,6 +362,46 @@ function getWaitForSelectors(waitForSelector: string | string[] | undefined, ena
         return [...new Set([...selectors, 'canvas'])]
     }
     return [...new Set(selectors)]
+}
+
+async function waitForCanvasesToStabilize(page: Page): Promise<void> {
+    await page
+        .waitForFunction(
+            () => {
+                const canvases = Array.from(document.querySelectorAll('canvas'))
+                if (!canvases.length) {
+                    return true
+                }
+
+                const state = window as Window & {
+                    __storybookCanvasSnapshotKey?: string
+                    __storybookCanvasStableCount?: number
+                }
+
+                const canvasSignature = canvases
+                    .map((canvas) => {
+                        try {
+                            return `${canvas.width}:${canvas.height}:${canvas.toDataURL()}`
+                        } catch {
+                            return `${canvas.width}:${canvas.height}:unreadable`
+                        }
+                    })
+                    .join('|')
+
+                if (canvasSignature === state.__storybookCanvasSnapshotKey) {
+                    state.__storybookCanvasStableCount = (state.__storybookCanvasStableCount ?? 0) + 1
+                } else {
+                    state.__storybookCanvasSnapshotKey = canvasSignature
+                    state.__storybookCanvasStableCount = 0
+                }
+
+                return (state.__storybookCanvasStableCount ?? 0) >= 2
+            },
+            { polling: 200, timeout: 4000 }
+        )
+        .catch(() => {
+            // Ignore timeout to avoid blocking snapshots for stories with intentionally animated canvases.
+        })
 }
 
 async function takeSnapshotWithTheme(
