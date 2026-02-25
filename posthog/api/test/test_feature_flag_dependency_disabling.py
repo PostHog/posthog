@@ -458,3 +458,155 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
         error_detail = response.json()["detail"]
         self.assertIn(f"Cannot create dependency on disabled flag '{disabled_flag.key}'", error_detail)
         self.assertIn(f"ID: {disabled_flag.id}", error_detail)
+
+    def test_cannot_enable_flag_with_deleted_dependency(self):
+        """Test that a flag cannot be enabled if its dependency has been deleted."""
+        # Create base flag and dependent flag
+        base_flag = self.create_flag("base_flag")
+        dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id], active=False)
+
+        # Delete the base flag directly (bypassing guards to simulate legacy data)
+        base_flag.deleted = True
+        base_flag.save()
+
+        # Try to enable dependent flag
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{dependent_flag.id}/",
+            {"active": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_detail = response.json()["detail"]
+        self.assertIn("Cannot enable this feature flag because it depends on", error_detail)
+        self.assertIn("deleted or missing flags with IDs", error_detail)
+        self.assertIn(str(base_flag.id), error_detail)
+
+    def test_cannot_enable_flag_with_both_disabled_and_deleted_dependencies(self):
+        """Test error message when flag has both disabled and deleted dependencies."""
+        # Create three flags
+        disabled_flag = self.create_flag("disabled_flag")
+        deleted_flag = self.create_flag("deleted_flag")
+        dependent_flag = self.create_flag(
+            "dependent_flag", dependencies=[disabled_flag.id, deleted_flag.id], active=False
+        )
+
+        # Disable one, delete the other
+        disabled_flag.active = False
+        disabled_flag.save()
+        deleted_flag.deleted = True
+        deleted_flag.save()
+
+        # Try to enable dependent flag
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{dependent_flag.id}/",
+            {"active": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_detail = response.json()["detail"]
+        self.assertIn("disabled flags", error_detail)
+        self.assertIn(f"{disabled_flag.key} (ID: {disabled_flag.id})", error_detail)
+        self.assertIn("deleted or missing flags with IDs", error_detail)
+        self.assertIn(str(deleted_flag.id), error_detail)
+
+    def test_cannot_enable_flag_with_nonexistent_dependency(self):
+        """Test that a flag cannot be enabled if its dependency ID never existed."""
+        nonexistent_id = 999999999
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="orphaned_flag",
+            name="Orphaned Flag",
+            active=False,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(nonexistent_id),
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{dependent_flag.id}/",
+            {"active": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_detail = response.json()["detail"]
+        self.assertIn("deleted or missing flags with IDs", error_detail)
+        self.assertIn(str(nonexistent_id), error_detail)
+
+    def test_cannot_create_dependency_on_deleted_flag(self):
+        """Test that creating a dependency on a deleted flag is prevented."""
+        deleted_flag = self.create_flag("deleted_flag")
+        deleted_flag.deleted = True
+        deleted_flag.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "New Flag",
+                "key": "new_flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": str(deleted_flag.id),
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_detail = response.json()["detail"]
+        self.assertIn("non-existent flag", error_detail)
+
+    def test_cannot_create_dependency_on_nonexistent_flag(self):
+        """Test that creating a dependency on a flag ID that never existed is prevented."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "New Flag",
+                "key": "new_flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "999999999",
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_detail = response.json()["detail"]
+        self.assertIn("non-existent flag", error_detail)

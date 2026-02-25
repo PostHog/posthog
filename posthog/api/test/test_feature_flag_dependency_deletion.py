@@ -82,8 +82,8 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
         flag.refresh_from_db()
         self.assertTrue(flag.deleted)
 
-    def test_can_delete_flag_with_inactive_dependents(self):
-        """Test that a flag can be deleted if dependent flags are inactive."""
+    def test_cannot_delete_flag_with_inactive_dependents(self):
+        """Deletion is irreversible, so even inactive dependents block it to prevent orphaned references."""
         # Create base flag
         base_flag = self.create_flag("base_flag")
 
@@ -92,14 +92,16 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
         dependent_flag.active = False
         dependent_flag.save()
 
-        # Should be able to delete base flag
+        # Should NOT be able to delete base flag
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
             {"deleted": True},
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot delete this feature flag because other flags depend on it", response.json()["detail"])
+        self.assertIn(f"{dependent_flag.key} (ID: {dependent_flag.id})", response.json()["detail"])
 
     def test_can_delete_flag_with_deleted_dependents(self):
         """Test that a flag can be deleted if dependent flags are already deleted."""
@@ -283,11 +285,26 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()), 1)
 
-    def test_dependent_flags_with_inactive_dependencies(self):
-        """Test dependent_flags returns empty list when dependent flags are inactive."""
+    def test_dependent_flags_includes_inactive_dependencies(self):
+        """Test dependent_flags returns inactive dependents so the UI can show the full picture."""
         base_flag = self.create_flag("base_flag")
         dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id])
         dependent_flag.active = False
+        dependent_flag.save()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/dependent_flags/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()), 1)
+        self.assertEqual(response.json()[0]["id"], dependent_flag.id)
+
+    def test_dependent_flags_excludes_deleted_dependencies(self):
+        """Test dependent_flags does not return deleted dependents."""
+        base_flag = self.create_flag("base_flag")
+        dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id])
+        dependent_flag.deleted = True
         dependent_flag.save()
 
         response = self.client.get(

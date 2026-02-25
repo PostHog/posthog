@@ -10241,6 +10241,44 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         base_flag.refresh_from_db()
         assert base_flag.deleted is False
 
+    def test_bulk_delete_blocked_by_inactive_dependent_flags(self):
+        """Test that flags with inactive (but non-deleted) dependents cannot be bulk deleted."""
+        base_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="base_flag",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="inactive_dependent",
+            active=False,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [{"key": str(base_flag.id), "type": "flag", "value": "true"}],
+                    }
+                ]
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [base_flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 0
+        assert len(data["errors"]) == 1
+        assert "other flags depend on it" in data["errors"][0]["reason"]
+        assert dependent_flag.key in data["errors"][0]["reason"]
+
+        base_flag.refresh_from_db()
+        assert base_flag.deleted is False
+
     def test_bulk_delete_renames_key_with_soft_deleted_experiment(self):
         """Test that deleting a flag with a soft-deleted experiment renames the key."""
         flag = FeatureFlag.objects.create(

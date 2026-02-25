@@ -98,12 +98,19 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
 )
 
 
-def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
-    """Find all active flags that depend on the given flag via flag-type filter properties."""
+def find_dependent_flags(flag_to_check: FeatureFlag, active_only: bool = True) -> list[FeatureFlag]:
+    """Find flags that depend on the given flag via flag-type filter properties.
+
+    By default returns only active dependents (for disabling guards). Pass active_only=False
+    to include inactive dependents too (for deletion guards), since deleting a flag creates
+    irrecoverable orphaned references even when the dependent is inactive.
+    """
+    qs = FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False)
+    if active_only:
+        qs = qs.filter(active=True)
     return list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
-        .exclude(id=flag_to_check.id)
+        qs.exclude(id=flag_to_check.id)
         .extra(
             where=[
                 """
@@ -123,11 +130,15 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
 
 def find_dependent_flags_batch(
     flags_to_check: list[FeatureFlag],
+    active_only: bool = True,
 ) -> dict[int, list[FeatureFlag]]:
-    """Find all active flags that depend on any of the given flags via flag-type filter properties.
+    """Find flags that depend on any of the given flags via flag-type filter properties.
 
     Returns a dict mapping each flag ID to its list of dependent flags.
     This is more efficient than calling find_dependent_flags for each flag individually.
+
+    By default returns only active dependents. Pass active_only=False to include inactive
+    dependents (for deletion guards).
     """
     if not flags_to_check:
         return {}
@@ -140,10 +151,13 @@ def find_dependent_flags_batch(
     # We need to find any flag that depends on ANY of these flags
     or_conditions = " OR ".join(["prop->>'key' = %s" for _ in flag_ids])
 
+    qs = FeatureFlag.objects.filter(team=team, deleted=False)
+    if active_only:
+        qs = qs.filter(active=True)
+
     dependent_flags = list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        FeatureFlag.objects.filter(team=team, deleted=False, active=True)
-        .exclude(id__in=flag_ids)
+        qs.exclude(id__in=flag_ids)
         .extra(
             where=[
                 f"""
@@ -1079,8 +1093,9 @@ class FeatureFlagSerializer(
                     f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please delete the experiment(s) before deleting the flag."
                 )
 
-            # Check for other flags that depend on this flag
-            dependent_flags = self._find_dependent_flags(instance)
+            # Check for other flags that depend on this flag (including inactive ones,
+            # since deletion is irreversible and would leave orphaned references)
+            dependent_flags = self._find_dependent_flags(instance, active_only=False)
             if dependent_flags:
                 dependent_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5]]
                 if len(dependent_flags) > 5:
@@ -1120,15 +1135,23 @@ class FeatureFlagSerializer(
 
         # Check for dependency conflicts when enabling a flag
         if "active" in validated_data and validated_data["active"] is True and instance.active is False:
-            # Check if this flag depends on any disabled flags
-            disabled_dependencies = self._find_disabled_dependencies(instance)
-            if disabled_dependencies:
-                disabled_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in disabled_dependencies[:5]]
-                if len(disabled_dependencies) > 5:
-                    disabled_flag_names.append(f"and {len(disabled_dependencies) - 5} more")
+            # Check if this flag depends on any disabled or deleted flags
+            disabled_deps, missing_dep_ids = self._find_unavailable_dependencies(instance)
+            if disabled_deps or missing_dep_ids:
+                error_parts = []
+                if disabled_deps:
+                    names = [f"{f.key} (ID: {f.id})" for f in disabled_deps[:5]]
+                    if len(disabled_deps) > 5:
+                        names.append(f"and {len(disabled_deps) - 5} more")
+                    error_parts.append(f"disabled flags: {', '.join(names)}")
+                if missing_dep_ids:
+                    id_strs = [str(dep_id) for dep_id in missing_dep_ids[:5]]
+                    if len(missing_dep_ids) > 5:
+                        id_strs.append(f"and {len(missing_dep_ids) - 5} more")
+                    error_parts.append(f"deleted or missing flags with IDs: {', '.join(id_strs)}")
                 raise exceptions.ValidationError(
-                    f"Cannot enable this feature flag because it depends on disabled flags: {', '.join(disabled_flag_names)}. "
-                    f"Please enable the dependency flags first."
+                    f"Cannot enable this feature flag because it depends on {' and '.join(error_parts)}. "
+                    f"Please update the flag's filters to remove these dependencies."
                 )
 
         # First apply all transformations to validated_data
@@ -1264,33 +1287,46 @@ class FeatureFlagSerializer(
             and validated_data[field] != getattr(current_instance, field)
         ]
 
-    def _find_dependent_flags(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
-        """Find all active flags that depend on the given flag."""
-        return find_dependent_flags(flag_to_check)
+    def _find_dependent_flags(self, flag_to_check: FeatureFlag, active_only: bool = True) -> list[FeatureFlag]:
+        """Find flags that depend on the given flag."""
+        return find_dependent_flags(flag_to_check, active_only=active_only)
 
-    def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
-        """Find all disabled flags that the given flag depends on."""
-        dependency_ids = []
+    def _find_unavailable_dependencies(self, flag_to_check: FeatureFlag) -> tuple[list[FeatureFlag], list[int]]:
+        """Find dependencies that are disabled or deleted/missing.
+
+        Returns (disabled_flags, missing_dependency_ids) where:
+        - disabled_flags: non-deleted but inactive dependency flags
+        - missing_dependency_ids: IDs of dependencies that are deleted or don't exist
+        """
+        dependency_ids: list[int] = []
 
         # Extract flag dependencies from filters
         filters = flag_to_check.filters or {}
         for group in filters.get("groups", []):
             for prop in group.get("properties", []):
                 if prop.get("type") == "flag":
-                    dependency_ids.append(int(prop.get("key")))
+                    try:
+                        dependency_ids.append(int(prop.get("key")))
+                    except (ValueError, TypeError):
+                        pass
 
         if not dependency_ids:
-            return []
+            return [], []
 
-        # Find disabled dependency flags
-        return list(
+        # Find all non-deleted dependencies to determine which are disabled vs missing
+        existing_deps = list(
             FeatureFlag.objects.filter(
                 team=flag_to_check.team,
                 id__in=dependency_ids,
                 deleted=False,
-                active=False,
             ).order_by("key")
         )
+        existing_ids = {f.id for f in existing_deps}
+
+        disabled_deps = [f for f in existing_deps if not f.active]
+        missing_ids = [dep_id for dep_id in dependency_ids if dep_id not in existing_ids]
+
+        return disabled_deps, missing_ids
 
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:
@@ -1813,9 +1849,9 @@ class FeatureFlagViewSet(
 
     @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
     def dependent_flags(self, request: request.Request, **kwargs):
-        """Get other active flags that depend on this flag."""
+        """Get other non-deleted flags that depend on this flag."""
         feature_flag: FeatureFlag = self.get_object()
-        dependent_flags = find_dependent_flags(feature_flag)
+        dependent_flags_list = find_dependent_flags(feature_flag, active_only=False)
         return Response(
             [
                 {
@@ -1823,7 +1859,7 @@ class FeatureFlagViewSet(
                     "key": flag.key,
                     "name": flag.name or flag.key,
                 }
-                for flag in dependent_flags
+                for flag in dependent_flags_list
             ],
             status=200,
         )
@@ -2091,8 +2127,8 @@ class FeatureFlagViewSet(
         queryset = queryset.prefetch_related("features", "experiment_set")
         flags_list = list(queryset)
 
-        # Batch query for dependent flags
-        dependent_flags_map = find_dependent_flags_batch(flags_list)
+        # Batch query for dependent flags (including inactive, since deletion is irreversible)
+        dependent_flags_map = find_dependent_flags_batch(flags_list, active_only=False)
 
         deleted = []
         errors = []
