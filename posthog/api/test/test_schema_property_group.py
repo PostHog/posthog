@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import EventDefinition, EventSchema, Project, SchemaPropertyGroup, SchemaPropertyGroupProperty
@@ -213,6 +214,122 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         assert not SchemaPropertyGroup.objects.filter(id=property_group.id).exists()
         # Properties should be cascade deleted
         assert not SchemaPropertyGroupProperty.objects.filter(property_group=property_group).exists()
+
+    @parameterized.expand(
+        [
+            ("string_enum", "String", {"enum": ["active", "pending", "cancelled"]}),
+            ("string_not_enum", "String", {"not": {"enum": ["test", "debug"]}}),
+            ("numeric_inclusive_range", "Numeric", {"minimum": 0, "maximum": 100}),
+            ("numeric_exclusive_range", "Numeric", {"exclusiveMinimum": 0, "exclusiveMaximum": 100}),
+            ("numeric_min_only", "Numeric", {"minimum": 0}),
+            ("numeric_max_only", "Numeric", {"maximum": 100}),
+            ("numeric_mixed_bounds", "Numeric", {"minimum": 0, "exclusiveMaximum": 100}),
+            ("string_null_rules", "String", None),
+            ("numeric_null_rules", "Numeric", None),
+            ("boolean_null_rules", "Boolean", None),
+            ("datetime_null_rules", "DateTime", None),
+        ]
+    )
+    def test_create_with_valid_validation_rules(self, _name, property_type, validation_rules):
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": f"Group {_name}",
+                "properties": [
+                    {
+                        "name": "prop",
+                        "property_type": property_type,
+                        "validation_rules": validation_rules,
+                    },
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        prop = response.json()["properties"][0]
+        assert prop["validation_rules"] == validation_rules
+
+    @parameterized.expand(
+        [
+            ("enum_on_numeric", "Numeric", {"enum": ["a", "b"]}, "Unrecognized keys"),
+            ("enum_on_boolean", "Boolean", {"enum": ["true"]}, "not supported"),
+            ("enum_on_datetime", "DateTime", {"enum": ["2021-01-01"]}, "not supported"),
+            ("range_on_string", "String", {"minimum": 0}, "Unrecognized keys"),
+            ("empty_enum", "String", {"enum": []}, "must not be empty"),
+            ("non_string_enum_values", "String", {"enum": [1, 2, 3]}, "must be strings"),
+            ("both_minimum_and_exclusive", "Numeric", {"minimum": 0, "exclusiveMinimum": 0}, "Cannot specify both"),
+            ("both_maximum_and_exclusive", "Numeric", {"maximum": 100, "exclusiveMaximum": 100}, "Cannot specify both"),
+            ("lower_greater_than_upper", "Numeric", {"minimum": 100, "maximum": 50}, "must be less than"),
+            ("lower_equal_to_upper", "Numeric", {"minimum": 50, "maximum": 50}, "must be less than"),
+            ("non_numeric_bound", "Numeric", {"minimum": "abc"}, "must be a number"),
+            ("both_enum_and_not", "String", {"enum": ["a"], "not": {"enum": ["b"]}}, "Cannot specify both"),
+            ("not_without_enum", "String", {"not": {"min": 0}}, "exactly one key"),
+            ("unrecognized_key", "Numeric", {"minimum": 0, "pattern": "abc"}, "Unrecognized keys"),
+            ("object_with_rules", "Object", {"enum": ["a"]}, "not supported"),
+        ]
+    )
+    def test_create_with_invalid_validation_rules(self, _name, property_type, validation_rules, expected_error):
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": f"Group {_name}",
+                "properties": [
+                    {
+                        "name": "prop",
+                        "property_type": property_type,
+                        "validation_rules": validation_rules,
+                    },
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in str(response.json())
+
+    def test_round_trip_validation_rules(self):
+        rules = {"enum": ["active", "pending"]}
+        create_resp = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": "Round Trip Group",
+                "properties": [
+                    {"name": "status", "property_type": "String", "validation_rules": rules},
+                ],
+            },
+        )
+        assert create_resp.status_code == status.HTTP_201_CREATED
+        group_id = create_resp.json()["id"]
+
+        get_resp = self.client.get(f"/api/projects/{self.project.id}/schema_property_groups/{group_id}/")
+        assert get_resp.status_code == status.HTTP_200_OK
+        prop = get_resp.json()["properties"][0]
+        assert prop["validation_rules"] == rules
+
+    def test_update_with_validation_rules(self):
+        property_group = SchemaPropertyGroup.objects.create(
+            team=self.team, project=self.project, name="Update Rules Group"
+        )
+        prop = SchemaPropertyGroupProperty.objects.create(
+            property_group=property_group, name="status", property_type="String"
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/schema_property_groups/{property_group.id}/",
+            {
+                "properties": [
+                    {
+                        "id": str(prop.id),
+                        "name": "status",
+                        "property_type": "String",
+                        "validation_rules": {"enum": ["a", "b"]},
+                    },
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        updated_prop = response.json()["properties"][0]
+        assert updated_prop["validation_rules"] == {"enum": ["a", "b"]}
 
     def test_list_includes_events(self):
         # Create property group

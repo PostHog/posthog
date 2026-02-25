@@ -1,4 +1,4 @@
-import { EventSchemaEnforcement } from '../types'
+import { EventSchemaEnforcement, PropertyValidationRules } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 
@@ -11,6 +11,7 @@ interface RawSchemaPropertyRow {
     event_name: string
     property_name: string
     property_types: string[]
+    validation_rules: object[] | null
 }
 
 /**
@@ -76,7 +77,8 @@ export class EventSchemaEnforcementManager {
                 ed.team_id,
                 ed.name as event_name,
                 p.name as property_name,
-                array_agg(DISTINCT p.property_type ORDER BY p.property_type) as property_types
+                array_agg(DISTINCT p.property_type ORDER BY p.property_type) as property_types,
+                jsonb_agg(p.validation_rules) FILTER (WHERE p.validation_rules IS NOT NULL) as validation_rules
             FROM posthog_eventdefinition ed
             JOIN posthog_eventschema es ON es.event_definition_id = ed.id
             JOIN posthog_schemapropertygroupproperty p ON p.property_group_id = es.property_group_id
@@ -112,11 +114,22 @@ export class EventSchemaEnforcementManager {
 
             let schema = result[teamId].get(row.event_name)
             if (!schema) {
-                schema = { event_name: row.event_name, required_properties: new Map() }
+                schema = {
+                    event_name: row.event_name,
+                    required_properties: new Map(),
+                    property_validation_rules: new Map(),
+                }
                 result[teamId].set(row.event_name, schema)
             }
 
             schema.required_properties.set(row.property_name, row.property_types)
+
+            if (row.validation_rules && row.validation_rules.length > 0) {
+                schema.property_validation_rules.set(
+                    row.property_name,
+                    row.validation_rules as PropertyValidationRules[]
+                )
+            }
         }
 
         return result
