@@ -158,8 +158,8 @@ async def prepare_data_modeling_ducklake_metadata_activity(
         staging_uri: str | None = None
         if not is_dev_mode():
             catalog = get_ducklake_catalog_for_team(inputs.team_id)
-            if catalog and catalog.staging_bucket:
-                staging_uri = compute_staging_uri(model.table_uri, catalog.staging_bucket)
+            if catalog:
+                staging_uri = compute_staging_uri(model.table_uri, catalog.bucket)
 
         model_list.append(
             DuckLakeCopyModelMetadata(
@@ -491,7 +491,7 @@ def _copy_data_modeling_via_duckgres(inputs: DuckLakeCopyActivityInputs, logger)
     )
     stage_delta_table(
         source_uri=inputs.model.source_table_uri,
-        staging_bucket=catalog.staging_bucket,
+        catalog_bucket=catalog.bucket,
         role_arn=catalog.cross_account_role_arn,
         external_id=catalog.cross_account_external_id,
     )

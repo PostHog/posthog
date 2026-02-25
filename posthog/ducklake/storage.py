@@ -476,22 +476,25 @@ def get_deltalake_storage_options(
     return storage_config.to_deltalake_options()
 
 
-def compute_staging_uri(source_uri: str, staging_bucket: str) -> str:
-    """Replace source bucket with staging bucket, keeping the same key path."""
+STAGING_PREFIX = "__posthog_staging"
+
+
+def compute_staging_uri(source_uri: str, catalog_bucket: str) -> str:
+    """Place source key path under __posthog_staging/ in the catalog bucket."""
     key_path = urlparse(source_uri).path.lstrip("/")
-    return f"s3://{staging_bucket}/{key_path}"
+    return f"s3://{catalog_bucket}/{STAGING_PREFIX}/{key_path}"
 
 
 def stage_delta_table(
     source_uri: str,
-    staging_bucket: str,
+    catalog_bucket: str,
     role_arn: str,
     external_id: str | None = None,
 ) -> str:
-    """Copy Delta table files from source bucket to staging bucket.
+    """Copy Delta table files from source bucket to the catalog bucket under __posthog_staging/.
 
-    Uses cross-account credentials to read from the source bucket (via bucket policy)
-    and write to the staging bucket.
+    Uses cross-account credentials to read from the source bucket and write
+    to the catalog bucket's staging prefix.
 
     Returns the staging URI for the Delta table.
     """
@@ -521,16 +524,17 @@ def stage_delta_table(
             objects_to_copy.append(obj["Key"])
 
     def copy_one(key: str) -> None:
+        staging_key = f"{STAGING_PREFIX}/{key}"
         s3.copy_object(
-            Bucket=staging_bucket,
-            Key=key,
+            Bucket=catalog_bucket,
+            Key=staging_key,
             CopySource={"Bucket": source_bucket, "Key": key},
         )
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         list(executor.map(copy_one, objects_to_copy))
 
-    return compute_staging_uri(source_uri, staging_bucket)
+    return compute_staging_uri(source_uri, catalog_bucket)
 
 
 def cleanup_staged_files(

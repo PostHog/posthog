@@ -208,7 +208,7 @@ def _create_mock_catalog():
         "DUCKLAKE_S3_ACCESS_KEY": "",
         "DUCKLAKE_S3_SECRET_KEY": "",
     }
-    mock_catalog.staging_bucket = "staging-bucket"
+    mock_catalog.bucket = "test-bucket"
     mock_catalog.cross_account_role_arn = "arn:aws:iam::123456789012:role/test-role"
     mock_catalog.cross_account_external_id = "external-id-123"
     mock_cross_account_dest = MagicMock()
@@ -266,7 +266,7 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
         source_table_uri="s3://bucket/team_1/customers",
         ducklake_schema_name="data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
-        staging_uri="s3://staging-bucket/team_1/customers",
+        staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -279,7 +279,7 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     assert any("delta_scan" in str(call) for call in execute_calls)
     # Verify staging URI used, not source URI
     table_call = next(call for call in execute_calls if "delta_scan" in str(call))
-    assert "s3://staging-bucket/team_1/customers" in str(table_call)
+    assert "s3://test-bucket/__posthog_staging/team_1/customers" in str(table_call)
 
 
 def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_queries(monkeypatch):
@@ -583,7 +583,7 @@ def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypat
         source_table_uri="s3://bucket/team_1/customers",
         ducklake_schema_name="data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
-        staging_uri="s3://staging-bucket/team_1/customers",
+        staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -777,14 +777,18 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
 
 
 @pytest.mark.parametrize(
-    ("source_uri", "staging_bucket", "expected"),
+    ("source_uri", "catalog_bucket", "expected"),
     [
-        ("s3://source-bucket/team_1/customers", "staging-bucket", "s3://staging-bucket/team_1/customers"),
-        ("s3://my-bucket/a/b/c", "other-bucket", "s3://other-bucket/a/b/c"),
+        (
+            "s3://source-bucket/team_1/customers",
+            "catalog-bucket",
+            "s3://catalog-bucket/__posthog_staging/team_1/customers",
+        ),
+        ("s3://my-bucket/a/b/c", "other-bucket", "s3://other-bucket/__posthog_staging/a/b/c"),
     ],
 )
-def test_compute_staging_uri(source_uri, staging_bucket, expected):
-    assert compute_staging_uri(source_uri, staging_bucket) == expected
+def test_compute_staging_uri(source_uri, catalog_bucket, expected):
+    assert compute_staging_uri(source_uri, catalog_bucket) == expected
 
 
 @pytest.mark.asyncio
@@ -804,7 +808,7 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
                 source_table_uri="s3://bucket/team_1/customers",
                 ducklake_schema_name="data_imports_team_1",
                 ducklake_table_name="postgres_customers_abc12345",
-                staging_uri="s3://staging-bucket/team_1/customers",
+                staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
             )
         ]
 

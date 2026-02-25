@@ -42,7 +42,7 @@ def _create_mock_catalog():
         "DUCKLAKE_S3_ACCESS_KEY": "",
         "DUCKLAKE_S3_SECRET_KEY": "",
     }
-    mock_catalog.staging_bucket = "staging-bucket"
+    mock_catalog.bucket = "test-bucket"
     mock_catalog.cross_account_role_arn = "arn:aws:iam::123456789012:role/test-role"
     mock_catalog.cross_account_external_id = "external-id-123"
     mock_cross_account_dest = MagicMock()
@@ -235,7 +235,7 @@ def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch)
         schema_name="data_modeling_team_1",
         table_name="model_a",
         verification_queries=[],
-        staging_uri="s3://staging-bucket/table",
+        staging_uri="s3://test-bucket/__posthog_staging/table",
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -248,7 +248,7 @@ def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch)
     assert any("delta_scan" in str(call) for call in execute_calls)
     # Verify staging URI used, not source URI
     table_call = next(call for call in execute_calls if "delta_scan" in str(call))
-    assert "s3://staging-bucket/table" in str(table_call)
+    assert "s3://test-bucket/__posthog_staging/table" in str(table_call)
 
 
 def test_verify_ducklake_copy_activity_runs_queries(monkeypatch):
@@ -751,7 +751,7 @@ def test_copy_data_modeling_model_to_ducklake_activity_raises_when_no_catalog(mo
         schema_name="data_modeling_team_1",
         table_name="model_a",
         verification_queries=[],
-        staging_uri="s3://staging-bucket/table",
+        staging_uri="s3://test-bucket/__posthog_staging/table",
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -906,7 +906,7 @@ async def test_ducklake_copy_workflow_calls_cleanup_after_verify(monkeypatch, at
                 source_table_uri="s3://source/table",
                 schema_name="data_modeling_team_1",
                 table_name="model",
-                staging_uri="s3://staging-bucket/table",
+                staging_uri="s3://test-bucket/__posthog_staging/table",
             )
         ]
 
