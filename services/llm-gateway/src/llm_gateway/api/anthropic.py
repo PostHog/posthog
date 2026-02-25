@@ -1,7 +1,6 @@
 from typing import Any
 
 import litellm
-import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
@@ -11,7 +10,6 @@ from llm_gateway.models.anthropic import AnthropicMessagesRequest
 from llm_gateway.products.config import validate_product
 from llm_gateway.request_context import set_wizard_flags, set_wizard_metadata
 
-logger = structlog.get_logger(__name__)
 anthropic_router = APIRouter()
 
 WIZARD_META_PREFIX = "x-wizard-meta-"
@@ -62,11 +60,6 @@ async def anthropic_messages(
     user: RateLimitedUser,
     request: Request,
 ) -> dict[str, Any] | StreamingResponse:
-    logger.info(
-        "anthropic_request_headers",
-        path=str(request.url.path),
-        headers=dict(request.headers),
-    )
     meta = extract_wizard_meta_from_headers(request)
     if meta:
         set_wizard_metadata(meta)
@@ -83,11 +76,6 @@ async def anthropic_messages_with_product(
     product: str,
     request: Request,
 ) -> dict[str, Any] | StreamingResponse:
-    logger.info(
-        "anthropic_request_headers",
-        path=str(request.url.path),
-        headers=dict(request.headers),
-    )
     validate_product(product)
     meta = extract_wizard_meta_from_headers(request)
     if meta:
