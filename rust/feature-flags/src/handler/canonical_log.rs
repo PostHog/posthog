@@ -340,6 +340,9 @@ impl FlagsCanonicalLogLine {
     /// `evaluate_single_flag` and its callees. Request-level metadata (request_id,
     /// team_id, ip, etc.) is intentionally not merged.
     ///
+    /// `flags_errored` is excluded because it is incremented in `process_flag_result`,
+    /// which runs on the tokio task after rayon returns.
+    ///
     /// Numeric counters are summed; boolean flags are OR'd.
     pub fn merge_rayon_delta(&mut self, delta: &FlagsCanonicalLogLine) {
         self.flags_device_id_bucketing += delta.flags_device_id_bucketing;
