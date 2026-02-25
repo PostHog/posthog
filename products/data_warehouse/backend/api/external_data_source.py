@@ -458,6 +458,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(payload)
 
+        credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or "Invalid credentials"},
+            )
+
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
