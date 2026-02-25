@@ -40,45 +40,49 @@ class AnthropicConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
         "claude-opus-4-5",
-        "claude-sonnet-4-5",
         "claude-haiku-4-5",
+        "claude-sonnet-4-5",
         "claude-opus-4-1",
         "claude-opus-4-0",
         "claude-sonnet-4-0",
-        "claude-3-7-sonnet-latest",
     ]
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
         "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-opus-4-5",
         "claude-opus-4-1",
-        "claude-sonnet-4-0",
         "claude-opus-4-0",
-        "claude-3-7-sonnet-latest",
+        "claude-sonnet-4-0",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
         "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-opus-4-5",
         "claude-opus-4-1",
-        "claude-sonnet-4-0",
         "claude-opus-4-0",
-        "claude-3-7-sonnet-latest",
+        "claude-sonnet-4-0",
     ]
 
     # Models shown prominently in the picker UI, newest first.
     # Other models from the API are shown in a collapsed section.
     RECOMMENDED_MODELS: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
         "claude-opus-4-5",
-        "claude-sonnet-4-5",
         "claude-haiku-4-5",
+        "claude-sonnet-4-5",
         "claude-opus-4-1",
         "claude-opus-4-0",
         "claude-sonnet-4-0",
-        "claude-3-7-sonnet-latest",
     ]
 
 
@@ -329,7 +333,7 @@ class AnthropicAdapter:
 
         Without a key, returns the curated SUPPORTED_MODELS list.
         With a key, returns SUPPORTED_MODELS first, then remaining Claude models
-        from the API sorted alphabetically.
+        from the API sorted by creation date (newest first).
         """
         if not api_key:
             return AnthropicConfig.SUPPORTED_MODELS
@@ -338,10 +342,9 @@ class AnthropicAdapter:
         try:
             client = anthropic.Anthropic(api_key=api_key, timeout=AnthropicConfig.TIMEOUT)
             api_models = client.models.list(limit=1000)
-            other = sorted(
-                (m.id for m in api_models.data if m.id not in supported and m.id.startswith("claude-")),
-                reverse=True,
-            )
+            filtered = [m for m in api_models.data if m.id not in supported and m.id.startswith("claude-")]
+            filtered.sort(key=lambda m: m.created_at, reverse=True)
+            other = [m.id for m in filtered]
             return list(AnthropicConfig.SUPPORTED_MODELS) + other
         except Exception:
             logger.exception("Error fetching Anthropic models from API")

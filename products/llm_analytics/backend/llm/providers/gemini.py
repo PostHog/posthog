@@ -236,7 +236,7 @@ class GeminiAdapter:
 
         Without a key, returns the curated SUPPORTED_MODELS list.
         With a key, returns SUPPORTED_MODELS first, then remaining Gemini models
-        from the API sorted alphabetically.
+        sorted reverse alphabetically (Gemini's API doesn't expose creation timestamps).
         """
         if not api_key:
             return GeminiConfig.SUPPORTED_MODELS

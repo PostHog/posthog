@@ -8,15 +8,18 @@ class TestAnthropicListModels:
         assert AnthropicAdapter.list_models(None) == AnthropicConfig.SUPPORTED_MODELS
 
     @patch("products.llm_analytics.backend.llm.providers.anthropic.anthropic.Anthropic")
-    def test_list_models_with_key_returns_supported_plus_api_models(self, mock_anthropic):
+    def test_list_models_with_key_returns_supported_plus_api_models_newest_first(self, mock_anthropic):
         api_model_supported = MagicMock()
         api_model_supported.id = "claude-opus-4-5"
+        api_model_supported.created_at = "2025-06-01T00:00:00Z"
 
         api_model_new = MagicMock()
         api_model_new.id = "claude-5-opus"
+        api_model_new.created_at = "2026-03-01T00:00:00Z"
 
         api_model_old = MagicMock()
         api_model_old.id = "claude-3-haiku-20240307"
+        api_model_old.created_at = "2024-03-07T00:00:00Z"
 
         mock_page = MagicMock()
         mock_page.data = [api_model_supported, api_model_new, api_model_old]
@@ -27,7 +30,7 @@ class TestAnthropicListModels:
 
         models = AnthropicAdapter.list_models("sk-ant-test-key")
 
-        # Supported models first in their defined order, then new API models sorted reverse alphabetically
+        # Supported models first, then API models sorted by created_at newest first
         assert models == [*AnthropicConfig.SUPPORTED_MODELS, "claude-5-opus", "claude-3-haiku-20240307"]
 
     @patch("products.llm_analytics.backend.llm.providers.anthropic.anthropic.Anthropic")

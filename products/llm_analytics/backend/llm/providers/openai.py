@@ -366,7 +366,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
 
         Without a key, returns the curated SUPPORTED_MODELS list.
         With a key, returns SUPPORTED_MODELS first, then remaining chat-capable
-        models from the API sorted alphabetically.
+        models from the API sorted by creation date (newest first).
         """
         if not api_key:
             return OpenAIConfig.SUPPORTED_MODELS
@@ -375,14 +375,13 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         try:
             client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
             api_models = client.models.list()
-            other = sorted(
-                (
-                    m.id
-                    for m in api_models
-                    if m.id not in supported and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
-                ),
-                reverse=True,
-            )
+            filtered = [
+                m
+                for m in api_models
+                if m.id not in supported and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
+            ]
+            filtered.sort(key=lambda m: m.created, reverse=True)
+            other = [m.id for m in filtered]
             return list(OpenAIConfig.SUPPORTED_MODELS) + other
         except Exception:
             logger.exception("Error fetching OpenAI models from API")
