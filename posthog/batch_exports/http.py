@@ -1,11 +1,15 @@
+import socket
 import typing
 import builtins
 import datetime as dt
+import ipaddress
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
 
@@ -23,6 +27,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -237,6 +242,15 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         model = BatchExportDestination
         fields = ["type", "config", "integration", "integration_id"]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        team_id = self.context.get("team_id")
+        if team_id:
+            fields["integration_id"].queryset = Integration.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
+        else:
+            fields["integration_id"].queryset = Integration.objects.none()  # type: ignore[attr-defined]
+        return fields
+
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
         export_destination = BatchExportDestination.objects.create(**validated_data)
@@ -388,6 +402,87 @@ class BatchExportsSchema(TypedDict):
     fields: list[BatchExportsField]
     values: dict[str, str]
     hogql_query: str
+
+
+class _SubqueryFinder(TraversingVisitor):
+    """Walk an AST subtree and flag if any SelectQuery or SelectSetQuery is found."""
+
+    def __init__(self):
+        super().__init__()
+        self.found = False
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        self.found = True
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        self.found = True
+
+
+INTERNAL_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
+
+def is_ip_internal(ip: str) -> bool:
+    """Check if IP belongs to an internal network."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        raise ValueError("Could not parse IP")
+
+    if any(addr in network for network in INTERNAL_NETWORKS):
+        return True
+    return False
+
+
+def resolve_and_validate_url(url: str) -> None:
+    """Ensure provided url point to a non-internal IP."""
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        raise ValueError(f"Invalid URL'{url}': {e}") from e
+
+    host = parsed.hostname
+    if not host:
+        raise ValueError("URL has no hostname")
+
+    resolve_and_validate_host(host)
+
+
+def resolve_and_validate_host(host: str) -> None:
+    """Ensure provided host resolves to a non-internal IP."""
+    if host == "localhost" and (settings.TEST or settings.DEBUG):
+        return
+
+    # Host may already be an IP literal
+    try:
+        if is_ip_internal(host):
+            raise ValueError("Host resolved to internal IP")
+        return
+    except ValueError:
+        # Not an IP literal, requires DNS
+        pass
+
+    try:
+        # getaddrinfo supports both ipv4 and ipv6
+        results = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Could not resolve '{host}': {e}") from e
+
+    # Keeps only unique ips from the result tuple
+    resolved_ips = {str(r[4][0]) for r in results}
+
+    for ip in resolved_ips:
+        if is_ip_internal(ip):
+            raise ValueError("Host resolved to internal IP")
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
@@ -611,6 +706,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if merged_config.get("endpoint_url") == "":
                 destination_attrs["config"]["endpoint_url"] = None
 
+            if merged_config.get("endpoint_url") is not None:
+                try:
+                    resolve_and_validate_url(merged_config["endpoint_url"])
+                except ValueError:
+                    raise serializers.ValidationError(f"Invalid endpoint_url: '{merged_config['endpoint_url']}'")
+
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
             team_id = self.context["team_id"]
             team = Team.objects.get(id=team_id)
@@ -728,6 +829,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
             ):
                 raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
+        if destination_type in (
+            BatchExportDestination.Destination.POSTGRES,
+            BatchExportDestination.Destination.REDSHIFT,
+        ):
+            try:
+                resolve_and_validate_host(merged_config["host"])
+            except ValueError:
+                raise serializers.ValidationError(f"Invalid host: '{merged_config['host']}'")
+
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
@@ -796,16 +906,25 @@ class BatchExportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Unsupported HogQL query")
 
         for field in hogql_query.select:
-            expression = print_prepared_ast(
-                field.expr,  # type: ignore
-                context=context,
-                dialect="clickhouse",
-            )
-
             if isinstance(field, ast.Alias):
+                expression = print_prepared_ast(
+                    field.expr,
+                    context=context,
+                    dialect="clickhouse",
+                )
                 alias = escape_clickhouse_identifier(field.alias)
             else:
-                alias = expression
+                expression = print_prepared_ast(
+                    field,
+                    context=context,
+                    dialect="clickhouse",
+                )
+                # String constants get parameterized by the ClickHouse printer (e.g., 'hello' becomes
+                # %(hogql_val_0)s), which escape_clickhouse_identifier rejects. Use the raw value instead.
+                if isinstance(field, ast.Constant) and isinstance(field.value, str):
+                    alias = escape_clickhouse_identifier(field.value)
+                else:
+                    alias = escape_clickhouse_identifier(expression)
 
             batch_export_field: BatchExportsField = {
                 "expression": expression,
@@ -835,8 +954,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if parsed.select_from is None:
             raise serializers.ValidationError("Query must SELECT FROM events")
 
-        if isinstance(parsed.select_from.table, ast.SelectQuery):
-            raise serializers.ValidationError("Subqueries or CTEs are not supported")
+        if parsed.ctes:
+            raise serializers.ValidationError("CTEs are not supported")
+
+        if isinstance(parsed.select_from.table, (ast.SelectQuery, ast.SelectSetQuery)):
+            raise serializers.ValidationError("Subqueries are not supported")
 
         # Not sure how to make mypy understand this works, hence the ignore comment.
         # And if it doesn't, it's still okay as it could mean an unsupported query.
@@ -847,9 +969,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if parsed.select_from.next_join is not None:
             raise serializers.ValidationError("JOINs are not supported")
 
+        subquery_finder = _SubqueryFinder()
         for field in parsed.select:
-            expr = field.expr if isinstance(field, ast.Alias) else field
-            if isinstance(expr, (ast.SelectQuery, ast.SelectSetQuery)):
+            subquery_finder.visit(field)
+            if subquery_finder.found:
                 raise serializers.ValidationError("Subqueries in SELECT expressions are not supported")
 
         return hogql_query
@@ -1110,6 +1233,23 @@ def create_backfill(
     Returns:
         The backfill workflow ID
     """
+    # Currently, backfills from the beginning of time usually fail due to us hitting ClickHouse memory limits.
+    # Therefore, this feature is behind a feature flag while we improve backfilling behavior.
+    if start_at_input is None:
+        if not posthoganalytics.feature_enabled(
+            "batch-export-earliest-backfill",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        ):
+            raise ValidationError("Backfilling from the beginning of time is not enabled for this team.")
+
     temporal = sync_connect()
 
     if start_at_input is not None:

@@ -5,13 +5,76 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.approvals.models import Approval, ApprovalDecision, ApprovalPolicy, ChangeRequest, ChangeRequestState
+from posthog.approvals.models import (
+    Approval,
+    ApprovalDecision,
+    ApprovalPolicy,
+    ChangeRequest,
+    ChangeRequestState,
+    ValidationStatus,
+)
+from posthog.constants import AvailableFeature
 from posthog.models import User
 
 
+class TestApprovalsFeatureGating(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = 8  # Admin, required for approval_policies
+        self.organization_membership.save()
+
+    @parameterized.expand(["change_requests", "approval_policies"])
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_requires_approvals_feature_on_cloud(self, endpoint, _mock_is_cloud):
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    @parameterized.expand(["change_requests", "approval_policies"])
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_accessible_with_approvals_feature_on_cloud(self, endpoint, _mock_is_cloud):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(["change_requests", "approval_policies"])
+    def test_accessible_without_feature_when_not_cloud(self, endpoint):
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(["approve", "reject", "cancel"])
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_change_request_actions_require_feature_on_cloud(self, action, _mock_is_cloud):
+        cr = ChangeRequest.objects.create(
+            team=self.team,
+            organization=self.organization,
+            created_by=self.user,
+            action_key="feature_flag.enable",
+            resource_type="feature_flag",
+            resource_id="123",
+            state=ChangeRequestState.PENDING,
+            intent={"gated_changes": {"active": True}},
+            intent_display={"description": "Enable feature flag"},
+            policy_snapshot={"quorum": 1, "users": [self.user.id], "allow_self_approve": True},
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/{action}/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+
 class TestChangeRequestViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
     def _create_change_request(self, **kwargs):
         defaults = {
             "team": self.team,
@@ -155,10 +218,69 @@ class TestChangeRequestViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_cancel_blocked_when_has_approvals(self):
+        other_user = User.objects.create(email="approver@posthog.com")
+        cr = self._create_change_request(policy_snapshot={"quorum": 3, "users": [self.user.id, other_user.id]})
+        Approval.objects.create(change_request=cr, created_by=other_user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_cancel_allowed_when_stale_despite_approvals(self):
+        other_user = User.objects.create(email="approver@posthog.com")
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 3, "users": [self.user.id, other_user.id]},
+            validation_status=ValidationStatus.STALE,
+        )
+        Approval.objects.create(change_request=cr, created_by=other_user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "canceled"
+        cr.refresh_from_db()
+        assert cr.state == ChangeRequestState.REJECTED
+
+    def test_cancel_allowed_when_no_approvals(self):
+        cr = self._create_change_request(policy_snapshot={"quorum": 3, "users": [self.user.id]})
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "canceled"
+
+    def test_can_cancel_field_false_when_has_approvals(self):
+        other_user = User.objects.create(email="approver@posthog.com")
+        cr = self._create_change_request(policy_snapshot={"quorum": 3, "users": [self.user.id, other_user.id]})
+        Approval.objects.create(change_request=cr, created_by=other_user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_cancel"] is False
+
+    def test_can_cancel_field_true_when_stale_with_approvals(self):
+        other_user = User.objects.create(email="approver@posthog.com")
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 3, "users": [self.user.id, other_user.id]},
+            validation_status=ValidationStatus.STALE,
+        )
+        Approval.objects.create(change_request=cr, created_by=other_user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_cancel"] is True
+
 
 class TestApprovalPolicyViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
         self.organization_membership.level = 8  # Admin level
         self.organization_membership.save()
 

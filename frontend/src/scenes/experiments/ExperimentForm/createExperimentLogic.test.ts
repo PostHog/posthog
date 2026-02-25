@@ -133,7 +133,7 @@ describe('createExperimentLogic', () => {
             expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '456')
         })
 
-        it('navigates to experiment page after creation', async () => {
+        it('navigates to experiments list after creating a draft', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...NEW_EXPERIMENT,
@@ -146,7 +146,7 @@ describe('createExperimentLogic', () => {
                 .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toFinishAllListeners()
 
-            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments')
         })
 
         it('shows success toast', async () => {
@@ -166,7 +166,7 @@ describe('createExperimentLogic', () => {
 
             expect(lemonToast.success).toHaveBeenCalledWith('Experiment created successfully!')
             expect(routerPushSpy).toHaveBeenCalledTimes(1)
-            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments')
         })
     })
 
@@ -402,53 +402,40 @@ describe('createExperimentLogic', () => {
         })
     })
 
+    describe('unmount/remount resets stale state', () => {
+        it('starts fresh after unmount and remount with no draft', async () => {
+            logic.actions.setExperiment({
+                ...NEW_EXPERIMENT,
+                id: 123,
+                name: 'Saved Experiment',
+                description: 'Already saved',
+            })
+
+            logic.unmount()
+
+            const freshLogic = createExperimentLogic()
+            freshLogic.mount()
+
+            await expectLogic(freshLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', description: '' }),
+            })
+
+            freshLogic.unmount()
+        })
+    })
+
     describe('feature flag key auto-generation', () => {
-        it('auto-generates flag key when changing name in create mode with new flag', async () => {
+        it('does not auto-generate a flag key when changing experiment name', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperimentValue('name', 'My New Experiment')
-            })
-                .toDispatchActions(['setExperimentValue', 'setFeatureFlagConfig'])
-                .toMatchValues({
-                    experiment: partial({
-                        name: 'My New Experiment',
-                        feature_flag_key: 'my-new-experiment',
-                    }),
-                })
-        })
-
-        it('does NOT auto-generate flag key when linking an existing flag and renaming', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagConfig({
-                    feature_flag_key: 'existing-linked-flag',
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 50 },
-                        { key: 'test', rollout_percentage: 50 },
-                    ],
-                })
-            }).toMatchValues({
-                experiment: partial({
-                    feature_flag_key: 'existing-linked-flag',
-                }),
-            })
-
-            const variantsPanelLogicInstance = await import('./variantsPanelLogic').then((m) =>
-                m.variantsPanelLogic({ experiment: logic.values.experiment, disabled: false })
-            )
-            variantsPanelLogicInstance.mount()
-            variantsPanelLogicInstance.actions.setMode('link')
-
-            await expectLogic(logic, () => {
-                logic.actions.setExperimentValue('name', 'Renamed Experiment')
             })
                 .toDispatchActions(['setExperimentValue'])
                 .toMatchValues({
                     experiment: partial({
-                        name: 'Renamed Experiment',
-                        feature_flag_key: 'existing-linked-flag',
+                        name: 'My New Experiment',
+                        feature_flag_key: '',
                     }),
                 })
-
-            variantsPanelLogicInstance.unmount()
         })
     })
 

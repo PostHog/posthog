@@ -35,20 +35,33 @@ export function VariantTimeseriesChart({
                     },
                     scales: {
                         y: {
-                            beginAtZero: true,
                             grid: {
                                 display: true,
-                                color: colors.EXPOSURES_AXIS_LINES,
+                                color: (context) => {
+                                    if (context.tick.value === 0) {
+                                        return colors.ZERO_LINE
+                                    }
+                                    return colors.EXPOSURES_AXIS_LINES
+                                },
+                                lineWidth: (context) => {
+                                    if (context.tick.value === 0) {
+                                        return 1.25
+                                    }
+                                    return 1
+                                },
                             },
                             ticks: {
-                                count: 6,
                                 callback: (value) => {
                                     const num = Number(value)
-                                    if (Math.abs(num) < 1) {
-                                        return `${(num * 100).toFixed(1)}%`
-                                    }
-                                    return num.toFixed(2)
+                                    return `${(num * 100).toFixed(0)}%`
                                 },
+                            },
+                            afterBuildTicks: (axis) => {
+                                const ticks = axis.ticks.map((t) => t.value)
+                                if (!ticks.includes(0)) {
+                                    axis.ticks.push({ value: 0 })
+                                    axis.ticks.sort((a, b) => a.value - b.value)
+                                }
                             },
                         },
                         x: {
@@ -119,7 +132,7 @@ export function VariantTimeseriesChart({
                 },
             }
         },
-        deps: [data, colors.EXPOSURES_AXIS_LINES, isRatioMetric],
+        deps: [data, colors.EXPOSURES_AXIS_LINES, colors.ZERO_LINE, isRatioMetric],
     })
 
     return (

@@ -7,8 +7,8 @@ import { LemonBadge, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { WarningHog } from 'lib/components/hedgehogs'
+import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -18,20 +18,21 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
-import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
+import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
 import { createPlaylist } from './playlist/playlistUtils'
+import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
@@ -129,10 +130,6 @@ function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-
     return (
         <>
             {recordingsDisabled ? (
@@ -143,7 +140,7 @@ function Warnings(): JSX.Element {
                         </div>
                         <div className="flex flex-col gap-2 flex-shrink max-w-180">
                             <h2 className="text-lg font-semibold">
-                                Session recordings are not yet enabled for this {settingLevel}
+                                Session recordings are not yet enabled for this project
                             </h2>
                             <p className="font-normal">Enabling session recordings will help you:</p>
                             <ul className="list-disc list-inside font-normal">
@@ -197,6 +194,9 @@ function Warnings(): JSX.Element {
 
 function MainPanel({ tabId }: { tabId: string }): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026] === 'test'
 
     const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `scene-${tabId}`,
@@ -213,7 +213,11 @@ function MainPanel({ tabId }: { tabId: string }): JSX.Element {
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
-                    <SessionRecordingsPlaylist {...playlistLogicProps} />
+                    {isRedesignEnabled ? (
+                        <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
+                    ) : (
+                        <SessionRecordingsPlaylist {...playlistLogicProps} />
+                    )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />

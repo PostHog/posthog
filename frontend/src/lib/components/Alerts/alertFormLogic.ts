@@ -2,7 +2,6 @@ import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 
 import api from 'lib/api'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -16,6 +15,7 @@ import {
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import { AlertType, AlertTypeWrite } from './types'
 
@@ -133,12 +133,32 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     payload.threshold.configuration.type = InsightThresholdType.ABSOLUTE
                 }
 
+                const upsertToParent = (updatedAlert: AlertType): void => {
+                    if (props.insightVizDataLogicProps) {
+                        insightAlertsLogic({
+                            insightId: props.insightId,
+                            insightLogicProps: props.insightVizDataLogicProps,
+                        }).actions.upsertAlert(updatedAlert)
+                    }
+                }
+
+                // Must use alert.id (not the server-returned ID) to look up the logic instance where pending notifications were queued.
+                // For new alerts alert.id is undefined, keying the logic as 'new' — using the server-returned ID would miss the queued state.
+                const notifLogic = alertNotificationLogic({ alertId: alert.id })
+
+                const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
+                    if (notifLogic.values.pendingNotifications.length > 0) {
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, alert.name)
+                    }
+                }
+
                 try {
                     if (alert.id === undefined) {
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
+                        await flushPendingNotifications(updatedAlert.id)
                         lemonToast.success(`Alert created.`)
-                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLogAlerts)
+                        upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
 
                         return updatedAlert
@@ -146,7 +166,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
+                    await flushPendingNotifications(updatedAlert.id)
                     lemonToast.success(`Alert saved.`)
+                    upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
 
                     return updatedAlert
@@ -160,47 +182,61 @@ export const alertFormLogic = kea<alertFormLogicType>([
     })),
 
     listeners(({ props, values }) => {
-        // Helper to refresh alerts in the parent logic if available
-        const refreshParentAlerts = (): void => {
+        const getParentLogic = (): ReturnType<typeof insightAlertsLogic.build> | undefined => {
             if (props.insightVizDataLogicProps) {
-                insightAlertsLogic({
+                return insightAlertsLogic({
                     insightId: props.insightId,
                     insightLogicProps: props.insightVizDataLogicProps,
-                }).actions.loadAlerts()
+                })
             }
+            return undefined
         }
 
         return {
             deleteAlert: async () => {
-                // deletion only allowed on created alert (which will have alertId)
                 if (!values.alertForm.id) {
                     throw new Error("Cannot delete alert that doesn't exist")
                 }
                 await api.alerts.delete(values.alertForm.id)
                 lemonToast.success('Alert deleted.')
-                refreshParentAlerts()
+                const parent = getParentLogic()
+                if (parent) {
+                    parent.actions.removeAlert(values.alertForm.id)
+                    parent.actions.loadAlerts()
+                }
                 props.onEditSuccess(undefined)
             },
             snoozeAlert: async ({ snoozeUntil }) => {
-                // snoozing only allowed on created alert (which will have alertId)
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
-                refreshParentAlerts()
+                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
+                    snoozed_until: snoozeUntil,
+                })
+                const parent = getParentLogic()
+                if (parent) {
+                    parent.actions.upsertAlert(updatedAlert)
+                    parent.actions.loadAlerts()
+                }
                 props.onEditSuccess(values.alertForm.id)
             },
             clearSnooze: async () => {
-                // resolution only allowed on created alert (which will have alertId)
                 if (!values.alertForm.id) {
                     throw new Error("Cannot resolve alert that doesn't exist")
                 }
-                await api.alerts.update(values.alertForm.id, { snoozed_until: null })
-                refreshParentAlerts()
+                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
+                    snoozed_until: null,
+                })
+                const parent = getParentLogic()
+                if (parent) {
+                    parent.actions.upsertAlert(updatedAlert)
+                    parent.actions.loadAlerts()
+                }
                 props.onEditSuccess(values.alertForm.id)
             },
             submitAlertFormSuccess: async () => {
-                refreshParentAlerts()
+                // Background sync to pick up any server-side changes
+                getParentLogic()?.actions.loadAlerts()
             },
         }
     }),

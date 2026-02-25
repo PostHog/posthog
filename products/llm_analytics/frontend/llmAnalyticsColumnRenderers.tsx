@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -9,16 +10,21 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
+import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumn } from '~/queries/types'
 import { hogql, isDataTableNode, isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { AIDataLoading } from './components/AIDataLoading'
+import { SentimentBar } from './components/SentimentTag'
+import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { EventData, useAIData } from './hooks/useAIData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { flattenGenerationMessages } from './sentimentUtils'
 import { CompatMessage } from './types'
-import { normalizeMessages } from './utils'
+import { normalizeMessages, parseJSONPreview } from './utils'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {
@@ -163,6 +169,55 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
     )
 }
 
+function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+
+    const cached = personsCache[distinctId]
+
+    useEffect(() => {
+        if (currentTeamId && cached === undefined) {
+            ensurePersonLoaded(distinctId)
+        }
+    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
+
+    const personData: PersonData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: distinctId }
+
+    return <PersonColumnCell person={personData} />
+}
+
+function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element {
+    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+
+    const cached = sentimentByTraceId[traceId]
+    const loading = isTraceLoading(traceId)
+
+    if (cached === undefined && !loading) {
+        ensureSentimentLoaded(traceId, dateFilter)
+    }
+
+    if (loading || cached === undefined) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    if (cached === null) {
+        return <>–</>
+    }
+
+    return (
+        <SentimentBar
+            label={cached.label}
+            score={cached.score}
+            size="full"
+            messages={flattenGenerationMessages(cached.generations)}
+        />
+    )
+}
+
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     const { input, isLoading } = useAIData(eventData)
 
@@ -172,7 +227,7 @@ function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
 
     let inputNormalized: CompatMessage[] | undefined
     try {
-        const parsed = typeof input === 'string' ? JSON.parse(input) : input
+        const parsed = parseJSONPreview(input)
         inputNormalized = normalizeMessages(parsed, 'user')
     } catch (e) {
         console.warn('Error normalizing properties.$ai_input', e)
@@ -194,7 +249,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
 
     let outputNormalized: CompatMessage[] | undefined
     try {
-        const parsed = typeof output === 'string' ? JSON.parse(output) : output
+        const parsed = parseJSONPreview(output)
         outputNormalized = normalizeMessages(parsed, 'assistant')
     } catch (e) {
         console.warn('Error normalizing properties.$ai_output_choices', e)
@@ -302,7 +357,15 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
     person: {
         title: 'Person',
         render: ({ value, record, query }) => {
-            // Handle object format (TracesQuery results - LLMTracePerson)
+            // Handle TracesQuery results with lazy loading: person is null, distinctId is available
+            if (!value && record && typeof record === 'object' && !Array.isArray(record)) {
+                const traceRecord = record as LLMTrace
+                if (traceRecord.distinctId) {
+                    return <LazyPersonColumnCell distinctId={traceRecord.distinctId} />
+                }
+            }
+
+            // Handle object format (TracesQuery results - LLMTracePerson, for backwards compat)
             if (value && typeof value === 'object' && !Array.isArray(value) && 'distinct_id' in value) {
                 return <PersonColumnCell person={value as PersonData} />
             }
@@ -332,6 +395,19 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             }
 
             return <PersonColumnCell person={null} />
+        },
+    },
+    sentiment: {
+        title: 'Sentiment',
+        render: ({ record }) => {
+            if (!record || typeof record !== 'object' || Array.isArray(record)) {
+                return <>–</>
+            }
+            const traceRecord = record as LLMTrace
+            if (!traceRecord.id) {
+                return <>–</>
+            }
+            return <LazySentimentColumnCell traceId={traceRecord.id} />
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page

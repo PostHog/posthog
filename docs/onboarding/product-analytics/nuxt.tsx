@@ -61,9 +61,9 @@ export const getNuxtClientSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     export default defineNuxtConfig({
                                       runtimeConfig: {
                                         public: {
-                                          posthogPublicKey: '<ph_project_api_key>',
+                                          posthogPublicKey: '<ph_project_token>',
                                           posthogHost: '<ph_client_api_host>',
-                                          posthogDefaults: '2025-11-30'
+                                          posthogDefaults: '2026-01-30'
                                         }
                                       }
                                     })

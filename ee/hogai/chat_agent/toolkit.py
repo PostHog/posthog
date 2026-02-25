@@ -79,6 +79,7 @@ class ChatAgentPlanToolkit(AgentToolkit):
 class ChatAgentToolkit(AgentToolkit):
     @property
     def tools(self) -> list[type[MaxTool]]:
+        # TRICKY: DO NOT EXTEND THE TOOLKIT HERE. THE TOOLS HERE ARE USED ACROSS ALL AGENT MODES.
         tools = list(DEFAULT_TOOLS)
         if has_phai_tasks_feature_flag(self._team, self._user):
             tools.extend(TASK_TOOLS)

@@ -6,9 +6,9 @@ import { useRef } from 'react'
 
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { PurePlayer } from './PurePlayer'
-import { playerSettingsLogic } from './playerSettingsLogic'
 import {
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
@@ -88,11 +88,12 @@ function SessionRecordingPlayerInternal({
 
     return (
         <div
+            ref={playerRef}
             className={clsx('SessionRecordingPlayerWrapper', {
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
             })}
         >
-            <PurePlayer noMeta={noMeta} noBorder={noBorder} playerRef={playerRef} />
+            <PurePlayer noMeta={noMeta} noBorder={noBorder} />
             {withSidebar && <PlayerSidebar />}
         </div>
     )

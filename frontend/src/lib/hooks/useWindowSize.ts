@@ -1,6 +1,4 @@
-import { useCallback } from 'react'
-// @ts-expect-error - useSyncExternalStore is available in React 18 but types are v17
-import { useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
 import { TAILWIND_BREAKPOINTS } from 'lib/constants'
 

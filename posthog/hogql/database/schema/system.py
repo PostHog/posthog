@@ -29,6 +29,20 @@ class IngestionWarningsTable(Table):
         return "ingestion_warnings"
 
 
+cohort_calculation_history: PostgresTable = PostgresTable(
+    name="cohort_calculation_history",
+    postgres_table_name="posthog_cohortcalculationhistory",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "cohort_id": IntegerDatabaseField(name="cohort_id"),
+        "count": IntegerDatabaseField(name="count"),
+        "started_at": DateTimeDatabaseField(name="started_at"),
+        "finished_at": DateTimeDatabaseField(name="finished_at"),
+        "error_code": StringDatabaseField(name="error_code"),
+    },
+)
+
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
     postgres_table_name="posthog_cohort",
@@ -120,6 +134,24 @@ data_warehouse_sources: PostgresTable = PostgresTable(
         "team_id": IntegerDatabaseField(name="team_id"),
         "source_type": StringDatabaseField(name="source_type"),
         "prefix": StringDatabaseField(name="prefix"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at"),
+    },
+)
+
+data_warehouse_tables: PostgresTable = PostgresTable(
+    name="data_warehouse_tables",
+    postgres_table_name="posthog_datawarehousetable",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "columns": StringJSONDatabaseField(name="columns"),
+        "row_count": IntegerDatabaseField(name="row_count"),
+        "external_data_source_id": StringDatabaseField(name="external_data_source_id"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
@@ -225,21 +257,74 @@ exports: PostgresTable = PostgresTable(
     },
 )
 
+actions: PostgresTable = PostgresTable(
+    name="actions",
+    postgres_table_name="posthog_action",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "steps_json": StringJSONDatabaseField(name="steps_json"),
+    },
+)
+
+notebooks: PostgresTable = PostgresTable(
+    name="notebooks",
+    postgres_table_name="posthog_notebook",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "short_id": StringDatabaseField(name="short_id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "title": StringDatabaseField(name="title"),
+        "content": StringJSONDatabaseField(name="content"),
+        "text_content": StringDatabaseField(name="text_content"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "visibility": StringDatabaseField(name="visibility"),
+        "version": IntegerDatabaseField(name="version"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_modified_at": DateTimeDatabaseField(name="last_modified_at"),
+    },
+)
+
+error_tracking_issues: PostgresTable = PostgresTable(
+    name="error_tracking_issues",
+    postgres_table_name="posthog_errortrackingissue",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "status": StringDatabaseField(name="status"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
-        "dashboards": TableNode(name="dashboards", table=dashboards),
+        "actions": TableNode(name="actions", table=actions),
+        "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
-        "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
-        "insights": TableNode(name="insights", table=insights),
+        "dashboards": TableNode(name="dashboards", table=dashboards),
+        "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
+        "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
+        "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
-        "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
+        "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
+        "insights": TableNode(name="insights", table=insights),
+        "notebooks": TableNode(name="notebooks", table=notebooks),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }

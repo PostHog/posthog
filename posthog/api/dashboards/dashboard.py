@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
@@ -32,7 +33,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
@@ -305,9 +306,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
-
         existing_dashboard: Dashboard | None = None
         if use_dashboard:
             try:
@@ -371,12 +369,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "dashboard created",
             {
                 **dashboard.get_analytics_metadata(),
+                **get_request_analytics_properties(request),
                 "from_template": bool(use_template),
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "dashboard_id": use_dashboard,
-                "$current_url": current_url,
-                "$session_id": session_id,
             },
         )
 
@@ -443,6 +440,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
+            from posthog.models.team import Team
+
+            Team.objects.filter(
+                primary_dashboard=instance,
+                id=instance.team_id,
+            ).update(primary_dashboard=None)
             group_type_mapping = GroupTypeMapping.objects.filter(
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
@@ -471,12 +474,20 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
         for tile_data in duplicate_tiles:
+            # nosemgrep: idor-lookup-without-team (scoped via parent viewset get_queryset)
             existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
             existing_tile.layouts = tile_data.get("layouts", {})
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
-            report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
+            report_user_action(
+                user,
+                "dashboard updated",
+                {
+                    **instance.get_analytics_metadata(),
+                    **get_request_analytics_properties(self.context["request"]),
+                },
+            )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
@@ -506,9 +517,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=validated_data)
+            text, _ = Text.objects.update_or_create(
+                id=text_json.get("id", None), team_id=instance.team_id, defaults=validated_data
+            )
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
+                dashboard=instance,
                 defaults={**tile_data, "text": text, "dashboard": instance},
             )
         elif (
@@ -516,8 +531,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
+                dashboard=instance,
                 defaults={**tile_data, "dashboard": instance},
             )
 
@@ -539,6 +556,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
             if insight_ids_to_delete:
+                # nosemgrep: idor-lookup-without-team
                 Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
@@ -688,6 +706,7 @@ class DashboardsViewSet(
                     "caching_states",
                     Prefetch(
                         "insight__dashboards",
+                        # nosemgrep: idor-lookup-without-team (scoped via prefetch on team-scoped queryset)
                         queryset=Dashboard.objects.filter(
                             id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
                         ),
@@ -859,12 +878,18 @@ class DashboardsViewSet(
         from_dashboard = kwargs["pk"]
         to_dashboard = request.data["toDashboard"]
 
-        tile = DashboardTile.objects.get(dashboard_id=from_dashboard, id=tile["id"])
+        tile = get_object_or_404(
+            DashboardTile,
+            dashboard_id=from_dashboard,
+            id=tile["id"],
+            dashboard__team__project_id=self.team.project_id,
+        )
+        get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
         tile.dashboard_id = to_dashboard
         tile.save(update_fields=["dashboard_id"])
 
         serializer = DashboardSerializer(
-            Dashboard.objects.get(id=from_dashboard),
+            get_object_or_404(Dashboard, id=from_dashboard, team__project_id=self.team.project_id),
             context=self.get_serializer_context(),
         )
         return Response(serializer.data)
@@ -875,8 +900,6 @@ class DashboardsViewSet(
         parser_classes=[DashboardTemplateCreationJSONSchemaParser],
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),
@@ -893,13 +916,12 @@ class DashboardsViewSet(
                 "dashboard created",
                 {
                     **dashboard.get_analytics_metadata(),
+                    **get_request_analytics_properties(request),
                     "from_template": True,
                     "template_key": dashboard_template.template_name,
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,
-                    "$current_url": current_url,
-                    "$session_id": session_id,
                 },
             )
         except Exception:

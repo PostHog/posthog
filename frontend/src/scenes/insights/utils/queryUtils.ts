@@ -124,6 +124,8 @@ export const validateQuery = (q: DataNode): boolean => {
 }
 
 const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
+    [ChartDisplayType.Auto]: ChartDisplayType.ActionsLineGraph,
+
     // time series
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,
@@ -198,6 +200,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showFullUrls: undefined,
             selectedInterval: undefined,
             funnelStepReference: undefined,
+            breakdownSorting: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

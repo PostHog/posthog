@@ -215,6 +215,19 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                 return null
             },
         ],
+        // Returns the domain to use for URL construction: selected domain, or single authorized domain if only one exists
+        effectiveDomain: [
+            (s) => [s.domainFilter, s.authorizedDomains],
+            (domainFilter: string | null, authorizedDomains: string[]): string | null => {
+                if (domainFilter && domainFilter !== 'all') {
+                    return domainFilter
+                }
+                if (authorizedDomains.length === 1) {
+                    return authorizedDomains[0]
+                }
+                return null
+            },
+        ],
     }),
     listeners(({ values }) => ({
         setWebAnalyticsFilters: ({ webAnalyticsFilters }) => {

@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 import pyarrow as pa
 import requests
+import structlog
 from dateutil import parser
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
@@ -50,14 +51,31 @@ def build_pyarrow_schema(schema: dict[str, str]) -> pa.Schema:
     return pa.schema(fields)
 
 
-def doit_list_reports(config: DoItSourceConfig) -> list[tuple[str, str]]:
+def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundLogger] = None) -> list[tuple[str, str]]:
+    if logger is None:
+        logger = structlog.get_logger(__name__)
+
     res = requests.get(
         "https://api.doit.com/analytics/v1/reports", headers={"Authorization": f"Bearer {config.api_key}"}
     )
 
     reports = res.json()["reports"]
 
-    return [(NamingConvention().normalize_identifier(report["reportName"]), report["id"]) for report in reports]
+    result = []
+    for report in reports:
+        report_name = report.get("reportName") or ""
+        report_id = report.get("id", "unknown")
+        if not report_name.strip():
+            logger.warning("Skipping DoIt report with empty name", report_id=report_id)
+            continue
+        try:
+            normalized = NamingConvention().normalize_identifier(report_name)
+            result.append((normalized, report["id"]))
+        except ValueError:
+            logger.warning("Skipping DoIt report with invalid name", report_id=report_id, report_name=report_name)
+            continue
+
+    return result
 
 
 def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
@@ -81,7 +99,7 @@ def doit_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
-    all_reports = doit_list_reports(config)
+    all_reports = doit_list_reports(config, logger=logger)
     selected_reports = [id for name, id in all_reports if name == report_name]
     if len(selected_reports) == 0:
         raise Exception("Report no longer exists")

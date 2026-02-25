@@ -116,7 +116,7 @@ test.describe('Signup', () => {
 
     test('Can submit the signup form multiple times if there is a generic email set', async ({ page }) => {
         let signupRequestBody: string | null = null
-        const email = `new_user+generic_error_test@posthog.com`
+        const email = `new_user+generic_error_test_${Math.floor(Math.random() * 10000)}@posthog.com`
 
         await page.route('/api/signup/', async (route) => {
             signupRequestBody = route.request().postData()
@@ -155,7 +155,9 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-role-at-organization]').click()
         await page.locator('.Popover li:first-child').click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
+        const retrySignupPromise = page.waitForResponse('/api/signup/')
         await page.locator('[data-attr=signup-submit]').click()
+        await retrySignupPromise
 
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
     })

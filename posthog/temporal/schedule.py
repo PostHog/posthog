@@ -21,6 +21,7 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
+from posthog.temporal.ai.video_segment_clustering.schedule import create_video_segment_clustering_coordinator_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.delete_recordings.types import DeleteRecordingMetadataInput
@@ -30,6 +31,7 @@ from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
 )
+from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.llm_analytics.trace_clustering.schedule import (
     create_generation_clustering_coordinator_schedule,
     create_trace_clustering_coordinator_schedule,
@@ -38,8 +40,10 @@ from posthog.temporal.llm_analytics.trace_summarization.schedule import (
     create_batch_generation_summarization_schedule,
     create_batch_trace_summarization_schedule,
 )
+from posthog.temporal.messaging.schedule import create_realtime_cohort_calculation_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
@@ -163,6 +167,41 @@ async def create_salesforce_enrichment_schedule(client: Client):
     else:
         await a_create_schedule(
             client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule, trigger_immediately=False
+        )
+
+
+async def create_salesforce_usage_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce usage enrichment workflow.
+
+    This schedule runs every Sunday at 6 AM UTC to enrich Salesforce accounts with
+    PostHog usage signals.
+    """
+    salesforce_usage_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-usage-enrichment",
+            asdict(UsageEnrichmentInputs()),
+            id="salesforce-usage-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Sunday at 6 AM UTC",
+                    hour=[ScheduleRange(start=6, end=6)],
+                    day_of_week=[ScheduleRange(start=0, end=0)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "salesforce-usage-enrichment-schedule"):
+        await a_update_schedule(client, "salesforce-usage-enrichment-schedule", salesforce_usage_enrichment_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-usage-enrichment-schedule",
+            salesforce_usage_enrichment_schedule,
+            trigger_immediately=False,
         )
 
 
@@ -316,16 +355,21 @@ schedules = [
     create_batch_generation_summarization_schedule,
     create_trace_clustering_coordinator_schedule,
     create_generation_clustering_coordinator_schedule,
+    create_video_segment_clustering_coordinator_schedule,
     create_ducklake_compaction_schedule,
-    create_delete_recording_metadata_schedule,
+    # create_delete_recording_metadata_schedule is disabled during recording-api rollout.
+    # Deletion is now handled by the recording-api (crypto-shredding + Kafka deletion events).
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
+    create_realtime_cohort_calculation_schedule,
+    create_ingestion_acceptance_test_schedule,
 ]
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
+        schedules.append(create_salesforce_usage_enrichment_schedule)
 
 
 async def a_init_general_queue_schedules():

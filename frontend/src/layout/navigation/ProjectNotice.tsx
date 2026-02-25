@@ -17,6 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import { ProjectNoticeVariant, navigationLogic } from './navigationLogic'
+import { projectNoticeLogic } from './projectNoticeLogic'
 
 interface ProjectNoticeBlueprint {
     message: JSX.Element | string
@@ -33,6 +34,9 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { sceneConfig, activeSceneProductKey } = useValues(sceneLogic)
+
+    // Mount projectNoticeLogic to handle polling when "no events" banner is shown
+    useValues(projectNoticeLogic)
 
     if (!projectNoticeVariant) {
         return null

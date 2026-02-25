@@ -95,7 +95,7 @@ def redis_heartbeat() -> None:
 )
 @limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
-    50,
+    10,
     key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
     limit_name="per_team",
 )  # Do not run too many queries at once for the same team

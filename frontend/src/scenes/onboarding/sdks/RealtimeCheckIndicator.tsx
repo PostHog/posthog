@@ -1,7 +1,7 @@
 import { IconCheck } from '@posthog/icons'
 
-import { OnboardingLiveEvents } from './OnboardingLiveEvents'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
+import { OnboardingLiveEvents } from './OnboardingLiveEvents'
 
 export type RealtimeCheckIndicatorProps = {
     teamPropertyToVerify: string

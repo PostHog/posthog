@@ -25,7 +25,6 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
         linkedFeatureFlag,
         eventTriggers,
         urlTriggers,
-        urlBlocklist,
     } = useValues(logic)
     const {
         loadControls,
@@ -35,7 +34,6 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
         setLinkedFeatureFlag,
         setEventTriggers,
         setUrlTriggers,
-        setUrlBlocklist,
     } = useActions(logic)
 
     useEffect(() => {
@@ -80,15 +78,6 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
                             }}
                             title="Enable exception autocapture when URL matches"
                             description="Adding a URL trigger means exception autocapture will only be started when the user visits a page that matches the URL."
-                        />
-                        <UrlConfig
-                            logicProps={{
-                                logicKey: 'error-tracking-url-blocklist',
-                                initialUrlTriggerConfig: urlBlocklist,
-                                onChange: setUrlBlocklist,
-                            }}
-                            title="Pause exception autocapture when URL matches"
-                            description="Used to pause exception autocapture for part of a user journey"
                         />
                         <EventTriggers value={eventTriggers} onChange={setEventTriggers} />
                         <LinkedFlagSelector value={linkedFeatureFlag} onChange={setLinkedFeatureFlag} />

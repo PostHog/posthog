@@ -19,7 +19,8 @@ from posthog.schema import (
 
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models import PropertyDefinition, Team
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class InputMessage(TypedDict):
@@ -230,6 +231,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 for i, event in enumerate(value):
                     self.assertEventEqual(trace.events[i], event)
             elif field == "person":
+                assert trace.person is not None
                 self.assertLess(value.items(), trace.person.model_dump(mode="json", exclude={"uuid"}).items())
             else:
                 self.assertEqual(getattr(trace, field), value, f"Field {field} does not match")
@@ -284,7 +286,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 12.0,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person1")
+        self.assertEqual(trace.distinctId, "person1")
+        self.assertIsNone(trace.person)
 
         # Detail view returns all events
         self.assertEqual(len(trace.events), 2)
@@ -345,7 +348,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_person_properties(self):
-        """Test that person properties are correctly included."""
+        """Test that person data is not loaded server-side (frontend handles it via lazy loader)."""
         _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
         _create_ai_generation_event(
             distinct_id="person1",
@@ -357,9 +360,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TraceQuery(traceId="trace1"),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
-        self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
-        self.assertEqual(response.results[0].person.distinct_id, "person1")
+        self.assertEqual(response.results[0].distinctId, "person1")
+        self.assertIsNone(response.results[0].person)
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_date_range(self):

@@ -4,7 +4,7 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { setupCommonRoutes, setupExpressApp } from './api/router'
+import { initializePrometheusLabels, setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
@@ -30,6 +30,7 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { SessionRecordingIngester } from './session-recording/consumer'
+import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -67,7 +68,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = setupExpressApp()
+        this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
         this.setupContinuousProfiling()
     }
@@ -93,6 +94,7 @@ export class PluginServer {
         const startupTimer = new Date()
         this.setupListeners()
         this.nodeInstrumentation.setupThreadPerformanceInterval()
+        initializePrometheusLabels(this.config)
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config))
@@ -241,11 +243,21 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronShadowWorker) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronShadowWorker(hub)
-                    await worker.start()
-                    return worker.service
-                })
+                // Only start the shadow worker if CYCLOTRON_SHADOW_DATABASE_URL is explicitly configured
+                // (not just using the default value). This prevents crashes in hobby/dev deployments
+                // that don't have the shadow database set up.
+                if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
+                    serviceLoaders.push(async () => {
+                        const worker = new CdpCyclotronShadowWorker(hub)
+                        await worker.start()
+                        return worker.service
+                    })
+                } else {
+                    logger.info(
+                        '⏭️',
+                        'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
+                    )
+                }
             }
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {
@@ -258,7 +270,7 @@ export class PluginServer {
 
             // The service commands is always created
             serviceLoaders.push(() => {
-                const serverCommands = new ServerCommands(hub)
+                const serverCommands = new ServerCommands(hub.pubSub)
                 this.expressApp.use('/', serverCommands.router())
                 return Promise.resolve(serverCommands.service)
             })
@@ -292,6 +304,15 @@ export class PluginServer {
                     const consumer = new CdpBatchHogFlowRequestsConsumer(hub)
                     await consumer.start()
                     return consumer.service
+                })
+            }
+
+            if (capabilities.recordingApi) {
+                serviceLoaders.push(async () => {
+                    const api = new RecordingApi(hub)
+                    this.expressApp.use('/', api.router())
+                    await api.start()
+                    return api.service
                 })
             }
 

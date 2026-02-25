@@ -67,6 +67,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
+from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -110,14 +111,8 @@ from posthog.hogql.database.schema.sessions_v3 import (
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebBouncesCombinedTable,
-    WebBouncesDailyTable,
-    WebBouncesHourlyTable,
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
-    WebStatsCombinedTable,
-    WebStatsDailyTable,
-    WebStatsHourlyTable,
 )
 from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.errors import QueryError, ResolutionError
@@ -202,16 +197,12 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "log_attributes": TableNode(name="log_attributes", table=LogAttributesTable()),
     "logs_kafka_metrics": TableNode(name="logs_kafka_metrics", table=LogsKafkaMetricsTable()),
     # Web analytics pre-aggregated tables (internal use only)
-    "web_stats_daily": TableNode(name="web_stats_daily", table=WebStatsDailyTable()),
-    "web_bounces_daily": TableNode(name="web_bounces_daily", table=WebBouncesDailyTable()),
-    "web_stats_hourly": TableNode(name="web_stats_hourly", table=WebStatsHourlyTable()),
-    "web_bounces_hourly": TableNode(name="web_bounces_hourly", table=WebBouncesHourlyTable()),
-    "web_stats_combined": TableNode(name="web_stats_combined", table=WebStatsCombinedTable()),
-    "web_bounces_combined": TableNode(name="web_bounces_combined", table=WebBouncesCombinedTable()),
-    # V2 Pre-aggregated tables (will replace the above tables after we backfill)
     "web_pre_aggregated_stats": TableNode(name="web_pre_aggregated_stats", table=WebPreAggregatedStatsTable()),
     "web_pre_aggregated_bounces": TableNode(name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()),
     "preaggregation_results": TableNode(name="preaggregation_results", table=PreaggregationResultsTable()),
+    "experiment_exposures_preaggregated": TableNode(
+        name="experiment_exposures_preaggregated", table=ExperimentExposuresPreaggregatedTable()
+    ),
     # Revenue analytics tables
     "persons_revenue_analytics": TableNode(name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()),
     "groups_revenue_analytics": TableNode(name="groups_revenue_analytics", table=GroupsRevenueAnalyticsTable()),
@@ -324,6 +315,7 @@ class Database(BaseModel):
             "groups",
             "persons",
             "sessions",
+            "logs",
             *self.get_system_table_names(),
         ]
 

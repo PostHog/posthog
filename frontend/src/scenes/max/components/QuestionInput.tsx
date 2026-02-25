@@ -140,7 +140,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     },
     ref
 ) {
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
@@ -182,7 +182,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         setShowAutocomplete(isSlashCommand)
     }, [question, showAutocomplete])
 
-    const pendingApproval = !dataProcessingAccepted && !threadLoading
     let disabledReason = submissionDisabledReason
     if (threadLoading && !isQueueingSubmission) {
         disabledReason = undefined
@@ -190,7 +189,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
     }
-    const tooltipReason = pendingApproval ? 'Pending approval' : disabledReason
+    // For non-admins, disable button when consent not given (admins see popup instead)
+    const isAdmin = !dataProcessingApprovalDisabledReason
+    if (!dataProcessingAccepted && !isAdmin && !disabledReason) {
+        disabledReason = dataProcessingApprovalDisabledReason
+    }
 
     useEffect(() => {
         if (!streamingActive && textAreaRef?.current) {
@@ -257,7 +260,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             isRemovingSidePanelFlag && '[--input-ring-size:2px]',
                             // when streaming, we make the ring default color, and when done streaming pop back to very this purple to let users know it's their turn to type
                             // When we allow appending messages, this ux will likely not be useful
-                            isRemovingSidePanelFlag && !streamingActive && '[--input-ring-color:#b62ad9]'
+                            isRemovingSidePanelFlag && !streamingActive && '[--input-ring-color:var(--color-ai)]'
                         )}
                     >
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
@@ -337,10 +340,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </SlashCommandAutocomplete>
 
                         {!isSharedThread && (
-                            <div className="pb-2">
+                            <div className="pb-2 pr-12">
                                 {!isThreadVisible ? (
                                     <div className="flex items-start justify-between">
                                         <ContextDisplay size={contextDisplaySize} />
+
                                         <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
                                     </div>
                                 ) : (
@@ -366,7 +370,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     mainAxis: state.placement.includes('top') ? 30 : 1,
                                 })),
                             ]}
-                            hidden={!threadLoading}
+                            hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
                         >
                             <LemonButton
                                 type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
@@ -390,8 +394,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     askMax(question)
                                 }}
                                 tooltip={
-                                    tooltipReason ? (
-                                        tooltipReason
+                                    disabledReason ? (
+                                        disabledReason
                                     ) : showStopButton ? (
                                         <>
                                             Let's bail <KeyboardShortcut enter />
@@ -408,7 +412,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
                                 disabledReason={disabledReason}
-                                className={tooltipReason ? 'opacity-[0.5]' : ''}
+                                className={disabledReason ? 'opacity-[0.5]' : ''}
                                 size="small"
                                 icon={
                                     showStopButton ? (

@@ -249,26 +249,6 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             ])
         })
 
-        it('should clear the cache each time', async () => {
-            const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersons')
-            await processor.processInvocations(invocations)
-            expect(personManagerSpy).toHaveBeenCalledTimes(1)
-            expect(personManagerSpy.mock.calls[0][0]).toEqual([
-                `${team.id}:distinct_A_1`,
-                `${team.id}:distinct_A_2`,
-                `${team2.id}:distinct_A_1`,
-                `${team2.id}:missing_person`,
-            ])
-            await processor.processInvocations(invocations)
-            expect(personManagerSpy).toHaveBeenCalledTimes(2)
-            expect(personManagerSpy.mock.calls[1][0]).toEqual([
-                `${team.id}:distinct_A_1`,
-                `${team.id}:distinct_A_2`,
-                `${team2.id}:distinct_A_1`,
-                `${team2.id}:missing_person`,
-            ])
-        })
-
         it('should skip invocations when workflow is disabled after being queued', async () => {
             // Scenario: workflow is active, invocations are queued, then workflow is disabled
             // Remaining invocations should be skipped

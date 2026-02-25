@@ -1,13 +1,13 @@
 import './ToolbarLaunch.scss'
 
-import { IconFlag, IconPieChart, IconSearch, IconTestTube } from '@posthog/icons'
+import { IconFlag, IconFlask, IconPieChart, IconSearch } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { Link } from 'lib/lemon-ui/Link'
 import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -55,7 +55,7 @@ export function ToolbarLaunch(): JSX.Element {
                   {
                       title: 'Experiments',
                       caption: 'Run experiments and A/B test your website.',
-                      icon: <IconTestTube />,
+                      icon: <IconFlask />,
                   },
               ]
             : []),

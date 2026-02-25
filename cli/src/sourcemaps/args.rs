@@ -53,22 +53,27 @@ pub struct ReleaseArgs {
     /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
     /// a specific release. We will try to auto-derive this from git information if not provided. Strongly recommended
     /// to be set explicitly during release CD workflows
-    #[arg(long)]
-    pub project: Option<String>,
+    #[arg(long = "release-name", alias = "project")]
+    // deprecated alias for backwards compatibility
+    pub name: Option<String>,
 
     /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
     /// to have the uploaded chunks associated with a specific release. We will try to auto-derive this from git information
     /// if not provided.
-    #[arg(long)]
+    #[arg(long = "release-version", alias = "version")]
+    // deprecated alias for backwards compatibility
     pub version: Option<String>,
+
+    /// If the server returns a release_id_mismatch error (symbol set already exists with a different release),
+    /// retry the upload without associating a release instead of failing.
+    #[arg(long, default_value = "true")]
+    pub skip_release_on_fail: bool,
 }
 
 impl From<ReleaseArgs> for ReleaseBuilder {
     fn from(args: ReleaseArgs) -> Self {
         let mut builder = ReleaseBuilder::default();
-        args.project
-            .as_ref()
-            .map(|project| builder.with_project(project));
+        args.name.as_ref().map(|project| builder.with_name(project));
         args.version
             .as_ref()
             .map(|version| builder.with_version(version));

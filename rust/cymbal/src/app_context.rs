@@ -17,8 +17,9 @@ use uuid::Uuid;
 use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
-    frames::resolver::Resolver,
+    stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
+        apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
         concurrency,
@@ -44,8 +45,8 @@ pub struct AppContext {
     pub immediate_producer: FutureProducer<KafkaContext>,
     pub posthog_pool: PgPool,
     pub persons_pool: PgPool,
-    pub catalog: Catalog,
-    pub resolver: Resolver,
+    pub catalog: Arc<Catalog>,
+    pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub config: Config,
     pub geoip_client: GeoIpClient,
 
@@ -102,6 +103,7 @@ impl AppContext {
             },
         )
         .await?;
+
         let issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync> =
             Arc::new(issue_buckets_redis_client);
 
@@ -182,8 +184,9 @@ impl AppContext {
             posthog_pool.clone(),
             config.object_storage_bucket.clone(),
         );
-        let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
         // We skip the saving layer for HermesMapProvider, since it'll never fetch something from the outside world.
+        let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
+        let hmp_atmostonce = concurrency::AtMostOne::new(hmp_caching);
 
         let pgp_chunk = ChunkIdFetcher::new(
             ProguardProvider {},
@@ -192,17 +195,29 @@ impl AppContext {
             config.object_storage_bucket.clone(),
         );
         let pgp_caching = Caching::new(pgp_chunk, ss_cache.clone());
+        let pgp_atmostonce = concurrency::AtMostOne::new(pgp_caching);
+
+        let apple_chunk = ChunkIdFetcher::new(
+            AppleProvider {},
+            s3_client.clone(),
+            posthog_pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let apple_caching = Caching::new(apple_chunk, ss_cache.clone());
+        let apple_atmostonce = concurrency::AtMostOne::new(apple_caching);
 
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(smp_atmostonce, hmp_caching, pgp_caching);
-        let resolver = Resolver::new(config);
-
+        let catalog = Arc::new(Catalog::new(
+            smp_atmostonce,
+            hmp_atmostonce,
+            pgp_atmostonce,
+            apple_atmostonce,
+        ));
         let team_manager = TeamManager::new(config);
-
         let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
 
         // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,
@@ -229,6 +244,12 @@ impl AppContext {
             _ => panic!("Invalid filter mode"),
         };
 
+        let symbol_resolver = Arc::new(LocalSymbolResolver::new(
+            config,
+            catalog.clone(),
+            posthog_pool.clone(),
+        ));
+
         Ok(Self {
             health_registry,
             worker_liveness,
@@ -238,7 +259,6 @@ impl AppContext {
             posthog_pool,
             persons_pool,
             catalog,
-            resolver,
             config: config.clone(),
             team_manager,
             geoip_client,
@@ -246,6 +266,7 @@ impl AppContext {
             issue_buckets_redis_client,
             filtered_teams,
             filter_mode,
+            symbol_resolver,
         })
     }
 }

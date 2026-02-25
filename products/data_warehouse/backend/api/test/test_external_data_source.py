@@ -36,6 +36,7 @@ from products.data_warehouse.backend.models import ExternalDataSchema, ExternalD
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -590,6 +591,34 @@ class TestExternalDataSource(APIBaseTest):
 
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch(
+        "products.data_warehouse.backend.api.external_data_source.delete_external_data_schedule",
+        side_effect=Exception("External delete failed"),
+    )
+    def test_delete_external_data_source_soft_deletes_even_if_external_cleanup_fails(
+        self, _mock_delete_schedule, mock_capture_exception
+    ):
+        source = self._create_external_data_source()
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            external_data_source=source,
+            url_pattern="http://example.com/data/*.csv",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers", team_id=self.team.pk, source_id=source.pk, table=table
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
+        assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+        assert DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists()
+        assert mock_capture_exception.call_count == 2  # one for source, one for schema
 
     # TODO: update this test
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")

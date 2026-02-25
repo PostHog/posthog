@@ -97,6 +97,26 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         assert result["values"] == expected_values
         assert "hogql_query" in result
 
+    @parameterized.expand(
+        [
+            ("integer", "SELECT 1 FROM events", "1", "`1`"),
+            ("string", "SELECT 'hello' FROM events", "%(hogql_val_0)s", "hello"),
+            ("float", "SELECT 3.14 FROM events", "3.14", "`3.14`"),
+            ("null", "SELECT null FROM events", "NULL", "NULL"),
+            ("boolean", "SELECT true FROM events", "1", "`1`"),
+        ],
+    )
+    def test_serialize_hogql_query_with_bare_constant(self, _name, query, expected_expression, expected_alias):
+        prepared = prepare_query(query, self.team.pk)
+        serializer = self._make_serializer()
+
+        result = serializer.serialize_hogql_query_to_batch_export_schema(prepared)
+
+        assert len(result["fields"]) == 1
+        field = result["fields"][0]
+        assert field["expression"] == expected_expression
+        assert field["alias"] == expected_alias
+
     def test_serialize_hogql_query_escapes_injected_alias(self):
         """An alias containing SQL injection attempts is escaped with backticks."""
         query = "SELECT uuid AS `x, (SELECT query FROM another_table LIMIT 100) AS leaked` FROM events"

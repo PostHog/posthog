@@ -7,7 +7,9 @@ export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
-export type SidePanelViewState = 'list' | 'ticket' | 'new'
+export type MessageDeliveryStatus = 'sent' | 'read'
+export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
+export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 export interface UserBasic {
@@ -18,6 +20,15 @@ export interface UserBasic {
     last_name: string
     email: string
     is_email_verified: boolean
+}
+
+export interface TicketPerson {
+    id: string
+    name: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
+    is_identified?: boolean
 }
 
 export interface Ticket {
@@ -44,6 +55,10 @@ export interface Ticket {
         current_url?: string
         [key: string]: any
     }
+    slack_channel_id?: string | null
+    slack_thread_ts?: string | null
+    slack_team_id?: string | null
+    person?: TicketPerson | null
 }
 
 export interface ConversationTicket {

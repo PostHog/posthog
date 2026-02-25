@@ -1,10 +1,8 @@
 """Tests for batch trace summarization coordinator workflow."""
 
 import pytest
-from unittest.mock import patch
 
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
-    ALLOWED_TEAM_IDS,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
@@ -14,29 +12,9 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
 from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     BatchTraceSummarizationCoordinatorInputs,
     BatchTraceSummarizationCoordinatorWorkflow,
-    get_allowed_team_ids,
 )
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode
-
-
-class TestGetAllowedTeamIds:
-    """Tests for get_allowed_team_ids function."""
-
-    def test_returns_copy_of_allowed_team_ids(self):
-        """Test that function returns a copy of ALLOWED_TEAM_IDS."""
-        result = get_allowed_team_ids()
-        assert result == ALLOWED_TEAM_IDS
-        assert result is not ALLOWED_TEAM_IDS
-
-    def test_returns_empty_list_when_no_teams_configured(self):
-        """Test that function returns empty list when ALLOWED_TEAM_IDS is empty."""
-        with patch(
-            "posthog.temporal.llm_analytics.trace_summarization.coordinator.ALLOWED_TEAM_IDS",
-            [],
-        ):
-            result = get_allowed_team_ids()
-            assert result == []
 
 
 class TestBatchTraceSummarizationCoordinatorWorkflow:
@@ -96,7 +74,6 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         ],
     )
     def test_parse_inputs(self, inputs, expected):
-        """Test parsing of workflow inputs."""
         result = BatchTraceSummarizationCoordinatorWorkflow.parse_inputs(inputs)
 
         assert result.analysis_level == expected.analysis_level

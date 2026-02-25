@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use super::config::CheckpointConfig;
+use super::error::UploadCancelledError;
 use super::s3_client::create_s3_client;
 use super::uploader::CheckpointUploader;
 use crate::metrics_const::CHECKPOINT_FILE_UPLOADS_COUNTER;
@@ -96,9 +97,10 @@ impl S3Uploader {
                 metrics::counter!(CHECKPOINT_FILE_UPLOADS_COUNTER, "status" => "cancelled")
                     .increment(1);
                 warn!("Upload cancelled before starting: {s3_key}");
-                return Err(anyhow::anyhow!(
-                    "Upload cancelled before starting: {s3_key}"
-                ));
+                return Err(UploadCancelledError {
+                    reason: format!("before starting: {s3_key}"),
+                }
+                .into());
             }
         }
 
@@ -139,7 +141,10 @@ impl S3Uploader {
                     metrics::counter!(CHECKPOINT_FILE_UPLOADS_COUNTER, "status" => "cancelled")
                         .increment(1);
                     warn!("Upload of {s3_key} cancelled mid-stream");
-                    return Err(anyhow::anyhow!("Upload cancelled: {s3_key}"));
+                    return Err(UploadCancelledError {
+                        reason: format!("mid-stream: {s3_key}"),
+                    }
+                    .into());
                 }
                 ChunkResult::Error(e) => {
                     let _ = upload.abort().await;
@@ -190,7 +195,10 @@ impl CheckpointUploader for S3Uploader {
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
                 warn!("Upload cancelled before starting batch");
-                return Err(anyhow::anyhow!("Upload cancelled before starting"));
+                return Err(UploadCancelledError {
+                    reason: "before starting batch".to_string(),
+                }
+                .into());
             }
         }
 
@@ -252,7 +260,10 @@ impl CheckpointUploader for S3Uploader {
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
                 warn!("Upload cancelled before metadata upload");
-                return Err(anyhow::anyhow!("Upload cancelled before metadata upload"));
+                return Err(UploadCancelledError {
+                    reason: "before metadata upload".to_string(),
+                }
+                .into());
             }
         }
 

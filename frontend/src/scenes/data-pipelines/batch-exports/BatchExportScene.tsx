@@ -37,10 +37,10 @@ import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
+import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { RenderBatchExportIcon } from './BatchExportIcon'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
-import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { normalizeBatchExportService } from './utils'
 import { humanizeBatchExportName } from './utils'
 
@@ -69,15 +69,9 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
             (): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.DataPipelines,
-                        name: 'Data pipelines',
-                        path: urls.dataPipelines(),
-                        iconType: 'data_pipeline',
-                    },
-                    {
-                        key: [Scene.DataPipelines, 'destinations'],
+                        key: Scene.Destinations,
                         name: 'Destinations',
-                        path: urls.dataPipelines('destinations'),
+                        path: urls.destinations(),
                         iconType: 'data_pipeline',
                     },
                     {

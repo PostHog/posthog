@@ -44,7 +44,9 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     time,
     title,
     displayTimezone,
-}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & { time: dayjs.Dayjs }): JSX.Element {
+}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & {
+    time: dayjs.Dayjs
+}): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
@@ -75,7 +77,11 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
             <div className="flex justify-between items-center border-b-1 p-1">
                 <h4 className="mb-0 px-1">{title || 'Timezone conversion'}</h4>
-                <LemonButton icon={<IconGear />} size="xsmall" to={urls.settings('project', 'date-and-time')} />
+                <LemonButton
+                    icon={<IconGear />}
+                    size="xsmall"
+                    to={urls.settings('environment-customization', 'date-and-time')}
+                />
             </div>
             <div className="flex flex-col gap-1 p-2">
                 {displayedTime && (
@@ -199,7 +205,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             : displayTime.fromNow()
     }, [formatDate, formatTime, displayTime, timestampStyle, displayTimezone])
 
-    const [formattedContent, setFormattedContent] = useState(format())
+    const [formattedContent, setFormattedContent] = useState(format)
 
     const { isVisible: isPageVisible } = usePageVisibility()
 

@@ -20,6 +20,7 @@ from posthog.schema import (
     ModeContext,
 )
 
+from posthog.constants import AvailableFeature
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -106,6 +107,10 @@ class AssistantContextManager(AssistantContextMixin):
 
         return contextual_tools
 
+    @property
+    def is_subagent(self) -> bool:
+        return (self._config.get("configurable") or {}).get("is_subagent", False)
+
     def get_billing_context(self) -> MaxBillingContext | None:
         """
         Extracts the billing context from the runnable config.
@@ -124,6 +129,13 @@ class AssistantContextManager(AssistantContextMixin):
             OrganizationMembership.Level.ADMIN,
             OrganizationMembership.Level.OWNER,
         )
+
+    @database_sync_to_async
+    def check_has_audit_logs_access(self) -> bool:
+        """
+        Check if the user has access to the audit logs tool.
+        """
+        return self._team.organization.is_feature_available(AvailableFeature.AUDIT_LOGS)
 
     def get_groups(self):
         """

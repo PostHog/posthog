@@ -142,6 +142,7 @@ class EntitySearchContext:
             self,  # type: ignore
             ENTITY_MAP,
         )
+        assert counts is not None
         return results, counts
 
     async def list_entities(
@@ -162,6 +163,7 @@ class EntitySearchContext:
             Tuple of (entities list, total count)
         """
         all_entities: list[dict[str, Any]] = []
+        total_count: int = 0
 
         if entity_type == "artifact":
             (
@@ -190,7 +192,7 @@ class EntitySearchContext:
             return await self._list_insights(limit, offset)
         else:
             # Fetch database entities
-            db_results, _, total_count = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
+            db_results, _, maybe_count = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
                 entities={entity_type},
                 query=None,  # No search query, just listing
                 project_id=self._team.project_id,
@@ -200,6 +202,8 @@ class EntitySearchContext:
                 offset=offset,
             )
             all_entities.extend(db_results)
+            assert maybe_count is not None
+            total_count = maybe_count
 
         return all_entities, total_count
 

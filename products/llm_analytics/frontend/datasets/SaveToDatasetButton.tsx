@@ -6,11 +6,12 @@ import React, { useMemo } from 'react'
 import { IconDatabase, IconExternal, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { DatasetItem } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DatasetItem } from '~/types'
 
 import { DatasetItemModal } from './DatasetItemModal'
 import { saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
@@ -57,26 +58,31 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
                 onVisibilityChange={setDropdownVisible}
                 closeOnClickInside={false}
             >
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    icon={<IconDatabase />}
-                    sideAction={{
-                        icon: <IconPencil />,
-                        onClick: () => {
-                            if (!dropdownVisible) {
-                                setEditMode('edit')
-                            }
-                            setDropdownVisible(!dropdownVisible)
-                        },
-                        tooltip: 'Add to dataset and edit it',
-                    }}
-                    onClick={() => {
-                        setDropdownVisible(!dropdownVisible)
-                    }}
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    Add to dataset
-                </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconDatabase />}
+                        sideAction={{
+                            icon: <IconPencil />,
+                            onClick: () => {
+                                if (!dropdownVisible) {
+                                    setEditMode('edit')
+                                }
+                                setDropdownVisible(!dropdownVisible)
+                            },
+                            tooltip: 'Add to dataset and edit it',
+                        }}
+                        onClick={() => {
+                            setDropdownVisible(!dropdownVisible)
+                        }}
+                    >
+                        Add to dataset
+                    </LemonButton>
+                </AccessControlAction>
             </LemonDropdown>
             {isModalMounted && selectedDataset && (
                 <DatasetItemModal

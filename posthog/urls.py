@@ -1,5 +1,5 @@
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
@@ -17,6 +17,7 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
+    hog_flow,
     hog_flow_template,
     hog_function_template,
     playwright_setup,
@@ -39,6 +40,7 @@ from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
+from posthog.auth import apply_auth_brand_cookie
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -98,7 +100,8 @@ def home(request, *args, **kwargs):
         url = "https://us.posthog.com{}".format(request.get_full_path())
         if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
             return HttpResponseRedirect(url)
-    return render_template("index.html", request)
+    response = render_template("index.html", request)
+    return apply_auth_brand_cookie(request, response)
 
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
@@ -144,6 +147,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
             "email": request.user,
             "domain": redirect_url.hostname,
             "redirect_url": request.GET["redirect"],
+            "authorization_url": f"/api/user/redirect_to_site/?{urlencode({'appUrl': request.GET['redirect']})}",
         },
     )
 
@@ -185,6 +189,11 @@ urlpatterns = [
     path("", include(tf_urls)),
     opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
     opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
+    opt_slash_path("api/user/toolbar_oauth_start", user.toolbar_oauth_start),
+    opt_slash_path("api/user/toolbar_oauth_exchange", user.toolbar_oauth_exchange),
+    opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
+    path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
+    path("toolbar_oauth/callback", user.toolbar_oauth_callback),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
@@ -212,6 +221,15 @@ urlpatterns = [
     opt_slash_path(
         "api/public_hog_flow_templates",
         hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
+    ),
+    # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),

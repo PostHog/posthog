@@ -4,8 +4,8 @@ import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { InsightAsScene } from 'scenes/insights/InsightAsScene'
-import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

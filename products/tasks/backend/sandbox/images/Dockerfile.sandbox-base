@@ -71,16 +71,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 ###
 
 # Set up /scripts as a Node.js project and install @posthog/agent
+# COMMIT_HASH changes every build, busting the cache so we always get @latest
+ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    npm install @posthog/agent@1.27.0
-
-# Download agent runner script from GitHub
-RUN cd /scripts && \
-    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
-    -o runAgent.mjs && \
-    chmod +x runAgent.mjs
+    CACHE_BUST=${COMMIT_HASH} npm install @posthog/agent@latest
 
 # Configure git for commits - TODO: Use user's email and name
 RUN git config --global user.email "array@posthog.com" && \
