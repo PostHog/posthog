@@ -581,13 +581,14 @@ describe('Hogflow Executor', () => {
                 hogFlow.conversion = {
                     filters: [
                         {
-                            key: 'apple',
+                            key: '$browser',
                             type: 'person',
-                            value: ['green'],
+                            value: ['Chrome'],
                             operator: 'exact',
                         },
                     ],
-                    window_minutes: 10,
+                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                    window_minutes: null,
                 }
 
                 // Person does not match conversion filters yet
@@ -602,8 +603,7 @@ describe('Hogflow Executor', () => {
                     },
                     {
                         properties: {
-                            name: 'John Doe',
-                            apple: 'red',
+                            $browser: 'Firefox',
                         },
                     }
                 )
@@ -628,8 +628,7 @@ describe('Hogflow Executor', () => {
                     },
                     {
                         properties: {
-                            name: 'John Doe',
-                            apple: 'green',
+                            $browser: 'Chrome',
                         },
                     }
                 )

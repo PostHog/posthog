@@ -172,6 +172,22 @@ class TestHogFlowAPI(APIBaseTest):
         }
 
     def test_hog_flow_conversion_filters_compiles_bytecode_on_create(self):
+        expected_conversion_bytecode = [
+            "_H",
+            1,
+            32,
+            "Chrome",
+            32,
+            "$browser",
+            32,
+            "properties",
+            32,
+            "person",
+            1,
+            3,
+            11,
+        ]
+
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-webhook",
@@ -182,9 +198,9 @@ class TestHogFlowAPI(APIBaseTest):
         hog_flow["conversion"] = {
             "filters": [
                 {
-                    "key": "apple",
+                    "key": "$browser",
                     "type": "person",
-                    "value": ["green"],
+                    "value": ["Chrome"],
                     "operator": "exact",
                 }
             ],
@@ -197,21 +213,35 @@ class TestHogFlowAPI(APIBaseTest):
         conversion_filters = response.json()["conversion"]["filters"]
         assert "bytecode" in conversion_filters
         assert conversion_filters["properties"][0] == {
-            "key": "apple",
+            "key": "$browser",
             "type": "person",
-            "value": ["green"],
+            "value": ["Chrome"],
             "operator": "exact",
         }
-        assert isinstance(conversion_filters["bytecode"], list)
-        assert len(conversion_filters["bytecode"]) > 0
+        assert conversion_filters["bytecode"] == expected_conversion_bytecode
 
         flow = HogFlow.objects.get(pk=response.json()["id"])
         assert flow.conversion["window_minutes"] is None
         assert "bytecode" in flow.conversion["filters"]
-        assert isinstance(flow.conversion["filters"]["bytecode"], list)
-        assert len(flow.conversion["filters"]["bytecode"]) > 0
+        assert flow.conversion["filters"]["bytecode"] == expected_conversion_bytecode
 
     def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
+        expected_conversion_bytecode = [
+            "_H",
+            1,
+            32,
+            "Chrome",
+            32,
+            "$browser",
+            32,
+            "properties",
+            32,
+            "person",
+            1,
+            3,
+            11,
+        ]
+
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-webhook",
@@ -230,9 +260,9 @@ class TestHogFlowAPI(APIBaseTest):
                 "conversion": {
                     "filters": [
                         {
-                            "key": "apple",
+                            "key": "$browser",
                             "type": "person",
-                            "value": ["green"],
+                            "value": ["Chrome"],
                             "operator": "exact",
                         }
                     ],
@@ -245,19 +275,17 @@ class TestHogFlowAPI(APIBaseTest):
         conversion_filters = update_response.json()["conversion"]["filters"]
         assert "bytecode" in conversion_filters
         assert conversion_filters["properties"][0] == {
-            "key": "apple",
+            "key": "$browser",
             "type": "person",
-            "value": ["green"],
+            "value": ["Chrome"],
             "operator": "exact",
         }
-        assert isinstance(conversion_filters["bytecode"], list)
-        assert len(conversion_filters["bytecode"]) > 0
+        assert conversion_filters["bytecode"] == expected_conversion_bytecode
 
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.conversion["window_minutes"] is None
         assert "bytecode" in flow.conversion["filters"]
-        assert isinstance(flow.conversion["filters"]["bytecode"], list)
-        assert len(flow.conversion["filters"]["bytecode"]) > 0
+        assert flow.conversion["filters"]["bytecode"] == expected_conversion_bytecode
 
     def test_hog_flow_conditional_branch_filters_bytecode(self):
         conditional_action = {
