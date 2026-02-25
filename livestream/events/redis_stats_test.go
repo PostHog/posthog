@@ -33,7 +33,7 @@ func setupMiniredis(t *testing.T) (*RedisStatsWriter, *fakeClock) {
 	t.Helper()
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { client.Close() })
+	t.Cleanup(func() { _ = client.Close() })
 	clk := &fakeClock{t: time.Now()}
 	w := NewRedisStatsWriterFromClient(client)
 	w.nowFunc = clk.now

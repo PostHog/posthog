@@ -64,7 +64,11 @@ func main() {
 	}
 	
 	if redisWriter != nil {
-		defer redisWriter.Close()
+		defer func() {
+			if err := redisWriter.Close(); err != nil {
+				log.Printf("ERROR: Failed to close Redis writer: %v", err)
+			}
+		}()
 		stats.RedisWriter = redisWriter
 		sessionStats.RedisWriter = redisWriter
 		log.Printf("Redis stats writer enabled (address: %s:%s)", config.Redis.Address, config.Redis.Port)
