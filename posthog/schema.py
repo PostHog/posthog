@@ -10681,6 +10681,12 @@ class EndpointRunRequest(BaseModel):
         default=None,
         description=("Maximum number of results to return. If not provided, returns all results."),
     )
+    offset: int | None = Field(
+        default=None,
+        description=(
+            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
+        ),
+    )
     refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
     variables: dict[str, Any] | None = Field(
         default=None,
@@ -18976,6 +18982,7 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
     ) = Field(..., discriminator="kind")
+    result: Any | None = None
     type: Literal["insight"] = "insight"
     variablesOverride: dict[str, HogQLVariable] | None = None
 

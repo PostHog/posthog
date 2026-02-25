@@ -252,6 +252,39 @@ class TaskRun(models.Model):
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
 
+    @staticmethod
+    def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
+        """Get the Temporal workflow ID for a task run."""
+        return f"task-processing-{task_id}-{run_id}"
+
+    @property
+    def workflow_id(self) -> str:
+        """Get the Temporal workflow ID for this task run."""
+        return self.get_workflow_id(self.task_id, self.id)
+
+    def heartbeat_workflow(self) -> None:
+        if self.mode != "background":
+            return
+
+        from django.core.cache import cache
+
+        cache_key = f"tasks:task_run:heartbeat:{self.id}"
+        if not cache.add(cache_key, True, timeout=60):
+            return
+
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat))
+        except Exception as e:
+            logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
+
     @property
     def log_url(self) -> str:
         """Generate S3 path for this run's logs"""

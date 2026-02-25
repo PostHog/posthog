@@ -15,12 +15,13 @@ export interface LLMAnalyticsGenerationsLogicProps {
     tabId?: string
 }
 
-export function getDefaultGenerationsColumns(showInputOutput: boolean): string[] {
+export function getDefaultGenerationsColumns(showInputOutput: boolean, showSentiment: boolean = false): string[] {
     return [
         'uuid',
         'properties.$ai_trace_id',
         ...(showInputOutput ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices'] : []),
         'person',
+        ...(showSentiment ? ["'' -- Sentiment"] : []),
         "f'{properties.$ai_model}' -- Model",
         "if(properties.$ai_is_error = 'true', '❌', '') -- Error",
         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
@@ -178,7 +179,10 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                     limit: 100,
                     select:
                         generationsColumns ||
-                        getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]),
+                        getDefaultGenerationsColumns(
+                            !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
+                            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                        ),
                     orderBy: [`${generationsSort.column} ${generationsSort.direction}`],
                     after: dateFilter.dateFrom || undefined,
                     before: dateFilter.dateTo || undefined,

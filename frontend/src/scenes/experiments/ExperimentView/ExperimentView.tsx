@@ -278,7 +278,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         if (showWizard) {
             return (
                 <BindLogic logic={createExperimentLogic} props={{ experiment, tabId }}>
-                    <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
+                    <BindLogic logic={experimentWizardLogic} props={{ experiment, tabId }}>
                         <ExperimentWizard />
                     </BindLogic>
                 </BindLogic>

@@ -259,6 +259,27 @@ def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional
     return urllib.parse.unquote(args[0])
 
 
+def tryDecodeURLComponent(
+    args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float
+) -> Optional[str]:
+    import re
+    import urllib.parse
+
+    s = args[0]
+    if not s:
+        return s
+
+    # JavaScript's decodeURIComponent throws on invalid percent-encoding
+    # Python's unquote is lenient, so check for % not followed by 2 hex digits
+    if re.search(r"%(?![0-9A-Fa-f]{2})", s):
+        return None
+
+    try:
+        return urllib.parse.unquote(s)
+    except Exception:
+        return None
+
+
 def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
     char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
@@ -942,6 +963,7 @@ STL: dict[str, STLFunction] = {
     "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
     "encodeURLComponent": STLFunction(fn=encodeURLComponent, minArgs=1, maxArgs=1),
     "decodeURLComponent": STLFunction(fn=decodeURLComponent, minArgs=1, maxArgs=1),
+    "tryDecodeURLComponent": STLFunction(fn=tryDecodeURLComponent, minArgs=1, maxArgs=1),
     "replaceOne": STLFunction(
         fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2], 1), minArgs=3, maxArgs=3
     ),

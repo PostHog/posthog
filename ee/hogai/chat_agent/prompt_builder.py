@@ -3,6 +3,7 @@ from ee.hogai.chat_agent.prompts import (
     BASIC_FUNCTIONALITY_PROMPT,
     DOING_TASKS_PROMPT,
     PROACTIVENESS_PROMPT,
+    PRODUCT_ADVOCACY_PROMPT,
     ROLE_PROMPT,
     SWITCHING_MODES_PROMPT,
     SWITCHING_TO_PLAN_PROMPT,
@@ -35,6 +36,7 @@ class ChatAgentPlanPromptBuilder(AgentPromptBuilderBase):
             task_management=TASK_MANAGEMENT_PROMPT,
             onboarding_task=ONBOARDING_TASK_PROMPT,
             planning_task=PLANNING_TASK_PROMPT,
+            product_advocacy=PRODUCT_ADVOCACY_PROMPT,
             switch_to_execution=SWITCHING_TO_EXECUTION_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
         )
@@ -56,6 +58,7 @@ class ChatAgentPromptBuilder(AgentPromptBuilderBase):
             switching_modes=SWITCHING_MODES_PROMPT,
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,
+            product_advocacy=PRODUCT_ADVOCACY_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
             switching_to_plan=switching_to_plan,
         )
