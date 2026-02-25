@@ -197,9 +197,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7f63/791e14ef5a8ecb485cef5b5d058c7ca3ad6c50a2f94cf4cea5231c6b7c16/anthropic-0.80.0.tar.gz", hash = "sha256:ef042586673fdcab2a6ffd381aa5f9a1bcce38ffe73c07fe70bd56d12b8124ba", size = 533291, upload-time = "2026-02-17T19:26:26.717Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7f/63/791e14ef5a8ecb485cef5b5d058c7ca3ad6c50a2f94cf4cea5231c6b7c16/anthropic-0.80.0.tar.gz", hash = "sha256:ef042586673fdcab2a6ffd381aa5f9a1bcce38ffe73c07fe70bd56d12b8124ba", size = 533291, upload-time = "2026-02-17T19:26:26.717Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/4b/665f29338f51d0c2f9e04b276ea54cc1e957ae5c521a0ad868aa80abc608/anthropic-0.80.0-py3-none-any.whl", hash = "sha256:dad0e40ec371ee686e9ffb2e0cb461a0ed51447fa100927fb5d39b174c286d6f", size = 453667, upload-time = "2026-02-17T19:26:29.960Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/4b/665f29338f51d0c2f9e04b276ea54cc1e957ae5c521a0ad868aa80abc608/anthropic-0.80.0-py3-none-any.whl", hash = "sha256:dad0e40ec371ee686e9ffb2e0cb461a0ed51447fa100927fb5d39b174c286d6f", size = 453667, upload-time = "2026-02-17T19:26:29.96Z" },
 ]
 
 [[package]]
@@ -1548,12 +1548,82 @@ wheels = [
 ]
 
 [[package]]
+name = "dj-cache-panel"
+version = "0.2.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ea/27/5d244a85a49a694908a37b3b650a1bf93ddb7e741587a2389bfb705c1593/dj_cache_panel-0.2.6.tar.gz", hash = "sha256:3b54b8e50c04e46c587d57105c2a13d5bc9bed5c76daa784943ab1d480a7ecf8", size = 32033, upload-time = "2026-02-18T07:17:36.5Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/ea/d47ff790c32570cbbab3be62bb9d1bbbec72e36ec4f21cf7435c2726ee28/dj_cache_panel-0.2.6-py3-none-any.whl", hash = "sha256:90f325dffea24b2b260c8d5bccbc854669981218b813ed74b1d1348adb4bb511", size = 28544, upload-time = "2026-02-18T07:17:34.952Z" },
+]
+
+[[package]]
+name = "dj-celery-panel"
+version = "0.3.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/94/3b/1d1ddf4cd600e10009a60de7a9939502991e564db03a306fb02ca6d7e1b5/dj_celery_panel-0.3.4.tar.gz", hash = "sha256:ebee58978b809ab128e2cf72296ef15d3e519e6f063d9f2d23a8fd81b4c96d9d", size = 45833, upload-time = "2026-02-18T07:15:50.195Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/f9/4837f436a5d1ce3e2f271ee00bd10c7b331db60b1b2fde91f8dd429cc83b/dj_celery_panel-0.3.4-py3-none-any.whl", hash = "sha256:08fe8cb121eb2fd0c5f2ee7723d456109de50ab803ff62ac7dfc56b02e1b2bda", size = 46347, upload-time = "2026-02-18T07:15:49.136Z" },
+]
+
+[[package]]
+name = "dj-control-room"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a4/6c/b39e3ede734f103e0b4de250d17d2b7b1afbe33e90873dee9b13f891180a/dj_control_room-1.0.1.tar.gz", hash = "sha256:e8230c3fc3c2674735a88ca67a917e32f2e1e46d0bc57e8f58eb54568d354832", size = 1440981, upload-time = "2026-02-21T23:13:24.808Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/12/176b2b2f04966503d57e4d5d875daf6569969a8674823d925149216e5b1c/dj_control_room-1.0.1-py3-none-any.whl", hash = "sha256:fd278c1a7b35c5029c193fb18b20543a6f7712bd4dfca0ad3e39e4c44acb3957", size = 1435331, upload-time = "2026-02-21T23:13:22.782Z" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "dj-cache-panel" },
+    { name = "dj-celery-panel" },
+    { name = "dj-redis-panel" },
+    { name = "dj-urls-panel" },
+]
+
+[[package]]
 name = "dj-database-url"
 version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/01/c4/98fbf678e810029be8078419f7bba626aafa2e81bc38748757db954c477c/dj-database-url-0.5.0.tar.gz", hash = "sha256:4aeaeb1f573c74835b0686a2b46b85990571159ffc21aa57ecd4d1e1cb334163", size = 5482, upload-time = "2018-03-01T18:39:51.842Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d4/a6/4b8578c1848690d0c307c7c0596af2077536c9ef2a04d42b00fabaa7e49d/dj_database_url-0.5.0-py2.py3-none-any.whl", hash = "sha256:851785365761ebe4994a921b433062309eb882fedd318e1b0fcecc607ed02da9", size = 5502, upload-time = "2018-03-01T18:39:49.412Z" },
+]
+
+[[package]]
+name = "dj-redis-panel"
+version = "0.7.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "redis" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5d/91/3c8c8af4e5b83ef53d8c406cef0a1165c34d89c9ef851dc99b6ae57dc3ff/dj_redis_panel-0.7.5.tar.gz", hash = "sha256:18d75f32afd8e3d90059a309d66a578d50373639ecb44a32d02f1b2d42fbe182", size = 63711, upload-time = "2026-02-18T07:31:57.572Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/10/7ffeeb6d446fa14f5f51a24c3bbfff405e61bf2c0e487d815af3a0d9c4d8/dj_redis_panel-0.7.5-py3-none-any.whl", hash = "sha256:4cf256dbb6816e8932cfd153fcf8d1270270d9e0805f40c9d40cb0b624768b82", size = 47026, upload-time = "2026-02-18T07:31:55.818Z" },
+]
+
+[[package]]
+name = "dj-urls-panel"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/71/be/c95a61f1ea71b18bc1f803e3c913c681331e77afc79762a25c3ad7a0078c/dj_urls_panel-0.2.1.tar.gz", hash = "sha256:20d154b9430489d229db8fef9fedf51ae54baab58d50580418fe442bf9d0860a", size = 39389, upload-time = "2026-02-18T07:14:10.165Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/41/33f79a84aa3fc5c8fd89dba796a37b4157090391e94d42df63e03664d089/dj_urls_panel-0.2.1-py3-none-any.whl", hash = "sha256:e37a9433975e10d5555969ea44700d48b9d6c5a2f2d41b480bd4203c901f2a96", size = 35138, upload-time = "2026-02-18T07:14:08.096Z" },
 ]
 
 [[package]]
@@ -4792,6 +4862,7 @@ dependencies = [
     { name = "defusedxml" },
     { name = "deltalake", extra = ["pyarrow"] },
     { name = "disposable-email-domains" },
+    { name = "dj-control-room", extra = ["all"] },
     { name = "dj-database-url" },
     { name = "django" },
     { name = "django-admin-inline-paginator" },
@@ -5056,6 +5127,7 @@ requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "deltalake", extras = ["pyarrow"], specifier = "==1.4.0" },
     { name = "disposable-email-domains", specifier = "~=0.0.140" },
+    { name = "dj-control-room", extras = ["all"], specifier = "~=1.0.0" },
     { name = "dj-database-url", specifier = "==0.5.0" },
     { name = "django", specifier = "~=4.2.28" },
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
