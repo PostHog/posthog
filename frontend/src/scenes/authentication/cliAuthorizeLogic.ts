@@ -24,7 +24,7 @@ export interface CLIAuthorizeForm {
 const USE_CASE_SCOPES: Record<CLIUseCase, string[]> = {
     schema: ['event_definition:read', 'property_definition:read'],
     error_tracking: ['error_tracking:write'],
-    endpoints: ['endpoint:write'],
+    endpoints: ['endpoint:write', 'insight_variable:write'],
 }
 
 // Default use cases when none are specified
