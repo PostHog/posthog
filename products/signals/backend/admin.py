@@ -59,7 +59,6 @@ class SignalReportAdmin(admin.ModelAdmin):
         "promoted_at",
         "last_run_at",
         "relevant_user_count",
-        "cluster_centroid_updated_at",
     )
 
     fieldsets = (
@@ -67,7 +66,6 @@ class SignalReportAdmin(admin.ModelAdmin):
         ("Content", {"fields": ("title", "summary", "error")}),
         ("Stats", {"fields": ("signal_count", "total_weight", "relevant_user_count", "signals_at_run")}),
         ("Related", {"fields": ("conversation",)}),
-        ("Clustering", {"fields": ("cluster_centroid_updated_at",)}),
         ("Dates", {"fields": ("created_at", "updated_at", "promoted_at", "last_run_at")}),
     )
 

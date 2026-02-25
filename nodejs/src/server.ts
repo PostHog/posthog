@@ -4,7 +4,7 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { setupCommonRoutes, setupExpressApp } from './api/router'
+import { initializePrometheusLabels, setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
@@ -94,6 +94,7 @@ export class PluginServer {
         const startupTimer = new Date()
         this.setupListeners()
         this.nodeInstrumentation.setupThreadPerformanceInterval()
+        initializePrometheusLabels(this.config)
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config))
@@ -269,7 +270,7 @@ export class PluginServer {
 
             // The service commands is always created
             serviceLoaders.push(() => {
-                const serverCommands = new ServerCommands(hub)
+                const serverCommands = new ServerCommands(hub.pubSub)
                 this.expressApp.use('/', serverCommands.router())
                 return Promise.resolve(serverCommands.service)
             })

@@ -247,14 +247,47 @@ export function CodeEditor({
             return
         }
 
+        let focusCleanup: (() => void) | null = null
+
         if (enableVimMode && vimStatusBarRef.current) {
             vimModeRef.current = initVimMode(editor, vimStatusBarRef.current)
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const regController = (VimMode as any).Vim.getRegisterController()
+            const origPushText = regController.pushText.bind(regController)
+            regController.pushText = function (
+                registerName: string,
+                operator: string,
+                text: string,
+                linewise: boolean,
+                blockwise: boolean
+            ) {
+                origPushText(registerName, operator, text, linewise, blockwise)
+                if (text) {
+                    void navigator.clipboard.writeText(text).catch(() => {})
+                }
+            }
+
+            const domNode = editor.getDomNode()
+            if (domNode) {
+                const onFocus = async (): Promise<void> => {
+                    try {
+                        const text = await navigator.clipboard.readText()
+                        regController.getRegister('+').setText(text)
+                    } catch {
+                        // clipboard permission denied or unavailable
+                    }
+                }
+                domNode.addEventListener('focus', onFocus, true)
+                focusCleanup = () => domNode.removeEventListener('focus', onFocus, true)
+            }
         } else if (vimModeRef.current) {
             vimModeRef.current.dispose()
             vimModeRef.current = null
         }
 
         return () => {
+            focusCleanup?.()
             if (vimModeRef.current) {
                 vimModeRef.current.dispose()
                 vimModeRef.current = null

@@ -53,7 +53,7 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
         return None, Response({"error": "Empty API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     try:
-        team = Team.objects.get(api_token=api_key)
+        team = Team.objects.get(api_token=api_key, conversations_enabled=True)
     except Team.DoesNotExist:
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 

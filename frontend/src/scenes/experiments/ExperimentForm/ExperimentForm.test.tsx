@@ -123,7 +123,7 @@ describe('ExperimentForm Integration', () => {
                 .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toFinishAllListeners()
 
-            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments')
         })
 
         it('clears errors after successful submission', async () => {

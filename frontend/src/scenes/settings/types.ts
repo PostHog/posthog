@@ -25,6 +25,7 @@ export type SettingSectionId =
     | 'environment-product-analytics'
     | 'environment-privacy'
     | 'environment-revenue-analytics'
+    | 'environment-llm-analytics'
     | 'environment-marketing-analytics'
     | 'environment-web-analytics'
     | 'environment-replay'
@@ -120,6 +121,7 @@ export type SettingId =
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
+    | 'error-tracking-spike-detection'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
@@ -166,6 +168,7 @@ export type SettingId =
     | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
+    | 'llm-analytics-byok'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
@@ -195,7 +198,6 @@ export type SettingId =
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
-    | 'sql-editor-tab-preference'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

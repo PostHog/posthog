@@ -74,11 +74,11 @@ from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):

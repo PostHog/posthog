@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BatchCheckRequestApi,
     BatchCheckResponseApi,
@@ -29,6 +29,8 @@ import type {
     PatchedDatasetApi,
     PatchedDatasetItemApi,
     PatchedLLMProviderKeyApi,
+    SentimentBatchResponseApi,
+    SentimentRequestApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TextReprRequestApi,
@@ -405,6 +407,23 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMProviderKeyApi),
+    })
+}
+
+export const getLlmAnalyticsSentimentCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/sentiment/`
+}
+
+export const llmAnalyticsSentimentCreate = async (
+    projectId: string,
+    sentimentRequestApi: SentimentRequestApi,
+    options?: RequestInit
+): Promise<SentimentBatchResponseApi> => {
+    return apiMutator<SentimentBatchResponseApi>(getLlmAnalyticsSentimentCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentimentRequestApi),
     })
 }
 

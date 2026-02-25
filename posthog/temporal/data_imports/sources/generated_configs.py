@@ -177,6 +177,11 @@ class BrevoSourceConfig(config.Config):
 
 
 @config.config
+class BuildBetterSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class CalendlySourceConfig(config.Config):
     pass
 
@@ -851,6 +856,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BRAINTREE: BraintreeSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.BREVO: BrevoSourceConfig,
+        ExternalDataSourceType.BUILDBETTER: BuildBetterSourceConfig,
         ExternalDataSourceType.CALENDLY: CalendlySourceConfig,
         ExternalDataSourceType.CAMPAIGNMONITOR: CampaignMonitorSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
