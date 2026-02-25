@@ -35,6 +35,12 @@ from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
 )
+from posthog.temporal.ai.twig_slack_interactivity import (
+    TwigSlackDefaultRepoSelectionWorkflow,
+    TwigSlackInteractivityInputs,
+    TwigSlackTerminateTaskWorkflow,
+)
+from posthog.temporal.ai.twig_slack_mention import TwigSlackMentionWorkflow, TwigSlackMentionWorkflowInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -686,6 +692,7 @@ def _post_repo_picker_message(
     user_message_ts: str | None,
     guidance: str,
     action_id: str,
+    workflow_id: str | None = None,
 ) -> None:
     context_data = {
         "integration_id": integration.id,
@@ -695,6 +702,7 @@ def _post_repo_picker_message(
         "mentioning_slack_user_id": slack_user_id,
         "event_text": event_text,
         "created_at": int(time.time()),
+        "workflow_id": workflow_id,
     }
     context_token = uuid.uuid4().hex
     cache.set(_picker_context_cache_key(context_token), context_data, timeout=PICKER_TOKEN_MAX_AGE_SECONDS)
@@ -716,7 +724,10 @@ def _post_repo_picker_message(
                 },
             },
         ],
-        metadata={"event_type": "twig_repo_picker", "event_payload": {"context_token": context_token}},
+        metadata={
+            "event_type": "twig_repo_picker",
+            "event_payload": {"context_token": context_token, "workflow_id": workflow_id},
+        },
     )
 
 
@@ -903,9 +914,23 @@ def route_twig_event_to_relevant_region(
 
     if integration and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event.get("type") == "app_mention":
-            from products.slack_app.backend.tasks import process_twig_mention
-
-            process_twig_mention.delay(event, integration.id, slack_team_id)
+            workflow_inputs = TwigSlackMentionWorkflowInputs(
+                event=event,
+                integration_id=integration.id,
+                slack_team_id=slack_team_id,
+            )
+            workflow_id = f"twig-mention-{slack_team_id}:{event.get('channel', '')}:{event.get('thread_ts') or event.get('ts', '')}"
+            client = sync_connect()
+            asyncio.run(
+                client.start_workflow(
+                    TwigSlackMentionWorkflow.run,
+                    workflow_inputs,
+                    id=workflow_id,
+                    task_queue=settings.MAX_AI_TASK_QUEUE,
+                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                )
+            )
         return ROUTE_HANDLED_LOCALLY
     elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
         success = proxy_slack_event_to_secondary_region(request)
@@ -1022,211 +1047,6 @@ def _decode_picker_context(context_token: str) -> dict[str, Any] | None:
         pass
 
     return None
-
-
-def handle_twig_app_mention(event: dict, integration: Integration) -> None:
-    channel = event.get("channel")
-    slack_team_id = integration.integration_id
-    if not channel or not slack_team_id:
-        return
-
-    thread_ts = event.get("thread_ts") or event.get("ts")
-    if not thread_ts:
-        return
-
-    slack_user_id = event.get("user")
-    if not slack_user_id:
-        return
-
-    event_ts = event.get("ts", "")
-    dedup_key = f"twig_mention:{integration.integration_id}:{channel}:{event_ts}"
-    if not cache.add(dedup_key, True, timeout=300):
-        logger.info("twig_mention_dedup", dedup_key=dedup_key)
-        return
-
-    logger.info(
-        "twig_event_received",
-        channel=channel,
-        user=slack_user_id,
-        thread_ts=thread_ts,
-        team_id=integration.team_id,
-    )
-
-    slack: SlackIntegration | None = None
-    try:
-        slack = SlackIntegration(integration)
-
-        user_context = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
-        if not user_context:
-            return
-
-        default_repo_command = _parse_default_repo_command(event.get("text", ""))
-        if default_repo_command:
-            all_repos = _get_full_repo_names(integration)
-
-            if default_repo_command.action == "show":
-                default_repo = _get_user_default_repo(integration.team_id, user_context.user.id, channel)
-                if default_repo:
-                    slack.client.chat_postMessage(
-                        channel=channel,
-                        thread_ts=thread_ts,
-                        text=f"Your default repository in this channel is `{default_repo}`.",
-                    )
-                else:
-                    slack.client.chat_postMessage(
-                        channel=channel,
-                        thread_ts=thread_ts,
-                        text=(
-                            "You don't have a default repository set. "
-                            "Use `@Twig default repo set org/repo`, "
-                            "or include `org/repo` directly in a single task request."
-                        ),
-                    )
-                return
-
-            if default_repo_command.action == "clear":
-                cleared = _clear_user_default_repo(integration.team_id, user_context.user.id, channel)
-                text = (
-                    "Cleared your default repository for this channel."
-                    if cleared
-                    else "You don't have a default repository set for this channel."
-                )
-                slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
-                return
-
-            command_repo = default_repo_command.repository or ""
-            if default_repo_command.action == "set" and not command_repo:
-                if not all_repos:
-                    slack.client.chat_postMessage(
-                        channel=channel,
-                        thread_ts=thread_ts,
-                        text="I couldn't find any connected GitHub repositories for this project.",
-                    )
-                    return
-
-                _post_repo_picker_message(
-                    slack=slack,
-                    integration=integration,
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    slack_user_id=slack_user_id,
-                    event_text=event.get("text", ""),
-                    user_message_ts=event.get("ts"),
-                    guidance=(
-                        "Pick a default repository for future generic requests. "
-                        "You can still override by explicitly writing `org/repo` in a task request."
-                    ),
-                    action_id="twig_default_repo_select",
-                )
-                return
-
-            if not all_repos:
-                slack.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text="I couldn't find any connected GitHub repositories for this project.",
-                )
-                return
-
-            explicit_repo = _extract_explicit_repo(command_repo, all_repos)
-            if not explicit_repo:
-                slack.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text="That repository is not connected to this project. Use `@Twig default repo show` to inspect current setting.",
-                )
-                return
-
-            _set_user_default_repo(integration.team_id, user_context.user.id, channel, explicit_repo)
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text=f"Set your default repository for this channel to `{explicit_repo}`.",
-            )
-            return
-
-        auth_response = slack.client.auth_test()
-        our_bot_id = auth_response.get("bot_id")
-
-        thread_messages = _collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id)
-        if not thread_messages:
-            return
-
-        all_repos = _get_full_repo_names(integration)
-        decision = select_repository(
-            event_text=event.get("text", ""),
-            thread_messages=thread_messages,
-            integration=integration,
-            user=user_context.user,
-            channel=channel,
-            all_repos=all_repos,
-        )
-        logger.info(
-            "twig_repo_decision",
-            mode=decision.mode,
-            repository=decision.repository,
-            reason=decision.reason,
-            llm_called=decision.llm_called,
-            repo_count=len(all_repos),
-            team_id=integration.team_id,
-            channel=channel,
-        )
-
-        if decision.mode == "picker":
-            if decision.reason == "no_repos":
-                slack.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text="I couldn't find any connected GitHub repositories. Please make sure a GitHub integration is set up in your PostHog project.",
-                )
-                return
-
-            guidance = (
-                "Please select the repository for this task. "
-                "Or @mention me again and include the exact repository as `org/repo`. "
-                "You can also set a default with `@Twig default repo set` or `@Twig default repo set org/repo`."
-            )
-            _post_repo_picker_message(
-                slack=slack,
-                integration=integration,
-                channel=channel,
-                thread_ts=thread_ts,
-                slack_user_id=slack_user_id,
-                event_text=event.get("text", ""),
-                user_message_ts=event.get("ts"),
-                guidance=guidance,
-                action_id="twig_repo_select",
-            )
-            return
-
-        repository = decision.repository
-        if not repository:
-            return
-
-        _create_task_for_repo(
-            repository=repository,
-            integration=integration,
-            slack=slack,
-            channel=channel,
-            thread_ts=thread_ts,
-            user_message_ts=event.get("ts"),
-            event_text=event.get("text", ""),
-            thread_messages=thread_messages,
-            user_id=user_context.user.id,
-            slack_user_id=slack_user_id,
-        )
-
-    except Exception as e:
-        logger.exception("twig_app_mention_failed", error=str(e))
-        if slack and channel and thread_ts:
-            try:
-                slack.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text="Sorry, I hit an internal error while processing that request. Please try again.",
-                )
-            except Exception:
-                logger.warning("twig_error_notification_failed", channel=channel, thread_ts=thread_ts)
 
 
 @csrf_exempt
@@ -1420,18 +1240,115 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
 
 
 def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
-    """Dispatch the repo selection to a Celery task and return 200 immediately."""
-    from products.slack_app.backend.tasks import process_twig_repo_selection
+    """Signal Temporal mention workflow for repo submit."""
+    actions = payload.get("actions", [])
+    action = next((a for a in actions if a.get("action_id") in {"twig_repo_select", "twig_default_repo_select"}), None)
+    action_id = action.get("action_id") if action else None
+    selected_repo = action.get("selected_option", {}).get("value") if action else None
 
-    process_twig_repo_selection.delay(payload)
+    context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
+    workflow_id = None
+    if context and isinstance(context.get("workflow_id"), str):
+        workflow_id = context.get("workflow_id")
+    if not workflow_id:
+        workflow_id = payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("workflow_id")
+
+    def post_selection_expired() -> None:
+        slack_team_id = payload.get("team", {}).get("id")
+        integration_id = context.get("integration_id") if context else None
+        channel = context.get("channel") if context else payload.get("channel", {}).get("id")
+        thread_ts = context.get("thread_ts") if context else payload.get("message", {}).get("ts")
+
+        if not slack_team_id or not integration_id or not channel or not thread_ts:
+            logger.warning(
+                "twig_repo_submit_expired_feedback_missing_context",
+                slack_team_id=slack_team_id,
+                integration_id=integration_id,
+                channel=channel,
+                thread_ts=thread_ts,
+            )
+            return
+
+        try:
+            integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
+            SlackIntegration(integration).client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="Repository selection expired. Please mention Twig again to retry.",
+            )
+        except Exception:
+            logger.warning(
+                "twig_repo_submit_expired_feedback_failed",
+                integration_id=integration_id,
+                channel=channel,
+                thread_ts=thread_ts,
+            )
+
+    if action_id == "twig_repo_select":
+        if not selected_repo:
+            return HttpResponse(status=200)
+
+        if not workflow_id:
+            logger.info("twig_repo_submit_missing_workflow_id")
+            post_selection_expired()
+            return HttpResponse(status=200)
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(workflow_id)
+            asyncio.run(handle.signal(TwigSlackMentionWorkflow.repo_selected, selected_repo))
+            return HttpResponse(status=200)
+        except Exception as e:
+            logger.warning("twig_repo_submit_signal_failed", workflow_id=workflow_id, error=str(e))
+            post_selection_expired()
+            return HttpResponse(status=200)
+
+    if action_id == "twig_default_repo_select":
+        action_ts = action.get("action_ts") if action else ""
+        team_id = payload.get("team", {}).get("id", "")
+        user_id = payload.get("user", {}).get("id", "")
+        workflow_id = f"twig-default-repo-select:{team_id}:{user_id}:{action_ts or context_token}"
+        try:
+            client = sync_connect()
+            asyncio.run(
+                client.start_workflow(
+                    TwigSlackDefaultRepoSelectionWorkflow.run,
+                    TwigSlackInteractivityInputs(payload=payload),
+                    id=workflow_id,
+                    task_queue=settings.MAX_AI_TASK_QUEUE,
+                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                )
+            )
+        except Exception as e:
+            logger.warning("twig_default_repo_submit_start_failed", workflow_id=workflow_id, error=str(e))
+        return HttpResponse(status=200)
+
     return HttpResponse(status=200)
 
 
 def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
-    """Dispatch task termination to Celery and return 200 immediately."""
-    from products.slack_app.backend.tasks import process_twig_task_termination
-
-    process_twig_task_termination.delay(payload)
+    """Start Temporal workflow for task termination and return 200 immediately."""
+    action = next((a for a in payload.get("actions", []) if a.get("action_id") == "twig_terminate_task"), None)
+    action_ts = action.get("action_ts") if action else ""
+    team_id = payload.get("team", {}).get("id", "")
+    user_id = payload.get("user", {}).get("id", "")
+    workflow_id = f"twig-terminate-task:{team_id}:{user_id}:{action_ts or payload.get('message', {}).get('ts', '')}"
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                TwigSlackTerminateTaskWorkflow.run,
+                TwigSlackInteractivityInputs(payload=payload),
+                id=workflow_id,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        )
+    except Exception as e:
+        logger.warning("twig_terminate_submit_start_failed", workflow_id=workflow_id, error=str(e))
     return HttpResponse(status=200)
 
 

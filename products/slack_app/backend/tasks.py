@@ -4,73 +4,15 @@ from django.core.cache import cache
 
 import structlog
 from asgiref.sync import async_to_sync
-from celery import shared_task
 
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=True)
-def process_twig_mention(event: dict, integration_id: int, slack_team_id: str) -> None:
-    """Process a Twig app_mention event asynchronously (local region only)."""
-    from posthog.models.integration import Integration
-
-    from products.slack_app.backend.api import handle_twig_app_mention
-
-    logger.info(
-        "twig_mention_task_started",
-        integration_id=integration_id,
-        slack_team_id=slack_team_id,
-        channel=event.get("channel"),
-        thread_ts=event.get("thread_ts") or event.get("ts"),
-        slack_user_id=event.get("user"),
-    )
-
-    try:
-        integration = Integration.objects.select_related("team", "team__organization").get(
-            id=integration_id,
-            kind="slack-twig",
-            integration_id=slack_team_id,
-        )
-        handle_twig_app_mention(event, integration)
-    except Exception as e:
-        logger.exception(
-            "twig_mention_task_failed",
-            integration_id=integration_id,
-            slack_team_id=slack_team_id,
-            error=str(e),
-        )
-
-        channel = event.get("channel")
-        thread_ts = event.get("thread_ts") or event.get("ts")
-        if not channel or not thread_ts:
-            return
-
-        try:
-            integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
-            from posthog.models.integration import SlackIntegration
-
-            SlackIntegration(integration).client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text="Sorry, I hit an internal error while processing that request. Please try again.",
-            )
-        except Exception:
-            logger.warning(
-                "twig_mention_task_feedback_failed",
-                integration_id=integration_id,
-                channel=channel,
-                thread_ts=thread_ts,
-            )
-
-
-@shared_task(ignore_result=True)
 def process_twig_repo_selection(payload: dict) -> None:
-    """Process a repo picker selection from Slack interactivity callback."""
+    """Process default-repo picker selection from Slack interactivity callback."""
     from posthog.models.integration import Integration, SlackIntegration
 
     from products.slack_app.backend.api import (
-        _collect_thread_messages,
-        _create_task_for_repo,
         _decode_picker_context,
         _extract_context_token,
         _get_full_repo_names,
@@ -79,16 +21,14 @@ def process_twig_repo_selection(payload: dict) -> None:
     )
 
     actions = payload.get("actions", [])
-    action = next((a for a in actions if a.get("action_id") in {"twig_repo_select", "twig_default_repo_select"}), None)
+    action = next((a for a in actions if a.get("action_id") == "twig_default_repo_select"), None)
     if not action:
-        logger.warning("twig_repo_selection_no_action")
+        logger.info("twig_default_repo_selection_ignored_non_default_action")
         return
-
-    action_id = action.get("action_id", "")
 
     selected_repo = action.get("selected_option", {}).get("value", "")
     if not selected_repo:
-        logger.warning("twig_repo_selection_no_value")
+        logger.warning("twig_default_repo_selection_no_value")
         return
 
     action_ts = action.get("action_ts", "")
@@ -101,11 +41,11 @@ def process_twig_repo_selection(payload: dict) -> None:
 
     context_token = _extract_context_token(payload)
     if not context_token:
-        logger.warning("twig_repo_selection_no_token")
+        logger.warning("twig_default_repo_selection_no_token")
         return
 
     logger.info(
-        "twig_repo_selection_dispatched",
+        "twig_default_repo_selection_dispatched",
         context_token=context_token,
         selected_repo=selected_repo,
         slack_user_id=slack_user_id,
@@ -113,24 +53,24 @@ def process_twig_repo_selection(payload: dict) -> None:
 
     ctx = _decode_picker_context(context_token)
     if not ctx:
-        logger.info("twig_repo_selection_expired_token", context_token=context_token)
+        logger.info("twig_default_repo_selection_expired_token", context_token=context_token)
         return
 
     # Submit dedup
     dedup_key = f"twig_repo_select_submit:{context_token}:{action_ts}"
     if not cache.add(dedup_key, True, timeout=300):
-        logger.info("twig_repo_selection_dedup", context_token=context_token)
+        logger.info("twig_default_repo_selection_dedup", context_token=context_token)
         return
 
     # One-time consume
     used_key = f"twig_repo_picker_used:{context_token}"
     if not cache.add(used_key, True, timeout=900):
-        logger.info("twig_repo_selection_already_used", context_token=context_token)
+        logger.info("twig_default_repo_selection_already_used", context_token=context_token)
         return
 
     if slack_user_id != ctx["mentioning_slack_user_id"]:
         logger.warning(
-            "twig_repo_selection_user_mismatch",
+            "twig_default_repo_selection_user_mismatch",
             expected=ctx["mentioning_slack_user_id"],
             actual=slack_user_id,
         )
@@ -143,12 +83,12 @@ def process_twig_repo_selection(payload: dict) -> None:
             integration_id=slack_team_id,
         )
     except Integration.DoesNotExist:
-        logger.warning("twig_repo_selection_no_integration", integration_id=ctx["integration_id"])
+        logger.warning("twig_default_repo_selection_no_integration", integration_id=ctx["integration_id"])
         return
 
     all_repos = _get_full_repo_names(integration)
     if selected_repo not in all_repos:
-        logger.warning("twig_repo_selection_invalid_repo", repo=selected_repo)
+        logger.warning("twig_default_repo_selection_invalid_repo", repo=selected_repo)
         return
 
     slack = SlackIntegration(integration)
@@ -159,21 +99,11 @@ def process_twig_repo_selection(payload: dict) -> None:
     if not user_context:
         return
 
-    auth_response = slack.client.auth_test()
-    our_bot_id = auth_response.get("bot_id")
-    thread_messages = _collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id)
-    if not thread_messages:
-        return
-
     # Update the picker message to show the selection
     picker_message_ts = payload.get("message", {}).get("ts")
     if picker_message_ts:
         try:
-            selected_text = (
-                f"Set default repository: `{selected_repo}`"
-                if action_id == "twig_default_repo_select"
-                else f"Selected repository: `{selected_repo}`"
-            )
+            selected_text = f"Set default repository: `{selected_repo}`"
             slack.client.chat_update(
                 channel=channel,
                 ts=picker_message_ts,
@@ -186,53 +116,30 @@ def process_twig_repo_selection(payload: dict) -> None:
                 ],
             )
         except Exception:
-            logger.warning("twig_repo_selection_update_failed", channel=channel)
+            logger.warning("twig_default_repo_selection_update_failed", channel=channel)
 
-    if action_id == "twig_default_repo_select":
-        _set_user_default_repo(integration.team_id, user_context.user.id, channel, selected_repo)
-        try:
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text=(
-                    f"Set your default repository to `{selected_repo}`. "
-                    "You can change it with `@Twig default repo set org/repo` or clear with `@Twig default repo clear`."
-                ),
-            )
-        except Exception:
-            logger.warning("twig_default_repo_confirmation_failed", channel=channel)
-        logger.info(
-            "twig_default_repo_set_from_picker",
-            context_token=context_token,
-            selected_repo=selected_repo,
-            team_id=integration.team_id,
+    _set_user_default_repo(integration.team_id, user_context.user.id, channel, selected_repo)
+    try:
+        slack.client.chat_postMessage(
             channel=channel,
+            thread_ts=thread_ts,
+            text=(
+                f"Set your default repository to `{selected_repo}`. "
+                "You can change it with `@Twig default repo set org/repo` or clear with `@Twig default repo clear`."
+            ),
         )
-        return
+    except Exception:
+        logger.warning("twig_default_repo_confirmation_failed", channel=channel)
 
     logger.info(
-        "twig_repo_selection_processing",
+        "twig_default_repo_set_from_picker",
         context_token=context_token,
         selected_repo=selected_repo,
         team_id=integration.team_id,
         channel=channel,
     )
 
-    _create_task_for_repo(
-        repository=selected_repo,
-        integration=integration,
-        slack=slack,
-        channel=channel,
-        thread_ts=thread_ts,
-        user_message_ts=ctx.get("user_message_ts"),
-        event_text=ctx.get("event_text", ""),
-        thread_messages=thread_messages,
-        user_id=user_context.user.id,
-        slack_user_id=slack_user_id,
-    )
 
-
-@shared_task(ignore_result=True)
 def process_twig_task_termination(payload: dict) -> None:
     """Terminate a running task workflow from Slack interactivity action."""
     from posthog.temporal.common.client import sync_connect
