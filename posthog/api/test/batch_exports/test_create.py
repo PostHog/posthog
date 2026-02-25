@@ -1660,6 +1660,7 @@ def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
         "http://[::1]/",
         "http://10.0.0.1:9000/",
         "http://169.254.0.0:8080/data",
+        "http://localhost",
     ],
 )
 def test_creating_S3_batch_export_fails_if_using_invalid_endpoint_url(

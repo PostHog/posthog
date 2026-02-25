@@ -7,6 +7,7 @@ import dataclasses
 import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
+from urllib.parse import urlparse
 
 from django.db import transaction
 from django.utils.timezone import now
@@ -429,8 +430,39 @@ INTERNAL_NETWORKS = (
 )
 
 
-def resolve_and_validate_host(host: str) -> None:
-    """Ensure provided hosts point to a non-internal IP."""
+def is_ip_internal(ip: str) -> bool:
+    """Check if IP belongs to an internal network."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        raise ValueError("Could not parse IP")
+
+    if any(addr in network for network in INTERNAL_NETWORKS):
+        return True
+    return False
+
+
+def resolve_and_validate_url(url: str) -> None:
+    """Ensure provided url point to a non-internal IP."""
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        raise ValueError(f"Invalid URL '{url}': {e}") from e
+
+    host = parsed.hostname
+    if not host:
+        raise ValueError(f"URL has no hostname")
+
+    # Host may already be an IP literal
+    try:
+        ip = ipaddress.ip_address(host)
+        if is_ip_internal(str(ip)):
+            raise ValueError(f"URL resolved to internal IP: {ip}")
+        return
+    except ValueError:
+        # Not an IP literal, requires DNS
+        pass
+
     try:
         # getaddrinfo supports both ipv4 and ipv6
         results = socket.getaddrinfo(host, None)
@@ -441,13 +473,8 @@ def resolve_and_validate_host(host: str) -> None:
     resolved_ips = {r[4][0] for r in results}
 
     for ip in resolved_ips:
-        try:
-            addr = ipaddress.ip_address(ip)
-        except ValueError:
-            raise ValueError("Could not parse IP")
-
-        if any(addr in network for network in INTERNAL_NETWORKS):
-            raise ValueError(f"'{host}' resolved to internal IP: {ip}")
+        if is_ip_internal(ip):
+            raise ValueError(f"URL resolved to internal IP: {ip}")
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
@@ -673,7 +700,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
             if merged_config.get("endpoint_url") is not None:
                 try:
-                    resolve_and_validate_host(merged_config["endpoint_url"])
+                    resolve_and_validate_url(merged_config["endpoint_url"])
                 except ValueError:
                     raise serializers.ValidationError(f"Invalid endpoint_url: '{merged_config['endpoint_url']}'")
 
@@ -799,7 +826,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             BatchExportDestination.Destination.REDSHIFT,
         ):
             try:
-                resolve_and_validate_host(merged_config["host"])
+                resolve_and_validate_url(merged_config["host"])
             except ValueError:
                 raise serializers.ValidationError(f"Invalid host: '{merged_config['host']}'")
 
