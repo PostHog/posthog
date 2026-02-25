@@ -173,7 +173,17 @@ if [[ "$USE_VSCODE" == "true" ]]; then
     # Refresh generated configs so launch.json compounds stay in sync.
     if command -v hogli &>/dev/null; then
         hogli dev:generate 2>/dev/null || true
-        hogli docker:services:up
+    fi
+
+    # Read main compound name from launch.json (first compound) unless overridden
+    if [[ "$VSCODE_COMPOUND" == "PostHog" ]]; then
+        LAUNCH_JSON="$REPOSITORY_ROOT/.vscode/launch.json"
+        if [[ -f "$LAUNCH_JSON" ]]; then
+            detected=$(python3 -c "import json; print(json.load(open('$LAUNCH_JSON'))['compounds'][0]['name'])" 2>/dev/null || true)
+            if [[ -n "$detected" ]]; then
+                VSCODE_COMPOUND="$detected"
+            fi
+        fi
     fi
 
     code --reuse-window "$REPOSITORY_ROOT" &>/dev/null || code "$REPOSITORY_ROOT" &>/dev/null

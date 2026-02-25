@@ -61,14 +61,11 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     registry = create_mprocs_registry()
     resolver = IntentResolver(intent_map, registry)
     local_path = get_generated_mprocs_path()
-    vscode_path = regenerate_vscode_launch_config(resolver)
 
     click.echo("")
     click.echo(click.style("PostHog Developer Environment Setup", fg="green", bold=True))
     click.echo("")
     click.echo("Configure which services to start based on the products you're working on.")
-    if vscode_path:
-        click.echo(f"VS Code launch compounds refreshed: {vscode_path}")
     click.echo("")
 
     # Check for existing config (follows symlinks)
@@ -123,9 +120,14 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     output_path.parent.mkdir(parents=True, exist_ok=True)
     generator.generate_and_save(resolved, output_path, config)
 
+    # Generate VS Code launch.json from same resolved environment
+    vscode_path = regenerate_vscode_launch_config(resolver, resolved, registry)
+
     click.echo("")
     click.echo(click.style("✓ Config saved!", fg="green"))
     click.echo(f"  Location: {output_path}")
+    if vscode_path:
+        click.echo(f"  VS Code: {vscode_path}")
     click.echo("")
     click.echo("Run 'hogli start' to start.")
 

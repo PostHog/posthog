@@ -8,8 +8,31 @@
 # To customize which processes run, use `hogli dev:setup`.
 # See devenv/intent-map.yaml for intent-to-capability mappings.
 
+# VS Code launch.json defaults — base envs for generated debug configs
+vscode_defaults:
+    debugpy_env:
+        PYTHONUNBUFFERED: '1'
+        DJANGO_SETTINGS_MODULE: posthog.settings
+        DEBUG: '1'
+        CLICKHOUSE_SECURE: 'False'
+        KAFKA_HOSTS: localhost
+        DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+        SKIP_SERVICE_VERSION_REQUIREMENTS: '1'
+        BILLING_SERVICE_URL: https://billing.dev.posthog.dev
+        CLOUD_DEPLOYMENT: local
+    nodejs_env:
+        CLICKHOUSE_SECURE: 'False'
+        DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+        KAFKA_HOSTS: localhost:9092
+        WORKER_CONCURRENCY: '2'
+        OBJECT_STORAGE_ENABLED: 'True'
+    superseded:
+        - 'Dagster: Debug Dagit UI'
+        - 'Backend (Attach to bin/start)'
+
 procs:
     info:
+        vscode: false
         shell: |
             echo ''
             printf '\033[38;2;245;78;0m\033[1m  PostHog Dev Environment\033[0m\n'
@@ -33,18 +56,48 @@ procs:
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-backend'
         # no capability - always_required via intent-map.yaml
+        vscode:
+            name: Backend
+            type: debugpy
+            program: manage.py
+            args: [runserver]
+            django: true
+            env:
+                PRINT_SQL: '1'
 
     celery-worker:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery worker'
         capability: celery_workers
+        vscode:
+            name: Celery Threaded Pool
+            type: debugpy
+            program: manage.py
+            args: [run_autoreload_celery, '--type=worker']
+            justMyCode: true
+            autoReload: true
+            env:
+                SKIP_ASYNC_MIGRATIONS_SETUP: '1'
 
     celery-beat:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery beat'
         capability: celery_scheduler
+        vscode:
+            name: Celery Beat
+            type: debugpy
+            program: manage.py
+            args: [run_autoreload_celery, '--type=beat']
+            justMyCode: true
+            autoReload: true
+            env:
+                SKIP_ASYNC_MIGRATIONS_SETUP: '1'
 
     nodejs:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && ./bin/posthog-node'
         capability: event_ingestion
+        vscode:
+            name: Nodejs Services
+            type: node-terminal
+            command: 'bin/turbo --env-mode=loose --filter=@posthog/nodejs start'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
         # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags
@@ -54,6 +107,11 @@ procs:
         shell: './bin/start-frontend'
         autorestart: true
         # no capability - always_required via intent-map.yaml
+        vscode:
+            name: Frontend
+            type: node-terminal
+            command: 'bin/start-frontend'
+            skipFiles: ['${workspaceFolder}/node_modules/kea-typegen/**/*.js']
 
     typegen:
         shell: 'cd frontend && pnpm run typegen:watch'
@@ -70,6 +128,14 @@ procs:
                 nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue"; \
             fi
         capability: temporal_workflows
+        vscode:
+            name: Temporal Worker
+            type: debugpy
+            program: manage.py
+            args: [start_temporal_worker, '--task-queue', 'development-task-queue']
+            django: true
+            env:
+                PRINT_SQL: '1'
 
     dagster:
         shell: |-
@@ -77,6 +143,15 @@ procs:
             bin/check_ducklake_up && \
             dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT
         capability: dagster_pipelines
+        vscode:
+            name: Dagster
+            type: debugpy
+            module: dagster
+            args: [dev, '--workspace', '${workspaceFolder}/.dagster_home/workspace.yaml']
+            subProcess: true
+            env:
+                DAGSTER_HOME: '${workspaceFolder}/.dagster_home'
+                DAGSTER_UI_PORT: '3030'
 
     docker-compose:
         shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'

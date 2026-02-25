@@ -93,7 +93,7 @@ def dev_generate(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     generator.generate_and_save(resolved, output_path, saved_config)
-    vscode_path = regenerate_vscode_launch_config(resolver)
+    vscode_path = regenerate_vscode_launch_config(resolver, resolved, registry)
 
     click.echo("Generated mprocs config from saved config")
     click.echo(f"  Products: {', '.join(sorted(resolved.intents))}")

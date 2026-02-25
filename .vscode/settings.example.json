@@ -60,5 +60,19 @@
         "editor.defaultFormatter": "oxc.oxc-vscode"
     },
     "oxc.fmt.configPath": ".oxfmtrc.json",
-    "git.fetchTags": false
+    "git.fetchTags": false,
+    "terminal.integrated.defaultProfile.osx": "flox",
+    "terminal.integrated.profiles.osx": {
+        "flox": {
+            "path": "/bin/bash",
+            "args": ["-l", "-c", "command -v flox >/dev/null && exec flox activate || exec bash"]
+        }
+    },
+    "terminal.integrated.defaultProfile.linux": "flox",
+    "terminal.integrated.profiles.linux": {
+        "flox": {
+            "path": "/bin/bash",
+            "args": ["-l", "-c", "command -v flox >/dev/null && exec flox activate || exec bash"]
+        }
+    }
 }
