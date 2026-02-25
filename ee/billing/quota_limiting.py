@@ -708,6 +708,8 @@ def update_all_orgs_billing_quotas(
             "organization__usage",
             "organization__created_at",
             "organization__never_drop_data",
+            "organization__customer_trust_scores",
+            "organization__customer_id",
         )
     )
 
