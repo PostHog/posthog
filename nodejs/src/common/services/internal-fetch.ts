@@ -11,7 +11,7 @@ export class InternalFetchService {
         urlPath,
         fetchParams,
     }: {
-        urlPath: string
+        urlPath: `/${string}`
         fetchParams: FetchOptions
     }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
         logger.debug('Making internal fetch request', { urlPath })
