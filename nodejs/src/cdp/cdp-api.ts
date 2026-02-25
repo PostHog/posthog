@@ -78,7 +78,7 @@ export class CdpApi {
     private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
 
     constructor(private hub: CdpApiHub) {
-        this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
         this.recipientsManager = new RecipientsManagerService(hub.postgres)
@@ -98,7 +98,24 @@ export class CdpApi {
         this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
         // CDP uses its own Redis instance with fallback to default
         this.hogWatcher = new HogWatcherService(
-            hub,
+            hub.teamManager,
+            {
+                hogCostTimingLowerMs: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                hogCostTiming: hub.CDP_WATCHER_HOG_COST_TIMING,
+                asyncCostTimingLowerMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+                asyncCostTimingUpperMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+                asyncCostTiming: hub.CDP_WATCHER_ASYNC_COST_TIMING,
+                sendEvents: hub.CDP_WATCHER_SEND_EVENTS,
+                bucketSize: hub.CDP_WATCHER_BUCKET_SIZE,
+                refillRate: hub.CDP_WATCHER_REFILL_RATE,
+                ttl: hub.CDP_WATCHER_TTL,
+                automaticallyDisableFunctions: hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
+                thresholdDegraded: hub.CDP_WATCHER_THRESHOLD_DEGRADED,
+                stateLockTtl: hub.CDP_WATCHER_STATE_LOCK_TTL,
+                observeResultsBufferTimeMs: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
+                observeResultsBufferMaxResults: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
+            },
             createRedisV2PoolFromConfig({
                 connection: hub.CDP_REDIS_HOST
                     ? {
@@ -112,7 +129,13 @@ export class CdpApi {
             })
         )
         this.hogTransformer = new HogTransformerService(hub)
-        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
+        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(
+            hub.kafkaProducer,
+            hub.internalCaptureService,
+            hub.teamManager,
+            hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+            hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
+        )
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,

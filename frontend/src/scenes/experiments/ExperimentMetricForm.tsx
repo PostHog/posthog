@@ -123,7 +123,7 @@ export function ExperimentMetricForm({
     handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
     exposureCriteria?: ExperimentExposureCriteria | undefined
-    openExposureCriteriaModal?: (() => void) | null
+    openExposureCriteriaModal?: (exposureCriteria?: ExperimentExposureCriteria) => void
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
@@ -275,7 +275,7 @@ export function ExperimentMetricForm({
                         exposureCriteria && openExposureCriteriaModal
                             ? {
                                   size: 'xsmall',
-                                  onClick: () => openExposureCriteriaModal(),
+                                  onClick: () => openExposureCriteriaModal(exposureCriteria),
                                   icon: <IconPencil />,
                                   tooltip: 'Edit exposure criteria',
                               }

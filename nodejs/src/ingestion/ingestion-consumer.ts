@@ -42,7 +42,7 @@ import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redi
  * Narrowed Hub type for IngestionConsumer.
  * This includes all fields needed by IngestionConsumer and its dependencies:
  * - HogTransformerService (via HogTransformerHub)
- * - BatchWritingGroupStore (via GroupHub)
+ * - BatchWritingGroupStore
  * - EventIngestionRestrictionManager
  * - KafkaProducerWrapper
  * - BatchWritingPersonsStore
@@ -54,7 +54,7 @@ export type IngestionConsumerHub = HogTransformerHub &
         Hub,
         // EventIngestionRestrictionManager
         | 'redisPool'
-        // GroupHub (BatchWritingGroupStore)
+        // BatchWritingGroupStore
         | 'groupRepository'
         | 'clickhouseGroupRepository'
         // KafkaProducerWrapper.create
@@ -177,11 +177,16 @@ export class IngestionConsumer {
             updateAllProperties: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
         })
 
-        this.groupStore = new BatchWritingGroupStore(this.hub, {
-            maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-            maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-        })
+        this.groupStore = new BatchWritingGroupStore(
+            this.hub.kafkaProducer,
+            this.hub.groupRepository,
+            this.hub.clickhouseGroupRepository,
+            {
+                maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+                maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+                optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            }
+        )
 
         this.kafkaConsumer = new KafkaConsumer({
             groupId: this.groupId,

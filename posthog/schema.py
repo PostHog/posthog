@@ -411,7 +411,6 @@ class AssistantTrendsDisplayType(RootModel[str | Any]):
 
 
 class Display(StrEnum):
-    AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
@@ -684,7 +683,6 @@ class ChartDisplayCategory(StrEnum):
 
 
 class ChartDisplayType(StrEnum):
-    AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"

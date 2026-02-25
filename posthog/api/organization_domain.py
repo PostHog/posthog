@@ -78,6 +78,12 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         self._scim_plain_token: str | None = None
 
+    def get_fields(self):
+        fields = super().get_fields()
+        if self.instance is not None:
+            fields["domain"].read_only = True
+        return fields
+
     def create(self, validated_data: dict[str, Any]) -> OrganizationDomain:
         organization: Organization = self.context["view"].organization
         if is_cloud() and not organization.is_feature_available(AvailableFeature.AUTOMATIC_PROVISIONING):
@@ -126,6 +132,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         return attrs
 
     def update(self, instance: OrganizationDomain, validated_data: dict[str, Any]) -> OrganizationDomain:
+        validated_data.pop("domain", None)  # domain is immutable after creation
         scim_enabled = validated_data.pop("scim_enabled", None)
         validated_data.pop("scim_bearer_token", None)
 

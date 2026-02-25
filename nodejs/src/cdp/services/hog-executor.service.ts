@@ -31,17 +31,29 @@ import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { HogInputsService, HogInputsServiceHub } from './hog-inputs.service'
-import { EmailService, EmailServiceHub } from './messaging/email.service'
+import { HogInputsService } from './hog-inputs.service'
+import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 /** Narrowed config type for CDP fetch retry settings, used by destination executors */
 export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
 
 export type HogExecutorServiceHub = CdpFetchConfig &
-    HogInputsServiceHub &
-    EmailServiceHub &
-    Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN' | 'teamManager'>
+    Pick<
+        Hub,
+        | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
+        | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
+        | 'teamManager'
+        // HogInputsService
+        | 'integrationManager'
+        | 'ENCRYPTION_SALT_KEYS'
+        | 'SITE_URL'
+        // EmailService
+        | 'SES_ACCESS_KEY_ID'
+        | 'SES_SECRET_ACCESS_KEY'
+        | 'SES_REGION'
+        | 'SES_ENDPOINT'
+    >
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -158,8 +170,18 @@ export class HogExecutorService {
 
     constructor(private hub: HogExecutorServiceHub) {
         this.recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        this.hogInputsService = new HogInputsService(hub)
-        this.emailService = new EmailService(hub)
+        this.hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        this.emailService = new EmailService(
+            {
+                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                sesRegion: hub.SES_REGION,
+                sesEndpoint: hub.SES_ENDPOINT,
+            },
+            hub.integrationManager,
+            hub.ENCRYPTION_SALT_KEYS,
+            hub.SITE_URL
+        )
     }
 
     async buildInputsWithGlobals(
