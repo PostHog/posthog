@@ -113,7 +113,7 @@ export class HogTransformerService {
     private async getTransformationFunctions() {
         if (!this.cachedTransformationFunctions) {
             this.cachedGeoIp = await this.geoipService.get()
-            this.cachedTransformationFunctions = getTransformationFunctions(this.cachedGeoIp!)
+            this.cachedTransformationFunctions = getTransformationFunctions(this.cachedGeoIp)
         }
         return this.cachedTransformationFunctions
     }
