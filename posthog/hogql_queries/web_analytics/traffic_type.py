@@ -36,7 +36,7 @@ __all__ = [
 
 def get_traffic_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
     """
-    Classifies user agent into traffic type using multiIf() with match().
+    Classifies user agent into traffic type.
 
     EXPERIMENTAL: This function may change without notice.
 
@@ -46,8 +46,7 @@ def get_traffic_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
     - "Automation" - HTTP clients, headless browsers, empty UA
     - "Regular" - Default for unmatched user agents
     """
-    node = ast.Call(name="__preview_getTrafficType", args=[user_agent_expr])
-    return _get_traffic_type(node=node, args=[user_agent_expr])
+    return _get_traffic_type(node=ast.Call(name="__preview_getTrafficType", args=[]), args=[user_agent_expr])
 
 
 def get_traffic_category_expr(user_agent_expr: ast.Expr) -> ast.Expr:
@@ -56,19 +55,10 @@ def get_traffic_category_expr(user_agent_expr: ast.Expr) -> ast.Expr:
 
     EXPERIMENTAL: This function may change without notice.
 
-    Categories:
-    - llm_crawler: AI training/assistant bots
-    - search_crawler: Search engine bots
-    - seo_crawler: SEO tool bots
-    - social_crawler: Social media crawlers
-    - monitoring: Uptime/monitoring bots
-    - http_client: CLI tools and libraries
-    - headless_browser: Automation frameworks
-    - no_user_agent: Empty or missing UA
-    - regular: Default for real users
+    Categories: llm_crawler, search_crawler, seo_crawler, social_crawler,
+    monitoring, http_client, headless_browser, no_user_agent, regular
     """
-    node = ast.Call(name="__preview_getTrafficCategory", args=[user_agent_expr])
-    return _get_traffic_category(node=node, args=[user_agent_expr])
+    return _get_traffic_category(node=ast.Call(name="__preview_getTrafficCategory", args=[]), args=[user_agent_expr])
 
 
 def is_bot_expr(user_agent_expr: ast.Expr) -> ast.Expr:
@@ -77,8 +67,7 @@ def is_bot_expr(user_agent_expr: ast.Expr) -> ast.Expr:
 
     EXPERIMENTAL: This function may change without notice.
     """
-    node = ast.Call(name="__preview_isBot", args=[user_agent_expr])
-    return _is_bot(node=node, args=[user_agent_expr])
+    return _is_bot(node=ast.Call(name="__preview_isBot", args=[]), args=[user_agent_expr])
 
 
 def get_bot_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
@@ -87,19 +76,10 @@ def get_bot_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
 
     EXPERIMENTAL: This function may change without notice.
 
-    Categories:
-    - llm_crawler: AI training/assistant bots
-    - search_crawler: Search engine bots
-    - seo_crawler: SEO tool bots
-    - social_crawler: Social media crawlers
-    - monitoring: Uptime/monitoring bots
-    - http_client: CLI tools and libraries
-    - headless_browser: Automation frameworks
-    - no_user_agent: Empty or missing UA
-    - "": Regular traffic (empty string)
+    Categories: llm_crawler, search_crawler, seo_crawler, social_crawler,
+    monitoring, http_client, headless_browser, no_user_agent, "" (regular)
     """
-    node = ast.Call(name="__preview_getBotType", args=[user_agent_expr])
-    return _get_bot_type(node=node, args=[user_agent_expr])
+    return _get_bot_type(node=ast.Call(name="__preview_getBotType", args=[]), args=[user_agent_expr])
 
 
 def get_bot_name_expr(user_agent_expr: ast.Expr) -> ast.Expr:
@@ -110,5 +90,4 @@ def get_bot_name_expr(user_agent_expr: ast.Expr) -> ast.Expr:
 
     Examples: "Googlebot", "ChatGPT", "Claude", "curl", ""
     """
-    node = ast.Call(name="__preview_getBotName", args=[user_agent_expr])
-    return _get_bot_name(node=node, args=[user_agent_expr])
+    return _get_bot_name(node=ast.Call(name="__preview_getBotName", args=[]), args=[user_agent_expr])
