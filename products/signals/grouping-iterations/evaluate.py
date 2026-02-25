@@ -9,12 +9,11 @@ import json
 import os
 
 import anthropic
-from dotenv import load_dotenv
-from pathlib import Path
+from dotenv import find_dotenv, load_dotenv
 
 from harness import GroupingResult, TestSignal
 
-load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+load_dotenv(find_dotenv(usecwd=True))
 
 EVAL_MODEL = "claude-sonnet-4-5"
 

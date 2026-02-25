@@ -21,9 +21,9 @@ from typing import Callable, Protocol, TypeVar
 import anthropic
 import numpy as np
 import openai
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+load_dotenv(find_dotenv(usecwd=True))
 
 CACHE_DIR = Path(__file__).resolve().parent / "cache"
 EMBEDDING_MODEL = "text-embedding-3-small"

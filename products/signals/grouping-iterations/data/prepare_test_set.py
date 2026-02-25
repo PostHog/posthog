@@ -1,19 +1,18 @@
 """
 Extract a curated test dataset from the full signals export.
 
-Reads playground/signals-grouping-iterations/signals.json and picks signals
-from specific reports to create a focused test set for grouping iteration.
+Reads a signals JSON export (one JSON array per line, as produced by posthog-cli)
+and picks signals from specific reports to create a focused test set.
 
 Usage:
-    python products/signals/grouping-iterations/data/prepare_test_set.py
+    python products/signals/grouping-iterations/data/prepare_test_set.py --input /path/to/signals.json
 """
 
+import argparse
 import json
 import os
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-SIGNALS_EXPORT = REPO_ROOT / "playground" / "signals-grouping-iterations" / "signals.json"
 OUTPUT_PATH = Path(__file__).resolve().parent / "test_signals.json"
 
 # Reports to include (all signals from each)
@@ -51,23 +50,37 @@ def parse_signal_row(row: list) -> dict:
 
 
 def main():
-    if not SIGNALS_EXPORT.exists():
-        print(f"Error: signals export not found at {SIGNALS_EXPORT}")
-        print("Run the posthog-cli export first (see ARCHITECTURE.md)")
+    parser = argparse.ArgumentParser(description="Prepare test signal set from ClickHouse export")
+    parser.add_argument(
+        "--input",
+        required=True,
+        help="Path to the signals JSON export (one JSON array per line, from posthog-cli)",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(OUTPUT_PATH),
+        help=f"Output path for the test set (default: {OUTPUT_PATH})",
+    )
+    args = parser.parse_args()
+
+    input_path = Path(args.input)
+    output_path = Path(args.output)
+
+    if not input_path.exists():
+        print(f"Error: signals export not found at {input_path}")
+        print("Export with: posthog-cli exp query run \"select product, document_type, document_id, timestamp, inserted_at, content, metadata from document_embeddings where model_name = 'text-embedding-3-small-1536' and product = 'signals' limit 1000\" > signals.json")
         return
 
     # Parse all signals and group by report_id
     signals_by_report: dict[str, list[dict]] = {}
-    all_signals: list[dict] = []
 
-    with open(SIGNALS_EXPORT) as f:
+    with open(input_path) as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             row = json.loads(line)
             signal = parse_signal_row(row)
-            all_signals.append(signal)
             rid = signal["original_report_id"]
             if rid:
                 signals_by_report.setdefault(rid, []).append(signal)
@@ -95,11 +108,11 @@ def main():
     # Sort by timestamp to simulate arrival order
     test_signals.sort(key=lambda s: s["timestamp"])
 
-    os.makedirs(OUTPUT_PATH.parent, exist_ok=True)
-    with open(OUTPUT_PATH, "w") as f:
+    os.makedirs(output_path.parent, exist_ok=True)
+    with open(output_path, "w") as f:
         json.dump(test_signals, f, indent=2)
 
-    print(f"\nWrote {len(test_signals)} signals to {OUTPUT_PATH}")
+    print(f"\nWrote {len(test_signals)} signals to {output_path}")
 
 
 if __name__ == "__main__":

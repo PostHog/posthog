@@ -7,7 +7,9 @@ Replicates the exact production flow:
 3. Cosine search in-memory store
 4. LLM match decision (existing report or new group)
 
-Reuses prompts and validation from the production codebase.
+Prompts and validation logic are copied from the production codebase because
+grouping.py has top-level Django/Temporal imports that prevent standalone use.
+Keep in sync with the source files noted below.
 """
 
 import json
@@ -29,7 +31,8 @@ from harness import (
 MAX_QUERY_TOKENS = 2048
 
 
-# --- Query generation (reuses production prompts) ---
+# --- Query generation ---
+# Source: products/signals/backend/temporal/grouping.py (QueryGenerationResponse, QUERY_GENERATION_SYSTEM_PROMPT_TEMPLATE, _build_query_generation_system_prompt)
 
 
 class QueryGenerationResponse(BaseModel):
@@ -73,7 +76,8 @@ def _build_query_generation_system_prompt(signal_type_examples: list[SignalTypeE
     )
 
 
-# --- Matching (reuses production prompts) ---
+# --- Matching ---
+# Source: products/signals/backend/temporal/grouping.py (MatchFound, NewGroup, MATCHING_SYSTEM_PROMPT, _build_matching_prompt)
 
 
 class MatchFound(BaseModel):
