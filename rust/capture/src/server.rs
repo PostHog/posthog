@@ -242,63 +242,9 @@ where
     );
 
     let global_rate_limiter = if config.global_rate_limit_enabled {
-        // Use dedicated Redis if configured, otherwise fall back to shared client.
-        // When a reader URL is also provided, construct a ReadWriteClient that routes
-        // reads (MGET) to replicas and writes (INCRBY+EXPIRE) to the primary.
-        let grl_redis_client: Arc<dyn common_redis::Client + Send + Sync> =
-            if let Some(ref grl_redis_url) = config.global_rate_limit_redis_url {
-                let response_timeout = config
-                    .global_rate_limit_redis_response_timeout_ms
-                    .unwrap_or(config.redis_response_timeout_ms);
-                let connection_timeout = config
-                    .global_rate_limit_redis_connection_timeout_ms
-                    .unwrap_or(config.redis_connection_timeout_ms);
-                let response_timeout_duration = if response_timeout == 0 {
-                    None
-                } else {
-                    Some(Duration::from_millis(response_timeout))
-                };
-                let connection_timeout_duration = if connection_timeout == 0 {
-                    None
-                } else {
-                    Some(Duration::from_millis(connection_timeout))
-                };
-
-                if let Some(ref reader_url) = config.global_rate_limit_redis_reader_url {
-                    let rw_config = common_redis::ReadWriteClientConfig::new(
-                        grl_redis_url.clone(),
-                        reader_url.clone(),
-                        common_redis::CompressionConfig::disabled(),
-                        common_redis::RedisValueFormat::default(),
-                        response_timeout_duration,
-                        connection_timeout_duration,
-                    );
-                    info!("Global rate limiter using read/write split Redis client");
-                    Arc::new(
-                        rw_config
-                            .build()
-                            .await
-                            .expect("failed to create global rate limiter read/write redis client"),
-                    )
-                } else {
-                    Arc::new(
-                        RedisClient::with_config(
-                            grl_redis_url.clone(),
-                            common_redis::CompressionConfig::disabled(),
-                            common_redis::RedisValueFormat::default(),
-                            response_timeout_duration,
-                            connection_timeout_duration,
-                        )
-                        .await
-                        .expect("failed to create global rate limiter redis client"),
-                    )
-                }
-            } else {
-                redis_client.clone()
-            };
-
         Some(Arc::new(
-            GlobalRateLimiter::new(&config, vec![grl_redis_client])
+            GlobalRateLimiter::try_from_config(&config, redis_client.clone())
+                .await
                 .expect("failed to create global rate limiter"),
         ))
     } else {
