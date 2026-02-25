@@ -3,7 +3,7 @@ import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils'
 
-import { APIScopeObject, OrganizationMemberType, RoleType } from '~/types'
+import { AccessControlLevel, APIScopeObject, OrganizationMemberType, RoleType } from '~/types'
 
 import { MultiSelectFilterDropdown } from './MultiselectFilterDropdown'
 import { AccessControlFilters as AccessControlFiltersType, AccessControlsTab } from './types'
@@ -59,7 +59,7 @@ export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Elem
 
                 <AccessLevelFilter
                     selectedRuleLevels={props.filters.ruleLevels}
-                    setSelectedRuleLevels={(values) => props.setFilters({ ruleLevels: values })}
+                    setSelectedRuleLevels={(values) => props.setFilters({ ruleLevels: values as AccessControlLevel[] })}
                     ruleOptions={props.ruleOptions}
                 />
             </div>
@@ -158,8 +158,8 @@ function FeaturesFilter(props: {
 }
 
 function AccessLevelFilter(props: {
-    selectedRuleLevels: string[]
-    setSelectedRuleLevels: (values: string[]) => void
+    selectedRuleLevels: AccessControlLevel[]
+    setSelectedRuleLevels: (values: AccessControlLevel[]) => void
     ruleOptions: { key: string; label: string }[]
 }): JSX.Element {
     return (

@@ -217,7 +217,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 }
                 // Fallback to list of all resources while loading
                 return resources.map((resource) => ({
-                    key: resource as APIScopeObject,
+                    key: resource,
                     label: toSentenceCase(pluralizeResource(resource)),
                 }))
             },
