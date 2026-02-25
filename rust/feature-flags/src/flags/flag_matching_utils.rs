@@ -461,17 +461,11 @@ async fn fetch_properties_via_personhog(
     group_keys: &HashSet<String>,
     static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
-    let person_query_start = Instant::now();
     let person_timer = common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
     let person = client
         .get_person_by_distinct_id(team_id, &distinct_id)
         .await?;
     person_timer.fin();
-    let person_query_duration = person_query_start.elapsed();
-    info!(
-        duration_ms = person_query_duration.as_millis(),
-        "Personhog person query completed"
-    );
 
     let (person_id, person_props) = person
         .map(|p| (Some(p.id), Some(p.properties)))
@@ -481,19 +475,11 @@ async fn fetch_properties_via_personhog(
         flag_evaluation_state.set_person_id(person_id);
 
         if !static_cohort_ids.is_empty() {
-            let cohort_start = Instant::now();
             let cohort_timer = common_metrics::timing_guard(FLAG_PERSONHOG_COHORT_QUERY_TIME, &[]);
             let cohort_results = client
                 .check_cohort_membership(person_id, &static_cohort_ids)
                 .await?;
             cohort_timer.fin();
-            let cohort_duration = cohort_start.elapsed();
-            info!(
-                duration_ms = cohort_duration.as_millis(),
-                person_id = person_id,
-                cohort_count = static_cohort_ids.len(),
-                "Personhog cohort query completed"
-            );
             flag_evaluation_state.set_static_cohort_matches(cohort_results);
         } else {
             flag_evaluation_state.set_static_cohort_matches(HashMap::new());
@@ -515,17 +501,9 @@ async fn fetch_properties_via_personhog(
             .flat_map(|idx| group_keys.iter().map(move |key| (*idx, key.clone())))
             .collect();
 
-        let group_start = Instant::now();
         let group_timer = common_metrics::timing_guard(FLAG_PERSONHOG_GROUP_QUERY_TIME, &[]);
         let group_properties = client.get_groups(team_id, group_identifiers).await?;
         group_timer.fin();
-        let group_duration = group_start.elapsed();
-        info!(
-            duration_ms = group_duration.as_millis(),
-            group_type_count = group_type_indexes.len(),
-            group_key_count = group_keys.len(),
-            "Personhog group query completed"
-        );
         for (group_type_index, properties) in group_properties {
             flag_evaluation_state.set_group_properties(group_type_index, properties);
         }
@@ -705,16 +683,11 @@ pub async fn get_feature_flag_hash_key_overrides(
     increment_hash_key_override_lookup_count();
 
     if let Some(client) = personhog_client {
-        let start = Instant::now();
         let timer = common_metrics::timing_guard(FLAG_PERSONHOG_HASH_KEY_QUERY_TIME, &[]);
         let result = client
             .get_hash_key_override_context(team_id, distinct_id_and_hash_key_override)
             .await;
         timer.fin();
-        info!(
-            duration_ms = start.elapsed().as_millis(),
-            "Personhog hash key override query completed"
-        );
         return result;
     }
 
@@ -932,7 +905,6 @@ pub async fn set_feature_flag_hash_key_overrides(
                 message: "distinct_ids must not be empty".to_string(),
             })?;
 
-        let person_start = Instant::now();
         let person_timer = common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
         let person = client
             .get_person_by_distinct_id(team_id, first_distinct_id)
@@ -942,10 +914,6 @@ pub async fn set_feature_flag_hash_key_overrides(
                 message: format!("Person not found for distinct_id {first_distinct_id}"),
             })?;
         person_timer.fin();
-        info!(
-            duration_ms = person_start.elapsed().as_millis(),
-            "Personhog person query for hash key overrides completed"
-        );
 
         let feature_flag_keys =
             get_active_eec_flag_keys(router, team_id, "set_hash_key_overrides_personhog").await?;
@@ -954,16 +922,11 @@ pub async fn set_feature_flag_hash_key_overrides(
             return Ok(false);
         }
 
-        let upsert_start = Instant::now();
         let upsert_timer = common_metrics::timing_guard(FLAG_PERSONHOG_UPSERT_TIME, &[]);
         client
             .upsert_hash_key_overrides(team_id, person.id, feature_flag_keys, hash_key_override)
             .await?;
         upsert_timer.fin();
-        info!(
-            duration_ms = upsert_start.elapsed().as_millis(),
-            "Personhog hash key upsert completed"
-        );
 
         return Ok(true);
     }
