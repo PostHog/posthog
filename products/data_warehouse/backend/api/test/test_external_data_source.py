@@ -621,6 +621,7 @@ class TestExternalDataSource(APIBaseTest):
         assert DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists()
         assert mock_capture_exception.call_count == 2  # one for source, one for schema
 
+    # TODO: update this test
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()

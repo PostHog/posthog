@@ -625,9 +625,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             trigger_external_data_source_workflow(instance)
+
         except temporalio.service.RPCError:
             # if the source schedule has been removed - trigger the schema schedules
             instance.reload_schemas()
+
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
             raise
