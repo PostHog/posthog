@@ -2,7 +2,7 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
-import { GroupsManagerService, GroupsManagerServiceHub } from './groups-manager.service'
+import { GroupsManagerService } from './groups-manager.service'
 
 describe('Groups Manager', () => {
     jest.setTimeout(1000)
@@ -15,19 +15,17 @@ describe('Groups Manager', () => {
     const mockFetchGroupTypesByTeamIds = jest.fn()
     const mockFetchGroupsByKeys = jest.fn()
 
-    const mockHub: GroupsManagerServiceHub = {
-        teamManager: {
-            hasAvailableFeature: mockHasAvailableFeature,
-        } as unknown as TeamManager,
-        groupRepository: {
-            fetchGroupTypesByTeamIds: mockFetchGroupTypesByTeamIds,
-            fetchGroupsByKeys: mockFetchGroupsByKeys,
-        } as unknown as GroupRepository,
-        SITE_URL: 'http://localhost:8000',
-    }
+    const mockTeamManager = {
+        hasAvailableFeature: mockHasAvailableFeature,
+    } as unknown as TeamManager
+
+    const mockGroupRepository = {
+        fetchGroupTypesByTeamIds: mockFetchGroupTypesByTeamIds,
+        fetchGroupsByKeys: mockFetchGroupsByKeys,
+    } as unknown as GroupRepository
 
     beforeEach(() => {
-        groupsManager = new GroupsManagerService(mockHub)
+        groupsManager = new GroupsManagerService(mockTeamManager, mockGroupRepository)
     })
 
     describe('unit tests', () => {
