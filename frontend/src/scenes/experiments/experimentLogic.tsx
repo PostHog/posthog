@@ -169,11 +169,29 @@ export interface ExperimentLogicProps {
     tabId?: string
 }
 
+export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
+
+function generateRefreshId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID()
+    }
+    // Fallback for environments without crypto.randomUUID (e.g., jsdom tests)
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0
+        const v = c === 'x' ? r : (r & 0x3) | 0x8
+        return v.toString(16)
+    })
+}
+
 interface MetricLoadingConfig {
     metrics: any[]
     experimentId: Experiment['id']
     refresh?: boolean
     teamId?: number | null
+    refreshId: string
+    isPrimary: boolean
+    isRetry: boolean
+    metricIndexOffset: number
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -184,6 +202,12 @@ interface MetricLoadingConfig {
     ) => void
     onSetResults: (results: CachedNewExperimentQueryResponse[]) => void
     onSetErrors: (errors: any[]) => void
+}
+
+interface MetricLoadingSummary {
+    successfulCount: number
+    erroredCount: number
+    cachedCount: number
 }
 
 const OUT_OF_MEMORY_ERROR_CODES = new Set(['memory_limit_exceeded', 'query_memory_limit_exceeded'])
@@ -219,15 +243,40 @@ function isTimeoutError(errorDetail: unknown, errorMessage: string | null, statu
     return errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE || errorMessage === QUERY_TIMEOUT_ERROR_MESSAGE
 }
 
+function classifyError(
+    errorDetail: unknown,
+    errorMessage: string | null,
+    errorCode: string | null,
+    statusCode: number | null
+): 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown' {
+    if (isTimeoutError(errorDetail, errorMessage, statusCode)) {
+        return 'timeout'
+    }
+    if (isOutOfMemoryError(errorCode, errorMessage)) {
+        return 'out_of_memory'
+    }
+    if (statusCode !== null && statusCode >= 500) {
+        return 'server_error'
+    }
+    if (statusCode === 0 || errorCode === 'network_error' || errorMessage?.includes('NetworkError')) {
+        return 'network_error'
+    }
+    return 'unknown'
+}
+
 const loadMetrics = async ({
     metrics,
     experimentId,
     refresh,
     teamId,
+    refreshId,
+    isPrimary,
+    isRetry,
+    metricIndexOffset,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
-}: MetricLoadingConfig): Promise<void[]> => {
+}: MetricLoadingConfig): Promise<MetricLoadingSummary> => {
     const legacyResults: (
         | CachedLegacyExperimentQueryResponse
         | CachedExperimentTrendsQueryResponse
@@ -238,9 +287,17 @@ const loadMetrics = async ({
     const results: CachedNewExperimentQueryResponse[] = []
     const currentErrors = new Array(metrics.length).fill(null)
 
-    return await Promise.all(
+    let successfulCount = 0
+    let erroredCount = 0
+    let cachedCount = 0
+
+    await Promise.all(
         metrics.map(async (metric, index) => {
             let response: any = null
+            const startTime = performance.now()
+            const metricIndex = metricIndexOffset + index
+            const metricKind = metric.kind || 'unknown'
+
             try {
                 let queryWithExperimentId
                 if (metric.kind === NodeKind.ExperimentMetric) {
@@ -260,6 +317,9 @@ const loadMetrics = async ({
                     undefined,
                     refresh ? 'force_async' : 'async'
                 )
+
+                const durationMs = Math.round(performance.now() - startTime)
+                const isCached = !!response?.is_cached
 
                 // Convert ExperimentQuery responses to typed responses
                 if (
@@ -289,13 +349,28 @@ const loadMetrics = async ({
                 onSetLegacyResults([...legacyResults])
                 onSetResults([...results])
 
+                successfulCount++
+                if (isCached) {
+                    cachedCount++
+                }
+
                 eventUsageLogic.actions.reportExperimentMetricFinished(
                     experimentId,
                     metric,
                     teamId,
-                    response?.query_status?.id || null
+                    response?.query_status?.id || null,
+                    {
+                        duration_ms: durationMs,
+                        is_cached: isCached,
+                        metric_index: metricIndex,
+                        is_primary: isPrimary,
+                        is_retry: isRetry,
+                        refresh_id: refreshId,
+                        metric_kind: metricKind,
+                    }
                 )
             } catch (error: any) {
+                const durationMs = Math.round(performance.now() - startTime)
                 const errorCode = typeof error.code === 'string' ? error.code : null
                 const statusCode = typeof error.status === 'number' ? error.status : null
                 const errorMessage =
@@ -306,6 +381,7 @@ const loadMetrics = async ({
                           : null
                 const { detail: errorDetail, hasDiagnostics } = parseMetricErrorDetail(error)
                 const queryId = response?.query_status?.id || error.queryId || null
+                const errorType = classifyError(errorDetail, errorMessage, errorCode, statusCode)
 
                 currentErrors[index] = {
                     detail: errorDetail,
@@ -317,9 +393,12 @@ const loadMetrics = async ({
                 }
                 onSetErrors(currentErrors)
 
-                if (isTimeoutError(errorDetail, errorMessage, statusCode)) {
+                erroredCount++
+
+                // Keep backwards-compatible events firing
+                if (errorType === 'timeout') {
                     eventUsageLogic.actions.reportExperimentMetricTimeout(experimentId, metric, teamId, queryId)
-                } else if (isOutOfMemoryError(errorCode, errorMessage)) {
+                } else if (errorType === 'out_of_memory') {
                     eventUsageLogic.actions.reportExperimentMetricOutOfMemory(
                         experimentId,
                         metric,
@@ -330,12 +409,28 @@ const loadMetrics = async ({
                     )
                 }
 
+                // Unified error event for all error types
+                eventUsageLogic.actions.reportExperimentMetricError(experimentId, metric, teamId, queryId, {
+                    duration_ms: durationMs,
+                    metric_index: metricIndex,
+                    is_primary: isPrimary,
+                    is_retry: isRetry,
+                    refresh_id: refreshId,
+                    metric_kind: metricKind,
+                    error_type: errorType,
+                    error_code: errorCode,
+                    error_message: errorMessage,
+                    status_code: statusCode,
+                })
+
                 legacyResults[index] = null
                 onSetLegacyResults([...legacyResults])
                 onSetResults([...results])
             }
         })
     )
+
+    return { successfulCount, erroredCount, cachedCount }
 }
 
 // Type guards to distinguish between legacy and new experiment responses
@@ -494,7 +589,10 @@ export const experimentLogic = kea<experimentLogicType>([
         removeVariant: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
-        refreshExperimentResults: (forceRefresh?: boolean) => ({ forceRefresh }),
+        refreshExperimentResults: (forceRefresh?: boolean, triggeredBy?: ExperimentTriggeredBy) => ({
+            forceRefresh,
+            triggeredBy: triggeredBy ?? 'manual',
+        }),
         updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
@@ -620,11 +718,11 @@ export const experimentLogic = kea<experimentLogicType>([
         ) => ({ results }),
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setPrimaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
-        loadPrimaryMetricsResults: (refresh?: boolean) => ({ refresh }),
+        loadPrimaryMetricsResults: (refresh?: boolean, refreshId?: string) => ({ refresh, refreshId }),
         setPrimaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
         retryPrimaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
-        loadSecondaryMetricsResults: (refresh?: boolean) => ({ refresh }),
+        loadSecondaryMetricsResults: (refresh?: boolean, refreshId?: string) => ({ refresh, refreshId }),
         setSecondaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
         retrySecondaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
@@ -1131,7 +1229,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 payload: { active: isActive },
             })
 
-            actions.loadExperiment()
+            actions.loadExperiment({ triggeredBy: 'config_change' })
         },
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
@@ -1265,13 +1363,13 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentType: async ({ type }) => {
             actions.setExperiment({ type: type })
         },
-        loadExperimentSuccess: async ({ experiment }) => {
+        loadExperimentSuccess: async ({ experiment, payload }) => {
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
             // Load metrics for running experiments (will set up auto-refresh after load completes)
             if (experiment?.start_date) {
-                actions.refreshExperimentResults(false)
+                actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual')
             }
         },
         launchExperiment: async () => {
@@ -1333,16 +1431,61 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ archived: true })
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
-        refreshExperimentResults: async ({ forceRefresh }) => {
-            // Note: This listener is called both for manual and auto-refresh triggers
-            // The context parameter is not available here, so we'll track from the calling locations
+        refreshExperimentResults: async ({ forceRefresh, triggeredBy }) => {
+            const refreshId = generateRefreshId()
+            const refreshStart = performance.now()
+            const summaries: MetricLoadingSummary[] = []
+            cache.refreshSummariesById = cache.refreshSummariesById ?? {}
+            cache.refreshSummariesById[refreshId] = summaries
             try {
                 await Promise.all([
-                    actions.loadPrimaryMetricsResults(forceRefresh),
-                    actions.loadSecondaryMetricsResults(forceRefresh),
+                    actions.loadPrimaryMetricsResults(forceRefresh, refreshId),
+                    actions.loadSecondaryMetricsResults(forceRefresh, refreshId),
                     actions.loadExposures(forceRefresh),
                 ])
             } finally {
+                const totalDurationMs = Math.round(performance.now() - refreshStart)
+                const refreshSummaries: MetricLoadingSummary[] = cache.refreshSummariesById?.[refreshId] ?? []
+                if (cache.refreshSummariesById) {
+                    delete cache.refreshSummariesById[refreshId]
+                }
+
+                const primaryCount =
+                    (values.experiment?.metrics?.length || 0) +
+                    (values.experiment?.saved_metrics?.filter(
+                        (m: { metadata: { type: string } }) => m.metadata.type === 'primary'
+                    ).length || 0)
+                const secondaryCount =
+                    (values.experiment?.metrics_secondary?.length || 0) +
+                    (values.experiment?.saved_metrics?.filter(
+                        (m: { metadata: { type: string } }) => m.metadata.type === 'secondary'
+                    ).length || 0)
+                const successfulCount =
+                    values.legacyPrimaryMetricsResults.filter(Boolean).length +
+                    values.primaryMetricsResults.filter(Boolean).length +
+                    values.legacySecondaryMetricsResults.filter(Boolean).length +
+                    values.secondaryMetricsResults.filter(Boolean).length
+                const erroredCount =
+                    values.primaryMetricsResultsErrors.filter(Boolean).length +
+                    values.secondaryMetricsResultsErrors.filter(Boolean).length
+                const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
+
+                eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
+                    values.experimentId,
+                    values.currentTeamId,
+                    {
+                        total_duration_ms: totalDurationMs,
+                        primary_metrics_count: primaryCount,
+                        secondary_metrics_count: secondaryCount,
+                        successful_count: successfulCount,
+                        errored_count: erroredCount,
+                        cached_count: cachedCount,
+                        triggered_by: triggeredBy ?? 'manual',
+                        force_refresh: !!forceRefresh,
+                        refresh_id: refreshId,
+                    }
+                )
+
                 // Only set up auto-refresh if enabled AND page is visible
                 // This prevents the interval from restarting when async operations complete after the page becomes invisible
                 if (values.autoRefresh.enabled && values.experiment?.start_date && values.isPageVisible) {
@@ -1374,7 +1517,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment.exposure_criteria,
                 },
             })
-            actions.refreshExperimentResults(true)
+            actions.refreshExperimentResults(true, 'config_change')
         },
         resetRunningExperiment: async () => {
             actions.updateExperiment({
@@ -1398,7 +1541,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     payload?.metrics !== undefined ||
                     payload?.metrics_secondary !== undefined ||
                     payload?.stats_config !== undefined
-                actions.refreshExperimentResults(forceRefresh)
+                actions.refreshExperimentResults(forceRefresh, 'config_change')
             }
         },
         createExposureCohortSuccess: ({ exposureCohort }) => {
@@ -1484,7 +1627,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 saved_metrics_ids: combinedMetricsIds,
             })
 
-            actions.loadExperiment()
+            actions.loadExperiment({ triggeredBy: 'config_change' })
         },
         removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
             const sharedMetricsIds = values.experiment.saved_metrics
@@ -1508,7 +1651,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics_secondary: cleanedMetricsSecondary,
             })
 
-            actions.loadExperiment()
+            actions.loadExperiment({ triggeredBy: 'config_change' })
         },
         createExperimentDashboard: async () => {
             actions.setIsCreatingExperimentDashboard(true)
@@ -1661,7 +1804,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        loadPrimaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {
+        loadPrimaryMetricsResults: async ({ refresh, refreshId }: { refresh?: boolean; refreshId?: string }) => {
             actions.setPrimaryMetricsResultsLoading(true)
             actions.setLegacyPrimaryMetricsResults([])
             actions.setPrimaryMetricsResults([])
@@ -1673,15 +1816,25 @@ export const experimentLogic = kea<experimentLogicType>([
 
             const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
 
-            await loadMetrics({
+            const resolvedRefreshId = refreshId || generateRefreshId()
+            const summary = await loadMetrics({
                 metrics,
                 experimentId: values.experimentId,
                 refresh,
                 teamId: values.currentTeamId,
+                refreshId: resolvedRefreshId,
+                isPrimary: true,
+                isRetry: false,
+                metricIndexOffset: 0,
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
             })
+
+            const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
+            if (refreshSummaries) {
+                refreshSummaries.push(summary)
+            }
 
             actions.setPrimaryMetricsResultsLoading(false)
 
@@ -1690,7 +1843,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
             }
         },
-        loadSecondaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {
+        loadSecondaryMetricsResults: async ({ refresh, refreshId }: { refresh?: boolean; refreshId?: string }) => {
             actions.setSecondaryMetricsResultsLoading(true)
             actions.setLegacySecondaryMetricsResults([])
             actions.setSecondaryMetricsResults([])
@@ -1701,15 +1854,25 @@ export const experimentLogic = kea<experimentLogicType>([
             )
             const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
 
-            await loadMetrics({
+            const resolvedRefreshId = refreshId || generateRefreshId()
+            const summary = await loadMetrics({
                 metrics: secondaryMetrics,
                 experimentId: values.experimentId,
                 refresh,
                 teamId: values.currentTeamId,
+                refreshId: resolvedRefreshId,
+                isPrimary: false,
+                isRetry: false,
+                metricIndexOffset: 0,
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
             })
+
+            const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
+            if (refreshSummaries) {
+                refreshSummaries.push(summary)
+            }
 
             actions.setSecondaryMetricsResultsLoading(false)
         },
@@ -1744,6 +1907,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 experimentId: values.experimentId,
                 refresh: true,
                 teamId: values.currentTeamId,
+                refreshId: generateRefreshId(),
+                isPrimary: true,
+                isRetry: true,
+                metricIndexOffset: index,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
@@ -1788,6 +1955,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 experimentId: values.experimentId,
                 refresh: true,
                 teamId: values.currentTeamId,
+                refreshId: generateRefreshId(),
+                isPrimary: false,
+                isRetry: true,
+                metricIndexOffset: index,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacySecondaryMetricsResults(currentLegacyResults)
@@ -1899,7 +2070,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             auto_refresh_enabled: values.autoRefresh.enabled,
                             auto_refresh_interval: values.autoRefresh.interval,
                         })
-                        actions.refreshExperimentResults(true)
+                        actions.refreshExperimentResults(true, 'auto_refresh')
                     }, values.autoRefresh.interval * 1000)
                     return () => clearInterval(intervalId)
                 }, 'autoRefreshInterval')
@@ -1908,7 +2079,8 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     loaders(({ actions, values }) => ({
         experiment: {
-            loadExperiment: async () => {
+            loadExperiment: async ({ triggeredBy }: { triggeredBy?: ExperimentTriggeredBy } = {}) => {
+                void triggeredBy
                 if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(

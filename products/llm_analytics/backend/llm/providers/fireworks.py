@@ -79,7 +79,7 @@ class FireworksAdapter(OpenAIAdapter):
                 base_url=FIREWORKS_BASE_URL,
                 timeout=OpenAIConfig.TIMEOUT,
             )
-            return sorted(m.id for m in client.models.list())
+            return [m.id for m in sorted(client.models.list(), key=lambda m: m.created, reverse=True)]
         except Exception:
             logger.exception("Error listing Fireworks models")
             return []

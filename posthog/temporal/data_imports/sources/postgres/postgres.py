@@ -59,16 +59,18 @@ def _get_sslmode(require_ssl: bool) -> str:
     return "require" if require_ssl else "prefer"
 
 
-def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def filter_postgres_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type == "integer" or type == "smallint" or type == "bigint":
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
@@ -139,7 +141,7 @@ def get_postgres_row_count(
 
 def get_schemas(
     host: str, database: str, user: str, password: str, schema: str, port: int, require_ssl: bool = False
-) -> dict[str, list[tuple[str, str]]]:
+) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
     sslmode = _get_sslmode(require_ssl)
@@ -168,13 +170,14 @@ def get_schemas(
         cursor.execute(
             """
             SELECT * FROM (
-                SELECT table_name, column_name, data_type FROM information_schema.columns
+                SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
                 WHERE table_schema = %(schema)s
                 UNION ALL
                 SELECT
                     c.relname AS table_name,
                     a.attname AS column_name,
-                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
+                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable
                 FROM pg_class c
                 JOIN pg_namespace n ON c.relnamespace = n.oid
                 JOIN pg_attribute a ON a.attrelid = c.oid
@@ -188,9 +191,9 @@ def get_schemas(
         )
         result = cursor.fetchall()
 
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for row in result:
-            schema_list[row[0]].append((row[1], row[2]))
+            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     connection.close()
 
