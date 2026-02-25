@@ -190,6 +190,7 @@ export const insightToMaxContext = (
         name: insight.name || insight.derived_name,
         description: insight.description,
         query: source,
+        result: insight.result ?? undefined,
         filtersOverride,
         variablesOverride,
     }
