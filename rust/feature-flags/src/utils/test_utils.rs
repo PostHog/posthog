@@ -1053,6 +1053,7 @@ impl TestContext {
             team_id,
             distinct_ids,
             None,
+            false,
         )
         .await
     }

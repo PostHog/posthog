@@ -725,19 +725,37 @@ pub async fn get_feature_flag_hash_key_overrides(
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
     personhog_client: Option<&dyn PersonhogFetcher>,
+    strong_consistency: bool,
 ) -> Result<HashMap<String, String>, FlagError> {
     // Track hash key override lookups for testing
     #[cfg(test)]
     increment_hash_key_override_lookup_count();
 
-    // Retries are handled at the personhog-router service level; the tonic channel
-    // also handles transport reconnection automatically via connect_lazy + keepalives.
     if let Some(client) = personhog_client {
         let timer = common_metrics::timing_guard(FLAG_PERSONHOG_HASH_KEY_QUERY_TIME, &[]);
         let result = client
-            .get_hash_key_override_context(team_id, distinct_id_and_hash_key_override)
+            .get_hash_key_override_context(
+                team_id,
+                distinct_id_and_hash_key_override,
+                strong_consistency,
+            )
             .await;
         timer.fin();
+        if let Ok(ref overrides) = result {
+            let result_label = if overrides.is_empty() {
+                "empty"
+            } else {
+                "has_overrides"
+            };
+            common_metrics::inc(
+                FLAG_HASH_KEY_QUERY_RESULT,
+                &[
+                    ("result".to_string(), result_label.to_string()),
+                    ("source".to_string(), "personhog".to_string()),
+                ],
+                1,
+            );
+        }
         return result;
     }
 
@@ -891,7 +909,10 @@ async fn try_get_feature_flag_hash_key_overrides(
     };
     common_metrics::inc(
         FLAG_HASH_KEY_QUERY_RESULT,
-        &[("result".to_string(), result_label.to_string())],
+        &[
+            ("result".to_string(), result_label.to_string()),
+            ("source".to_string(), "sql".to_string()),
+        ],
         1,
     );
 
@@ -1586,9 +1607,9 @@ async fn should_write_hash_key_override_via_personhog(
 ) -> Result<bool, FlagError> {
     let distinct_ids = vec![distinct_id, hash_key_override];
 
-    // Step 1: Get existing overrides via personhog
+    // Step 1: Get existing overrides via personhog (eventual consistency is fine for this check)
     let existing_overrides = client
-        .get_hash_key_override_context(team_id, distinct_ids)
+        .get_hash_key_override_context(team_id, distinct_ids, false)
         .await?;
 
     // Step 2: Get active EEC flags from non-persons DB
@@ -2774,6 +2795,7 @@ mod tests {
                 team_id,
                 vec!["user1".to_string()],
                 Some(&mock),
+                false,
             )
             .await
             .unwrap();

@@ -556,6 +556,7 @@ impl FeatureFlagMatcher {
             self.team_id,
             target_distinct_ids,
             self.personhog_client.as_deref(),
+            writing_hash_key_override,
         )
         .await
         {
@@ -2005,6 +2006,7 @@ impl FeatureFlagMatcher {
                             self.team_id,
                             vec![self.distinct_id.clone()],
                             self.personhog_client.as_deref(),
+                            false,
                         )
                         .await
                         {

@@ -5,9 +5,9 @@ use async_trait::async_trait;
 use common_types::{Person, PersonId, TeamId};
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GroupIdentifier, HashKeyOverrideContext,
-    UpsertHashKeyOverridesRequest,
+    CheckCohortMembershipRequest, ConsistencyLevel, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GroupIdentifier,
+    HashKeyOverrideContext, ReadOptions, UpsertHashKeyOverridesRequest,
 };
 use serde_json::Value;
 use tonic::transport::Channel;
@@ -47,6 +47,7 @@ pub trait PersonhogFetcher: Send + Sync {
         &self,
         team_id: TeamId,
         distinct_ids: Vec<String>,
+        strong_consistency: bool,
     ) -> Result<HashMap<String, String>, FlagError>;
 
     async fn upsert_hash_key_overrides(
@@ -254,14 +255,23 @@ impl PersonhogFetcher for PersonhogClient {
         &self,
         team_id: TeamId,
         distinct_ids: Vec<String>,
+        strong_consistency: bool,
     ) -> Result<HashMap<String, String>, FlagError> {
         let first_distinct_id = distinct_ids.first().cloned();
+
+        let read_options = if strong_consistency {
+            Some(ReadOptions {
+                consistency: ConsistencyLevel::Strong as i32,
+            })
+        } else {
+            None
+        };
 
         let request = Request::new(GetHashKeyOverrideContextRequest {
             team_id: team_id as i64,
             distinct_ids,
             check_person_exists: false,
-            read_options: None,
+            read_options,
         });
 
         let response = self
@@ -538,6 +548,7 @@ pub mod mock {
             &self,
             team_id: TeamId,
             distinct_ids: Vec<String>,
+            _strong_consistency: bool,
         ) -> Result<HashMap<String, String>, FlagError> {
             if let Some((code, message)) = &self.error {
                 return Err(FlagError::PersonhogError {
