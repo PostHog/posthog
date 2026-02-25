@@ -1,35 +1,32 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconChevronRight, IconExternal } from '@posthog/icons'
 
-import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
-import { projectHomepageLogic } from '../project-homepage/projectHomepageLogic'
 import { InsightIcon } from './SavedInsights'
 
 interface InsightRowProps {
     insight: QueryBasedInsightModel
+    isExpanded: boolean
+    onToggle: () => void
 }
 
-function InsightRow({ insight }: InsightRowProps): JSX.Element {
+export function InsightRow({ insight, isExpanded, onToggle }: InsightRowProps): JSX.Element {
     const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
-    const { expandedInsightIds } = useValues(projectHomepageLogic)
-    const { toggleInsightExpanded } = useActions(projectHomepageLogic)
-    const isExpanded = expandedInsightIds.has(insight.short_id)
 
     return (
         <div className="border border-border rounded bg-surface-primary mb-2 last:mb-0">
             <div
                 className="flex items-center gap-3 p-3 cursor-pointer hover:bg-surface-secondary rounded-t"
-                onClick={() => toggleInsightExpanded(insight.short_id)}
+                onClick={onToggle}
             >
                 <div className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
                     <IconChevronRight className="text-xl" />
@@ -43,6 +40,28 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
                         {`Last modified ${dayjs(insight.last_modified_at).fromNow()}`}
                     </span>
                 </div>
+                {insight.viewers && insight.viewers.length > 0 && (
+                    <div className="flex items-center -space-x-2 mr-2">
+                        {insight.viewers.slice(0, 3).map((viewer, index) => (
+                            <ProfilePicture
+                                key={viewer.uuid || index}
+                                user={viewer}
+                                size="md"
+                                showName={false}
+                                className="border-2 border-surface-primary"
+                                title={`Viewed by ${viewer.first_name || viewer.email}`}
+                            />
+                        ))}
+                        {insight.viewers.length > 3 && (
+                            <div
+                                className="w-6 h-6 rounded-full bg-surface-secondary border-2 border-surface-primary flex items-center justify-center text-xs font-semibold text-muted"
+                                title={`${insight.viewers.length - 3} more viewers`}
+                            >
+                                +{insight.viewers.length - 3}
+                            </div>
+                        )}
+                    </div>
+                )}
                 <LemonButton
                     size="small"
                     icon={<IconExternal />}
@@ -77,28 +96,5 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
                 </div>
             )}
         </div>
-    )
-}
-
-export function Recents(): JSX.Element {
-    const { recentInsights, recentInsightsLoading } = useValues(projectHomepageLogic)
-    const { loadRecentInsights } = useActions(projectHomepageLogic)
-    useOnMountEffect(loadRecentInsights)
-
-    return (
-        <CompactList
-            title="Last viewed"
-            viewAllURL={urls.savedInsights(SavedInsightsTabs.All)}
-            loading={recentInsightsLoading}
-            emptyMessage={{
-                title: 'You have no recently viewed insights',
-                description: "Explore this project's insights by clicking below.",
-                buttonText: 'View insights',
-                buttonTo: urls.savedInsights(),
-            }}
-            items={recentInsights.slice(0, 5)}
-            renderRow={(insight: QueryBasedInsightModel) => <InsightRow key={insight.short_id} insight={insight} />}
-            contentHeightBehavior="fit-content"
-        />
     )
 }

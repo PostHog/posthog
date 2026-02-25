@@ -1,29 +1,31 @@
 import { useActions, useValues } from 'kea'
 
 import { CompactList } from 'lib/components/CompactList/CompactList'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'
 
 import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
+import { projectHomepageLogic } from '../project-homepage/projectHomepageLogic'
 import { InsightRow } from './InsightRow'
-import { trendingInsightsLogic } from './trendingInsightsLogic'
 
-export function Trending(): JSX.Element {
-    const { trendingInsights, trendingInsightsLoading, expandedInsightIds } = useValues(trendingInsightsLogic)
-    const { toggleInsightExpanded } = useActions(trendingInsightsLogic)
+export function RecentlyViewed(): JSX.Element {
+    const { recentInsights, recentInsightsLoading, expandedInsightIds } = useValues(projectHomepageLogic)
+    const { loadRecentInsights, toggleInsightExpanded } = useActions(projectHomepageLogic)
+    useOnMountEffect(loadRecentInsights)
 
     return (
         <CompactList
-            title="Trending"
+            title="Recently viewed"
             viewAllURL={urls.savedInsights(SavedInsightsTabs.All)}
-            loading={trendingInsightsLoading}
+            loading={recentInsightsLoading}
             emptyMessage={{
-                title: 'No trending insights',
-                description: 'Insights that are viewed frequently in your organization will appear here.',
-                buttonText: 'View all insights',
-                buttonTo: urls.savedInsights(SavedInsightsTabs.All),
+                title: 'You have no recently viewed insights',
+                description: "Explore this project's insights by clicking below.",
+                buttonText: 'View insights',
+                buttonTo: urls.savedInsights(),
             }}
-            items={trendingInsights.slice(0, 5)}
+            items={recentInsights.slice(0, 5)}
             renderRow={(insight: QueryBasedInsightModel) => (
                 <InsightRow
                     key={insight.short_id}

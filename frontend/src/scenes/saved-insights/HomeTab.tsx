@@ -4,7 +4,7 @@ import { ActiveUsers } from './ActiveUsers'
 import { Activity } from './Activity'
 import { FiringAlerts } from './FiringAlerts'
 import { NewEvents } from './NewEvents'
-import { Recents } from './Recents'
+import { RecentlyViewed } from './RecentlyViewed'
 import { Trending } from './Trending'
 
 export function HomeTab(): JSX.Element {
@@ -13,7 +13,7 @@ export function HomeTab(): JSX.Element {
             <div className="HomeTab__columns">
                 <div className="HomeTab__column">
                     <div className="HomeTab__card">
-                        <Recents />
+                        <RecentlyViewed />
                     </div>
                     <div className="HomeTab__card">
                         <FiringAlerts />
