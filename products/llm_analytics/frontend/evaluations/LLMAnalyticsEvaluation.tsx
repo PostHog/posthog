@@ -32,7 +32,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ByokModelPicker } from '../ByokModelPicker'
 import { byokModelPickerLogic } from '../byokModelPickerLogic'
-import { LLMProvider, LLM_PROVIDER_LABELS } from '../settings/llmProviderKeysLogic'
+import { LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
+import { LLMProvider } from '../settings/llmProviderKeysLogic'
 import {
     providerKeyStateIssueDescription,
     providerKeyStateSuffix,
@@ -343,13 +344,7 @@ function EvaluationModelPicker(): JSX.Element {
                             <LemonSelect
                                 value={selectedProvider}
                                 onChange={(value) => setSelectedProvider(value as LLMProvider)}
-                                options={[
-                                    { value: 'openai', label: LLM_PROVIDER_LABELS.openai },
-                                    { value: 'anthropic', label: LLM_PROVIDER_LABELS.anthropic },
-                                    { value: 'gemini', label: LLM_PROVIDER_LABELS.gemini },
-                                    { value: 'openrouter', label: LLM_PROVIDER_LABELS.openrouter },
-                                    { value: 'fireworks', label: LLM_PROVIDER_LABELS.fireworks },
-                                ]}
+                                options={LLM_PROVIDER_SELECT_OPTIONS}
                                 fullWidth
                             />
                         </Field>
