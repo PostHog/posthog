@@ -21,13 +21,21 @@ class Migration(migrations.Migration):
             model_name="node",
             name="name_unique_within_team_dag_for_tables",
         ),
-        migrations.RemoveField(
-            model_name="edge",
-            name="dag_id",
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="edge",
+                    name="dag_id",
+                ),
+            ],
         ),
-        migrations.RemoveField(
-            model_name="node",
-            name="dag_id",
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="node",
+                    name="dag_id",
+                ),
+            ],
         ),
         migrations.AddConstraint(
             model_name="edge",
