@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
+from django.conf import settings
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 
@@ -205,13 +206,11 @@ class MinimalPersonSerializer(PersonSerializer):
         return person.distinct_ids[:10]
 
 
-class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
-    """Serializer for the point-in-time person properties response."""
+class PersonPropertiesAtTimeMetadataSerializer(serializers.Serializer):
+    """Serializer for the point-in-time query metadata."""
 
-    properties = serializers.DictField(
-        child=serializers.CharField(allow_blank=True, allow_null=True),
-        help_text="Person properties as they existed at the specified time",
-    )
+    queried_timestamp = serializers.CharField(help_text="The timestamp that was queried in ISO format")
+    include_set_once = serializers.BooleanField(help_text="Whether $set_once operations were included")
     distinct_id_used = serializers.CharField(allow_null=True, help_text="The distinct_id parameter used in the request")
     person_id_used = serializers.CharField(allow_null=True, help_text="The person_id parameter used in the request")
     query_mode = serializers.CharField(help_text="Whether the query used 'distinct_id' or 'person_id' mode")
@@ -219,6 +218,44 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
         child=serializers.CharField(), help_text="All distinct_ids that were queried for this person"
     )
     distinct_ids_count = serializers.IntegerField(help_text="Number of distinct_ids associated with this person")
+
+
+class PersonPropertiesAtTimeDebugSerializer(serializers.Serializer):
+    """Serializer for the debug information (only available to staff users)."""
+
+    query = serializers.CharField(help_text="The ClickHouse query that was executed")
+    params = serializers.DictField(help_text="The parameters passed to the query")
+    events_found = serializers.IntegerField(help_text="Number of events found")
+    events = serializers.ListField(
+        child=serializers.DictField(), help_text="Raw events that were used to build the properties"
+    )
+    error = serializers.CharField(required=False, help_text="Error message if debug query failed")
+
+
+class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
+    """Serializer for the point-in-time person properties response."""
+
+    # Base PersonSerializer fields
+    id = serializers.IntegerField(help_text="The person ID")
+    name = serializers.CharField(help_text="The person's display name")
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="All distinct IDs associated with this person"
+    )
+    properties = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, allow_null=True),
+        help_text="Person properties as they existed at the specified time",
+    )
+    created_at = serializers.DateTimeField(help_text="When the person was first created")
+    uuid = serializers.UUIDField(help_text="The person's UUID")
+    last_seen_at = serializers.DateTimeField(help_text="When the person was last seen", allow_null=True)
+
+    # Additional fields for point-in-time response
+    point_in_time_metadata = PersonPropertiesAtTimeMetadataSerializer(
+        help_text="Metadata about the point-in-time query"
+    )
+    debug = PersonPropertiesAtTimeDebugSerializer(
+        required=False, help_text="Debug information (only available when debug=true and DEBUG=True)"
+    )
 
 
 def get_funnel_actor_class(filter: Filter) -> Callable:
@@ -1115,7 +1152,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 name="debug",
                 type=bool,
                 location=OpenApiParameter.QUERY,
-                description="Whether to include debug information with raw events (default: false)",
+                description="Whether to include debug information with raw events (only works when DEBUG=True, default: false)",
                 required=False,
             ),
         ],
@@ -1143,7 +1180,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         from posthog.models.person.point_in_time_properties import (
             build_person_properties_at_time,
-            get_distinct_ids_for_person_identifier,
+            get_person_and_distinct_ids_for_identifier,
         )
 
         distinct_id = request.GET.get("distinct_id")
@@ -1190,30 +1227,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            # Get all distinct_ids for the person
-            distinct_ids_queried = get_distinct_ids_for_person_identifier(
+            # Get person object and all distinct_ids in a single query
+            person, distinct_ids_queried = get_person_and_distinct_ids_for_identifier(
                 team_id=self.team_id,
                 distinct_id=distinct_id,
                 person_id=person_id,
             )
 
-            if not distinct_ids_queried:
-                identifier = distinct_id or person_id
-                identifier_type = "distinct_id" if distinct_id else "person_id"
-                return response.Response(
-                    {"error": f"Person with {identifier_type} '{identifier}' not found"},
-                    status=404,
-                )
-
-            # Get the person object for serialization
-
-            # Get the person object for serialization
-            try:
-                if distinct_id:
-                    person = Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
-                else:
-                    person = Person.objects.get(team_id=self.team_id, uuid=str(person_id))
-            except Person.DoesNotExist:
+            if not person or not distinct_ids_queried:
                 identifier = distinct_id or person_id
                 identifier_type = "distinct_id" if distinct_id else "person_id"
                 return response.Response(
@@ -1222,12 +1243,23 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             # Build point-in-time properties using the pre-fetched distinct_ids
-            point_in_time_properties = build_person_properties_at_time(
-                team_id=self.team_id,
-                timestamp=timestamp,
-                distinct_ids=distinct_ids_queried,
-                include_set_once=include_set_once,
-            )
+            # If debug mode is enabled, get raw events to avoid duplicate query
+            debug_rows = []
+            if debug and settings.DEBUG:
+                point_in_time_properties, debug_rows = build_person_properties_at_time(
+                    team_id=self.team_id,
+                    timestamp=timestamp,
+                    distinct_ids=distinct_ids_queried,
+                    include_set_once=include_set_once,
+                    return_raw_events=True,
+                )
+            else:
+                point_in_time_properties = build_person_properties_at_time(
+                    team_id=self.team_id,
+                    timestamp=timestamp,
+                    distinct_ids=distinct_ids_queried,
+                    include_set_once=include_set_once,
+                )
 
             # Serialize the person object
             person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
@@ -1246,60 +1278,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "distinct_ids_count": len(distinct_ids_queried),
             }
 
-            # Add debug information if requested
-            if debug:
-                from posthog.clickhouse.client import sync_execute
-
-                # Run the same query that the point-in-time function uses
-                if include_set_once:
-                    query = """
-                    SELECT
-                        toJSONString(properties) as properties_json,
-                        timestamp,
-                        event
-                    FROM events
-                    WHERE team_id = %(team_id)s
-                        AND distinct_id IN %(distinct_ids)s
-                        AND event IN ('$set', '$set_once')
-                        AND timestamp <= %(timestamp)s
-                    ORDER BY timestamp ASC
-                    """
-                else:
-                    query = """
-                    SELECT
-                        toJSONString(properties) as properties_json,
-                        timestamp,
-                        event
-                    FROM events
-                    WHERE team_id = %(team_id)s
-                        AND distinct_id IN %(distinct_ids)s
-                        AND timestamp <= %(timestamp)s
-                        AND (
-                            event = '$set'
-                            OR JSONHas(properties, '$set')
-                        )
-                    ORDER BY timestamp ASC
-                    """
-
-                params = {
-                    "team_id": self.team_id,
-                    "distinct_ids": distinct_ids_queried,
-                    "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            # Add debug information if requested and in debug mode
+            if debug and settings.DEBUG:
+                # Use the raw events that were already fetched to avoid duplicate query
+                person_data["debug"] = {
+                    "events_found": len(debug_rows),
+                    "events": [
+                        {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows
+                    ],
                 }
-
-                try:
-                    debug_rows = sync_execute(query, params, settings={"max_execution_time": 30})
-                    person_data["debug"] = {
-                        "query": query,
-                        "params": params,
-                        "distinct_ids_queried": distinct_ids_queried,
-                        "events_found": len(debug_rows),
-                        "events": [
-                            {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows
-                        ],
-                    }
-                except Exception as debug_error:
-                    person_data["debug"] = {"error": f"Debug query failed: {str(debug_error)}"}
 
             return response.Response(person_data)
 

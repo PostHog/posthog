@@ -7,18 +7,21 @@ chronologically.
 """
 
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from posthog.clickhouse.client import sync_execute
 
+if TYPE_CHECKING:
+    from posthog.models.person import Person
 
-def get_distinct_ids_for_person_identifier(
+
+def get_person_and_distinct_ids_for_identifier(
     team_id: int,
     distinct_id: Optional[str] = None,
     person_id: Optional[Union[str, int]] = None,
-) -> list[str]:
+) -> tuple[Optional["Person"], list[str]]:
     """
-    Helper function to get all distinct_ids for a person based on either distinct_id or person_id.
+    Helper function to get person object and all distinct_ids for a person based on either distinct_id or person_id.
 
     Args:
         team_id: The team ID
@@ -26,7 +29,7 @@ def get_distinct_ids_for_person_identifier(
         person_id: The person_id (UUID) to get distinct_ids for (mutually exclusive with distinct_id)
 
     Returns:
-        List of distinct_ids associated with the person
+        Tuple of (Person object or None, list of distinct_ids associated with the person)
 
     Raises:
         ValueError: If parameters are invalid or both distinct_id and person_id are provided
@@ -59,13 +62,28 @@ def get_distinct_ids_for_person_identifier(
         distinct_id_objects = PersonDistinctId.objects.filter(team_id=team_id, person=person).values_list(
             "distinct_id", flat=True
         )
-        return list(distinct_id_objects)
+        return person, list(distinct_id_objects)
 
     except Person.DoesNotExist:
-        # Person not found - return empty list
-        return []
+        # Person not found - return None and empty list
+        return None, []
     except Exception as e:
         raise Exception(f"Failed to query person distinct_ids: {str(e)}") from e
+
+
+def get_distinct_ids_for_person_identifier(
+    team_id: int,
+    distinct_id: Optional[str] = None,
+    person_id: Optional[Union[str, int]] = None,
+) -> list[str]:
+    """
+    Legacy helper function that returns only distinct_ids.
+
+    This is kept for backwards compatibility. New code should use
+    get_person_and_distinct_ids_for_identifier() to avoid duplicate queries.
+    """
+    _, distinct_ids = get_person_and_distinct_ids_for_identifier(team_id, distinct_id, person_id)
+    return distinct_ids
 
 
 def build_person_properties_at_time(
@@ -74,7 +92,8 @@ def build_person_properties_at_time(
     distinct_ids: list[str],
     include_set_once: bool = False,
     timeout: Optional[int] = 30,
-) -> dict[str, Any]:
+    return_raw_events: bool = False,
+) -> Union[dict[str, Any], tuple[dict[str, Any], list]]:
     """
     Build person properties as they existed at a specific point in time.
 
@@ -87,9 +106,11 @@ def build_person_properties_at_time(
         distinct_ids: List of distinct_ids to query for person properties
         include_set_once: If True, also handles $set_once operations (default: False)
         timeout: Query timeout in seconds (default: 30)
+        return_raw_events: If True, also returns the raw event rows for debug purposes (default: False)
 
     Returns:
-        Dictionary of person properties as they existed at the specified time
+        If return_raw_events=False: Dictionary of person properties as they existed at the specified time
+        If return_raw_events=True: Tuple of (properties dict, list of raw event rows)
 
     Raises:
         ValueError: If parameters are invalid
@@ -111,6 +132,7 @@ def build_person_properties_at_time(
     # Build the ClickHouse query for all distinct_ids
     if include_set_once:
         # Query to get all property update events ($set, $set_once) up to timestamp
+        # This includes both dedicated events and other events with $set in their properties
         query = """
         SELECT
             toJSONString(properties) as properties_json,
@@ -119,8 +141,12 @@ def build_person_properties_at_time(
         FROM events
         WHERE team_id = %(team_id)s
             AND distinct_id IN %(distinct_ids)s
-            AND event IN ('$set', '$set_once')
             AND timestamp <= %(timestamp)s
+            AND (
+                event = '$set'
+                OR event = '$set_once'
+                OR JSONHas(properties, '$set')
+            )
         ORDER BY timestamp ASC
         """
     else:
@@ -163,21 +189,21 @@ def build_person_properties_at_time(
             try:
                 import json
 
-                # ClickHouse toJSONString() returns double-escaped JSON
-                # First parse gets the JSON string, second parse gets the object
-                json_string = json.loads(properties_json)
-                event_properties = json.loads(json_string)
+                # ClickHouse toJSONString() may return double-escaped JSON
+                # Parse defensively to handle both single and double encoding
+                parsed = json.loads(properties_json)
+                event_properties = json.loads(parsed) if isinstance(parsed, str) else parsed
 
                 if include_set_once:
                     # Handle both $set and $set_once when include_set_once is True
-                    if event_name == "$set" and "$set" in event_properties:
-                        # $set operations always update properties
+                    # Handle $set operations from any event (including nested $set in $pageview etc.)
+                    if "$set" in event_properties:
                         set_properties = event_properties["$set"]
                         if isinstance(set_properties, dict):
                             person_properties.update(set_properties)
 
-                    elif event_name == "$set_once" and "$set_once" in event_properties:
-                        # $set_once operations only set if property doesn't exist
+                    # Handle $set_once operations (only from dedicated $set_once events)
+                    if event_name == "$set_once" and "$set_once" in event_properties:
                         set_once_properties = event_properties["$set_once"]
                         if isinstance(set_once_properties, dict):
                             for key, value in set_once_properties.items():
@@ -194,4 +220,7 @@ def build_person_properties_at_time(
                 # Skip events with malformed property data
                 continue
 
-    return person_properties
+    if return_raw_events:
+        return person_properties, rows
+    else:
+        return person_properties
