@@ -72,6 +72,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
             actions.setLoadStartTime(null)
 
             const recordsWithContext = Object.values(stackFrameRecords).filter((record) => record.context)
+
             posthog.capture('error_tracking_stack_trace_loaded', {
                 duration_ms: durationMs,
                 frame_count: recordsWithContext.length,
