@@ -5,6 +5,7 @@ from itertools import groupby
 from typing import Any, Union, cast
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
@@ -14,6 +15,7 @@ import structlog
 from posthoganalytics import capture_exception
 
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
+from posthog.models.cohort.util import get_nested_cohort_ids
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
@@ -44,6 +46,19 @@ def _get_properties_from_filters(
         for prop in group.get("properties", []):
             if property_type is None or prop.get("type") == property_type:
                 yield prop
+
+
+def _extract_cohort_ids_from_filters(filters: Union[dict, FlagFilters]) -> set[int]:
+    """Extract cohort IDs directly referenced in flag filter properties."""
+    cohort_ids: set[int] = set()
+    for prop in _get_properties_from_filters(filters, "cohort"):
+        value = prop.get("value")
+        if value is not None:
+            try:
+                cohort_ids.add(int(value))
+            except (TypeError, ValueError):
+                continue
+    return cohort_ids
 
 
 def _get_flag_properties_from_filters(filters: Union[dict, FlagFilters]) -> Generator[FlagProperty, None, None]:
@@ -396,12 +411,11 @@ def _get_flags_response_for_local_evaluation_batch(
     teams: list[Team], include_cohorts: bool
 ) -> dict[int, dict[str, Any]]:
     """
-    Build local-evaluation responses for multiple teams using bulk data loading
-    and streaming flag serialization to control memory.
+    Build local-evaluation responses for multiple teams using bulk data loading.
 
-    Loads survey flag IDs, cohorts, and group type mappings in bulk (one query
-    each regardless of team count), then streams flags with .iterator() and
-    itertools.groupby to process one team at a time.
+    Loads survey flag IDs, flags, cohorts, and group type mappings in bulk (one
+    query each regardless of team count), then iterates the materialized flag
+    list with itertools.groupby to process one team at a time.
     """
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
@@ -425,32 +439,10 @@ def _get_flags_response_for_local_evaluation_batch(
     ):
         survey_flag_ids.update(fid for fid in row if fid is not None)
 
-    # Only load cohorts if at least one flag references a cohort property.
-    # This avoids loading thousands of unused cohorts for teams that don't
-    # use cohorts in their feature flags.
-    any_flag_uses_cohort = (
-        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(team_id__in=team_ids, deleted=False)
-        .filter(filters__groups__contains=[{"properties": [{"type": "cohort"}]}])
-        .exists()
-    )
-
-    cohorts_by_project: dict[int, dict[int, Cohort]] = defaultdict(dict)
-    if any_flag_uses_cohort:
-        for cohort in (
-            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-            .filter(team__project_id__in=project_ids, deleted=False)
-            .select_related("team")
-        ):
-            cohorts_by_project[cohort.team.project_id][cohort.pk] = cohort
-
-    # Bulk load group type mappings for all projects
-    gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
-    for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(project_id__in=project_ids):
-        gtm_by_project[row.project_id][str(row.group_type_index)] = row.group_type
-
-    # Stream flags ordered by team_id then key for consistent ordering (ETag stability)
-    flags_qs = (
+    # Load all eligible flags once, ordered for groupby and ETag stability.
+    # Materializing allows two passes: first to extract cohort IDs, then to
+    # serialize — one DB round trip instead of two.
+    all_flags = list(
         FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
         .filter(
             ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
@@ -458,12 +450,57 @@ def _get_flags_response_for_local_evaluation_batch(
             deleted=False,
         )
         .exclude(id__in=survey_flag_ids)
+        .annotate(
+            evaluation_tag_names_agg=ArrayAgg(
+                "evaluation_tags__tag__name",
+                filter=Q(evaluation_tags__isnull=False),
+                distinct=True,
+            )
+        )
         .order_by("team_id", "key")
     )
 
+    referenced_cohort_ids: set[int] = set()
+    for flag in all_flags:
+        flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
+        referenced_cohort_ids.update(_extract_cohort_ids_from_filters(flag.filters or {}))
+
+    # Load only the referenced cohorts and resolve nested dependencies
+    # iteratively. Each iteration loads newly discovered nested cohort IDs
+    # until there are none left (typically 1-2 iterations).
+    cohorts_by_project: dict[int, dict[int, Cohort]] = defaultdict(dict)
+    ids_to_load = referenced_cohort_ids.copy()
+    loaded_ids: set[int] = set()
+
+    while ids_to_load:
+        newly_loaded: list[Cohort] = []
+        for cohort in (
+            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+            .filter(pk__in=ids_to_load, team__project_id__in=project_ids, deleted=False, is_static=False)
+            .select_related("team")
+        ):
+            cohorts_by_project[cohort.team.project_id][cohort.pk] = cohort
+            loaded_ids.add(cohort.pk)
+            newly_loaded.append(cohort)
+
+        # Mark all requested IDs as loaded (including missing ones) to avoid retrying
+        loaded_ids.update(ids_to_load)
+
+        # Extract nested cohort references from newly loaded cohorts
+        nested_ids: set[int] = set()
+        for cohort in newly_loaded:
+            nested_ids.update(get_nested_cohort_ids(cohort))
+
+        ids_to_load = nested_ids - loaded_ids
+
+    # Bulk load group type mappings for all projects
+    gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
+    for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(project_id__in=project_ids):
+        gtm_by_project[row.project_id][str(row.group_type_index)] = row.group_type
+
     results: dict[int, dict[str, Any]] = {}
 
-    for tid, team_flags_iter in groupby(flags_qs.iterator(), key=lambda f: f.team_id):
+    for tid, team_flags_iter in groupby(all_flags, key=lambda f: f.team_id):
         team = team_by_id.get(tid)
         if team is None:
             continue
@@ -483,15 +520,9 @@ def _get_flags_response_for_local_evaluation_batch(
                 # Pre-populate cache with empty entries for any referenced cohort_id
                 # not already loaded, so get_cohort_ids doesn't make fallback DB queries
                 # for deleted or cross-team cohorts.
-                for group in filters.get("groups", []):
-                    for prop in group.get("properties", []):
-                        if prop.get("type") == "cohort" and prop.get("value") is not None:
-                            try:
-                                cid = int(prop["value"])
-                                if cid not in seen_cohorts_cache:
-                                    seen_cohorts_cache[cid] = ""
-                            except (TypeError, ValueError):
-                                pass
+                for cid in _extract_cohort_ids_from_filters(filters):
+                    if cid not in seen_cohorts_cache:
+                        seen_cohorts_cache[cid] = ""
 
                 cohort_ids = feature_flag.get_cohort_ids(
                     using_database=DATABASE_FOR_LOCAL_EVALUATION,

@@ -131,6 +131,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "DuckgresServer",
         "EvaluationConfig",
         "RemoteConfig",
+        "TeamConversationsSlackConfig",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationTag",
         "TeamMarketingAnalyticsConfig",

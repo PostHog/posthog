@@ -630,6 +630,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")
+        # Slack integration state is managed only by the SupportHog OAuth endpoints
+        for slack_key in ("slack_bot_token", "slack_team_id", "slack_enabled"):
+            value.pop(slack_key, None)
         return value
 
     def validate_slack_incoming_webhook(self, value: str | None) -> str | None:

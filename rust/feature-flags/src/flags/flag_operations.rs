@@ -449,6 +449,8 @@ mod tests {
             ("is_not", OperatorType::IsNot),
             ("icontains", OperatorType::Icontains),
             ("not_icontains", OperatorType::NotIcontains),
+            ("icontains_multi", OperatorType::IcontainsMulti),
+            ("not_icontains_multi", OperatorType::NotIcontainsMulti),
             ("regex", OperatorType::Regex),
             ("not_regex", OperatorType::NotRegex),
             ("gt", OperatorType::Gt),
