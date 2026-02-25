@@ -78,15 +78,31 @@ Be skeptical of any group with 5+ signals. Large groups are rarely coherent — 
 
 For single-signal groups: score as null (not applicable).
 
-For the overall score: weight multi-signal groups by size. A large group (5+) with weak chaining is worse than a small group (2-3) with weak chaining because it means the algorithm drifted further.
+For the overall score, prioritize PRECISION over RECALL:
+- A correct singleton is neutral (score: 0 impact). Many singletons is fine.
+- A misplaced signal in a group is bad (-1 impact per misplaced signal).
+- A weak-chained group (coherence ≤ 2) is very bad (-2 impact per group).
+- A large weak-chained group (5+) is worse than a small one.
+- Under-grouping is a minor issue compared to over-grouping. Only penalize when connections are unambiguous (same ticket/PR).
 
 ## Under-grouping detection
 
-Over-grouping (weak chaining) is bad, but under-grouping is also a failure. For EVERY singleton group, ask:
+Singletons are a SAFE default — a signal that stays alone is not a failure. It just means the algorithm hasn't seen a strong enough match yet. Only flag under-grouping when the connection is OBVIOUS and TIGHT:
 
-> "Is there another group (or another singleton) that this signal clearly belongs with?"
+> "Would these two signals unambiguously be the same Jira ticket or PR?"
 
-If yes, the algorithm missed a real connection. Report these in the "undergrouping" array.
+Apply the SAME strictness as the coherence rubric. "Same product area" or "same SDK/framework" is NOT enough. If you would score a multi-signal group containing both signals at 3 or below, do NOT flag it as under-grouping.
+
+Examples of what IS under-grouping (flag these):
+- Two bug reports about the same LLM trace viewer rendering issue → same fix
+- Two feature requests for the same funnel histogram metric → same ticket
+
+Examples of what is NOT under-grouping (do NOT flag):
+- "GDPR consent in Next.js" + "Next.js feature flag refresh" → different problems, different fixes
+- "push notification support" + "Microsoft Teams integration" → different channels, different APIs
+- "AI JS error in SQL Editor" + "AI invalid insight payloads" → different components, different fixes
+
+Report genuine misses in the "undergrouping" array.
 
 ## Response format
 
