@@ -61,11 +61,8 @@ export type CdpLegacyEventsConsumerHub = CdpConsumerBaseHub &
         | 'kafkaProducer'
         | 'APP_METRICS_FLUSH_FREQUENCY_MS'
         | 'APP_METRICS_FLUSH_MAX_QUEUE_SIZE'
-        | 'teamManager'
         | 'SITE_URL'
-        // LegacyWebhookService
         | 'groupTypeManager'
-        | 'groupRepository'
     >
 
 /**
@@ -93,7 +90,13 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         })
 
         this.legacyPluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
-        this.legacyWebhookService = new LegacyWebhookService(hub)
+        this.legacyWebhookService = new LegacyWebhookService(
+            hub.postgres,
+            hub.teamManager,
+            hub.groupTypeManager,
+            hub.groupRepository,
+            hub.pubSub
+        )
 
         this.pluginConfigsLoader = new LazyLoader({
             name: 'plugin_config_hog_functions',

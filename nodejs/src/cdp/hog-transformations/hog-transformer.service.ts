@@ -10,8 +10,11 @@ import { Hub } from '../../types'
 import { GeoIp } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
 import { HogExecutorService } from '../services/hog-executor.service'
+import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import { EmailService } from '../services/messaging/email.service'
+import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
@@ -147,11 +150,62 @@ export class HogTransformerService {
             poolMinSize: hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
-        this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogExecutor = new HogExecutorService(hub)
+        this.hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
+        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const emailService = new EmailService(
+            {
+                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                sesRegion: hub.SES_REGION,
+                sesEndpoint: hub.SES_ENDPOINT,
+            },
+            hub.integrationManager,
+            hub.ENCRYPTION_SALT_KEYS,
+            hub.SITE_URL
+        )
+        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        this.hogExecutor = new HogExecutorService(
+            {
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+            },
+            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+            hogInputsService,
+            emailService,
+            recipientTokensService
+        )
         this.pluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
-        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
-        this.hogWatcher = new HogWatcherService(hub, this.redis)
+        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(
+            hub.kafkaProducer,
+            hub.internalCaptureService,
+            hub.teamManager,
+            hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+            hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
+        )
+        this.hogWatcher = new HogWatcherService(
+            hub.teamManager,
+            {
+                hogCostTimingLowerMs: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                hogCostTiming: hub.CDP_WATCHER_HOG_COST_TIMING,
+                asyncCostTimingLowerMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+                asyncCostTimingUpperMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+                asyncCostTiming: hub.CDP_WATCHER_ASYNC_COST_TIMING,
+                sendEvents: hub.CDP_WATCHER_SEND_EVENTS,
+                bucketSize: hub.CDP_WATCHER_BUCKET_SIZE,
+                refillRate: hub.CDP_WATCHER_REFILL_RATE,
+                ttl: hub.CDP_WATCHER_TTL,
+                automaticallyDisableFunctions: hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
+                thresholdDegraded: hub.CDP_WATCHER_THRESHOLD_DEGRADED,
+                stateLockTtl: hub.CDP_WATCHER_STATE_LOCK_TTL,
+                observeResultsBufferTimeMs: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
+                observeResultsBufferMaxResults: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
+            },
+            this.redis
+        )
     }
 
     public async start(): Promise<void> {}
