@@ -163,7 +163,7 @@ export function ByokModelPicker({
                 data-attr={dataAttr}
                 icon={selectedProvider ? <LLMProviderIcon provider={selectedProvider} /> : undefined}
             >
-                {selectedModelName ?? placeholder}
+                {selectedModelName ?? (model || placeholder)}
             </LemonButton>
         </LemonMenu>
     )
