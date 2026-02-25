@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
@@ -13,14 +13,14 @@ use tracing::{info, warn};
 pub struct SourceManifest {
     pub version: u32,
     /// Maps absolute DWARF source path → ZIP-relative path (e.g. "__source/Foo.swift")
-    pub files: HashMap<String, String>,
+    pub files: BTreeMap<String, String>,
 }
 
 /// Collected source files ready to be added to a ZIP
 pub struct SourceFiles {
     pub manifest: SourceManifest,
-    /// Maps ZIP-relative path → file content
-    pub contents: HashMap<String, Vec<u8>>,
+    /// Maps ZIP-relative path → file content (BTreeMap for deterministic zip ordering)
+    pub contents: BTreeMap<String, Vec<u8>>,
 }
 
 /// Extract all source file paths referenced in DWARF debug info from a dSYM bundle.
@@ -114,8 +114,8 @@ pub fn filter_source_paths(paths: &[String]) -> Vec<&str> {
 /// Since the CLI runs on the build machine, the absolute paths from DWARF are valid.
 /// Files that don't exist are skipped with a warning.
 pub fn collect_source_files(dwarf_paths: &[&str]) -> Result<SourceFiles> {
-    let mut manifest_files = HashMap::new();
-    let mut contents = HashMap::new();
+    let mut manifest_files = BTreeMap::new();
+    let mut contents = BTreeMap::new();
 
     // Build a disambiguated relative path for each source file.
     // We use a simple approach: strip common prefix to get a short relative path,

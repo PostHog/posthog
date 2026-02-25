@@ -126,8 +126,13 @@ fn zip_dsym_bundle(dsym_path: &PathBuf, include_source: bool) -> Result<Vec<u8>>
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
 
-        for entry in WalkDir::new(dsym_path) {
-            let entry = entry?;
+        // Collect and sort entries for deterministic zip output
+        let mut entries: Vec<_> = WalkDir::new(dsym_path)
+            .into_iter()
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        entries.sort_by(|a, b| a.path().cmp(b.path()));
+
+        for entry in &entries {
             let path = entry.path();
 
             // Create relative path within the zip
