@@ -3,14 +3,29 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconMessage, IconServer } from '@posthog/icons'
+import {
+    IconBalance,
+    IconCode,
+    IconFlag,
+    IconGlobe,
+    IconLaptop,
+    IconList,
+    IconMessage,
+    IconPlus,
+    IconServer,
+    IconTrash,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonCollapse,
     LemonDialog,
     LemonDivider,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
     LemonSwitch,
     LemonTag,
+    LemonTextArea,
     Lettermark,
     LettermarkColor,
 } from '@posthog/lemon-ui'
@@ -22,12 +37,15 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { alphabet } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { tagsModel } from '~/models/tagsModel'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import { FeatureFlagEvaluationRuntime, FeatureFlagType, MultivariateFlagVariant } from '~/types'
 
+import { EditableOverviewSection } from './EditableOverviewSection'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import {
     FeatureFlagReleaseConditionsReadonly,
     FeatureFlagSuperConditionsReadonly,
@@ -63,6 +81,309 @@ function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDi
     return <span className="text-muted">No tags</span>
 }
 
+interface VariantsSectionProps {
+    featureFlag: FeatureFlagType
+    variants: MultivariateFlagVariant[]
+    isEditing: boolean
+    sectionDraft: Partial<FeatureFlagType> | null
+    updateSectionDraft: (draft: Partial<FeatureFlagType>) => void
+    allVariantKeys: string[]
+}
+
+function VariantsSection({
+    featureFlag,
+    variants: originalVariants,
+    isEditing,
+    sectionDraft,
+    updateSectionDraft,
+    allVariantKeys,
+}: VariantsSectionProps): JSX.Element {
+    const draftVariants: MultivariateFlagVariant[] = sectionDraft?.filters?.multivariate?.variants ?? originalVariants
+    const draftPayloads = sectionDraft?.filters?.payloads ?? featureFlag.filters?.payloads ?? {}
+
+    const updateVariant = (
+        index: number,
+        field: 'key' | 'name' | 'rollout_percentage',
+        value: string | number
+    ): void => {
+        const coercedValue = field === 'rollout_percentage' ? Number(value) || 0 : String(value)
+        const currentVariants = [...draftVariants]
+        const oldKey = currentVariants[index]?.key
+        currentVariants[index] = { ...currentVariants[index], [field]: coercedValue }
+
+        let updatedPayloads = { ...draftPayloads }
+        if (field === 'key' && oldKey && oldKey !== coercedValue) {
+            const existingPayload = updatedPayloads[oldKey]
+            if (existingPayload !== undefined) {
+                delete updatedPayloads[oldKey]
+                updatedPayloads[coercedValue as string] = existingPayload
+            }
+        }
+
+        updateSectionDraft({
+            filters: {
+                ...featureFlag.filters,
+                ...sectionDraft?.filters,
+                multivariate: {
+                    ...featureFlag.filters?.multivariate,
+                    ...sectionDraft?.filters?.multivariate,
+                    variants: currentVariants,
+                },
+                payloads: updatedPayloads,
+            },
+        })
+    }
+
+    const updateVariantPayload = (index: number, value: string | undefined): void => {
+        const variantKey = draftVariants[index]?.key
+        if (!variantKey) {
+            return
+        }
+        const currentPayloads = { ...draftPayloads }
+        if (value === '' || value === undefined) {
+            delete currentPayloads[variantKey]
+        } else {
+            currentPayloads[variantKey] = value
+        }
+        updateSectionDraft({
+            filters: {
+                ...featureFlag.filters,
+                ...sectionDraft?.filters,
+                payloads: currentPayloads,
+            },
+        })
+    }
+
+    const addVariant = (): void => {
+        const currentVariants = [...draftVariants]
+        currentVariants.push({ key: '', name: '', rollout_percentage: 0 })
+        updateSectionDraft({
+            filters: {
+                ...featureFlag.filters,
+                ...sectionDraft?.filters,
+                multivariate: {
+                    ...featureFlag.filters?.multivariate,
+                    ...sectionDraft?.filters?.multivariate,
+                    variants: currentVariants,
+                },
+            },
+        })
+    }
+
+    const removeVariant = (index: number): void => {
+        const currentVariants = [...draftVariants]
+        const removedVariant = currentVariants[index]
+        currentVariants.splice(index, 1)
+
+        const currentPayloads = { ...draftPayloads }
+        if (removedVariant?.key) {
+            delete currentPayloads[removedVariant.key]
+        }
+
+        updateSectionDraft({
+            filters: {
+                ...featureFlag.filters,
+                ...sectionDraft?.filters,
+                multivariate: {
+                    ...featureFlag.filters?.multivariate,
+                    ...sectionDraft?.filters?.multivariate,
+                    variants: currentVariants,
+                },
+                payloads: currentPayloads,
+            },
+        })
+    }
+
+    const distributeVariantsEqually = (): void => {
+        const currentVariants = [...draftVariants]
+        const numVariants = currentVariants.length
+        if (numVariants > 0 && numVariants <= 100) {
+            const percentageRounded = Math.round(100 / numVariants)
+            const totalRounded = percentageRounded * numVariants
+            const delta = totalRounded - 100
+            currentVariants.forEach((variant, index) => {
+                currentVariants[index] = { ...variant, rollout_percentage: percentageRounded }
+            })
+            currentVariants[numVariants - 1] = {
+                ...currentVariants[numVariants - 1],
+                rollout_percentage: percentageRounded - delta,
+            }
+        }
+        updateSectionDraft({
+            filters: {
+                ...featureFlag.filters,
+                ...sectionDraft?.filters,
+                multivariate: {
+                    ...featureFlag.filters?.multivariate,
+                    ...sectionDraft?.filters?.multivariate,
+                    variants: currentVariants,
+                },
+            },
+        })
+    }
+
+    const displayVariants = isEditing ? draftVariants : originalVariants
+    const displayPayloads = isEditing ? draftPayloads : (featureFlag.filters?.payloads ?? {})
+
+    if (isEditing) {
+        return (
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                    <LemonLabel>Variants</LemonLabel>
+                    <LemonButton
+                        size="small"
+                        icon={<IconBalance />}
+                        onClick={distributeVariantsEqually}
+                        tooltip="Distribute rollout percentages equally"
+                    />
+                </div>
+
+                <LemonCollapse
+                    multiple
+                    defaultActiveKeys={allVariantKeys}
+                    panels={displayVariants.map((variant, index) => ({
+                        key: `variant-${index}`,
+                        header: (
+                            <div className="flex gap-2 items-center">
+                                <Lettermark
+                                    name={alphabet[index] ?? String(index + 1)}
+                                    color={LettermarkColor.Gray}
+                                    size="small"
+                                />
+                                <span className="text-sm font-medium">{variant.key || `Variant ${index + 1}`}</span>
+                                <span className="text-xs text-muted">({variant.rollout_percentage || 0}%)</span>
+                            </div>
+                        ),
+                        content: (
+                            <div className="flex flex-col gap-2">
+                                <LemonLabel>Variant key</LemonLabel>
+                                <LemonInput
+                                    placeholder="Enter a variant key - e.g. control, test, variant_1"
+                                    value={variant.key}
+                                    onChange={(value) => updateVariant(index, 'key', value)}
+                                />
+
+                                <LemonLabel>Rollout percentage</LemonLabel>
+                                <LemonInput
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={variant.rollout_percentage || 0}
+                                    onChange={(value) =>
+                                        updateVariant(index, 'rollout_percentage', parseInt(value?.toString() || '0'))
+                                    }
+                                    suffix={<span>%</span>}
+                                />
+
+                                <LemonLabel>Description</LemonLabel>
+                                <LemonTextArea
+                                    placeholder="Enter an optional description for the variant"
+                                    value={variant.name || ''}
+                                    onChange={(value) => updateVariant(index, 'name', value)}
+                                />
+
+                                <LemonLabel>Payload</LemonLabel>
+                                <JSONEditorInput
+                                    onChange={(value) => updateVariantPayload(index, value)}
+                                    value={displayPayloads[variant.key]}
+                                    placeholder='{"key": "value"}'
+                                />
+
+                                {displayVariants.length > 1 && <LemonDivider />}
+                                {displayVariants.length > 1 && (
+                                    <LemonButton
+                                        type="secondary"
+                                        status="danger"
+                                        size="small"
+                                        icon={<IconTrash />}
+                                        onClick={() => {
+                                            const variantKey = variant.key || `Variant ${index + 1}`
+                                            const hasPayload = !!displayPayloads[variant.key]
+                                            LemonDialog.open({
+                                                title: `Remove variant "${variantKey}"?`,
+                                                description: hasPayload
+                                                    ? 'This variant has a payload configured. Both the variant and its payload will be deleted.'
+                                                    : 'This action cannot be undone.',
+                                                primaryButton: {
+                                                    children: 'Remove variant',
+                                                    status: 'danger',
+                                                    onClick: () => removeVariant(index),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            })
+                                        }}
+                                    >
+                                        Remove variant
+                                    </LemonButton>
+                                )}
+                            </div>
+                        ),
+                    }))}
+                />
+
+                <div>
+                    <LemonButton type="secondary" icon={<IconPlus />} onClick={addVariant}>
+                        Add variant
+                    </LemonButton>
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-muted">Variants</label>
+            <LemonCollapse
+                multiple
+                defaultActiveKeys={allVariantKeys}
+                panels={displayVariants.map((variant, index) => ({
+                    key: `variant-${index}`,
+                    header: (
+                        <div className="flex gap-2 items-center">
+                            <Lettermark
+                                name={alphabet[index] ?? String(index + 1)}
+                                color={LettermarkColor.Gray}
+                                size="small"
+                            />
+                            <span className="text-sm font-medium">{variant.key || `Variant ${index + 1}`}</span>
+                            <span className="text-xs text-muted">({variant.rollout_percentage || 0}%)</span>
+                        </div>
+                    ),
+                    content: (
+                        <div className="flex flex-col gap-3">
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium text-muted">Variant key</label>
+                                <div className="font-mono text-sm">{variant.key}</div>
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium text-muted">Rollout percentage</label>
+                                <div className="text-sm font-semibold">{variant.rollout_percentage || 0}%</div>
+                            </div>
+
+                            {variant.name && (
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-medium text-muted">Description</label>
+                                    <div className="text-sm">{variant.name}</div>
+                                </div>
+                            )}
+
+                            {displayPayloads[variant.key] && (
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-medium text-muted">Payload</label>
+                                    <JSONEditorInput readOnly value={displayPayloads[variant.key]} />
+                                </div>
+                            )}
+                        </div>
+                    ),
+                }))}
+            />
+        </div>
+    )
+}
+
 /**
  * V2 readonly overview for feature flags, gated behind FEATURE_FLAGS_V2.
  *
@@ -72,9 +393,10 @@ function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDi
  */
 export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFlagOverviewV2Props): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { recordingFilterForFlag } = useValues(featureFlagLogic)
-    const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
+    const { recordingFilterForFlag, sectionDraft } = useValues(featureFlagLogic)
+    const { toggleFeatureFlagActive, updateSectionDraft } = useActions(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { tags: availableTags } = useValues(tagsModel)
 
     const hasEvaluationTags = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]
     const hasEvaluationRuntimes = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
@@ -181,61 +503,143 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                         )}
                     </div>
 
-                    <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                        <div className="font-semibold">Advanced options</div>
-
-                        <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium">
-                                {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
-                            </label>
-                            <TagsDisplay
-                                tags={featureFlag.tags || []}
-                                evaluationTags={featureFlag.evaluation_tags || []}
-                                flagId={featureFlag.id}
-                                hasEvaluationTags={hasEvaluationTags}
-                            />
-                        </div>
-
-                        {hasEvaluationRuntimes && (
-                            <>
-                                <LemonDivider className="my-1" />
+                    <EditableOverviewSection section="advanced_options">
+                        {({ isEditing }) => (
+                            <div className="flex flex-col gap-4">
+                                <div className="font-semibold">Advanced options</div>
 
                                 <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-medium">Evaluation runtime</label>
-                                    <div className="flex items-center gap-2">
-                                        {evaluationRuntimeDisplay.icon}
-                                        <span className="font-medium text-sm">{evaluationRuntimeDisplay.label}</span>
-                                        <LemonTag type="muted" size="small">
-                                            {evaluationRuntimeDisplay.tag}
-                                        </LemonTag>
-                                    </div>
-                                </div>
-                            </>
-                        )}
-
-                        {!featureFlag.is_remote_configuration && (
-                            <>
-                                <LemonDivider className="my-1" />
-
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-medium">Persistence</label>
-                                    <span className="text-sm text-muted">
-                                        {featureFlag.ensure_experience_continuity ? (
-                                            <>
-                                                This flag <b className="text-default">persists</b> across authentication
-                                                steps
-                                            </>
+                                    <label className="text-sm font-medium">
+                                        {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
+                                    </label>
+                                    {isEditing ? (
+                                        hasEvaluationTags ? (
+                                            <FeatureFlagEvaluationTags
+                                                tags={sectionDraft?.tags ?? featureFlag.tags ?? []}
+                                                evaluationTags={
+                                                    sectionDraft?.evaluation_tags ?? featureFlag.evaluation_tags ?? []
+                                                }
+                                                context="form"
+                                                onChange={(tags, evaluationTags) =>
+                                                    updateSectionDraft({ tags, evaluation_tags: evaluationTags })
+                                                }
+                                                tagsAvailable={availableTags.filter(
+                                                    (tag: string) =>
+                                                        !(sectionDraft?.tags ?? featureFlag.tags ?? []).includes(tag)
+                                                )}
+                                            />
                                         ) : (
-                                            <>
-                                                This flag <b className="text-default">does not persist</b> across
-                                                authentication steps
-                                            </>
-                                        )}
-                                    </span>
+                                            <ObjectTags
+                                                tags={sectionDraft?.tags ?? featureFlag.tags ?? []}
+                                                onChange={(tags) => updateSectionDraft({ tags })}
+                                                saving={false}
+                                                tagsAvailable={availableTags.filter(
+                                                    (tag: string) =>
+                                                        !(sectionDraft?.tags ?? featureFlag.tags ?? []).includes(tag)
+                                                )}
+                                            />
+                                        )
+                                    ) : (
+                                        <TagsDisplay
+                                            tags={featureFlag.tags || []}
+                                            evaluationTags={featureFlag.evaluation_tags || []}
+                                            flagId={featureFlag.id}
+                                            hasEvaluationTags={hasEvaluationTags}
+                                        />
+                                    )}
                                 </div>
-                            </>
+
+                                {hasEvaluationRuntimes && (
+                                    <>
+                                        <LemonDivider className="my-1" />
+
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-sm font-medium">Evaluation runtime</label>
+                                            {isEditing ? (
+                                                <LemonSelect
+                                                    fullWidth
+                                                    value={
+                                                        sectionDraft?.evaluation_runtime ??
+                                                        featureFlag.evaluation_runtime
+                                                    }
+                                                    onChange={(value) =>
+                                                        updateSectionDraft({ evaluation_runtime: value })
+                                                    }
+                                                    options={[
+                                                        {
+                                                            label: 'Both client and server',
+                                                            value: FeatureFlagEvaluationRuntime.ALL,
+                                                            icon: <IconGlobe />,
+                                                        },
+                                                        {
+                                                            label: 'Client-side only',
+                                                            value: FeatureFlagEvaluationRuntime.CLIENT,
+                                                            icon: <IconLaptop />,
+                                                        },
+                                                        {
+                                                            label: 'Server-side only',
+                                                            value: FeatureFlagEvaluationRuntime.SERVER,
+                                                            icon: <IconServer />,
+                                                        },
+                                                    ]}
+                                                />
+                                            ) : (
+                                                <div className="flex items-center gap-2">
+                                                    {evaluationRuntimeDisplay.icon}
+                                                    <span className="font-medium text-sm">
+                                                        {evaluationRuntimeDisplay.label}
+                                                    </span>
+                                                    <LemonTag type="muted" size="small">
+                                                        {evaluationRuntimeDisplay.tag}
+                                                    </LemonTag>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+
+                                {!featureFlag.is_remote_configuration && (
+                                    <>
+                                        <LemonDivider className="my-1" />
+
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-sm font-medium">Persistence</label>
+                                            {isEditing ? (
+                                                <LemonSwitch
+                                                    checked={
+                                                        sectionDraft?.ensure_experience_continuity ??
+                                                        featureFlag.ensure_experience_continuity
+                                                    }
+                                                    onChange={(checked) =>
+                                                        updateSectionDraft({
+                                                            ensure_experience_continuity: checked,
+                                                        })
+                                                    }
+                                                    bordered
+                                                    fullWidth
+                                                    label="Persist flag across authentication steps"
+                                                />
+                                            ) : (
+                                                <span className="text-sm text-muted">
+                                                    {featureFlag.ensure_experience_continuity ? (
+                                                        <>
+                                                            This flag <b className="text-default">persists</b> across
+                                                            authentication steps
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            This flag <b className="text-default">does not persist</b>{' '}
+                                                            across authentication steps
+                                                        </>
+                                                    )}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                         )}
-                    </div>
+                    </EditableOverviewSection>
 
                     {!featureFlag.is_remote_configuration && (
                         <div className="rounded border p-4 bg-bg-light flex flex-col gap-3">
@@ -283,99 +687,74 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                 </div>
 
                 <div className="flex-[2] min-w-80 flex flex-col gap-4">
-                    <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                        <div className="flex flex-col gap-2">
-                            <label className="text-sm font-semibold">Flag type</label>
-                            <div className="flex items-center gap-3 p-3 rounded border bg-surface-secondary">
-                                {flagTypeDisplay.icon}
-                                <div className="flex flex-col">
-                                    <span className="font-medium">{flagTypeDisplay.label}</span>
-                                    <span className="text-xs text-muted">{flagTypeDisplay.description}</span>
-                                </div>
+                    <div className="rounded border p-4 bg-bg-light flex flex-col gap-2">
+                        <label className="text-sm font-semibold">Flag type</label>
+                        <div className="flex items-center gap-3 p-3 rounded border bg-surface-secondary">
+                            {flagTypeDisplay.icon}
+                            <div className="flex flex-col">
+                                <span className="font-medium">{flagTypeDisplay.label}</span>
+                                <span className="text-xs text-muted">{flagTypeDisplay.description}</span>
                             </div>
                         </div>
-
-                        {multivariateEnabled && variants.length > 0 && (
-                            <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium text-muted">Variants</label>
-                                <LemonCollapse
-                                    multiple
-                                    defaultActiveKeys={allVariantKeys}
-                                    panels={variants.map((variant, index) => ({
-                                        key: `variant-${index}`,
-                                        header: (
-                                            <div className="flex gap-2 items-center">
-                                                <Lettermark
-                                                    name={alphabet[index] ?? String(index + 1)}
-                                                    color={LettermarkColor.Gray}
-                                                    size="small"
-                                                />
-                                                <span className="text-sm font-medium">
-                                                    {variant.key || `Variant ${index + 1}`}
-                                                </span>
-                                                <span className="text-xs text-muted">
-                                                    ({variant.rollout_percentage || 0}%)
-                                                </span>
-                                            </div>
-                                        ),
-                                        content: (
-                                            <div className="flex flex-col gap-3">
-                                                <div className="flex flex-col gap-1">
-                                                    <label className="text-xs font-medium text-muted">
-                                                        Variant key
-                                                    </label>
-                                                    <div className="font-mono text-sm">{variant.key}</div>
-                                                </div>
-
-                                                <div className="flex flex-col gap-1">
-                                                    <label className="text-xs font-medium text-muted">
-                                                        Rollout percentage
-                                                    </label>
-                                                    <div className="text-sm font-semibold">
-                                                        {variant.rollout_percentage || 0}%
-                                                    </div>
-                                                </div>
-
-                                                {variant.name && (
-                                                    <div className="flex flex-col gap-1">
-                                                        <label className="text-xs font-medium text-muted">
-                                                            Description
-                                                        </label>
-                                                        <div className="text-sm">{variant.name}</div>
-                                                    </div>
-                                                )}
-
-                                                {featureFlag.filters?.payloads?.[variant.key] && (
-                                                    <div className="flex flex-col gap-1">
-                                                        <label className="text-xs font-medium text-muted">
-                                                            Payload
-                                                        </label>
-                                                        <JSONEditorInput
-                                                            readOnly
-                                                            value={featureFlag.filters.payloads[variant.key]}
-                                                        />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ),
-                                    }))}
-                                />
-                            </div>
-                        )}
-
-                        {!multivariateEnabled && (
-                            <div className="flex flex-col gap-2">
-                                <label className="text-sm font-semibold">Payload</label>
-                                {hasPayload && featureFlag.filters?.payloads?.['true'] ? (
-                                    <JSONEditorInput readOnly value={featureFlag.filters.payloads['true']} />
-                                ) : (
-                                    <div className="text-sm text-muted p-3 rounded border border-dashed bg-surface-secondary">
-                                        No payload configured
-                                    </div>
-                                )}
-                            </div>
-                        )}
                     </div>
+
+                    {multivariateEnabled && variants.length > 0 && (
+                        <EditableOverviewSection
+                            section="variants"
+                            disabledReason={
+                                featureFlag.experiment_set && featureFlag.experiment_set.length > 0
+                                    ? 'Variants are managed by the linked experiment'
+                                    : undefined
+                            }
+                        >
+                            {({ isEditing }) => (
+                                <VariantsSection
+                                    featureFlag={featureFlag}
+                                    variants={variants}
+                                    isEditing={isEditing}
+                                    sectionDraft={sectionDraft}
+                                    updateSectionDraft={updateSectionDraft}
+                                    allVariantKeys={allVariantKeys}
+                                />
+                            )}
+                        </EditableOverviewSection>
+                    )}
+
+                    {!multivariateEnabled && (
+                        <EditableOverviewSection section="payload">
+                            {({ isEditing }) => (
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-semibold">Payload</label>
+                                    {isEditing ? (
+                                        <JSONEditorInput
+                                            value={
+                                                sectionDraft?.filters?.payloads?.['true'] ??
+                                                featureFlag.filters?.payloads?.['true'] ??
+                                                ''
+                                            }
+                                            onChange={(val) =>
+                                                updateSectionDraft({
+                                                    filters: {
+                                                        ...featureFlag.filters,
+                                                        payloads: {
+                                                            ...featureFlag.filters?.payloads,
+                                                            true: val,
+                                                        },
+                                                    },
+                                                })
+                                            }
+                                        />
+                                    ) : hasPayload && featureFlag.filters?.payloads?.['true'] ? (
+                                        <JSONEditorInput readOnly value={featureFlag.filters.payloads['true']} />
+                                    ) : (
+                                        <div className="text-sm text-muted p-3 rounded border border-dashed bg-surface-secondary">
+                                            No payload configured
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </EditableOverviewSection>
+                    )}
 
                     {!featureFlag.is_remote_configuration && (
                         <>
@@ -394,13 +773,35 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     />
                                 </div>
                             )}
-                            <div className="rounded border p-4 bg-bg-light">
-                                <FeatureFlagReleaseConditionsReadonly
-                                    id={String(featureFlag.id)}
-                                    filters={featureFlag.filters}
-                                    isDisabled={!featureFlag.active}
-                                />
-                            </div>
+                            <EditableOverviewSection
+                                section="release_conditions"
+                                disabledReason={
+                                    featureFlag.experiment_set && featureFlag.experiment_set.length > 0
+                                        ? 'Release conditions are managed by the linked experiment'
+                                        : undefined
+                                }
+                            >
+                                {({ isEditing }) =>
+                                    isEditing ? (
+                                        <FeatureFlagReleaseConditionsCollapsible
+                                            id={String(featureFlag.id)}
+                                            filters={sectionDraft?.filters ?? featureFlag.filters}
+                                            onChange={(filters) => updateSectionDraft({ filters })}
+                                            nonEmptyFeatureFlagVariants={
+                                                featureFlag.filters?.multivariate?.variants?.filter((v) => !!v.key) ??
+                                                []
+                                            }
+                                            isDisabled={!featureFlag.active}
+                                        />
+                                    ) : (
+                                        <FeatureFlagReleaseConditionsReadonly
+                                            id={String(featureFlag.id)}
+                                            filters={featureFlag.filters}
+                                            isDisabled={!featureFlag.active}
+                                        />
+                                    )
+                                }
+                            </EditableOverviewSection>
                         </>
                     )}
                 </div>

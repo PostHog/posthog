@@ -96,6 +96,8 @@ export interface DependentFlag {
     name: string
 }
 
+export type FeatureFlagEditableSection = 'advanced_options' | 'variants' | 'payload' | 'release_conditions'
+
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
@@ -401,6 +403,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
         }) => payload,
+        // V2 inline section editing actions
+        setSectionEditing: (section: FeatureFlagEditableSection | null) => ({ section }),
+        updateSectionDraft: (draft: Partial<FeatureFlagType>) => ({ draft }),
+        cancelSectionEdit: true,
+        saveSectionEdit: true,
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
@@ -647,6 +654,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             false,
             {
                 editFeatureFlag: (_, { editing }) => editing,
+            },
+        ],
+        editingSection: [
+            null as FeatureFlagEditableSection | null,
+            {
+                setSectionEditing: (_, { section }) => section,
+                cancelSectionEdit: () => null,
+                saveFeatureFlagSuccess: () => null,
+            },
+        ],
+        sectionDraft: [
+            null as Partial<FeatureFlagType> | null,
+            {
+                setSectionEditing: () => null,
+                updateSectionDraft: (state, { draft }) => ({ ...state, ...draft }),
+                cancelSectionEdit: () => null,
+                saveFeatureFlagSuccess: () => null,
             },
         ],
         copyDestinationProject: [
@@ -1562,6 +1586,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     {}
                 )
             }
+        },
+        saveSectionEdit: () => {
+            const draft = values.sectionDraft
+            if (!draft) {
+                return
+            }
+            const updatedFlag = { ...values.featureFlag, ...draft }
+            actions.submitFeatureFlagWithValidation(updatedFlag)
         },
         editFeatureFlag: async ({ editing }) => {
             if (editing) {
