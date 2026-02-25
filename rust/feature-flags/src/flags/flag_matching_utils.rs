@@ -466,11 +466,34 @@ async fn fetch_properties_via_personhog(
     group_keys: &HashSet<String>,
     static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
-    let person_timer = common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
-    let person = client
-        .get_person_by_distinct_id(team_id, &distinct_id)
-        .await?;
-    person_timer.fin();
+    // Person lookup and group fetch are independent — run them concurrently
+    let group_identifiers: Vec<(GroupTypeIndex, String)> = group_type_indexes
+        .iter()
+        .flat_map(|idx| group_keys.iter().map(move |key| (*idx, key.clone())))
+        .collect();
+
+    let person_fut = async {
+        let timer = common_metrics::timing_guard(FLAG_PERSONHOG_PERSON_QUERY_TIME, &[]);
+        let result = client
+            .get_person_by_distinct_id(team_id, &distinct_id)
+            .await;
+        timer.fin();
+        result
+    };
+
+    let group_fut = async {
+        if group_identifiers.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let timer = common_metrics::timing_guard(FLAG_PERSONHOG_GROUP_QUERY_TIME, &[]);
+        let result = client.get_groups(team_id, group_identifiers).await;
+        timer.fin();
+        result
+    };
+
+    let (person_result, group_result) = tokio::join!(person_fut, group_fut);
+    let person = person_result?;
+    let group_properties = group_result?;
 
     let (person_id, person_props) = person
         .map(|p| (Some(p.id), Some(p.properties)))
@@ -479,6 +502,7 @@ async fn fetch_properties_via_personhog(
     if let Some(person_id) = person_id {
         flag_evaluation_state.set_person_id(person_id);
 
+        // Cohort check depends on person_id so it must run after person lookup
         if !static_cohort_ids.is_empty() {
             let cohort_timer = common_metrics::timing_guard(FLAG_PERSONHOG_COHORT_QUERY_TIME, &[]);
             let cohort_results = client
@@ -500,18 +524,8 @@ async fn fetch_properties_via_personhog(
     all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
     flag_evaluation_state.set_person_properties(all_person_properties);
 
-    if !group_type_indexes.is_empty() {
-        let group_identifiers: Vec<(GroupTypeIndex, String)> = group_type_indexes
-            .iter()
-            .flat_map(|idx| group_keys.iter().map(move |key| (*idx, key.clone())))
-            .collect();
-
-        let group_timer = common_metrics::timing_guard(FLAG_PERSONHOG_GROUP_QUERY_TIME, &[]);
-        let group_properties = client.get_groups(team_id, group_identifiers).await?;
-        group_timer.fin();
-        for (group_type_index, properties) in group_properties {
-            flag_evaluation_state.set_group_properties(group_type_index, properties);
-        }
+    for (group_type_index, properties) in group_properties {
+        flag_evaluation_state.set_group_properties(group_type_index, properties);
     }
 
     Ok(())
