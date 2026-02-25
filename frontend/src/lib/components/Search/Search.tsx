@@ -19,6 +19,7 @@ import {
 import { IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -268,6 +269,7 @@ function SearchRoot({
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
+    const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
     const { conversationId: aiPreviewConversationId } = useValues(searchAiPreviewLogic({ logicKey }))
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
@@ -310,9 +312,10 @@ function SearchRoot({
                 name: `Ask PostHog AI: "${searchValue.trim()}"`,
                 displayName: `Ask PostHog AI: "${searchValue.trim()}"`,
                 category: 'ai',
-                href: aiPreviewConversationId
-                    ? urls.ai(aiPreviewConversationId)
-                    : urls.ai(undefined, searchValue.trim()),
+                href:
+                    aiPreviewEnabled && aiPreviewConversationId
+                        ? urls.ai(aiPreviewConversationId)
+                        : urls.ai(undefined, searchValue.trim()),
                 icon: <IconSparkles className="text-ai" />,
             }
             items = [askAiItem, ...items]
@@ -601,6 +604,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
 
 function SearchStatus(): JSX.Element {
     const { isSearching, searchValue, filteredItems, showAskAiLink } = useSearchContext()
+    const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
 
     const statusMessage = useMemo(() => {
         if (isSearching) {
@@ -620,14 +624,17 @@ function SearchStatus(): JSX.Element {
             }
             const hasAiItem = showAskAiLink && searchValue.trim()
             const realResultCount = hasAiItem ? filteredItems.length - 1 : filteredItems.length
-            if (realResultCount === 0 && hasAiItem) {
-                return 'No matching items · 1 AI answer'
+            if (aiPreviewEnabled) {
+                if (realResultCount === 0 && hasAiItem) {
+                    return 'No matching items · 1 AI answer'
+                }
+                const resultText = `${realResultCount} result${realResultCount === 1 ? '' : 's'}`
+                return hasAiItem ? `${resultText} · 1 AI answer` : resultText
             }
-            const resultText = `${realResultCount} result${realResultCount === 1 ? '' : 's'}`
-            return hasAiItem ? `${resultText} · 1 AI answer` : resultText
+            return `${realResultCount} result${realResultCount === 1 ? '' : 's'}`
         }
         return 'Type to search...'
-    }, [isSearching, searchValue, filteredItems.length, showAskAiLink])
+    }, [isSearching, searchValue, filteredItems.length, showAskAiLink, aiPreviewEnabled])
 
     return (
         <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center">
@@ -664,6 +671,7 @@ function SearchResults({
     isModal?: boolean
 }): JSX.Element {
     const { groupedItems, handleItemClick, highlightedItemRef, isSearching } = useSearchContext()
+    const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
 
     // Don't show "no results" while any category is still loading
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
@@ -709,7 +717,7 @@ function SearchResults({
                                 ) : (
                                     <Autocomplete.Collection>
                                         {(item: SearchItem) => {
-                                            if (item.id === ASK_AI_ITEM_ID) {
+                                            if (aiPreviewEnabled && item.id === ASK_AI_ITEM_ID) {
                                                 return (
                                                     <AiSearchItem
                                                         key={item.id}
@@ -736,7 +744,7 @@ function SearchResults({
                                                             render={(props) => {
                                                                 const isHighlighted =
                                                                     (props as Record<string, unknown>)[
-                                                                    'data-highlighted'
+                                                                        'data-highlighted'
                                                                     ] === ''
                                                                 if (isHighlighted) {
                                                                     highlightedItemRef.current = item
@@ -761,8 +769,8 @@ function SearchResults({
                                                                                     <span className="text-xs text-tertiary shrink-0 mt-[2px]">
                                                                                         {capitalizeFirstLetter(
                                                                                             item.groupNoun ||
-                                                                                            typeLabel ||
-                                                                                            ''
+                                                                                                typeLabel ||
+                                                                                                ''
                                                                                         )}
                                                                                     </span>
                                                                                 )}
@@ -778,8 +786,8 @@ function SearchResults({
                                                                                         tag === 'alpha'
                                                                                             ? 'completion'
                                                                                             : tag === 'beta'
-                                                                                                ? 'warning'
-                                                                                                : 'success'
+                                                                                              ? 'warning'
+                                                                                              : 'success'
                                                                                     }
                                                                                     size="small"
                                                                                     className="shrink-0"
@@ -867,7 +875,7 @@ function AiSearchItem({
                                 className: cn(
                                     'flex-col items-start gap-0 bg-surface-primary',
                                     showPreview &&
-                                    'shadow border-primary @2xl/main-content:-ml-3 @2xl/main-content:w-[calc(100%+(var(--spacing)*6))] max-w-none p-4 text-sm select-auto hover:border-ai not(:hover):[&[data-highlighted]:not(:hover)]:outline-ai',
+                                        'shadow border-primary @2xl/main-content:-ml-3 @2xl/main-content:w-[calc(100%+(var(--spacing)*6))] max-w-none p-4 text-sm select-auto hover:border-ai not(:hover):[&[data-highlighted]:not(:hover)]:outline-ai',
                                     isModal && 'm-0'
                                 ),
                             }}
