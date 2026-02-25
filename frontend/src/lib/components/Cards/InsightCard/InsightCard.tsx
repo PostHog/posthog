@@ -1,11 +1,9 @@
 import './InsightCard.scss'
 
-import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import React, { useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
-import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
@@ -83,6 +81,7 @@ export interface InsightCardProps extends Resizeable {
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
     doNotLoad?: boolean
+    isInVisibleRows?: boolean
     /** Dashboard filters to override the ones in the insight */
     filtersOverride?: DashboardFilter
     /** Dashboard variables to override the ones in the insight */
@@ -128,6 +127,7 @@ function InsightCardInternal(
         placement,
         loadPriority,
         doNotLoad,
+        isInVisibleRows = true,
         filtersOverride,
         variablesOverride,
         children,
@@ -139,7 +139,6 @@ function InsightCardInternal(
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { ref: inViewRef, inView } = useInView()
     const { isVisible: isPageVisible } = usePageVisibility()
 
     /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
@@ -149,10 +148,8 @@ function InsightCardInternal(
      */
     const isVisible =
         featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === true
-            ? (inView && isPageVisible) || inStorybook() || inStorybookTestRunner()
+            ? (isInVisibleRows && isPageVisible) || inStorybook() || inStorybookTestRunner()
             : true
-
-    const mergedRefs = useMergeRefs([ref, inViewRef])
 
     const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
@@ -234,7 +231,7 @@ function InsightCardInternal(
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...divProps?.style, ...theme?.boxStyle }}
-            ref={mergedRefs}
+            ref={ref}
         >
             <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <BindLogic logic={insightLogic} props={insightLogicProps}>

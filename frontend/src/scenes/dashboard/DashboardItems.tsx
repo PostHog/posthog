@@ -3,7 +3,7 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactGridLayout, { useContainerWidth } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
@@ -25,11 +25,11 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType, TileLayout } from '~/types'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 8
-const VIRTUALIZATION_OVERSCAN_ROWS = 8
+const VIRTUALIZATION_OVERSCAN_ROWS = 16
 const ROW_SIZE = GRID_ROW_HEIGHT + GRID_VERTICAL_MARGIN
 
 const isTileVisibleInRange = (layout: TileLayout, startRow: number, endRow: number): boolean => {
@@ -157,6 +157,15 @@ export function DashboardItems(): JSX.Element {
         () =>
             tiles?.map((tile) => {
                 const { insight, text } = tile
+                const tileLayout = layouts[dashboardLayoutSize]?.find((layoutItem) => {
+                    return layoutItem.i == tile.id.toString()
+                })
+                const isTileInVisibleRows =
+                    canEditLayout ||
+                    !visibleRows ||
+                    !tileLayout ||
+                    isTileVisibleInRange(tileLayout, visibleRows.start, visibleRows.end)
+
                 const smLayout = layouts['sm']?.find((l) => {
                     return l.i == tile.id.toString()
                 })
@@ -210,6 +219,7 @@ export function DashboardItems(): JSX.Element {
                             }
                             placement={placement}
                             loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                            isInVisibleRows={isTileInVisibleRows}
                             filtersOverride={effectiveEditBarFilters}
                             variablesOverride={effectiveDashboardVariableOverrides}
                             // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
@@ -316,6 +326,8 @@ export function DashboardItems(): JSX.Element {
             temporaryBreakdownColors,
             tiles,
             updateTileColor,
+            dashboardLayoutSize,
+            visibleRows,
         ]
     )
 
