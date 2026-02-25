@@ -14,7 +14,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert len(results) == 3
+        assert len(results) == 2
         names = [s["name"] for s in results]
         assert "Linear" in names
         assert "Notion" in names

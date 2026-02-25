@@ -5,6 +5,7 @@ from urllib.parse import quote, urlencode
 
 from django.conf import settings
 from django.db import IntegrityError
+from django.db.models import QuerySet
 from django.http import HttpResponse
 
 import requests
@@ -137,7 +138,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
 
-    def safely_get_queryset(self, queryset: "MCPServerInstallation.objects") -> "MCPServerInstallation.objects":
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
             queryset.filter(team_id=self.team_id, user=self.request.user)
             .select_related("server")
@@ -255,7 +256,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 installation.delete()
             return server
 
-        if installation.server_id != server.id:
+        if installation.server != server:
             installation.server = server
             installation.save(update_fields=["server", "updated_at"])
 

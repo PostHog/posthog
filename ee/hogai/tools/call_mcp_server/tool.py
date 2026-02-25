@@ -71,6 +71,7 @@ class CallMCPServerTool(MaxTool):
 
     _allowed_server_urls: set[str]
     _installations: list
+    _installations_by_url: dict[str, dict]
     _server_headers: dict[str, dict[str, str]]
 
     @classmethod
