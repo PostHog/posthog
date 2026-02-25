@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props } from 'kea'
+import { actions, connect, kea, listeners, path } from 'kea'
 
 import {
     AnyPropertyFilter,
@@ -8,31 +8,20 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import {
-    issueFiltersLogic,
-    IssueFiltersLogicProps,
-} from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
-
-export type PropertyValueFilterLogicProps = {
-    issueFiltersLogicKey?: IssueFiltersLogicProps['logicKey']
-}
+import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
+import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY } from 'products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 export const propertyValueFilterLogic = kea([
     path(['products', 'error_tracking', 'components', 'ExceptionCard', 'propertyValueFilterLogic']),
-    props({} as PropertyValueFilterLogicProps),
-    connect((props) => ({
-        values: [issueFiltersLogic({ logicKey: props.issueFiltersLogicKey ?? '' }), ['filterGroup']],
-        actions: [issueFiltersLogic({ logicKey: props.issueFiltersLogicKey ?? '' }), ['setFilterGroup']],
+    connect(() => ({
+        values: [issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }), ['filterGroup']],
+        actions: [issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }), ['setFilterGroup']],
     })),
     actions({
         filterByPropertyValue: (key: string, value: string | number | boolean) => ({ key, value }),
     }),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, actions }) => ({
         filterByPropertyValue: ({ key, value }) => {
-            if (!props.issueFiltersLogicKey) {
-                return
-            }
-
             const firstGroup = values.filterGroup.values[0] as UniversalFiltersGroup
             const hasMatchingFilter = firstGroup.values.some((filter) => {
                 const propertyFilter = filter as AnyPropertyFilter
