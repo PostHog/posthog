@@ -291,10 +291,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
             if self.context.get("is_draft"):
                 if serializer.is_valid():
-                    data["conversion"]["filters"] = serializer.validated_data
+                    compiled_filters = serializer.validated_data
+                    data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                    data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
             else:
                 serializer.is_valid(raise_exception=True)
-                data["conversion"]["filters"] = serializer.validated_data
+                compiled_filters = serializer.validated_data
+                data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
 
         return data
 

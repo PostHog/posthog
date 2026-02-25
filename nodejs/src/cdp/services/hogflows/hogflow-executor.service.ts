@@ -254,7 +254,10 @@ export class HogFlowExecutorService {
         if (hogFlow.conversion?.filters && person) {
             const filterResult = await filterFunctionInstrumented({
                 fn: hogFlow,
-                filters: hogFlow.conversion.filters,
+                filters: {
+                    bytecode: hogFlow.conversion.bytecode || [],
+                    properties: hogFlow.conversion.filters || [],
+                },
                 filterGlobals: invocation.filterGlobals,
             })
             conversionMatch = filterResult.match
@@ -264,13 +267,13 @@ export class HogFlowExecutorService {
             case 'exit_on_trigger_not_matched':
                 if (triggerMatch === false) {
                     shouldExit = true
-                    exitReason = 'Person no longer matches trigger filters'
+                    exitReason = `[Person:${invocation.person?.id}|${invocation.person?.name}] no longer matches trigger filters`
                 }
                 break
             case 'exit_on_conversion':
                 if (conversionMatch === true) {
                     shouldExit = true
-                    exitReason = 'Person matches conversion filters'
+                    exitReason = `[Person:${invocation.person?.id}|${invocation.person?.name}] matches conversion filters`
                 }
                 break
             case 'exit_on_trigger_not_matched_or_conversion':
@@ -278,8 +281,8 @@ export class HogFlowExecutorService {
                     shouldExit = true
                     exitReason =
                         triggerMatch === false
-                            ? 'Person no longer matches trigger filters'
-                            : 'Person matches conversion filters'
+                            ? `[Person:${invocation.person?.id}|${invocation.person?.name}] no longer matches trigger filters`
+                            : `[Person:${invocation.person?.id}|${invocation.person?.name}] matches conversion filters`
                 }
                 break
         }
