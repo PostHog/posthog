@@ -18,6 +18,8 @@ logger = structlog.get_logger(__name__)
 class RequestContext:
     request_id: str
     product: str = "llm_gateway"
+    wizard_metadata: dict[str, str] | None = None
+    wizard_flags: dict[str, str] | None = None
 
 
 request_context_var: ContextVar[RequestContext | None] = ContextVar("request_context", default=None)
@@ -43,6 +45,46 @@ def get_request_id() -> str:
 def get_product() -> str:
     ctx = request_context_var.get()
     return ctx.product if ctx else "llm_gateway"
+
+
+def set_wizard_metadata(metadata: dict[str, str] | None) -> None:
+    ctx = request_context_var.get()
+    if ctx:
+        request_context_var.set(
+            RequestContext(
+                request_id=ctx.request_id,
+                product=ctx.product,
+                wizard_metadata=metadata,
+                wizard_flags=ctx.wizard_flags,
+            )
+        )
+    else:
+        request_context_var.set(RequestContext(request_id="", wizard_metadata=metadata))
+
+
+def get_wizard_metadata() -> dict[str, str] | None:
+    ctx = request_context_var.get()
+    return ctx.wizard_metadata if ctx else None
+
+
+def set_wizard_flags(flags: dict[str, str] | None) -> None:
+    ctx = request_context_var.get()
+    if ctx:
+        request_context_var.set(
+            RequestContext(
+                request_id=ctx.request_id,
+                product=ctx.product,
+                wizard_metadata=ctx.wizard_metadata,
+                wizard_flags=flags,
+            )
+        )
+    else:
+        request_context_var.set(RequestContext(request_id="", wizard_flags=flags))
+
+
+def get_wizard_flags() -> dict[str, str] | None:
+    ctx = request_context_var.get()
+    return ctx.wizard_flags if ctx else None
 
 
 def set_throttle_context(runner: ThrottleRunner, context: ThrottleContext) -> None:
