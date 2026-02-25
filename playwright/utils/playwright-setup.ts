@@ -41,6 +41,13 @@ export interface PlaywrightSetupDashboard {
     variable_overrides?: Record<string, any>
 }
 
+export interface PlaywrightSetupEvent {
+    event: string
+    distinct_id: string
+    timestamp_offset_days: number // days before "now"; supports fractional values
+    properties?: Record<string, any>
+}
+
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
     use_current_time?: boolean
@@ -48,6 +55,7 @@ export interface PlaywrightWorkspaceSetupData {
     insight_variables?: PlaywrightSetupVariable[]
     insights?: PlaywrightSetupInsight[]
     dashboards?: PlaywrightSetupDashboard[]
+    events?: PlaywrightSetupEvent[]
 }
 
 export interface PlaywrightSetupCreatedVariable {
