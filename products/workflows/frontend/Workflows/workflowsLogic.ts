@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, key, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -23,6 +23,7 @@ export interface WorkflowsFilters {
 }
 
 export const workflowsLogic = kea<workflowsLogicType>([
+    key(() => 'workflowsLogic'),
     path(['products', 'workflows', 'frontend', 'workflowsLogic']),
     actions({
         toggleWorkflowStatus: (workflow: HogFlow) => ({ workflow }),

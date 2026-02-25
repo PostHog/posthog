@@ -241,7 +241,11 @@ class LoginSerializer(serializers.Serializer):
         )
 
         axes_request = getattr(request, "_request", request)
-        was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
+        was_authenticated_before_login_attempt = bool(
+            getattr(request, "user", None)
+            and request.user.is_authenticated
+            and request.user.email.lower() == validated_data["email"].lower()
+        )
 
         # Initialize axes handler via proxy so request metadata is populated consistently
         from axes.exceptions import AxesBackendPermissionDenied

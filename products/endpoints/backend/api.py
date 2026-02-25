@@ -218,7 +218,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "last_materialized_at": (
                     version.saved_query.last_run_at.isoformat() if version.saved_query.last_run_at else None
                 ),
-                "error": version.saved_query.latest_error or "",
+                "error": (version.saved_query.latest_error or "")
+                if version.saved_query.status != DataWarehouseSavedQuery.Status.COMPLETED
+                else "",
                 "sync_frequency": sync_frequency_interval_to_sync_frequency(
                     version.saved_query.sync_frequency_interval
                 ),

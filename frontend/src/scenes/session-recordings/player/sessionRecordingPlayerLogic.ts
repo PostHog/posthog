@@ -1779,10 +1779,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
 
             // Detect when the replayer is stuck (same timestamp for consecutive frames).
-            // This happens in gap segments (no events) and in window segments where
-            // the replayer has no events at the current offset (e.g. inactive segments
-            // deep into a window's timeline). After a few stuck frames, advance time
-            // manually so playback doesn't freeze.
+            // This happens in window segments where the replayer has no events at the
+            // current offset (e.g. inactive segments deep into a window's timeline).
+            // After a few stuck frames, advance time manually so playback doesn't freeze.
             if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
                 cache._stuckFrames = (cache._stuckFrames || 0) + 1
             } else {
@@ -1791,7 +1790,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache._lastAnimTimestamp = newTimestamp
 
             const isStuck = cache._stuckFrames >= 5
-            const shouldManuallyAdvance = values.currentSegment?.kind === 'gap' || isStuck
+            // Only manually advance when rrweb can't provide a timestamp (gap with no
+            // replayer for this windowId) or when truly stuck. Don't override rrweb's
+            // timestamp unconditionally for gaps — rrweb may still be playing at high
+            // speed (e.g. skip inactivity) and overriding causes PostHog's tracked
+            // position to diverge from rrweb's actual playback position.
+            const shouldManuallyAdvance =
+                (newTimestamp == undefined && values.currentSegment?.kind === 'gap') || isStuck
             if (shouldManuallyAdvance && values.currentTimestamp) {
                 newTimestamp = values.currentTimestamp + values.roughAnimationFPS
             }
