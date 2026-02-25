@@ -132,6 +132,7 @@ export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): 
     // This is because some mobile apps send an uppercase session ID, which can cause problems on some query paths
     // where the session ID is parsed as a UUID and then converted back to a string.
     // See https://github.com/PostHog/posthog/issues/46111
+    // Note: this is very defensive. In reality, session IDs should always be a UUIDv7 or undefined.
     if (typeof properties['$session_id'] === 'string' && UUID.validateString(properties['$session_id'], false)) {
         properties['$session_id'] = properties['$session_id'].toLowerCase()
     }
