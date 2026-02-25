@@ -15,7 +15,6 @@ from posthog.models.feature_flag.local_evaluation import (
     _get_flags_response_for_local_evaluation_batch,
     _update_flag_definitions_with_cohorts,
     _update_flag_definitions_without_cohorts,
-    clear_flag_caches,
     clear_flag_definition_caches,
     flag_definitions_hypercache,
     flag_definitions_without_cohorts_hypercache,
@@ -40,7 +39,7 @@ class TestLocalEvaluationCache(BaseTest):
         )
         self.team = team
         self._create_examples(self.team)
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
     def _create_examples(self, team: Team):
         FeatureFlag.objects.all().delete()
@@ -192,13 +191,13 @@ class TestLocalEvaluationCache(BaseTest):
 
     def test_get_flags_cache_warm(self):
         update_flag_caches(self.team)
-        clear_flag_caches(self.team, kinds=["redis"])
+        clear_flag_definition_caches(self.team, kinds=["redis"])
         response, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert source == "s3"
         self._assert_payload_valid_with_cohorts(response)
 
     def test_get_flags_cold(self):
-        clear_flag_caches(self.team, kinds=["redis", "s3"])
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
         response, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert source == "db"
         self._assert_payload_valid_with_cohorts(response)

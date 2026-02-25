@@ -6032,9 +6032,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
         # Clear both Redis and S3 caches
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         # First request should miss cache and populate it
         self.client.logout()
@@ -6567,9 +6567,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
         response = self.client.get(
@@ -6596,9 +6596,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6634,9 +6634,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6666,9 +6666,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6719,9 +6719,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6767,9 +6767,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6810,9 +6810,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6848,9 +6848,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 

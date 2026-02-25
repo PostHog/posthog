@@ -486,15 +486,6 @@ def clear_flag_definition_caches(team: Team, kinds: list[str] | None = None):
     flag_definitions_without_cohorts_hypercache.clear_cache(team, kinds=kinds)
 
 
-def clear_flag_caches(team: Team, kinds: list[str] | None = None):
-    """Clear the flag definitions cache for a team.
-
-    Delegates to clear_flag_definition_caches for proper cleanup including
-    expiry tracking.
-    """
-    clear_flag_definition_caches(team, kinds=kinds)
-
-
 def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict[str, Any]:
     """Build the local-evaluation response for a single team."""
     results = _get_flags_response_for_local_evaluation_batch([team], include_cohorts)
