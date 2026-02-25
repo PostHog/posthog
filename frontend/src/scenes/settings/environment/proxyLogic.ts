@@ -51,7 +51,7 @@ const AVAILABLE_SUGGESTIONS_SUBDOMAIN = ['b', 'd', 'f', 'g', 'j', 'k', 'm', 'n',
 
 // Suggesting a domain based on the user's email domain, but only if it's not a free email provider (e.g. Gmail, Outlook, etc.)
 // since this only makes sense for users with a custom email domain who likely also have a custom domain they can use for the proxy
-function initialDomainFor(user: UserType | null, existingProxyRecords: ProxyRecord[] = []): string {
+function initialDomainFor(user: UserType | null): string {
     if (!user?.email) {
         return ''
     }
@@ -66,16 +66,9 @@ function initialDomainFor(user: UserType | null, existingProxyRecords: ProxyReco
         return ''
     }
 
-    const existingSubdomains = existingProxyRecords.map((record) => record.domain.split('.')[0])
-    const availableSubdomains = AVAILABLE_SUGGESTIONS_SUBDOMAIN.filter(
-        (subdomain) => !existingSubdomains.includes(subdomain)
-    )
-    if (availableSubdomains.length === 0) {
-        return ''
-    }
-
     const domain = user.email.substring(lastIndex + 1, user.email.length)
-    const subdomain = availableSubdomains[Math.floor(Math.random() * availableSubdomains.length)]
+    const subdomain =
+        AVAILABLE_SUGGESTIONS_SUBDOMAIN[Math.floor(Math.random() * AVAILABLE_SUGGESTIONS_SUBDOMAIN.length)]
     return `${subdomain}.${domain}`
 }
 
@@ -172,7 +165,7 @@ export const proxyLogic = kea<proxyLogicType>([
     })),
     forms(({ actions, values }) => ({
         createRecord: {
-            defaults: { domain: initialDomainFor(values.user, values.proxyRecords) },
+            defaults: { domain: initialDomainFor(values.user) },
             errors: ({ domain }: { domain: string }) => ({
                 domain:
                     domain === ''

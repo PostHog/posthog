@@ -11,7 +11,9 @@ export const onboardingReverseProxyLogic = kea<onboardingReverseProxyLogicType>(
         actions: [proxyLogic, ['acknowledgeCloudflareOptIn', 'showForm', 'createRecord']],
     })),
     listeners(({ actions }) => ({
-        createRecord: actions.acknowledgeCloudflareOptIn, // Acknowledge Cloudflare opt-in when a record is successfully created
+        createRecord: () => {
+            actions.acknowledgeCloudflareOptIn() // Acknowledge Cloudflare opt-in when a record is successfully created
+        },
     })),
     afterMount(({ actions }) => {
         actions.showForm() // During onboarding we have the proxy form open by default
