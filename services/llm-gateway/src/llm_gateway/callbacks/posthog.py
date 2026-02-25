@@ -80,7 +80,6 @@ class PostHogCallback(InstrumentedCallback):
         self._host = host
         posthoganalytics.api_key = api_key
         posthoganalytics.host = host
-        posthoganalytics.debug = True
 
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
