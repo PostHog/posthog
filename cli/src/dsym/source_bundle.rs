@@ -31,10 +31,7 @@ pub fn extract_dwarf_source_paths(dsym_path: &Path) -> Result<Vec<String>> {
     let dwarf_dir = dsym_path.join("Contents/Resources/DWARF");
 
     if !dwarf_dir.is_dir() {
-        anyhow::bail!(
-            "DWARF directory not found at {}",
-            dwarf_dir.display()
-        );
+        anyhow::bail!("DWARF directory not found at {}", dwarf_dir.display());
     }
 
     // Find the DWARF binary (there's typically one file in this directory)
@@ -94,7 +91,10 @@ pub fn filter_source_paths(paths: &[String]) -> Vec<&str> {
         .iter()
         .filter(|path| {
             // Exclude system prefixes
-            if EXCLUDED_PREFIXES.iter().any(|prefix| path.starts_with(prefix)) {
+            if EXCLUDED_PREFIXES
+                .iter()
+                .any(|prefix| path.starts_with(prefix))
+            {
                 tracing::debug!("Filtered out (prefix): {}", path);
                 return false;
             }
@@ -131,7 +131,10 @@ pub fn collect_source_files(dwarf_paths: &[&str]) -> Result<SourceFiles> {
                 contents.insert(zip_path, data);
             }
             Err(e) => {
-                warn!("Could not read source file {}: {} (skipping)", dwarf_path, e);
+                warn!(
+                    "Could not read source file {}: {} (skipping)",
+                    dwarf_path, e
+                );
             }
         }
     }
@@ -206,15 +209,13 @@ fn build_zip_relative_paths(paths: &[&str]) -> Vec<String> {
         }
 
         let mut has_duplicates = false;
-        for (_, indices) in &seen {
+        for indices in seen.values() {
             if indices.len() > 1 {
                 has_duplicates = true;
                 for &idx in indices {
                     // Add one more parent component
-                    let components: Vec<&str> = paths[idx]
-                        .split('/')
-                        .filter(|s| !s.is_empty())
-                        .collect();
+                    let components: Vec<&str> =
+                        paths[idx].split('/').filter(|s| !s.is_empty()).collect();
                     let current_depth = result[idx].matches('/').count() + 1;
                     let new_depth = (current_depth + 1).min(components.len());
                     let start = components.len().saturating_sub(new_depth);
