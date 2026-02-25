@@ -147,7 +147,6 @@ class TestProcessTaskWorkflow:
             await sync_to_async(snapshot.delete)()
 
     async def test_workflow_cleans_up_sandbox(self, test_task_run, github_integration):
-        """Workflow cleans up sandbox after completion."""
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:

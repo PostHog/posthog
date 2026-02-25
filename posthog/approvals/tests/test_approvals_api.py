@@ -17,7 +17,7 @@ from posthog.approvals.models import (
     ValidationStatus,
 )
 from posthog.constants import AvailableFeature
-from posthog.models import User
+from posthog.models import FeatureFlag, User
 
 
 class TestApprovalsFeatureGating(APIBaseTest):
@@ -434,3 +434,170 @@ class TestApprovalPolicyViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "do not exist" in str(response.json())
+
+
+class TestFeatureFlagApprovalIntegration(APIBaseTest):
+    """
+    End-to-end tests: policy exists → API call blocked → change request created
+    → approve → resource actually mutated.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
+        self.flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="approval-integration-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+
+    def _create_update_policy(self, conditions=None):
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions=conditions if conditions is not None else {},
+            approver_config={"quorum": 1, "users": [self.user.id], "roles": []},
+            allow_self_approve=True,
+            expires_after=timedelta(days=14),
+            created_by=self.user,
+        )
+
+    def _patch_rollout(self, rollout_percentage: int):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{self.flag.id}/",
+            {
+                "key": self.flag.key,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": rollout_percentage}]},
+                "active": True,
+            },
+            format="json",
+        )
+
+    # --- update policy (no conditions = all changes gated) ---
+
+    def test_update_policy_blocks_patch_and_creates_change_request(self):
+        self._create_update_policy()
+
+        response = self._patch_rollout(50)
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["code"] == "approval_required"
+
+        self.flag.refresh_from_db()
+        assert self.flag.filters["groups"][0]["rollout_percentage"] == 100  # unchanged
+
+        cr = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+        assert cr.state == ChangeRequestState.PENDING
+        assert cr.intent["gated_changes"]["rollout_percentage"][0]["value"] == 50
+        assert response.json()["change_request_id"] == str(cr.id)
+
+    def test_approve_applies_rollout_change_to_flag(self):
+        self._create_update_policy()
+        self._patch_rollout(50)
+
+        cr = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/",
+            {"reason": "Looks good"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "applied"
+
+        cr.refresh_from_db()
+        assert cr.state == ChangeRequestState.APPLIED
+        assert cr.apply_error == ""
+
+        self.flag.refresh_from_db()
+        assert self.flag.filters["groups"][0]["rollout_percentage"] == 50
+
+    def test_reject_leaves_flag_unchanged(self):
+        self._create_update_policy()
+        self._patch_rollout(50)
+
+        cr = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/reject/",
+            {"reason": "Not ready"},
+        )
+
+        self.flag.refresh_from_db()
+        assert self.flag.filters["groups"][0]["rollout_percentage"] == 100
+
+    @parameterized.expand(
+        [
+            ("below_threshold", 40, True),  # 40 ≤ 50, not gated
+            ("above_threshold", 80, False),  # 80 > 50, gated
+        ]
+    )
+    def test_conditional_policy_only_gates_changes_matching_condition(self, _name, rollout, applied_directly):
+        self._create_update_policy(
+            conditions={"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50}
+        )
+        self.flag.filters = {"groups": [{"properties": [], "rollout_percentage": 30}]}
+        self.flag.save()
+
+        response = self._patch_rollout(rollout)
+
+        if applied_directly:
+            assert response.status_code == status.HTTP_200_OK
+            self.flag.refresh_from_db()
+            assert self.flag.filters["groups"][0]["rollout_percentage"] == rollout
+        else:
+            assert response.status_code == status.HTTP_409_CONFLICT
+            self.flag.refresh_from_db()
+            assert self.flag.filters["groups"][0]["rollout_percentage"] == 30  # unchanged
+
+    # --- enable policy ---
+
+    def test_enable_policy_blocks_toggle_and_approve_applies_it(self):
+        self.flag.active = False
+        self.flag.save()
+
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id], "roles": []},
+            allow_self_approve=True,
+            expires_after=timedelta(days=14),
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{self.flag.id}/",
+            {"active": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+        self.flag.refresh_from_db()
+        assert self.flag.active is False
+
+        cr = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.enable")
+
+        approve = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/")
+        assert approve.status_code == status.HTTP_200_OK
+        assert approve.json()["status"] == "applied"
+
+        self.flag.refresh_from_db()
+        assert self.flag.active is True
+
+    # --- no policy ---
+
+    def test_patch_applies_directly_when_no_policy(self):
+        response = self._patch_rollout(75)
+
+        assert response.status_code == status.HTTP_200_OK
+        self.flag.refresh_from_db()
+        assert self.flag.filters["groups"][0]["rollout_percentage"] == 75
+        assert not ChangeRequest.objects.filter(team=self.team).exists()

@@ -33,3 +33,6 @@ OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNA
 
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+
+# Video segment clustering workflow bucket - should have a 24h lifecycle rule for automatic cleanup
+VIDEO_SEGMENT_CLUSTERING_S3_BUCKET = os.getenv("VIDEO_SEGMENT_CLUSTERING_S3_BUCKET") or OBJECT_STORAGE_BUCKET

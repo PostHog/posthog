@@ -753,6 +753,9 @@ importers:
       bintrees:
         specifier: ^1.0.2
         version: 1.0.2
+      bloommx:
+        specifier: ^1.0.3
+        version: 1.0.3
       buffer:
         specifier: ^6.0.3
         version: 6.0.3
@@ -11885,6 +11888,9 @@ packages:
 
   blake3-wasm@2.1.5:
     resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
+
+  bloommx@1.0.3:
+    resolution: {integrity: sha512-fRW++DisJvVVuPdkyn+zVjnnX4bBrnwVLRjtqomsuWZgVHf77rUCYg7BnX6hxVIj90miqNBoiHwNSXgx32wdfg==}
 
   bn.js@4.12.1:
     resolution: {integrity: sha512-k8TVBiPkPJT9uHLdOKfFpqcfprwBFOAAXXozRubr7R7PfIuKvQlzcI4M0pALeqXN09vdaMbUdUj+pass+uULAg==}
@@ -33503,6 +33509,8 @@ snapshots:
       readable-stream: 3.6.2
 
   blake3-wasm@2.1.5: {}
+
+  bloommx@1.0.3: {}
 
   bn.js@4.12.1: {}
 

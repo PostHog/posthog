@@ -41,11 +41,18 @@ def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id
         logger.info("supporthog_event_duplicate_skipped", event_id=event_id)
         return
 
-    team = Team.objects.filter(conversations_settings__slack_team_id=slack_team_id).first()
-    if not team:
+    from products.conversations.backend.models import TeamConversationsSlackConfig
+
+    config = (
+        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
+        .select_related("team")
+        .first()
+    )
+    if not config:
         logger.warning("supporthog_no_team", slack_team_id=slack_team_id)
         return
 
+    team = config.team
     support_settings = team.conversations_settings or {}
     if not support_settings.get("slack_enabled"):
         logger.info(
