@@ -131,7 +131,6 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
-import { SqlEditorTabPreference } from './user/SqlEditorTabPreference'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -1534,13 +1533,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
                 keywords: ['dark mode', 'light mode', 'appearance', 'color scheme'],
-            },
-            {
-                id: 'sql-editor-tab-preference',
-                title: 'SQL editor new tab behavior',
-                description: 'Configure whether new SQL queries open in new tabs or reuse existing ones.',
-                component: <SqlEditorTabPreference />,
-                keywords: ['sql', 'editor', 'tab', 'query'],
             },
             {
                 id: 'optout',

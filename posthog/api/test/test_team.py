@@ -531,7 +531,6 @@ def team_api_test_factory():
                 team=team,
                 name="test",
                 key="test",
-                rollout_percentage=50,
                 created_by=self.user,
             )
             FeatureFlagHashKeyOverride.objects.create(
