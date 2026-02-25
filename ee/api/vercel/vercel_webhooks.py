@@ -19,6 +19,7 @@ from ee.models import License
 logger = structlog.get_logger(__name__)
 
 BILLING_EVENT_PREFIX = "marketplace.invoice."
+DEAUTHORIZATION_EVENT = "integration.configuration-removed"
 
 
 def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
@@ -42,6 +43,10 @@ def _extract_config_id(payload: dict[str, Any]) -> str | None:
 
 def _is_billing_event(event_type: str | None) -> bool:
     return bool(event_type and event_type.startswith(BILLING_EVENT_PREFIX))
+
+
+def _is_deauthorization_event(event_type: str | None) -> bool:
+    return event_type == DEAUTHORIZATION_EVENT
 
 
 def _get_integration(config_id: str) -> OrganizationIntegration | None:
@@ -86,6 +91,20 @@ def vercel_webhook(request: Request) -> Response:
     config_id = _extract_config_id(payload)
 
     logger.info("vercel_webhook_received", event_type=event_type, config_id=config_id)
+
+    if _is_deauthorization_event(event_type):
+        if not config_id:
+            logger.error("vercel_webhook_deauthorize_missing_config_id")
+            return Response({"error": "Missing configurationId"}, status=status.HTTP_400_BAD_REQUEST)
+
+        integration = _get_integration(config_id)
+        if integration:
+            logger.info("vercel_webhook_deauthorize", config_id=config_id, org_id=str(integration.organization_id))
+            integration.delete()
+        else:
+            logger.warning("vercel_webhook_deauthorize_unknown_config", config_id=config_id)
+
+        return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
     if not _is_billing_event(event_type):
         logger.info("vercel_webhook_non_billing_event", event_type=event_type)

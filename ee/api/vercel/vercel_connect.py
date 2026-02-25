@@ -46,9 +46,9 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
 
         client_id = getattr(settings, "VERCEL_CLIENT_INTEGRATION_ID", "")
         client_secret = getattr(settings, "VERCEL_CLIENT_INTEGRATION_SECRET", "")
-        redirect_uri = getattr(settings, "VERCEL_EXTERNAL_REDIRECT_URI", "")
+        redirect_uri = f"{settings.SITE_URL}/connect/vercel/callback"
 
-        if not client_id or not client_secret or not redirect_uri:
+        if not client_id or not client_secret:
             logger.error("Vercel connect: missing configuration", integration="vercel")
             raise exceptions.APIException("Vercel integration not configured")
 

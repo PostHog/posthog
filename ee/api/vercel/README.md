@@ -54,7 +54,6 @@ In your Vercel integration settings:
 2. **Redirect URL**: Set to `{your_ngrok_url}/connect/vercel/callback`
    - This enables the "Link Existing Account" connectable account flow
    - Example: `https://abc123.ngrok-free.dev/connect/vercel/callback`
-   - Also set `VERCEL_EXTERNAL_REDIRECT_URI` in your `.env.vercel` to the same URL
 
 ## Step 4: Start Development Servers
 
