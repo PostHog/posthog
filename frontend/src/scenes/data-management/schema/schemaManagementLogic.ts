@@ -10,6 +10,23 @@ import type { schemaManagementLogicType } from './schemaManagementLogicType'
 
 export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Object'
 
+export interface StringEnumRules {
+    enum: string[]
+}
+export interface StringNotEnumRules {
+    not: { enum: string[] }
+}
+export type StringValidationRules = StringEnumRules | StringNotEnumRules
+
+export interface NumericRangeRules {
+    minimum?: number
+    exclusiveMinimum?: number
+    maximum?: number
+    exclusiveMaximum?: number
+}
+
+export type ValidationRules = StringValidationRules | NumericRangeRules
+
 export const MAX_PROPERTY_NAME_LENGTH = 200
 
 export const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
@@ -70,6 +87,7 @@ export interface SchemaPropertyGroupProperty {
     property_type: PropertyType
     is_required: boolean
     is_optional_in_types: boolean
+    validation_rules?: ValidationRules | null
     description: string
 }
 
@@ -215,13 +233,23 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                             property_type: 'String' as PropertyType,
                             is_required: false,
                             is_optional_in_types: false,
+                            validation_rules: null,
                             description: '',
                         },
                     ],
                 }),
                 updatePropertyInForm: (state, { index, updates }) => ({
                     ...state,
-                    properties: state.properties.map((prop, i) => (i === index ? { ...prop, ...updates } : prop)),
+                    properties: state.properties.map((prop, i) => {
+                        if (i !== index) {
+                            return prop
+                        }
+                        const updated = { ...prop, ...updates }
+                        if (updates.property_type && updates.property_type !== prop.property_type) {
+                            updated.validation_rules = null
+                        }
+                        return updated
+                    }),
                 }),
                 removePropertyFromForm: (state, { index }) => ({
                     ...state,
@@ -270,6 +298,27 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                 )
                 if (tooLongProperties.length > 0) {
                     return `Property names must be ${MAX_PROPERTY_NAME_LENGTH} characters or less`
+                }
+
+                for (const prop of form.properties) {
+                    const rules = prop.validation_rules
+                    if (!rules) {
+                        continue
+                    }
+                    if ('enum' in rules && (rules as StringEnumRules).enum.length === 0) {
+                        return `"${prop.name}" has an empty allow list`
+                    }
+                    if ('not' in rules && (rules as StringNotEnumRules).not.enum.length === 0) {
+                        return `"${prop.name}" has an empty deny list`
+                    }
+                    if (prop.property_type === 'Numeric') {
+                        const numRules = rules as NumericRangeRules
+                        const lower = numRules.minimum ?? numRules.exclusiveMinimum
+                        const upper = numRules.maximum ?? numRules.exclusiveMaximum
+                        if (lower !== undefined && upper !== undefined && lower >= upper) {
+                            return `"${prop.name}" has lower bound >= upper bound`
+                        }
+                    }
                 }
 
                 return null

@@ -73,6 +73,7 @@ class SchemaPropertyGroupProperty(UUIDTModel):
     property_type = models.CharField(max_length=50, choices=SchemaPropertyType.choices)
     is_required = models.BooleanField(default=False)
     is_optional_in_types = models.BooleanField(default=False)
+    validation_rules = models.JSONField(null=True, blank=True, default=None)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
