@@ -978,6 +978,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             const fuse = new Fuse(replayTaxonomicFiltersProperties, {
                                 keys: ['label', 'key'],
                                 threshold: 0.3,
+                                ignoreLocation: true,
                             })
                             return fuse.search(q).map((result) => result.item)
                         },
