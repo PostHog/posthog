@@ -1,9 +1,8 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
@@ -114,7 +113,7 @@ export class HogTransformerService {
     private async getTransformationFunctions() {
         if (!this.cachedTransformationFunctions) {
             this.cachedGeoIp = await this.geoipService.get()
-            this.cachedTransformationFunctions = getTransformationFunctions(this.cachedGeoIp!)
+            this.cachedTransformationFunctions = getTransformationFunctions(this.cachedGeoIp)
         }
         return this.cachedTransformationFunctions
     }

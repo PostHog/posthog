@@ -3,17 +3,17 @@ import { useActions, useValues } from 'kea'
 
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
 import { ExperimentIdType, ToolbarUserIntent } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
-import { EmptyState } from './EmptyState'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
+import { EmptyState } from './EmptyState'
 
 export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType

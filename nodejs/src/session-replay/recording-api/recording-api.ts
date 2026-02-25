@@ -11,7 +11,7 @@ import {
     RedisPool,
 } from '../../types'
 import { createRedisPoolFromConfig } from '../../utils/db/redis'
-import { logger } from '../../utils/logger'
+import { logger, serializeError } from '../../utils/logger'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'
 import { RedisCachedKeyStore } from '../shared/keystore/cache'
@@ -233,7 +233,7 @@ export class RecordingApi {
             res.send(result.data)
         } catch (error) {
             logger.error('[RecordingApi] Error fetching block from S3', {
-                error,
+                error: serializeError(error),
                 key,
                 start: startByte,
                 end: endByte,
@@ -269,7 +269,10 @@ export class RecordingApi {
             const result = await this.recordingService.bulkDeleteRecordings(sessionIds, teamId)
             res.json(result)
         } catch (error) {
-            logger.error('[RecordingApi] Error in bulk delete', { error, teamId })
+            logger.error('[RecordingApi] Error in bulk delete', {
+                error: serializeError(error),
+                teamId,
+            })
             res.status(500).json({ error: 'Failed to bulk delete recordings' })
         }
     }
@@ -302,7 +305,11 @@ export class RecordingApi {
 
             res.json({ team_id: teamId, session_id: sessionId, status: 'deleted', deleted_at: result.deletedAt })
         } catch (error) {
-            logger.error('[RecordingApi] Error deleting recording key', { error, teamId, sessionId })
+            logger.error('[RecordingApi] Error deleting recording key', {
+                error: serializeError(error),
+                teamId,
+                sessionId,
+            })
             res.status(500).json({ error: 'Failed to delete recording key' })
         }
     }

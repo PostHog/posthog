@@ -63,6 +63,8 @@ from posthog.tasks.tasks import delete_project_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
+from products.signals.backend.models import SignalSourceConfig
+
 from ee.api.rbac.access_control import AccessControlViewSetMixin
 
 MAX_ALLOWED_PROJECTS_PER_ORG = 1500
@@ -178,6 +180,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_enabled",  # Compat with TeamSerializer
             "conversations_settings",  # Compat with TeamSerializer
             "logs_settings",  # Compat with TeamSerializer
+            "proactive_tasks_enabled",  # Compat with TeamSerializer
             "available_setup_task_ids",  # Compat with TeamSerializer
         )
         read_only_fields = (
@@ -253,6 +256,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_enabled",
             "conversations_settings",
             "logs_settings",
+            "proactive_tasks_enabled",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -321,6 +325,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_modifiers(value: dict | None) -> dict | None:
         return TeamSerializer.validate_modifiers(value)
+
+    def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
+        return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
@@ -469,6 +476,21 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         instance.save()
         if should_team_be_saved_too:
             team.save()
+
+        if "proactive_tasks_enabled" in validated_data:
+            if validated_data["proactive_tasks_enabled"]:
+                SignalSourceConfig.objects.get_or_create(
+                    team=team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
+                )
+            else:
+                SignalSourceConfig.objects.filter(
+                    team=team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).delete()
 
         team_after_update = team.__dict__.copy()
         project_after_update = instance.__dict__.copy()

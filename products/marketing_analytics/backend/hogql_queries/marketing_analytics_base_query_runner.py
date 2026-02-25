@@ -274,10 +274,12 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         if include_date_range:
             # Handle date_field with table prefixes like "events.timestamp"
             date_field_chain = date_field.split(".")
+            # Always cast the date field explicitly. Data warehouse columns may be
+            # stored as String, and ClickHouse cannot compare String with Date/DateTime.
+            # Casting is a no-op when the column is already the correct type.
+            raw_field = ast.Field(chain=date_field_chain)
             if use_date_not_datetime:
-                # For conversion goals that use toDate instead of toDateTime
-                # Build: date_field >= toDate('date_from')
-                date_field_expr = ast.Field(chain=date_field_chain)
+                date_field_expr = ast.Call(name="toDate", args=[raw_field])
                 from_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_from_str)])
                 to_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_to_str)])
 
@@ -290,12 +292,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
                 conditions.extend([gte_condition, lte_condition])
             else:
-                date_cast: ast.Expr
-                # Build for regular datetime conditions
-                if "." in date_field:
-                    date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=date_field_chain)])
-                else:
-                    date_cast = ast.Field(chain=date_field_chain)
+                date_cast = ast.Call(name="toDateTime", args=[raw_field])
 
                 from_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)])
                 to_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_to_str)])

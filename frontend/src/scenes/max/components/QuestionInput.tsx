@@ -340,10 +340,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </SlashCommandAutocomplete>
 
                         {!isSharedThread && (
-                            <div className="pb-2">
+                            <div className="pb-2 pr-12">
                                 {!isThreadVisible ? (
                                     <div className="flex items-start justify-between">
                                         <ContextDisplay size={contextDisplaySize} />
+
                                         <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
                                     </div>
                                 ) : (
