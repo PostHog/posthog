@@ -31,13 +31,15 @@ describe('Tool Filtering - Features', () => {
         },
         {
             features: ['dashboards', 'insights'],
-            description: 'dashboard and insight tools',
+            description: 'dashboard and insight tools (including insight variables)',
             expectedTools: [
                 'dashboard-create',
                 'dashboards-get-all',
                 'add-insight-to-dashboard',
                 'insights-get-all',
                 'insight-create-from-query',
+                'insight-variable-get-all',
+                'insight-variable-create',
             ],
         },
         {
@@ -70,6 +72,24 @@ describe('Tool Filtering - Features', () => {
             features: ['docs'],
             description: 'documentation tools',
             expectedTools: ['docs-search'],
+        },
+        {
+            features: ['endpoints'],
+            description: 'endpoint tools',
+            expectedTools: [
+                'endpoints-get-all',
+                'endpoint-get',
+                'endpoint-create',
+                'endpoint-update',
+                'endpoint-delete',
+                'endpoint-run',
+                'endpoint-versions',
+            ],
+        },
+        {
+            features: ['endpoints', 'insights'],
+            description: 'endpoint tools with insight variable support',
+            expectedTools: ['endpoint-create', 'endpoint-run', 'insight-variable-get-all', 'insight-variable-create'],
         },
         {
             features: ['invalid', 'flags'],

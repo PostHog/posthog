@@ -535,6 +535,210 @@
             "required": ["query"],
             "additionalProperties": false
         },
+        "EndpointCreateSchema": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "URL-safe name for the endpoint (letters, numbers, hyphens, underscores)"
+                        },
+                        "query": {
+                            "type": "object",
+                            "additionalProperties": {},
+                            "description": "The query object. Must include a \"kind\" field (e.g. \"HogQLQuery\" with a \"query\" string field, or an insight query kind)"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Description for this endpoint version"
+                        },
+                        "is_active": {
+                            "type": "boolean",
+                            "description": "Whether this endpoint is available via the API. Defaults to true"
+                        },
+                        "cache_age_seconds": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "description": "Cache age in seconds. If omitted, uses default interval-based caching"
+                        }
+                    },
+                    "required": ["name", "query"],
+                    "additionalProperties": false
+                }
+            },
+            "required": ["data"],
+            "additionalProperties": false
+        },
+        "EndpointDeleteSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The URL-safe name of the endpoint to delete"
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        },
+        "EndpointGetAllSchema": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "is_active": {
+                            "type": "boolean",
+                            "description": "Filter by active status"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "description": "Maximum number of endpoints to return"
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of endpoints to skip for pagination"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
+        "EndpointGetSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The URL-safe name of the endpoint"
+                },
+                "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "description": "Specific version number to retrieve. If omitted, returns the current version"
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        },
+        "EndpointRunSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The URL-safe name of the endpoint to execute"
+                },
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "variables": {
+                            "type": "object",
+                            "additionalProperties": {},
+                            "description": "Variables to parameterize the query. For HogQL endpoints: keys must match a variable code_name (e.g. {\"event_name\": \"$pageview\"}). For non-materialized insight endpoints: use \"date_from\"/\"date_to\" to filter date range. For materialized insight endpoints: use breakdown property names as keys (e.g. {\"$browser\": \"Chrome\"})."
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "description": "Maximum number of rows to return"
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of rows to skip for pagination"
+                        },
+                        "refresh": {
+                            "type": "string",
+                            "enum": ["cache", "force", "direct"],
+                            "description": "Refresh mode: 'cache' (default, return cached or materialized results if available), 'force' (bypass cache, return materialized or run raw query), 'direct' (only for materialized endpoints, bypass materialized table and run against raw data)"
+                        },
+                        "version": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "description": "Specific endpoint version to execute. If omitted, uses current version"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        },
+        "EndpointUpdateSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The URL-safe name of the endpoint to update"
+                },
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "object",
+                            "additionalProperties": {},
+                            "description": "Updated query object. Changing the query creates a new version"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Updated description"
+                        },
+                        "is_active": {
+                            "type": "boolean",
+                            "description": "Enable or disable the endpoint"
+                        },
+                        "cache_age_seconds": {
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Updated cache age in seconds. Set to null for default caching"
+                        },
+                        "is_materialized": {
+                            "type": "boolean",
+                            "description": "Enable or disable materialization for this endpoint"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": ["name", "data"],
+            "additionalProperties": false
+        },
+        "EndpointVersionsSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The URL-safe name of the endpoint"
+                },
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "description": "Maximum number of versions to return"
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of versions to skip for pagination"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        },
         "EntitySearchSchema": {
             "type": "object",
             "properties": {
@@ -1909,6 +2113,55 @@
                 }
             },
             "required": ["insightId", "data"],
+            "additionalProperties": false
+        },
+        "InsightVariableCreateSchema": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Name of the variable. This is auto-converted to a code_name (snake_case) used in HogQL queries as {variables.code_name}"
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": ["String", "Number", "Boolean", "List", "Date"],
+                            "description": "The data type of the variable"
+                        },
+                        "default_value": {
+                            "description": "Default value for the variable when no value is provided at execution time"
+                        }
+                    },
+                    "required": ["name", "type"],
+                    "additionalProperties": false
+                }
+            },
+            "required": ["data"],
+            "additionalProperties": false
+        },
+        "InsightVariableGetAllSchema": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "description": "Maximum number of variables to return"
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of variables to skip for pagination"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
             "additionalProperties": false
         },
         "LLMAnalyticsGetCostsSchema": {

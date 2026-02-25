@@ -18,6 +18,14 @@ import updateDashboard from './dashboards/update'
 import demoMcpUiApps from './demo/demoMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
+// Endpoints
+import createEndpoint from './endpoints/create'
+import deleteEndpoint from './endpoints/delete'
+import getEndpoint from './endpoints/get'
+import getAllEndpoints from './endpoints/getAll'
+import runEndpoint from './endpoints/run'
+import updateEndpoint from './endpoints/update'
+import getEndpointVersions from './endpoints/versions'
 // Error Tracking
 import errorDetails from './errorTracking/errorDetails'
 import listErrors from './errorTracking/listErrors'
@@ -43,6 +51,9 @@ import getInsight from './insights/get'
 import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
 import updateInsight from './insights/update'
+// Insight Variables
+import createInsightVariable from './insightVariables/create'
+import getAllInsightVariables from './insightVariables/getAll'
 // LLM Observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 import logsListAttributes from './logs/listAttributes'
@@ -162,6 +173,19 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'action-create': createAction,
     'action-update': updateAction,
     'action-delete': deleteAction,
+
+    // Insight Variables
+    'insight-variable-get-all': getAllInsightVariables,
+    'insight-variable-create': createInsightVariable,
+
+    // Endpoints
+    'endpoints-get-all': getAllEndpoints,
+    'endpoint-get': getEndpoint,
+    'endpoint-create': createEndpoint,
+    'endpoint-update': updateEndpoint,
+    'endpoint-delete': deleteEndpoint,
+    'endpoint-run': runEndpoint,
+    'endpoint-versions': getEndpointVersions,
 
     // Search
     'entity-search': entitySearch,

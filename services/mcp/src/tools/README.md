@@ -120,8 +120,9 @@ Add a clear, actionable description for your tool, assign it to a feature, speci
 - `workspace` - [Organization and project management](https://posthog.com/docs/getting-started/cloud)
 - `error-tracking` - [Error monitoring and debugging](https://posthog.com/docs/errors)
 - `dashboards` - [Dashboard creation and management](https://posthog.com/docs/product-analytics/dashboards)
-- `insights` - [Analytics insights and SQL queries](https://posthog.com/docs/product-analytics/insights)
+- `insights` - [Analytics insights, SQL queries, and insight variables](https://posthog.com/docs/product-analytics/insights)
 - `experiments` - [A/B testing experiments](https://posthog.com/docs/experiments)
+- `endpoints` - [Defined queries exposed as API endpoints](https://posthog.com/docs/endpoints) (enable `insights` too for variable support)
 - `llm-analytics` - [LLM usage and cost tracking](https://posthog.com/docs/llm-analytics)
 - `docs` - PostHog documentation search
 

@@ -413,10 +413,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         undefined: list[str] = sorted(placeholder_names - defined_code_names)
         if undefined:
+            var_list = ", ".join(undefined)
             raise ValidationError(
                 {
-                    "query": f"Query references undefined variable(s): {', '.join(undefined)}. "
-                    "See https://posthog.com/docs/endpoints/variables for detail."
+                    "query": f"Query references undefined variable(s): {var_list}. "
+                    "Create them first via the /api/projects/<project_id>/insight_variables/ endpoint "
+                    "or in the PostHog UI under Data Management > Variables. "
+                    "Each variable needs a name, type (String, Number, Boolean, List, Date), and optional default_value."
                 }
             )
 
@@ -1719,7 +1722,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         versions = endpoint.versions.all()
 
         results = [self._serialize(v) for v in versions]
-        return Response(results)
+        return Response({"results": results})
 
     @extend_schema(
         description="Get materialization status for an endpoint. Supports ?version=N query param.",

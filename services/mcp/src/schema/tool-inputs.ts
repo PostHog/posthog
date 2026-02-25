@@ -8,9 +8,18 @@ import {
     ReorderDashboardTilesSchema,
     UpdateDashboardInputSchema,
 } from './dashboards'
+import {
+    CreateEndpointInputSchema,
+    GetEndpointInputSchema,
+    ListEndpointVersionsInputSchema,
+    ListEndpointsInputSchema,
+    RunEndpointInputSchema,
+    UpdateEndpointInputSchema,
+} from './endpoints'
 import { ErrorDetailsSchema, ListErrorsSchema } from './errors'
 import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
+import { CreateInsightVariableInputSchema, ListInsightVariablesInputSchema } from './insightVariables'
 import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
 import { InsightQuerySchema, PropertyFilter } from './query'
 import {
@@ -451,6 +460,45 @@ export const ActionGetAllSchema = z.object({
 export const ActionUpdateSchema = z.object({
     actionId: z.number().int().positive().describe('The ID of the action to update'),
     data: UpdateActionInputSchema,
+})
+
+// Endpoints
+export const EndpointGetAllSchema = z.object({
+    data: ListEndpointsInputSchema.optional(),
+})
+
+export const EndpointGetSchema = GetEndpointInputSchema
+
+export const EndpointCreateSchema = z.object({
+    data: CreateEndpointInputSchema,
+})
+
+export const EndpointUpdateSchema = z.object({
+    name: z.string().describe('The URL-safe name of the endpoint to update'),
+    data: UpdateEndpointInputSchema,
+})
+
+export const EndpointDeleteSchema = z.object({
+    name: z.string().describe('The URL-safe name of the endpoint to delete'),
+})
+
+export const EndpointRunSchema = z.object({
+    name: z.string().describe('The URL-safe name of the endpoint to execute'),
+    data: RunEndpointInputSchema.optional(),
+})
+
+export const EndpointVersionsSchema = z.object({
+    name: z.string().describe('The URL-safe name of the endpoint'),
+    data: ListEndpointVersionsInputSchema.optional(),
+})
+
+// Insight Variables
+export const InsightVariableGetAllSchema = z.object({
+    data: ListInsightVariablesInputSchema.optional(),
+})
+
+export const InsightVariableCreateSchema = z.object({
+    data: CreateInsightVariableInputSchema,
 })
 
 // Entity Search

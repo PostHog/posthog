@@ -808,6 +808,141 @@
             "readOnlyHint": false
         }
     },
+    "endpoints-get-all": {
+        "description": "List all endpoints in the project. Endpoints are named API endpoints backed by HogQL or insight queries with versioning and variable support. Can filter by active status and supports pagination.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "List all endpoints in the project.",
+        "title": "Get all endpoints",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-get": {
+        "description": "Get a specific endpoint by name. Returns the endpoint configuration including its current query, description, materialization status, and version info. Optionally retrieve a specific version.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get a specific endpoint by name.",
+        "title": "Get endpoint",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-create": {
+        "description": "Create a new endpoint backed by a HogQL or insight query. The query object must include a 'kind' field (e.g. 'HogQLQuery' with a 'query' string). Endpoints can use variables as placeholders (e.g. {variables.code_name}) that are filled at execution time. IMPORTANT: Variables must exist as insight variables before use — create them first with insight-variable-create, or list existing ones with insight-variable-get-all.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Create a new endpoint with a query.",
+        "title": "Create endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-update": {
+        "description": "Update an existing endpoint by name. Changing the query creates a new version automatically. Can also update description, active status, cache settings, and materialization. If adding variables to the query, ensure they exist as insight variables first (use insight-variable-create or insight-variable-get-all).",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Update an existing endpoint.",
+        "title": "Update endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-delete": {
+        "description": "Delete an endpoint by name. This soft-deletes the endpoint, making it unavailable via the API.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Delete an endpoint by name.",
+        "title": "Delete endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-run": {
+        "description": "Execute an endpoint and return query results. Supports passing variables, pagination (limit/offset), refresh mode (cache/force/direct), and targeting a specific version. Use POST to pass variables and pagination in the request body.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Execute an endpoint and return results.",
+        "title": "Run endpoint",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-versions": {
+        "description": "List the version history of an endpoint. Each version is an immutable snapshot of the query at that point in time. Supports pagination.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "List version history of an endpoint.",
+        "title": "Get endpoint versions",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insight-variable-get-all": {
+        "description": "List all insight variables in the project. Variables are reusable placeholders (e.g. {variables.event_name}) that can be used in HogQL queries and endpoints to make them dynamic.",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "List all insight variables.",
+        "title": "Get all insight variables",
+        "required_scopes": ["insight_variable:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insight-variable-create": {
+        "description": "Create a new insight variable for use in HogQL queries and endpoints. The variable name is auto-converted to a snake_case code_name used as {variables.code_name} in queries. Variables must be created before they can be referenced in endpoint queries.",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Create a new insight variable.",
+        "title": "Create insight variable",
+        "required_scopes": ["insight_variable:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "entity-search": {
         "description": "Search for PostHog entities by name or description. Can search across multiple entity types including insights, dashboards, experiments, feature flags, notebooks, actions, cohorts, event definitions, and surveys. Use this to find entities when you know part of their name. Returns matching entities with their IDs and URLs.",
         "category": "Search",

@@ -24,6 +24,15 @@ import {
     type SimpleDashboard,
     SimpleDashboardSchema,
 } from '@/schema/dashboards'
+import {
+    type CreateEndpointInput,
+    type Endpoint as EndpointType,
+    EndpointSchema as EndpointResponseSchema,
+    type EndpointVersion,
+    EndpointVersionSchema,
+    type RunEndpointInput,
+    type UpdateEndpointInput,
+} from '@/schema/endpoints'
 import type {
     Experiment,
     ExperimentExposureQuery,
@@ -52,6 +61,12 @@ import {
     type SimpleInsight,
     SimpleInsightSchema,
 } from '@/schema/insights'
+import {
+    type CreateInsightVariableInput,
+    InsightVariableResponseSchema,
+    type InsightVariableResponse,
+    type ListInsightVariablesInput,
+} from '@/schema/insightVariables'
 import { type Organization, OrganizationSchema } from '@/schema/orgs'
 import { type Project, ProjectSchema } from '@/schema/projects'
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
@@ -127,7 +142,7 @@ export interface ApiConfig {
     baseUrl: string
 }
 
-type Endpoint = Record<string, any>
+type ApiEndpoint = Record<string, any>
 
 export class ApiClient {
     public config: ApiConfig
@@ -253,8 +268,9 @@ export class ApiClient {
                     }
 
                     if (errorData.type === 'validation_error' && errorData.code) {
-                        console.error(`[API] Validation error on ${method} ${url}: ${errorData.code}`)
-                        throw new Error(`Validation error: ${errorData.code}`)
+                        const detail = errorData.detail ? `: ${errorData.detail}` : ''
+                        console.error(`[API] Validation error on ${method} ${url}: ${errorData.code}${detail}`)
+                        throw new Error(`Validation error: ${errorData.code}${detail}`)
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
@@ -295,7 +311,7 @@ export class ApiClient {
         }
     }
 
-    organizations(): Endpoint {
+    organizations(): ApiEndpoint {
         return {
             list: async (): Promise<Result<Organization[]>> => {
                 const responseSchema = z.object({
@@ -336,7 +352,7 @@ export class ApiClient {
         }
     }
 
-    apiKeys(): Endpoint {
+    apiKeys(): ApiEndpoint {
         return {
             current: async (): Promise<Result<ApiRedactedPersonalApiKey>> => {
                 return this.fetchWithSchema(
@@ -347,7 +363,7 @@ export class ApiClient {
         }
     }
 
-    oauth(): Endpoint {
+    oauth(): ApiEndpoint {
         return {
             introspect: async ({ token }: { token: string }): Promise<Result<ApiOAuthIntrospection>> => {
                 return this.fetchWithSchema(`${this.baseUrl}/oauth/introspect`, ApiOAuthIntrospectionSchema, {
@@ -362,7 +378,7 @@ export class ApiClient {
         }
     }
 
-    projects(): Endpoint {
+    projects(): ApiEndpoint {
         return {
             get: async ({ projectId }: { projectId: string }): Promise<Result<Project>> => {
                 return this.fetchWithSchema(`${this.baseUrl}/api/projects/${projectId}/`, ProjectSchema)
@@ -517,7 +533,7 @@ export class ApiClient {
         }
     }
 
-    experiments({ projectId }: { projectId: string }): Endpoint {
+    experiments({ projectId }: { projectId: string }): ApiEndpoint {
         return {
             list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
                 Result<Experiment[]>
@@ -831,7 +847,7 @@ export class ApiClient {
         }
     }
 
-    featureFlags({ projectId }: { projectId: string }): Endpoint {
+    featureFlags({ projectId }: { projectId: string }): ApiEndpoint {
         return {
             list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
                 Result<Array<{ id: number; key: string; name: string; active: boolean; updated_at?: string | null }>>
@@ -977,7 +993,7 @@ export class ApiClient {
         }
     }
 
-    insights({ projectId }: { projectId: string }): Endpoint {
+    insights({ projectId }: { projectId: string }): ApiEndpoint {
         return {
             list: async ({ params }: { params?: ListInsightsData } = {}): Promise<Result<Array<Schemas.Insight>>> => {
                 try {
@@ -1137,7 +1153,7 @@ export class ApiClient {
         }
     }
 
-    dashboards({ projectId }: { projectId: string }): Endpoint {
+    dashboards({ projectId }: { projectId: string }): ApiEndpoint {
         return {
             list: async ({ params }: { params?: ListDashboardsData } = {}): Promise<
                 Result<
@@ -1343,7 +1359,171 @@ export class ApiClient {
         }
     }
 
-    query({ projectId }: { projectId: string }): Endpoint {
+    endpoints({ projectId }: { projectId: string }): ApiEndpoint {
+        const basePath = `${this.baseUrl}/api/environments/${projectId}/endpoints`
+
+        return {
+            list: async ({
+                params,
+            }: { params?: { is_active?: boolean; limit?: number; offset?: number } } = {}): Promise<
+                Result<EndpointType[]>
+            > => {
+                const searchParams = getSearchParamsFromRecord({
+                    is_active: params?.is_active,
+                    limit: params?.limit ?? 50,
+                    offset: params?.offset ?? 0,
+                })
+
+                const responseSchema = z.object({
+                    results: z.array(EndpointResponseSchema),
+                })
+
+                const result = await this.fetchWithSchema(`${basePath}/?${searchParams}`, responseSchema)
+
+                if (result.success) {
+                    return { success: true, data: result.data.results }
+                }
+                return result
+            },
+
+            get: async ({ name, version }: { name: string; version?: number }): Promise<Result<EndpointType>> => {
+                const searchParams = version ? `?version=${version}` : ''
+                return this.fetchWithSchema(`${basePath}/${name}/${searchParams}`, EndpointResponseSchema)
+            },
+
+            create: async ({ data }: { data: CreateEndpointInput }): Promise<Result<EndpointType>> => {
+                return this.fetchWithSchema(`${basePath}/`, EndpointResponseSchema, {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                })
+            },
+
+            update: async ({
+                name,
+                data,
+            }: {
+                name: string
+                data: UpdateEndpointInput
+            }): Promise<Result<EndpointType>> => {
+                return this.fetchWithSchema(`${basePath}/${name}/`, EndpointResponseSchema, {
+                    method: 'PATCH',
+                    body: JSON.stringify(data),
+                })
+            },
+
+            delete: async ({ name }: { name: string }): Promise<Result<{ success: boolean; message: string }>> => {
+                try {
+                    const response = await this.fetch(`${basePath}/${name}/`, {
+                        method: 'DELETE',
+                    })
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to delete endpoint: ${response.statusText}`)
+                    }
+
+                    return {
+                        success: true,
+                        data: {
+                            success: true,
+                            message: `Endpoint '${name}' deleted successfully`,
+                        },
+                    }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+
+            run: async ({ name, data }: { name: string; data?: RunEndpointInput }): Promise<Result<any>> => {
+                const body: Record<string, any> = {}
+                if (data?.variables) {
+                    body.variables = data.variables
+                }
+                if (data?.limit != null) {
+                    body.limit = data.limit
+                }
+                if (data?.offset != null) {
+                    body.offset = data.offset
+                }
+                if (data?.refresh) {
+                    body.refresh = data.refresh
+                }
+                if (data?.version != null) {
+                    body.version = data.version
+                }
+
+                return this.fetchWithSchema(`${basePath}/${name}/run/`, z.any(), {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                })
+            },
+
+            versions: async ({
+                name,
+                params,
+            }: {
+                name: string
+                params?: { limit?: number; offset?: number }
+            }): Promise<Result<EndpointVersion[]>> => {
+                const searchParams = getSearchParamsFromRecord({
+                    limit: params?.limit ?? 50,
+                    offset: params?.offset ?? 0,
+                })
+
+                const responseSchema = z.object({
+                    results: z.array(EndpointVersionSchema),
+                })
+
+                const result = await this.fetchWithSchema(
+                    `${basePath}/${name}/versions/?${searchParams}`,
+                    responseSchema
+                )
+
+                if (result.success) {
+                    return { success: true, data: result.data.results }
+                }
+                return result
+            },
+        }
+    }
+
+    insightVariables({ projectId }: { projectId: string }): ApiEndpoint {
+        const basePath = `${this.baseUrl}/api/environments/${projectId}/insight_variables`
+
+        return {
+            list: async ({ params }: { params?: ListInsightVariablesInput } = {}): Promise<
+                Result<InsightVariableResponse[]>
+            > => {
+                const searchParams = getSearchParamsFromRecord({
+                    limit: params?.limit ?? 50,
+                    offset: params?.offset ?? 0,
+                })
+
+                const responseSchema = z.object({
+                    results: z.array(InsightVariableResponseSchema),
+                })
+
+                const result = await this.fetchWithSchema(`${basePath}/?${searchParams}`, responseSchema)
+
+                if (result.success) {
+                    return { success: true, data: result.data.results }
+                }
+                return result
+            },
+
+            create: async ({
+                data,
+            }: {
+                data: CreateInsightVariableInput
+            }): Promise<Result<InsightVariableResponse>> => {
+                return this.fetchWithSchema(`${basePath}/`, InsightVariableResponseSchema, {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                })
+            },
+        }
+    }
+
+    query({ projectId }: { projectId: string }): ApiEndpoint {
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
                 const responseSchema = z.object({
@@ -1358,7 +1538,7 @@ export class ApiClient {
         }
     }
 
-    users(): Endpoint {
+    users(): ApiEndpoint {
         return {
             me: async (): Promise<Result<ApiUser>> => {
                 const result = await this.fetchWithSchema(`${this.baseUrl}/api/users/@me/`, ApiUserSchema)
@@ -1375,7 +1555,7 @@ export class ApiClient {
         }
     }
 
-    surveys({ projectId }: { projectId: string }): Endpoint {
+    surveys({ projectId }: { projectId: string }): ApiEndpoint {
         return {
             list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<
                 Result<Array<SurveyListItemOutput>>
@@ -1504,7 +1684,7 @@ export class ApiClient {
         }
     }
 
-    logs({ projectId }: { projectId: string }): Endpoint {
+    logs({ projectId }: { projectId: string }): ApiEndpoint {
         return {
             query: async ({ params }: { params: LogsQueryInput }): Promise<Result<LogsQueryResponse>> => {
                 const queryBody = {
@@ -1568,7 +1748,7 @@ export class ApiClient {
         }
     }
 
-    actions({ projectId }: { projectId: string }): Endpoint {
+    actions({ projectId }: { projectId: string }): ApiEndpoint {
         return {
             /**
              * List all actions in the project
@@ -1703,7 +1883,7 @@ export class ApiClient {
     /**
      * Global search across PostHog entities
      */
-    search({ projectId }: { projectId: string }): Endpoint {
+    search({ projectId }: { projectId: string }): ApiEndpoint {
         return {
             /**
              * Search for entities by query string

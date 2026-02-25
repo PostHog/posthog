@@ -271,6 +271,7 @@ Available features:
 - `dashboards` - [Dashboard creation and management](https://posthog.com/docs/product-analytics/dashboards)
 - `insights` - [Analytics insights and SQL queries](https://posthog.com/docs/product-analytics/insights)
 - `experiments` - [A/B testing experiments](https://posthog.com/docs/experiments)
+- `endpoints` - [Defined queries exposed as API endpoints](https://posthog.com/docs/endpoints) (enable `insights` too for variable support)
 - `flags` - [Feature flag management](https://posthog.com/docs/feature-flags)
 - `llm-analytics` - [LLM usage and cost tracking](https://posthog.com/docs/llm-analytics)
 - `docs` - PostHog documentation search
@@ -319,7 +320,7 @@ This repository is organized to support multiple language implementations:
 
 ### Adding New Tools
 
-See the [tools documentation](typescript/src/tools/README.md) for a guide on adding new tools to the MCP server.
+See the [tools documentation](./src/tools/README.md) for a guide on adding new tools to the MCP server.
 
 ### Environment variables
 
