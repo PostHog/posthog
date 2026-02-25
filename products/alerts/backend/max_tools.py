@@ -157,6 +157,17 @@ class UpsertAlertTool(MaxTool):
     def get_required_resource_access(self):
         return [("alert", "editor")]
 
+    async def is_dangerous_operation(self, action: UpsertAlertAction, **kwargs) -> bool:
+        return isinstance(action, UpdateAlertAction)
+
+    async def format_dangerous_operation_preview(self, action: UpsertAlertAction, **kwargs) -> str:
+        if not isinstance(action, UpdateAlertAction):
+            return f"Execute {self.name} operation"
+
+        alert = await self._resolve_alert(action.alert_id)
+        alert_label = f"'{alert.name}'" if alert else f"(ID: {action.alert_id})"
+        return f"**Update** alert {alert_label}"
+
     async def _arun_impl(self, action: UpsertAlertAction) -> tuple[str, dict[str, Any]]:
         if isinstance(action, CreateAlertAction):
             return await self._handle_create(action)

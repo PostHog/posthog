@@ -565,3 +565,36 @@ class TestUpsertAlertTool(BaseTest):
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == 50.0
+
+    @parameterized.expand(
+        [
+            (
+                "create_is_not_dangerous",
+                lambda insight_id, alert_id: CreateAlertAction(
+                    name="Safe alert",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight_id,
+                    lower_threshold=100.0,
+                ),
+                False,
+                None,
+            ),
+            (
+                "update_is_dangerous",
+                lambda insight_id, alert_id: UpdateAlertAction(alert_id=alert_id, name="Renamed"),
+                True,
+                "**Update** alert 'My Alert'",
+            ),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_dangerous_operation(self, _name, make_action, expected_dangerous, expected_preview):
+        insight = await self._create_insight()
+        alert = await self._create_alert(insight, name="My Alert")
+        tool = self._setup_tool()
+        action = make_action(insight.id, str(alert.id))
+        assert await tool.is_dangerous_operation(action=action) is expected_dangerous
+        if expected_preview is not None:
+            preview = await tool.format_dangerous_operation_preview(action=action)
+            assert preview == expected_preview
