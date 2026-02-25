@@ -17,7 +17,7 @@ export const newEventsLogic = kea<newEventsLogicType>([
                 try {
                     const response = await api.eventDefinitions.list({ limit: 10 })
                     return response.results.sort(
-                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                        (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
                     )
                 } catch (error) {
                     console.error('Failed to load new events:', error)
