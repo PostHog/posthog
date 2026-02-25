@@ -507,8 +507,7 @@ class EventViewSet(
                 ),
             )
             result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
-            if not isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse)):
-                raise TypeError(f"Unexpected result type from PropertyValuesQueryRunner: {type(result)}")
+            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             span.set_attribute("result_count", len(result.results))
             return self._return_with_short_cache([item.model_dump(exclude_none=True) for item in result.results])
 
