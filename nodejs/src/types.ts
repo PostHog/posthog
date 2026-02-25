@@ -283,9 +283,7 @@ export type IngestionConsumerConfig = {
     // Pipeline step config
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
-    PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
-    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
@@ -531,31 +529,20 @@ export interface PluginsServerConfig
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
-
-    // ClickHouse
-    CLICKHOUSE_HOST: string
-    CLICKHOUSE_PORT: number
-    CLICKHOUSE_USERNAME: string
-    CLICKHOUSE_PASSWORD: string
-    CLICKHOUSE_DATABASE: string
 }
 
-export interface Hub extends PluginsServerConfig {
-    // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
+export interface HubServices {
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
-    // tools
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
-    // geoip database, setup in workers
     geoipService: GeoIPService
-    // lookups
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
     pubSub: PubSub
@@ -564,6 +551,8 @@ export interface Hub extends PluginsServerConfig {
     internalCaptureService: InternalCaptureService
     internalFetchService: InternalFetchService
 }
+
+export interface Hub extends PluginsServerConfig, HubServices {}
 
 export interface PluginServerCapabilities {
     // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts

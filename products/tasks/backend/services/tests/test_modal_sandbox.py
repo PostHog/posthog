@@ -114,6 +114,9 @@ class TestGetSandboxImageReferenceIntegration:
     def setup_method(self):
         _get_sandbox_image_reference.cache_clear()
 
+    @pytest.mark.xfail(
+        reason="Flaky: depends on GHCR availability. Remove this mark when we've figured out a less flaky approach"
+    )
     def test_resolves_digest_from_ghcr(self):
         result = _get_sandbox_image_reference()
 

@@ -89,8 +89,8 @@ export function VariantTag({
         return <></>
     }
 
-    const variantColor = experiment.parameters?.feature_flag_variants
-        ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
+    const variantColor = experiment.feature_flag?.filters.multivariate?.variants
+        ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
         : 'var(--text-muted)'
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
@@ -279,13 +279,11 @@ export function PageHeaderCustom(): JSX.Element {
     const {
         experiment,
         isExperimentDraft,
+        isExperimentRunning,
         isExperimentLaunched,
         isExperimentStopped,
         hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
-        primaryMetricsResults,
-        legacyPrimaryMetricsResults,
-        hasMinimumExposureForResults,
         experimentLoading,
     } = useValues(experimentLogic)
     const {
@@ -308,11 +306,6 @@ export function PageHeaderCustom(): JSX.Element {
 
     const exposureCohortId = experiment?.exposure_cohort
 
-    const shouldShowFinishExperimentButton =
-        !isExperimentDraft &&
-        hasMinimumExposureForResults &&
-        (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
-
     return (
         <>
             <SceneTitleSection
@@ -333,7 +326,7 @@ export function PageHeaderCustom(): JSX.Element {
                 saveOnBlur
                 actions={
                     <>
-                        {experiment && !isExperimentLaunched && (
+                        {experiment && isExperimentDraft && (
                             <div className="flex items-center">
                                 <LemonButton
                                     type="primary"
@@ -385,7 +378,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 )}
                             </div>
                         )}
-                        {shouldShowFinishExperimentButton && (
+                        {experiment && isExperimentRunning && !isExperimentStopped && (
                             <>
                                 <Tooltip title="Conclude this experiment and decide which variant to keep">
                                     <LemonButton
@@ -712,7 +705,7 @@ export function FinishExperimentModal(): JSX.Element {
             : 'users'
 
     const handleEndExperiment = (): void => {
-        if (isSingleVariantShipped) {
+        if (isSingleVariantShipped || !selectedVariantKey) {
             endExperimentWithoutShipping()
         } else {
             finishExperiment({ selectedVariantKey })
@@ -772,11 +765,13 @@ export function FinishExperimentModal(): JSX.Element {
                                     className="w-full"
                                     data-attr="metrics-selector"
                                     value={selectedVariantKey}
+                                    placeholder="Select a variant"
                                     onChange={(variantKey) => {
                                         setSelectedVariantKey(variantKey)
                                     }}
+                                    allowClear={true}
                                     options={
-                                        experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
+                                        experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
                                             value: key,
                                             label: (
                                                 <div className="deprecated-space-x-2 inline-flex">

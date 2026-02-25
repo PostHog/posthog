@@ -245,7 +245,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                             auto_refresh_enabled: autoRefresh.enabled,
                                             auto_refresh_interval: autoRefresh.interval,
                                         })
-                                        refreshExperimentResults(true)
+                                        refreshExperimentResults(true, 'manual')
                                     }}
                                 />
                             )}

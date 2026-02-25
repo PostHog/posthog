@@ -34,15 +34,10 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import (
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-    SessionAuthentication,
-    TemporaryTokenAuthentication,
-)
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
@@ -1052,11 +1047,7 @@ class FeatureFlagSerializer(
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
-        # SessionAuthentication is used for standard browser-based web UI requests.
-        # All other authentication methods (API keys, OAuth tokens, toolbar tokens, etc.)
-        # are classified as "api" for analytics purposes.
-        is_web_auth = isinstance(request.successful_authenticator, SessionAuthentication)
-        analytics_metadata["source"] = "web" if is_web_auth else "api"
+        analytics_metadata.update(get_request_analytics_properties(request))
         report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
@@ -1220,7 +1211,11 @@ class FeatureFlagSerializer(
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
 
-        report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
+        report_user_action(
+            request.user,
+            "feature flag updated",
+            {**instance.get_analytics_metadata(), **get_request_analytics_properties(request)},
+        )
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key

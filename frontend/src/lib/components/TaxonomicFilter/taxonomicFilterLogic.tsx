@@ -161,11 +161,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any, originalQuery) => ({
+        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => ({
             group,
             value,
             item,
-            originalQuery,
         }),
         infiniteListResultsReceived: (groupType: TaxonomicFilterGroupType, results: ListStorage) => ({
             groupType,
@@ -1192,40 +1191,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ group, value, item, originalQuery }) => {
+        selectItem: ({ group, value, item }) => {
             if (item) {
-                try {
-                    const hasOriginalQuery = originalQuery && originalQuery.trim().length > 0
-                    const hasName = item && item.name && item.name.trim().length > 0
-                    const hasSwappedIn = hasOriginalQuery && hasName && item.name !== originalQuery
-                    if (hasSwappedIn) {
-                        posthog.capture('selected swapped in query in taxonomic filter', {
-                            group: group.type,
-                            value: value,
-                            itemName: item.name,
-                            originalQuery,
-                            item,
-                        })
-                    }
-                    if (isQuickFilterItem(item)) {
-                        posthog.capture('taxonomic suggested filter selected', {
-                            query: originalQuery,
-                            filterName: item.name,
-                            propertyKey: item.propertyKey,
-                            operator: item.operator,
-                            filterValue: item.filterValue,
-                            propertyFilterType: item.propertyFilterType,
-                            eventName: item.eventName,
-                        })
-                    }
-                } catch (e) {
-                    posthog.captureException(e, { posthog_feature: 'taxonomic_filter_swapped_in_query' })
+                if (isQuickFilterItem(item)) {
+                    posthog.capture('taxonomic suggested filter selected', {
+                        query: values.searchQuery,
+                        filterName: item.name,
+                        propertyKey: item.propertyKey,
+                        operator: item.operator,
+                        filterValue: item.filterValue,
+                        propertyFilterType: item.propertyFilterType,
+                        eventName: item.eventName,
+                    })
                 }
-                props.onChange?.(group, value, item, originalQuery)
+                props.onChange?.(group, value, item)
             } else if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
-                props.onChange?.(group, value, item, originalQuery)
+                props.onChange?.(group, value, item)
             } else if (props.onEnter) {
-                // If the user pressed enter on a group with no item selected, we want to pass the original query
                 props.onEnter(values.searchQuery)
                 return
             }

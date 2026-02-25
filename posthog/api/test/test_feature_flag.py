@@ -528,6 +528,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -564,6 +567,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -622,6 +628,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -659,6 +668,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "api",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -854,6 +866,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -1155,6 +1170,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -1893,6 +1912,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -3557,14 +3580,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(17, 22)):
+        with self.assertNumQueries(FuzzyInt(12, 17)):
             # 1-10: Auth, team, project, membership, and access control queries
             # 11. SELECT surveys (for survey exclusion)
-            # 12. EXISTS check for any flag referencing a cohort
-            # 13. SELECT all feature flags
-            # 14. SELECT cohorts (only loaded because a flag references a cohort)
-            # 15-19. SELECT evaluation tags (one per flag)
-            # 20. SELECT group type mapping
+            # 12. SELECT all feature flags (with evaluation tags via ArrayAgg)
+            # 13. SELECT cohorts (only loaded because a flag references a cohort)
+            # 14. SELECT group type mapping
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",

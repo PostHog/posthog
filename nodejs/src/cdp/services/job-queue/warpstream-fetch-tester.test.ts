@@ -1,4 +1,4 @@
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Message } from 'node-rdkafka'
 
@@ -45,7 +45,7 @@ describe('WarpstreamFetchTester', () => {
         tester = new WarpstreamFetchTester(config)
         tester.start()
 
-        mockFetch.mockClear()
+        mockInternalFetch.mockClear()
         cdpSeekLatencyMs.reset()
         cdpSeekTotalLatencyMs.reset()
         cdpSeekBatchLatencyMs.reset()
@@ -55,7 +55,7 @@ describe('WarpstreamFetchTester', () => {
 
     it('should do nothing when both counts are 0', async () => {
         await tester.maybeMeasureFetchLatency(makeMessages(100))
-        expect(mockFetch).not.toHaveBeenCalled()
+        expect(mockInternalFetch).not.toHaveBeenCalled()
     })
 
     it('should do nothing when all messages have offset 0', async () => {
@@ -63,7 +63,7 @@ describe('WarpstreamFetchTester', () => {
         const messages = Array.from({ length: 5 }, () => makeMessage('topic', 0, 0))
 
         await tester.maybeMeasureFetchLatency(messages)
-        expect(mockFetch).not.toHaveBeenCalled()
+        expect(mockInternalFetch).not.toHaveBeenCalled()
     })
 
     it('should fire individual fetches to single-record endpoint', async () => {
@@ -72,8 +72,8 @@ describe('WarpstreamFetchTester', () => {
 
         await tester.maybeMeasureFetchLatency(messages)
 
-        expect(mockFetch).toHaveBeenCalledTimes(3)
-        for (const call of mockFetch.mock.calls) {
+        expect(mockInternalFetch).toHaveBeenCalledTimes(3)
+        for (const call of mockInternalFetch.mock.calls) {
             expect(call[0]).toMatch(/\/v1\/kafka\/topics\/test_topic\/partitions\/\d+\/records\/\d+/)
             expect(call[1].headers['Authorization']).toBe('Basic ' + Buffer.from('user:pass').toString('base64'))
         }
@@ -90,8 +90,8 @@ describe('WarpstreamFetchTester', () => {
 
         await tester.maybeMeasureFetchLatency(messages)
 
-        expect(mockFetch).toHaveBeenCalledTimes(2)
-        for (const call of mockFetch.mock.calls) {
+        expect(mockInternalFetch).toHaveBeenCalledTimes(2)
+        for (const call of mockInternalFetch.mock.calls) {
             expect(call[0]).toBe('http://warpstream:8080/v1/kafka/fetch')
             expect(call[1].method).toBe('POST')
             expect(call[1].headers['Content-Type']).toBe('application/json')
@@ -115,8 +115,8 @@ describe('WarpstreamFetchTester', () => {
 
         await tester.maybeMeasureFetchLatency(messages)
 
-        const individualCalls = mockFetch.mock.calls.filter((c) => !c[0].includes('/v1/kafka/fetch'))
-        const batchCalls = mockFetch.mock.calls.filter((c) => c[0] === 'http://warpstream:8080/v1/kafka/fetch')
+        const individualCalls = mockInternalFetch.mock.calls.filter((c) => !c[0].includes('/v1/kafka/fetch'))
+        const batchCalls = mockInternalFetch.mock.calls.filter((c) => c[0] === 'http://warpstream:8080/v1/kafka/fetch')
 
         expect(individualCalls).toHaveLength(5)
         expect(batchCalls).toHaveLength(2)
@@ -127,12 +127,12 @@ describe('WarpstreamFetchTester', () => {
         const messages = makeMessages(100)
 
         await tester.maybeMeasureFetchLatency(messages)
-        expect(mockFetch).toHaveBeenCalledTimes(3)
+        expect(mockInternalFetch).toHaveBeenCalledTimes(3)
     })
 
     it('should record error metrics on non-2xx responses', async () => {
         config.CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT = 2
-        mockFetch.mockResolvedValue({
+        mockInternalFetch.mockResolvedValue({
             status: 500,
             headers: {},
             json: () => Promise.resolve({}),
@@ -150,7 +150,7 @@ describe('WarpstreamFetchTester', () => {
     it('should record error metrics on fetch exceptions', async () => {
         config.CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT = 1
         config.CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE = 3
-        mockFetch.mockRejectedValue(new Error('connection refused'))
+        mockInternalFetch.mockRejectedValue(new Error('connection refused'))
 
         await tester.maybeMeasureFetchLatency(makeMessages(3))
 

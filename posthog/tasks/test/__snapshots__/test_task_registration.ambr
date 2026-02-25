@@ -59,7 +59,6 @@
     'posthog.tasks.feature_flags.cleanup_stale_flags_expiry_tracking_task',
     'posthog.tasks.feature_flags.compute_feature_flag_metrics',
     'posthog.tasks.feature_flags.refresh_expiring_flags_cache_entries',
-    'posthog.tasks.feature_flags.sync_all_flags_cache',
     'posthog.tasks.feature_flags.update_team_flags_cache',
     'posthog.tasks.feature_flags.update_team_service_flags_cache',
     'posthog.tasks.heatmap_screenshot.generate_heatmap_screenshot',

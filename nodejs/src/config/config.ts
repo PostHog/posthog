@@ -64,11 +64,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
-        CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_PORT: 8123,
-        CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : isDevEnv() ? 'default' : '',
-        CLICKHOUSE_USERNAME: 'default',
-        CLICKHOUSE_PASSWORD: '',
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
@@ -146,7 +141,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
-        PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
@@ -327,9 +321,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             60,
         COOKIELESS_REDIS_HOST: '',
         COOKIELESS_REDIS_PORT: 6379,
-
-        // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
-        TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: isDevEnv() || isTestEnv() ? 1.0 : 0.0,
 
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
         PERSON_BATCH_WRITING_USE_BATCH_UPDATES: true,
