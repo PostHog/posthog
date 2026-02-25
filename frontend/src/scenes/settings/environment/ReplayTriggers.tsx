@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonDivider, LemonLabel, LemonTab, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, LemonLabel, LemonTab, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
@@ -293,15 +293,11 @@ const RecordingTriggersSummary = ({
 }: {
     currentTeam: TeamType | TeamPublicType
     selectedPlatform: ReplayPlatform
-}): JSX.Element => {
+}): JSX.Element | null => {
     const triggers = useTriggers(currentTeam, selectedPlatform)
 
     if (!currentTeam?.session_recording_opt_in) {
-        return (
-            <LemonBanner type="warning">
-                <strong>Recording is disabled.</strong> Enable it in General settings.
-            </LemonBanner>
-        )
+        return null
     }
 
     return (

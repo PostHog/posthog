@@ -442,6 +442,11 @@ export function ReplayGeneral(): JSX.Element {
 
     return (
         <div>
+            {!currentTeam?.session_recording_opt_in && (
+                <LemonBanner type="warning" className="mb-4">
+                    <strong>Recording is disabled.</strong>
+                </LemonBanner>
+            )}
             <AccessControlAction
                 resourceType={AccessControlResourceType.SessionRecording}
                 minAccessLevel={AccessControlLevel.Editor}
