@@ -46,9 +46,13 @@ def get_strategy(name: str):
         from pr_specificity_strategy import PRSpecificityStrategy
 
         return PRSpecificityStrategy()
+    elif name == "pr_specificity_and_group_aware":
+        from pr_specificity_and_group_aware import PRSpecificityAndGroupAwareStrategy
+
+        return PRSpecificityAndGroupAwareStrategy()
     else:
         raise ValueError(
-            f"Unknown strategy: {name}. Available: current, group_aware, verification_gate, multilink, pr_specificity"
+            f"Unknown strategy: {name}. Available: current, group_aware, verification_gate, multilink, pr_specificity, pr_specificity_and_group_aware"
         )
 
 
