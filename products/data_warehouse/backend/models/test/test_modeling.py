@@ -86,6 +86,36 @@ GET_PARENTS_TEST_CASES = [
         """,
         {"events", "persons"},
     ),
+    # nested CTEs where an inner CTE shadows an outer CTE name
+    (
+        """
+            WITH cte AS (
+                WITH cte AS (
+                    SELECT event, person_id FROM events GROUP BY event, person_id
+                ),
+                agg AS (
+                    SELECT person_id, count() AS cnt FROM cte GROUP BY person_id
+                )
+                SELECT p.id, a.cnt
+                FROM persons p
+                JOIN agg a ON p.id = a.person_id
+            )
+            SELECT * FROM cte
+        """,
+        {"events", "persons"},
+    ),
+    # recursive CTE: self-referencing CTE should not cause infinite loop
+    (
+        """
+            WITH RECURSIVE cte AS (
+                SELECT 1 AS n
+                UNION ALL
+                SELECT n + 1 FROM cte WHERE n < 10
+            )
+            SELECT * FROM cte
+        """,
+        set(),
+    ),
 ]
 
 
