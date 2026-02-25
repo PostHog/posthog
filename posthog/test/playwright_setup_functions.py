@@ -320,11 +320,11 @@ def _create_dashboards(
 def _count_events_in_clickhouse(team_id: int) -> int:
     from posthog.clickhouse.client import sync_execute
 
-    rows: list[tuple[int]] = sync_execute(  # type: ignore[assignment]
+    result = sync_execute(
         "SELECT count() FROM events WHERE team_id = %(team_id)s",
         {"team_id": team_id},
     )
-    return rows[0][0]
+    return int(result[0][0])
 
 
 def _wait_for_events_in_clickhouse(team_id: int, expected_count: int, timeout_seconds: int = 10) -> None:
