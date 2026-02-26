@@ -37,7 +37,6 @@ import {
     IconPieChart,
     IconPiggyBank,
     IconPlay,
-    IconPlaylist,
     IconPlug,
     IconReceipt,
     IconRetention,
@@ -320,10 +319,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_clusters: {
         icon: <IconScatter />,
         iconColor: ['var(--color-product-llm-clusters-light)'],
-    },
-    llm_playground: {
-        icon: <IconPlaylist />,
-        iconColor: ['var(--color-product-llm-analytics-light)'],
     },
     exports: {
         icon: <IconDownload />,

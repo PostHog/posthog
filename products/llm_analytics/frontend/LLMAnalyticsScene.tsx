@@ -2,7 +2,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React, { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { IconPlay, IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -38,6 +39,8 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Even
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
+import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
+import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
@@ -389,6 +392,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     errors: 'Monitor and debug errors in your LLM pipeline.',
     tools: 'See which tools your LLMs are calling and how often.',
     sessions: 'Analyze user sessions containing LLM interactions.',
+    playground: 'Test and experiment with LLM prompts in a sandbox environment.',
 }
 
 export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
@@ -421,10 +425,16 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
 
 function LLMAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
+    const {
+        submitting: playgroundSubmitting,
+        hasRunnablePrompts,
+        activePromptId,
+    } = useValues(llmAnalyticsPlaygroundLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
 
     const { push } = useActions(router)
+    const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
     const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
 
     // Tab switching shortcuts
@@ -548,6 +558,22 @@ function LLMAnalyticsSceneContent(): JSX.Element {
         })
     }
 
+    // TODO: Once we are out of beta, should add to the shortcuts list at the top of the component
+    tabs.push({
+        key: 'playground',
+        label: (
+            <>
+                Playground{' '}
+                <LemonTag className="ml-1" type="warning">
+                    Beta
+                </LemonTag>
+            </>
+        ),
+        content: <LLMAnalyticsPlaygroundScene />,
+        link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
+        'data-attr': 'playground-tab',
+    })
+
     const availableItemsInSidebar = useMemo(() => {
         return [
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
@@ -575,13 +601,6 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     evaluations
                 </Link>
             ) : null,
-            <Link
-                key="playground"
-                to={combineUrl(urls.llmAnalyticsPlayground(), searchParams).url}
-                onClick={() => toggleProduct('Playground', true)}
-            >
-                playground
-            </Link>,
             featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
@@ -603,6 +622,36 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 }}
                 actions={
                     <>
+                        {activeTab === 'playground' && (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlus />}
+                                    onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                                    disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                                >
+                                    Add prompt
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    icon={<IconPlay />}
+                                    onClick={() => submitPrompt()}
+                                    loading={playgroundSubmitting}
+                                    disabledReason={
+                                        playgroundSubmitting
+                                            ? 'Generating...'
+                                            : !hasRunnablePrompts
+                                              ? 'Add messages to at least one prompt'
+                                              : undefined
+                                    }
+                                    data-attr="playground-run"
+                                >
+                                    Run
+                                </LemonButton>
+                            </>
+                        )}
                         <LemonButton
                             to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
                             type="secondary"
@@ -633,7 +682,15 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 </>
             ) : null}
 
-            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
+            <LemonTabs
+                activeKey={activeTab}
+                data-attr="llm-analytics-tabs"
+                tabs={tabs}
+                sceneInset
+                className={
+                    activeTab === 'playground' ? '[&_.LemonTabs__content]:!p-0 [&_.LemonTabs__bar]:!mb-0' : undefined
+                }
+            />
         </SceneContent>
     )
 }

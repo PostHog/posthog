@@ -33,10 +33,6 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
-
 import { ByokModelPicker } from './ByokModelPicker'
 import { JSONEditor } from './components/JSONEditor'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
@@ -65,54 +61,15 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
     logic: llmAnalyticsPlaygroundLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmAnalyticsPlaygroundLogic)
-    const { submitting, hasRunnablePrompts, activePromptId } = useValues(llmAnalyticsPlaygroundLogic)
-    const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
 
     return (
-        <SceneContent className="h-full min-h-0 flex flex-col">
-            <SceneTitleSection
-                name="Playground"
-                description="Test and experiment with LLM prompts in a sandbox environment."
-                resourceType={{ type: 'llm_playground' }}
-                actions={
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconPlus />}
-                            onClick={() => addPromptConfig(activePromptId ?? undefined)}
-                            disabledReason={submitting ? 'Generating...' : undefined}
-                        >
-                            Add prompt
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlay />}
-                            onClick={() => submitPrompt()}
-                            loading={submitting}
-                            tooltip="Run prompts (⌘↵)"
-                            disabledReason={
-                                submitting
-                                    ? 'Generating...'
-                                    : !hasRunnablePrompts
-                                      ? 'Add messages to at least one prompt'
-                                      : undefined
-                            }
-                            size="small"
-                            data-attr="playground-run"
-                        >
-                            Run
-                        </LemonButton>
-                    </div>
-                }
-            />
+        <div className="flex flex-col h-[calc(100vh-300px)] min-h-[520px]">
             <PlaygroundLayout />
-        </SceneContent>
+        </div>
     )
 }
 
@@ -157,7 +114,7 @@ function SubscriptionRequiredBanner(): JSX.Element | null {
 
 function PlaygroundLayout(): JSX.Element {
     return (
-        <div className="flex flex-1 min-h-0 flex-col gap-4 pb-6">
+        <div className="flex flex-1 min-h-0 flex-col gap-4">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
@@ -185,7 +142,7 @@ function PromptConfigsSection(): JSX.Element {
     }
 
     return (
-        <div className="h-full min-h-0 overflow-x-auto pb-4">
+        <div className="h-full min-h-0 overflow-x-auto">
             <div
                 className="grid h-full min-w-full items-stretch gap-4"
                 style={{
@@ -772,7 +729,6 @@ function MessageDisplay({
     const roleOptions: { label: string; value: MessageRole }[] = [
         { label: 'User', value: 'user' },
         { label: 'Assistant', value: 'assistant' },
-        { label: 'System', value: 'system' },
     ]
 
     const getRoleBorderClass = (role: MessageRole): string => {
