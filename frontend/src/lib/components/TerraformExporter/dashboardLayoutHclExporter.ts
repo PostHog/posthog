@@ -6,9 +6,9 @@ import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, gene
 
 export interface DashboardLayoutHclExportOptions extends HclExportOptions {
     /** TF reference for the dashboard_id field (e.g. "posthog_dashboard.my_dashboard.id") */
-    dashboardTfReference?: string
+    dashboardTfReference: string
     /** Map of insight IDs to their TF references (e.g. "posthog_insight.my_insight.id") */
-    insightIdReplacements?: Map<number, string>
+    insightIdReplacements: Map<number, string>
 }
 
 function formatTileObject(tile: DashboardTile<any>, insightIdReplacements?: Map<number, string>): string[] {
@@ -47,23 +47,18 @@ const DASHBOARD_LAYOUT_FIELD_MAPPINGS: FieldMapping<Partial<DashboardType<any>>,
     {
         source: 'id',
         target: 'dashboard_id',
-        shouldInclude: (v) => v !== undefined,
-        transform: (_, dashboard, options) => {
-            if (options.dashboardTfReference) {
-                return options.dashboardTfReference
-            }
-            return String(dashboard.id)
-        },
+        shouldInclude: () => true,
+        transform: (_, _dashboard, options) => options.dashboardTfReference,
     },
     {
         source: 'tiles',
         target: 'tiles',
-        shouldInclude: (_, dashboard) => {
-            const activeTiles = (dashboard.tiles || []).filter((t) => !t.deleted)
-            return activeTiles.length > 0
-        },
+        shouldInclude: () => true,
         transform: (_, dashboard, options) => {
             const activeTiles = (dashboard.tiles || []).filter((t) => !t.deleted)
+            if (activeTiles.length === 0) {
+                return '[]'
+            }
             const tileLines: string[] = ['[']
             for (const tile of activeTiles) {
                 tileLines.push(...formatTileObject(tile, options.insightIdReplacements))
@@ -75,7 +70,7 @@ const DASHBOARD_LAYOUT_FIELD_MAPPINGS: FieldMapping<Partial<DashboardType<any>>,
 ]
 
 // No validation needed: this resource is generated in a way that we
-// always provide the dashboardTfReference and insightIdReplacements.
+// always provide the key details.
 function validateDashboardLayout(): string[] {
     return []
 }
@@ -91,7 +86,7 @@ const DASHBOARD_LAYOUT_EXPORTER: ResourceExporter<Partial<DashboardType<any>>, D
 
 export function generateDashboardLayoutHCL(
     dashboard: Partial<DashboardType<any>>,
-    options: DashboardLayoutHclExportOptions = {}
+    options: DashboardLayoutHclExportOptions
 ): HclExportResult {
     return generateHCL(dashboard, DASHBOARD_LAYOUT_EXPORTER, options)
 }

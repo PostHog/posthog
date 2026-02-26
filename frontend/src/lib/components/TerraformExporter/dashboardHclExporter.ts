@@ -133,7 +133,7 @@ export function generateDashboardHCL(
     }
 
     // Generate dashboard layout if tiles are present
-    if (dashboard.tiles && dashboard.tiles.length > 0) {
+    if (dashboardTfReference && dashboard.tiles && dashboard.tiles.length > 0) {
         const layoutResult = generateDashboardLayoutHCL(dashboard, {
             dashboardTfReference,
             insightIdReplacements,

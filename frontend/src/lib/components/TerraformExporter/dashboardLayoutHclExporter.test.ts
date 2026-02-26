@@ -98,7 +98,9 @@ resource "posthog_dashboard_layout" "my_dashboard" {
                 tiles: [{ id: 90, text: { body: 'Note' }, color: null, layouts: {} }],
             })
 
-            const result = generateDashboardLayoutHCL(dashboard)
+            const result = generateDashboardLayoutHCL(dashboard, {
+                dashboardTfReference: 'posthog_dashboard.new.id',
+            })
 
             expect(result.hcl).not.toContain('import {')
         })
