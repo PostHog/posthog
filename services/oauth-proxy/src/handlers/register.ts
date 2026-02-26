@@ -32,22 +32,20 @@ export async function handleRegister(request: Request, kv: KVNamespace): Promise
     const usData = await usResponse.json<Record<string, unknown>>()
     const euData = await euResponse.json<Record<string, unknown>>()
 
-    // If both registrations failed, return the US error
-    if (!usResponse.ok && !euResponse.ok) {
-        return new Response(JSON.stringify(usData), {
-            status: usResponse.status,
+    if (!usResponse.ok || !euResponse.ok) {
+        const failedResponse = !usResponse.ok ? usResponse : euResponse
+        const failedData = !usResponse.ok ? usData : euData
+        return new Response(JSON.stringify(failedData), {
+            status: failedResponse.status,
             headers: { 'Content-Type': 'application/json' },
         })
     }
 
-    // Use the US client_id as the proxy client_id (convention)
-    // If US failed but EU succeeded, use EU as the proxy client_id
-    const primaryData = usResponse.ok ? usData : euData
-    const proxyClientId = primaryData.client_id as string
+    const proxyClientId = usData.client_id as string
 
     const mapping: ClientMapping = {
-        us_client_id: usResponse.ok ? (usData.client_id as string) : '',
-        eu_client_id: euResponse.ok ? (euData.client_id as string) : '',
+        us_client_id: usData.client_id as string,
+        eu_client_id: euData.client_id as string,
         created_at: Date.now(),
     }
 
@@ -61,7 +59,7 @@ export async function handleRegister(request: Request, kv: KVNamespace): Promise
 
     await putClientMapping(kv, proxyClientId, mapping)
 
-    return new Response(JSON.stringify(primaryData), {
+    return new Response(JSON.stringify(usData), {
         status: 201,
         headers: { 'Content-Type': 'application/json' },
     })

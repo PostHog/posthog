@@ -53,6 +53,38 @@ describe('handleRegister', () => {
         expect(storedMapping.eu_client_id).toBe(euClientId)
     })
 
+    it('returns error when one region fails', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockImplementation((url: string) => {
+                if (new URL(url).hostname === 'us.posthog.com') {
+                    return Promise.resolve(
+                        new Response(JSON.stringify({ client_id: 'us_abc', client_name: 'Test' }), {
+                            status: 201,
+                            headers: { 'Content-Type': 'application/json' },
+                        })
+                    )
+                }
+                return Promise.resolve(
+                    new Response(JSON.stringify({ error: 'server_error' }), {
+                        status: 500,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+            })
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/register/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ client_name: 'Test', redirect_uris: ['http://localhost:3000/callback'] }),
+        })
+
+        const response = await handleRegister(request, mockKV)
+        expect(response.status).toBe(500)
+        expect(vi.mocked(mockKV.put)).not.toHaveBeenCalled()
+    })
+
     it('returns error when both registrations fail', async () => {
         vi.stubGlobal(
             'fetch',
