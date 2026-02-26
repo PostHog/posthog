@@ -1061,7 +1061,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 workflow_input = RecordingsWithPersonInput(
                     distinct_ids=person.distinct_ids,
                     team_id=self.team_id,
-                    config=DeletionConfig(deleted_by=self.request.user.email, reason="person deletion"),
+                    config=DeletionConfig(deleted_by=cast(User, self.request.user).email, reason="person deletion"),
                 )
                 workflow_id = f"delete-recordings-{self.team_id}-person-{person.uuid}-{uuid.uuid4()}"
                 tasks.append(
