@@ -740,6 +740,52 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('setInsight name preservation', () => {
+        it('preserves user-edited name when loading new data for the same insight', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsight']).toFinishAllListeners()
+
+            // simulate user editing the name locally
+            logic.actions.setInsightMetadataLocal({ name: 'User Edited Name' })
+
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: 'User Edited Name', short_id: Insight42 }),
+            })
+
+            // simulate reloading data for the same insight (e.g. query refresh) — name should be preserved
+            logic.actions.setInsight(
+                { ...logic.values.insight, name: '', short_id: Insight42 },
+                { fromPersistentApi: false, overrideQuery: false }
+            )
+
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: 'User Edited Name' }),
+            })
+        })
+
+        it('does not preserve name when switching to a new insight', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsight']).toFinishAllListeners()
+
+            // confirm the loaded insight has a name
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: 'original name', short_id: Insight42 }),
+            })
+
+            // simulate switching to a brand new insight (no short_id)
+            logic.actions.setInsight(
+                { ...createEmptyInsight('new'), query: logic.values.insight.query },
+                { fromPersistentApi: false, overrideQuery: true }
+            )
+
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: '' }),
+            })
+        })
+    })
+
     describe('saving query based insights', () => {
         beforeEach(async () => {
             const insightProps: InsightLogicProps = { dashboardItemId: 'new' }

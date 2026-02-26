@@ -5,7 +5,6 @@ packages:
     - common/plugin_transpiler
     - common/storybook
     - common/tailwind
-    - common/hogql_parser
     - frontend
     - playwright
     - nodejs
@@ -61,6 +60,7 @@ minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
     - posthog-js
     - posthog-js-lite
+    - posthog-node
     - '@posthog/*'
     - kea@4.0.0-pre.5
     - chartjs-plugin-stacked100@1.7.1

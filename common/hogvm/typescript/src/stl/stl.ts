@@ -491,6 +491,22 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 2,
         maxArgs: 2,
     },
+    extractRegex: {
+        fn: (args, _name, options) => {
+            if (!options?.external?.regex?.extract) {
+                throw new Error('Set options.external.regex.extract for RegEx extract support')
+            }
+            if (args[0] == null || args[1] == null) {
+                return ''
+            }
+            // Hog: extractRegex(haystack, pattern) → External: extract(regex, value)
+            return options.external.regex.extract(String(args[1]), String(args[0]))
+        },
+        description: 'Extracts substring matching regex pattern (first capture group or whole match)',
+        example: 'extractRegex($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
     like: {
         fn: ([str, pattern], _name, options) => like(str, pattern, false, options?.external?.regex?.match),
         description: 'Checks if a string matches a SQL LIKE pattern',

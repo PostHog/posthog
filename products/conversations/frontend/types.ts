@@ -148,7 +148,7 @@ export const channelOptions: { value: TicketChannel | 'all'; label: string }[] =
     { value: 'all', label: 'All channels' },
     { value: 'widget', label: 'Widget' },
     { value: 'slack', label: 'Slack' },
-    { value: 'email', label: 'Email' },
+    /*{ value: 'email', label: 'Email' }, commented out because we don't support email yet*/
 ]
 
 export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [

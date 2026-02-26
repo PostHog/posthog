@@ -103,7 +103,11 @@ export class DashboardPage {
     }
 
     async openInfoPanel(): Promise<void> {
-        await this.page.getByTestId('info-actions-panel').click()
+        await this.page.getByTestId('open-context-panel-button').first().click()
+    }
+
+    async closeInfoPanel(): Promise<void> {
+        await this.page.getByTestId('context-panel-close-button').click()
     }
 
     async duplicate(): Promise<void> {

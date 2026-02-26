@@ -11,7 +11,6 @@ import { IconPlus, IconX } from '@posthog/icons'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -39,7 +38,6 @@ export function SceneTabs(): JSX.Element {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const { showOfframpModal } = useActions(sidePanelOfframpLogic)
     const { isSceneTabsOfframpDismissed } = useValues(sidePanelOfframpLogic)
 
@@ -82,11 +80,7 @@ export function SceneTabs(): JSX.Element {
             )}
 
             {/* Line below tabs to to complete border on <main> element */}
-            <div
-                className={cn('absolute bottom-0 w-full lg:px-[5px] ', {
-                    'lg:pr-3': isRemovingSidePanelFlag,
-                })}
-            >
+            <div className="absolute bottom-0 w-full lg:px-[5px] lg:pr-3">
                 <div className="w-full bottom-0 h-px border-b border-primary z-10" />
             </div>
 
@@ -145,7 +139,7 @@ export function SceneTabs(): JSX.Element {
                             </Link>
                         </AppShortcut>
 
-                        {isRemovingSidePanelFlag && !isSceneTabsOfframpDismissed && (
+                        {!isSceneTabsOfframpDismissed && (
                             <ButtonPrimitive
                                 onClick={() => {
                                     showOfframpModal()
