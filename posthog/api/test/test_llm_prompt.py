@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.llm_prompt import LLMPrompt
@@ -10,6 +11,34 @@ from posthog.models.llm_prompt import LLMPrompt
 
 @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
 class TestLLMPromptAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("prompt_management_enabled", True, False, status.HTTP_200_OK),
+            ("early_adopters_enabled", False, True, status.HTTP_200_OK),
+            ("both_enabled", True, True, status.HTTP_200_OK),
+            ("both_disabled", False, False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_prompt_api_permission_accepts_prompt_or_early_adopters_flag(
+        self,
+        _name,
+        prompt_management_enabled,
+        early_adopters_enabled,
+        expected_status,
+        mock_feature_enabled,
+    ):
+        def feature_flag_side_effect(flag, *_args, **_kwargs):
+            return {
+                "prompt-management": prompt_management_enabled,
+                "llm-analytics-early-adopters": early_adopters_enabled,
+            }.get(flag, False)
+
+        mock_feature_enabled.side_effect = feature_flag_side_effect
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/")
+
+        assert response.status_code == expected_status
+
     def test_create_prompt_with_unique_name_succeeds(self, mock_feature_enabled):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/",

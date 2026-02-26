@@ -116,7 +116,10 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
     permission_classes = [PostHogFeatureFlagPermission, AccessControlPermission]
-    posthog_feature_flag = "prompt-management"
+    posthog_feature_flag = {
+        "prompt-management": ["*"],
+        "llm-analytics-early-adopters": ["*"],
+    }
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(deleted=False)
