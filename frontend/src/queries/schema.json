@@ -32554,6 +32554,10 @@
                     },
                     "type": "array"
                 },
+                "hideWeekends": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "minDecimalPlaces": {
                     "type": "number"
                 },

@@ -17,6 +17,7 @@ import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
@@ -123,6 +124,7 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
                               ? [{ label: () => <ShowTrendLinesFilter /> }]
                               : []),
+                          ...(isTrends && !isNonTimeSeriesDisplay ? [{ label: () => <HideWeekendsFilter /> }] : []),
                       ],
                   },
               ]
@@ -261,7 +263,8 @@ export function InsightDisplayConfig(): JSX.Element {
             : 0) +
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
-        (showMultipleYAxes ? 1 : 0)
+        (showMultipleYAxes ? 1 : 0) +
+        (trendsFilter?.hideWeekends ? 1 : 0)
 
     return (
         <div
