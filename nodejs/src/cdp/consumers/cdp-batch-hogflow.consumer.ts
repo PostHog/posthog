@@ -6,8 +6,8 @@ import { HogFlow } from '~/schema/hogflow'
 import { parseJSON } from '~/utils/json-parse'
 import { captureException } from '~/utils/posthog'
 
-import { KafkaConsumer } from '../../kafka/consumer'
 import { InternalFetchService } from '../../common/services/internal-fetch'
+import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -48,7 +48,10 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         super(config, deps)
         this.cyclotronJobQueue = new CyclotronJobQueue(config, 'hogflow')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(config.SITE_URL, new InternalFetchService(config))
+        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(
+            config.SITE_URL,
+            new InternalFetchService(config)
+        )
     }
 
     private createHogFlowInvocation({
