@@ -951,6 +951,9 @@ class ClickHousePrinter(HogQLPrinter):
         if not system_node or table_type.table.name not in system_node.children:
             return None
 
+        if not table_type.table.primary_key:
+            return None
+
         return build_access_control_guard(table_type.table, node_type, self.context)
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
