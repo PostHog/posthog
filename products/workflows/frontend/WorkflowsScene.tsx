@@ -28,7 +28,7 @@ import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
-import type { workflowSceneLogicType } from './WorkflowsSceneType'
+import type { workflowsSceneLogicType } from './WorkflowsSceneType'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -38,9 +38,9 @@ export type WorkflowsSceneProps = {
     tabId?: string
 }
 
-export const workflowSceneLogic = kea<workflowSceneLogicType>([
+export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
     props({} as WorkflowsSceneProps),
-    path(() => ['scenes', 'workflows', 'workflowSceneLogic']),
+    path(() => ['scenes', 'workflows', 'workflowsSceneLogic']),
     tabAwareScene(),
     actions({
         setCurrentTab: (tab: WorkflowsSceneTab) => ({ tab }),
@@ -92,13 +92,13 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
 
 export const scene: SceneExport<WorkflowsSceneProps> = {
     component: WorkflowsScene,
-    logic: workflowSceneLogic,
+    logic: workflowsSceneLogic,
     paramsToProps: ({ params: { tab } }) => ({ tab }),
     productKey: ProductKey.WORKFLOWS,
 }
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
-    const { currentTab } = useValues(workflowSceneLogic(props))
+    const { currentTab } = useValues(workflowsSceneLogic(props))
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
@@ -171,7 +171,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Workflows].name}
                 description={sceneConfigurations[Scene.Workflows].description}
-                resourceType={{ type: sceneConfigurations[Scene.Workflows].iconType || 'default_icon_type' }}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Workflows].iconType || 'default_icon_type',
+                }}
                 actions={
                     <>
                         {currentTab === 'workflows' && (

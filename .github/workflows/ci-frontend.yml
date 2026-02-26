@@ -237,6 +237,9 @@ jobs:
             - name: Kea typegen
               run: pnpm --filter=@posthog/frontend typegen:write
 
+            - name: Re-format files after typegen
+              run: pnpm exec oxfmt "./{products,frontend/src}/**/*.{ts,tsx}"
+
             - name: Save .typegen cache
               if: github.ref == 'refs/heads/master'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5

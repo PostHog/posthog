@@ -1,3 +1,24 @@
+"""
+Flag Definitions HyperCache for SDK local evaluation.
+
+This module provides HyperCaches that store feature flag definitions for SDKs to use
+in local evaluation. Unlike the flags_cache.py which provides raw flag data for the
+Rust feature-flags service, this provides rich data including cohort definitions and
+group type mappings.
+
+Two cache variants are provided:
+- flag_definitions_hypercache: Includes full cohort definitions for smart clients
+- flag_definitions_without_cohorts_hypercache: Cohort filters transformed to properties for simple clients
+
+Cache Key Pattern:
+- Uses team_id as the key (ID-based cache)
+- Stored in both Redis and S3 via HyperCache
+
+Configuration:
+- Redis TTL: 7 days (configurable via FLAGS_CACHE_TTL env var)
+- Miss TTL: 1 day (configurable via FLAGS_CACHE_MISS_TTL env var)
+"""
+
 import time
 from collections import defaultdict
 from collections.abc import Generator
@@ -5,6 +26,7 @@ from itertools import groupby
 from typing import Any, Union, cast
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
@@ -12,8 +34,10 @@ from django.dispatch import receiver
 
 import structlog
 from posthoganalytics import capture_exception
+from prometheus_client import Counter
 
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
+from posthog.models.cohort.util import get_nested_cohort_ids
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
@@ -23,8 +47,20 @@ from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HyperCache, emit_cache_sync_metrics
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 
 logger = structlog.get_logger(__name__)
+
+
+# Sorted set keys for tracking cache expirations
+FLAG_DEFINITIONS_CACHE_EXPIRY_SORTED_SET = "flag_definitions_cache_expiry"
+FLAG_DEFINITIONS_NO_COHORTS_CACHE_EXPIRY_SORTED_SET = "flag_definitions_no_cohorts_cache_expiry"
+
+# Metric to track flags dropped during batch processing due to errors
+FLAG_PROCESSING_ERROR_COUNTER = Counter(
+    "posthog_flag_definitions_processing_error",
+    "Number of flags dropped from cache due to processing errors",
+)
 
 
 def _get_properties_from_filters(
@@ -44,6 +80,19 @@ def _get_properties_from_filters(
         for prop in group.get("properties", []):
             if property_type is None or prop.get("type") == property_type:
                 yield prop
+
+
+def _extract_cohort_ids_from_filters(filters: Union[dict, FlagFilters]) -> set[int]:
+    """Extract cohort IDs directly referenced in flag filter properties."""
+    cohort_ids: set[int] = set()
+    for prop in _get_properties_from_filters(filters, "cohort"):
+        value = prop.get("value")
+        if value is not None:
+            try:
+                cohort_ids.add(int(value))
+            except (TypeError, ValueError):
+                continue
+    return cohort_ids
 
 
 def _get_flag_properties_from_filters(filters: Union[dict, FlagFilters]) -> Generator[FlagProperty, None, None]:
@@ -315,26 +364,34 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 # Use centralized database routing constant
 READ_ONLY_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_READ
 
-flags_hypercache = HyperCache(
+flag_definitions_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=True),
+    cache_ttl=settings.FLAGS_CACHE_TTL,
+    cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
+    batch_load_fn=lambda teams: _get_flags_response_for_local_evaluation_batch(teams, include_cohorts=True),
     enable_etag=True,
+    expiry_sorted_set_key=FLAG_DEFINITIONS_CACHE_EXPIRY_SORTED_SET,
 )
 
-flags_without_cohorts_hypercache = HyperCache(
+flag_definitions_without_cohorts_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_without_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=False),
+    cache_ttl=settings.FLAGS_CACHE_TTL,
+    cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
+    batch_load_fn=lambda teams: _get_flags_response_for_local_evaluation_batch(teams, include_cohorts=False),
     enable_etag=True,
+    expiry_sorted_set_key=FLAG_DEFINITIONS_NO_COHORTS_CACHE_EXPIRY_SORTED_SET,
 )
 
 
 def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict | None:
     return (
-        flags_hypercache.get_from_cache(team)
+        flag_definitions_hypercache.get_from_cache(team)
         if include_cohorts
-        else flags_without_cohorts_hypercache.get_from_cache(team)
+        else flag_definitions_without_cohorts_hypercache.get_from_cache(team)
     )
 
 
@@ -348,8 +405,45 @@ def get_flags_response_if_none_match(
     - If client_etag matches current: (None, current_etag, False) - 304 case
     - Otherwise: (data, current_etag, True) - 200 case with full data
     """
-    hypercache = flags_hypercache if include_cohorts else flags_without_cohorts_hypercache
+    hypercache = flag_definitions_hypercache if include_cohorts else flag_definitions_without_cohorts_hypercache
     return hypercache.get_if_none_match(team, client_etag)
+
+
+def _resolve_team(team: Team | int) -> Team | None:
+    """Resolve a Team object or ID to a Team, returning None if not found."""
+    if isinstance(team, int):
+        try:
+            return Team.objects.get(id=team)
+        except Team.DoesNotExist:
+            logger.warning("Team not found for flag definitions cache update", team_id=team)
+            return None
+    return team
+
+
+def update_flag_definitions_cache(team: Team | int, ttl: int | None = None) -> bool:
+    """
+    Update the flag definitions cache for a team.
+
+    Updates both cache variants (with and without cohorts). Delegates to
+    HyperCache.update_cache() which handles error logging and sync metrics.
+
+    Args:
+        team: Team object or team ID
+        ttl: Optional custom TTL in seconds (defaults to FLAGS_CACHE_TTL)
+
+    Returns:
+        True if both cache updates succeeded, False otherwise
+    """
+    resolved_team = _resolve_team(team)
+    if resolved_team is None:
+        return False
+
+    success = True
+    for hypercache in [flag_definitions_hypercache, flag_definitions_without_cohorts_hypercache]:
+        if not hypercache.update_cache(resolved_team, ttl=ttl):
+            success = False
+
+    return success
 
 
 def update_flag_caches(team: Team):
@@ -362,10 +456,10 @@ def update_flag_caches(team: Team):
     size_without_cohorts: int | None = None
     try:
         with_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=True)
-        size_with_cohorts = flags_hypercache.set_cache_value(team, with_cohorts)
+        size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts)
 
         without_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=False)
-        size_without_cohorts = flags_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
+        size_without_cohorts = flag_definitions_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
 
         success = True
     except Exception as e:
@@ -381,9 +475,15 @@ def update_flag_caches(team: Team):
         emit_cache_sync_metrics(result, "feature_flags", "flags_without_cohorts.json", size=size_without_cohorts)
 
 
-def clear_flag_caches(team: Team, kinds: list[str] | None = None):
-    flags_hypercache.clear_cache(team, kinds=kinds)
-    flags_without_cohorts_hypercache.clear_cache(team, kinds=kinds)
+def clear_flag_definition_caches(team: Team, kinds: list[str] | None = None):
+    """
+    Clear the flag definitions cache for a team.
+
+    Clears from shared cache and removes from expiry tracking.
+    Expiry tracking cleanup is handled by HyperCache.clear_cache() internally.
+    """
+    flag_definitions_hypercache.clear_cache(team, kinds=kinds)
+    flag_definitions_without_cohorts_hypercache.clear_cache(team, kinds=kinds)
 
 
 def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict[str, Any]:
@@ -396,12 +496,11 @@ def _get_flags_response_for_local_evaluation_batch(
     teams: list[Team], include_cohorts: bool
 ) -> dict[int, dict[str, Any]]:
     """
-    Build local-evaluation responses for multiple teams using bulk data loading
-    and streaming flag serialization to control memory.
+    Build local-evaluation responses for multiple teams using bulk data loading.
 
-    Loads survey flag IDs, cohorts, and group type mappings in bulk (one query
-    each regardless of team count), then streams flags with .iterator() and
-    itertools.groupby to process one team at a time.
+    Loads survey flag IDs, flags, cohorts, and group type mappings in bulk (one
+    query each regardless of team count), then iterates the materialized flag
+    list with itertools.groupby to process one team at a time.
     """
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
@@ -425,32 +524,10 @@ def _get_flags_response_for_local_evaluation_batch(
     ):
         survey_flag_ids.update(fid for fid in row if fid is not None)
 
-    # Only load cohorts if at least one flag references a cohort property.
-    # This avoids loading thousands of unused cohorts for teams that don't
-    # use cohorts in their feature flags.
-    any_flag_uses_cohort = (
-        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(team_id__in=team_ids, deleted=False)
-        .filter(filters__groups__contains=[{"properties": [{"type": "cohort"}]}])
-        .exists()
-    )
-
-    cohorts_by_project: dict[int, dict[int, Cohort]] = defaultdict(dict)
-    if any_flag_uses_cohort:
-        for cohort in (
-            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-            .filter(team__project_id__in=project_ids, deleted=False)
-            .select_related("team")
-        ):
-            cohorts_by_project[cohort.team.project_id][cohort.pk] = cohort
-
-    # Bulk load group type mappings for all projects
-    gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
-    for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(project_id__in=project_ids):
-        gtm_by_project[row.project_id][str(row.group_type_index)] = row.group_type
-
-    # Stream flags ordered by team_id then key for consistent ordering (ETag stability)
-    flags_qs = (
+    # Load all eligible flags once, ordered for groupby and ETag stability.
+    # Materializing allows two passes: first to extract cohort IDs, then to
+    # serialize — one DB round trip instead of two.
+    all_flags = list(
         FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
         .filter(
             ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
@@ -458,12 +535,57 @@ def _get_flags_response_for_local_evaluation_batch(
             deleted=False,
         )
         .exclude(id__in=survey_flag_ids)
+        .annotate(
+            evaluation_tag_names_agg=ArrayAgg(
+                "evaluation_tags__tag__name",
+                filter=Q(evaluation_tags__isnull=False),
+                distinct=True,
+            )
+        )
         .order_by("team_id", "key")
     )
 
+    referenced_cohort_ids: set[int] = set()
+    for flag in all_flags:
+        flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
+        referenced_cohort_ids.update(_extract_cohort_ids_from_filters(flag.filters or {}))
+
+    # Load only the referenced cohorts and resolve nested dependencies
+    # iteratively. Each iteration loads newly discovered nested cohort IDs
+    # until there are none left (typically 1-2 iterations).
+    cohorts_by_project: dict[int, dict[int, Cohort]] = defaultdict(dict)
+    ids_to_load = referenced_cohort_ids.copy()
+    loaded_ids: set[int] = set()
+
+    while ids_to_load:
+        newly_loaded: list[Cohort] = []
+        for cohort in (
+            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+            .filter(pk__in=ids_to_load, team__project_id__in=project_ids, deleted=False, is_static=False)
+            .select_related("team")
+        ):
+            cohorts_by_project[cohort.team.project_id][cohort.pk] = cohort
+            loaded_ids.add(cohort.pk)
+            newly_loaded.append(cohort)
+
+        # Mark all requested IDs as loaded (including missing ones) to avoid retrying
+        loaded_ids.update(ids_to_load)
+
+        # Extract nested cohort references from newly loaded cohorts
+        nested_ids: set[int] = set()
+        for cohort in newly_loaded:
+            nested_ids.update(get_nested_cohort_ids(cohort))
+
+        ids_to_load = nested_ids - loaded_ids
+
+    # Bulk load group type mappings for all projects
+    gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
+    for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(project_id__in=project_ids):
+        gtm_by_project[row.project_id][str(row.group_type_index)] = row.group_type
+
     results: dict[int, dict[str, Any]] = {}
 
-    for tid, team_flags_iter in groupby(flags_qs.iterator(), key=lambda f: f.team_id):
+    for tid, team_flags_iter in groupby(all_flags, key=lambda f: f.team_id):
         team = team_by_id.get(tid)
         if team is None:
             continue
@@ -483,15 +605,9 @@ def _get_flags_response_for_local_evaluation_batch(
                 # Pre-populate cache with empty entries for any referenced cohort_id
                 # not already loaded, so get_cohort_ids doesn't make fallback DB queries
                 # for deleted or cross-team cohorts.
-                for group in filters.get("groups", []):
-                    for prop in group.get("properties", []):
-                        if prop.get("type") == "cohort" and prop.get("value") is not None:
-                            try:
-                                cid = int(prop["value"])
-                                if cid not in seen_cohorts_cache:
-                                    seen_cohorts_cache[cid] = ""
-                            except (TypeError, ValueError):
-                                pass
+                for cid in _extract_cohort_ids_from_filters(filters):
+                    if cid not in seen_cohorts_cache:
+                        seen_cohorts_cache[cid] = ""
 
                 cohort_ids = feature_flag.get_cohort_ids(
                     using_database=DATABASE_FOR_LOCAL_EVALUATION,
@@ -530,6 +646,7 @@ def _get_flags_response_for_local_evaluation_batch(
 
             except Exception:
                 logger.error("Error processing feature flag", extra={"flag_id": feature_flag.pk}, exc_info=True)
+                FLAG_PROCESSING_ERROR_COUNTER.inc()
                 continue
 
         response_data: dict[str, Any] = {
@@ -550,6 +667,39 @@ def _get_flags_response_for_local_evaluation_batch(
             }
 
     return results
+
+
+# Per-variant update functions for management configs. Each updates only its own
+# cache variant so that warm_caches doesn't do double work when iterating configs.
+
+
+def _update_flag_definitions_with_cohorts(team: Team | int, ttl: int | None = None) -> bool:
+    resolved_team = _resolve_team(team)
+    if resolved_team is None:
+        return False
+    return flag_definitions_hypercache.update_cache(resolved_team, ttl=ttl)
+
+
+def _update_flag_definitions_without_cohorts(team: Team | int, ttl: int | None = None) -> bool:
+    resolved_team = _resolve_team(team)
+    if resolved_team is None:
+        return False
+    return flag_definitions_without_cohorts_hypercache.update_cache(resolved_team, ttl=ttl)
+
+
+# HyperCache management configs for warming/verification.
+# Two separate configs, one for each cache variant.
+FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
+    hypercache=flag_definitions_hypercache,
+    update_fn=_update_flag_definitions_with_cohorts,
+    cache_name="flag_definitions",
+)
+
+FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
+    hypercache=flag_definitions_without_cohorts_hypercache,
+    update_fn=_update_flag_definitions_without_cohorts,
+    cache_name="flag_definitions_no_cohorts",
+)
 
 
 # NOTE: All models that affect feature flag evaluation should have a signal to update the cache

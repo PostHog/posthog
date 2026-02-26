@@ -11,6 +11,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import GetDAGStructureInputs, get_dag_structure_activity
+from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
@@ -316,9 +317,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         NodeResult(
                             node_id=node_id,
                             success=False,
-                            error=error_message,
+                            error=strip_hostname_from_error(error_message),
                         )
                     )
+                    # log original error with hostname for internal debugging
                     temporalio.workflow.logger.error(
                         f"Node {node_id} failed to materialize: {error_message}",
                         extra=inputs.properties_to_log,
@@ -326,15 +328,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 except Exception as e:
                     capture_exception(e)
                     failed_node_set.add(node_id)
+                    error_str = str(e)
                     node_results.append(
                         NodeResult(
                             node_id=node_id,
                             success=False,
-                            error=str(e),
+                            error=strip_hostname_from_error(error_str),
                         )
                     )
+                    # log original error with hostname for internal debugging
                     temporalio.workflow.logger.error(
-                        f"Node {node_id} failed with unexpected error: {str(e)}",
+                        f"Node {node_id} failed with unexpected error: {error_str}",
                         extra=inputs.properties_to_log,
                     )
 

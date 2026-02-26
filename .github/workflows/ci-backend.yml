@@ -132,20 +132,16 @@ jobs:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
                         - 'products/*/frontend/generated/**/*'
+                        - 'services/mcp/src/generated/**/*'
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
-                        - 'frontend/src/lib/api-stub-for-orval.ts'
-                      # Isolated products - triggers fast isolated tests
-                      products:
-                        - 'products/**/backend/**/*'
-                        - 'common/**/*'
-                      # Legacy code - triggers full Django test suite
-                      # Also includes common/ as high-blast-radius code that affects everything
-                      legacy:
-                        - 'ee/**/*'
-                        - 'posthog/**/*'
-                        - 'common/**/*'
+                        - 'services/mcp/scripts/generate-orval-schemas.mjs'
+                        - 'services/mcp/scripts/generate-tools.ts'
+                        - 'services/mcp/definitions/**/*.yaml'
+                        - 'products/*/mcp/**/*.yaml'
+                        - 'services/mcp/src/tools/generated/**/*'
+                        - 'services/mcp/schema/generated-tool-definitions.json'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -737,6 +733,7 @@ jobs:
                   GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
                   ./bin/hogli build:openapi
+                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
                   if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
                       exit 0
@@ -783,10 +780,11 @@ jobs:
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
 
-                  # Switch to PR branch and regenerate types there
+                  # Switch to PR branch and regenerate types and YAML there
                   git fetch origin "$BRANCH"
                   git checkout -f -B "$BRANCH" "origin/$BRANCH"
                   ./bin/hogli build:openapi
+                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 
                   if git diff --exit-code; then
                       echo "Types already up to date on PR branch"
@@ -795,6 +793,8 @@ jobs:
 
                   git add frontend/src/generated/
                   git add products/*/frontend/generated/ 2>/dev/null || true
+                  git add products/*/mcp/*.yaml 2>/dev/null || true
+                  git add services/mcp/definitions/*.yaml 2>/dev/null || true
                   git commit -m "chore: update OpenAPI generated types"
                   git push origin "$BRANCH"
                   echo "::notice::Pushed updated OpenAPI types to $BRANCH"

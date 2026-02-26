@@ -3726,19 +3726,6 @@
         }
     },
     {
-        "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
-        "cost": {
-            "default": {
-                "prompt_token": 6e-7,
-                "completion_token": 0.0000018
-            },
-            "nebius-fp8": {
-                "prompt_token": 6e-7,
-                "completion_token": 0.0000018
-            }
-        }
-    },
-    {
         "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
         "cost": {
             "default": {

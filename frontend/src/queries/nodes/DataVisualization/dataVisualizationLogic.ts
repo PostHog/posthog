@@ -239,14 +239,6 @@ const isNumericalType = (type: ColumnScalar): boolean => {
     return false
 }
 
-const isTimeSeriesVisualizationType = (visualizationType: ChartDisplayType): boolean => {
-    return (
-        visualizationType === ChartDisplayType.ActionsLineGraph ||
-        visualizationType === ChartDisplayType.ActionsAreaGraph ||
-        visualizationType === ChartDisplayType.ActionsLineGraphCumulative
-    )
-}
-
 const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayType => {
     const stringColumns = columns.filter((column) => column.type.name === 'STRING')
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
@@ -988,16 +980,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         effectiveVisualizationType: [
-            (s) => [s.visualizationType, s.autoVisualizationType, s.columns, s.response],
-            (visualizationType, autoVisualizationType, columns, response): ChartDisplayType => {
-                const isTimeSeriesData = hasTimeSeriesData(columns, response)
-
+            (s) => [s.visualizationType, s.autoVisualizationType],
+            (visualizationType, autoVisualizationType): ChartDisplayType => {
                 if (visualizationType === ChartDisplayType.Auto) {
                     return autoVisualizationType
-                }
-
-                if (!isTimeSeriesData && isTimeSeriesVisualizationType(visualizationType)) {
-                    return resolveNonTimeSeriesVisualizationType(columns)
                 }
 
                 return visualizationType

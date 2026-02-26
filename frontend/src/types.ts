@@ -612,6 +612,11 @@ export interface ConversationsSettings {
     widget_identification_form_description?: string
     widget_placeholder_text?: string
     widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
+    slack_enabled?: boolean
+    slack_team_id?: string | null
+    slack_channel_id?: string | null
+    slack_channel_name?: string | null
+    slack_ticket_emoji?: string | null
 }
 
 export interface LogsSettings {
@@ -4829,6 +4834,7 @@ export const INTEGRATION_KINDS = [
     'azure-blob',
     'firebase',
     'jira',
+    'pinterest-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5026,6 +5032,7 @@ export type APIScopeObject =
     | 'group'
     | 'health_issue'
     | 'heatmap'
+    | 'hog_flow'
     | 'hog_function'
     | 'insight'
     | 'insight_variable'
@@ -5122,6 +5129,50 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
+}
+
+export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
+
+export interface EffectiveAccessControlEntry {
+    access_level: AccessControlLevel | null
+    effective_access_level: AccessControlLevel | null
+    inherited_access_level: AccessControlLevel | null
+    inherited_access_level_reason: InheritedAccessLevelReason | null
+    minimum: AccessControlLevel
+    maximum: AccessControlLevel
+}
+
+export interface AccessControlDefaultsResponse {
+    available_project_levels: AccessControlLevel[]
+    available_resource_levels: AccessControlLevel[]
+    can_edit: boolean
+    project_access_level: AccessControlLevel
+    resource_access_levels: Record<string, EffectiveAccessControlEntry>
+}
+
+export interface AccessControlRolesResponse {
+    available_project_levels: AccessControlLevel[]
+    available_resource_levels: AccessControlLevel[]
+    can_edit: boolean
+    results: {
+        role_id: RoleType['id']
+        role_name: string
+        project: EffectiveAccessControlEntry
+        resources: Record<string, EffectiveAccessControlEntry>
+    }[]
+}
+
+export interface AccessControlMembersResponse {
+    available_project_levels: AccessControlLevel[]
+    available_resource_levels: AccessControlLevel[]
+    can_edit: boolean
+    results: {
+        organization_membership_id: OrganizationMemberType['id']
+        user: { uuid: string; first_name: string; email: string }
+        organization_level: number
+        project: EffectiveAccessControlEntry
+        resources: Record<string, EffectiveAccessControlEntry>
+    }[]
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
@@ -5405,6 +5456,7 @@ export interface IncrementalField {
     type: IncrementalFieldType // the field type shown in the UI
     field: string // the actual database field name
     field_type: IncrementalFieldType // the actual database field type
+    nullable?: boolean // whether the field allows null values
 }
 
 export interface ExternalDataSourceSyncSchema {

@@ -127,6 +127,7 @@ export const IntegrationKindApi = {
     AzureBlob: 'azure-blob',
     Firebase: 'firebase',
     Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
