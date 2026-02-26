@@ -1118,12 +1118,11 @@ export type RecordingConsoleLogV2 = {
     windowNumber?: number | '?' | undefined
     level: LogLevel
     content: string
+    count?: number
     // JS code associated with the log - implicitly the empty array when not provided
     lines?: string[]
     // stack trace associated with the log - implicitly the empty array when not provided
     trace?: string[]
-    // number of times this log message was seen - implicitly 1 when not provided
-    count?: number
 }
 
 export interface RecordingSegment {

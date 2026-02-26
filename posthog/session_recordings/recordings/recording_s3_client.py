@@ -9,12 +9,12 @@ import structlog
 from boto3 import client as boto3_client
 from botocore.client import Config
 
-from posthog.storage.recordings.errors import FileFetchError, FileUploadError
+from posthog.session_recordings.recordings.errors import FileFetchError, FileUploadError
 
 logger = structlog.get_logger(__name__)
 
 
-class FileStorage:
+class RecordingS3Client:
     def __init__(self, client, bucket: str) -> None:
         self._client = client
         self._bucket = bucket
@@ -29,7 +29,7 @@ class FileStorage:
             )
         except Exception as e:
             logger.exception(
-                "file_storage.upload_file_failed",
+                "recording_s3_client.upload_file_failed",
                 bucket=self._bucket,
                 key=key,
                 filename=filename,
@@ -48,7 +48,7 @@ class FileStorage:
             return response["Body"].read()
         except Exception as e:
             logger.exception(
-                "file_storage.download_file_failed",
+                "recording_s3_client.download_file_failed",
                 bucket=self._bucket,
                 key=key,
                 error=e,
@@ -65,7 +65,7 @@ class FileStorage:
             raise
         except Exception as e:
             logger.exception(
-                "file_storage.download_file_decompressed_failed",
+                "recording_s3_client.download_file_decompressed_failed",
                 bucket=self._bucket,
                 key=key,
                 error=e,
@@ -74,7 +74,7 @@ class FileStorage:
             raise FileFetchError(f"Failed to decompress file: {str(e)}") from e
 
 
-class AsyncFileStorage:
+class AsyncRecordingS3Client:
     def __init__(self, client, bucket: str) -> None:
         self._client = client
         self._bucket = bucket
@@ -89,7 +89,7 @@ class AsyncFileStorage:
             )
         except Exception as e:
             logger.exception(
-                "async_file_storage.upload_file_failed",
+                "async_recording_s3_client.upload_file_failed",
                 bucket=self._bucket,
                 key=key,
                 filename=filename,
@@ -108,7 +108,7 @@ class AsyncFileStorage:
             return await response["Body"].read()
         except Exception as e:
             logger.exception(
-                "async_file_storage.download_file_failed",
+                "async_recording_s3_client.download_file_failed",
                 bucket=self._bucket,
                 key=key,
                 error=e,
@@ -125,7 +125,7 @@ class AsyncFileStorage:
             raise
         except Exception as e:
             logger.exception(
-                "async_file_storage.download_file_decompressed_failed",
+                "async_recording_s3_client.download_file_decompressed_failed",
                 bucket=self._bucket,
                 key=key,
                 error=e,
@@ -134,8 +134,8 @@ class AsyncFileStorage:
             raise FileFetchError(f"Failed to decompress file: {str(e)}") from e
 
 
-def file_storage() -> FileStorage:
-    """Create a sync FileStorage client."""
+def recording_s3_client() -> RecordingS3Client:
+    """Create a sync RecordingS3Client."""
     required_settings = [
         settings.SESSION_RECORDING_V2_S3_ENDPOINT,
         settings.SESSION_RECORDING_V2_S3_REGION,
@@ -143,7 +143,7 @@ def file_storage() -> FileStorage:
     ]
 
     if not all(required_settings):
-        raise RuntimeError("Missing required settings for file storage client")
+        raise RuntimeError("Missing required settings for recording S3 client")
 
     s3_client = boto3_client(
         "s3",
@@ -153,12 +153,12 @@ def file_storage() -> FileStorage:
         config=Config(signature_version="s3v4"),
         region_name=settings.SESSION_RECORDING_V2_S3_REGION,
     )
-    return FileStorage(s3_client, bucket=settings.SESSION_RECORDING_V2_S3_BUCKET)
+    return RecordingS3Client(s3_client, bucket=settings.SESSION_RECORDING_V2_S3_BUCKET)
 
 
 @asynccontextmanager
-async def async_file_storage() -> AsyncIterator[AsyncFileStorage]:
-    """Create an async FileStorage client."""
+async def async_recording_s3_client() -> AsyncIterator[AsyncRecordingS3Client]:
+    """Create an async RecordingS3Client."""
     required_settings = [
         settings.SESSION_RECORDING_V2_S3_ENDPOINT,
         settings.SESSION_RECORDING_V2_S3_REGION,
@@ -166,7 +166,7 @@ async def async_file_storage() -> AsyncIterator[AsyncFileStorage]:
     ]
 
     if not all(required_settings):
-        raise RuntimeError("Missing required settings for file storage client")
+        raise RuntimeError("Missing required settings for recording S3 client")
 
     session = aioboto3.Session()
     async with session.client(  # type: ignore[call-overload]
@@ -177,4 +177,4 @@ async def async_file_storage() -> AsyncIterator[AsyncFileStorage]:
         config=Config(signature_version="s3v4"),
         region_name=settings.SESSION_RECORDING_V2_S3_REGION,
     ) as s3_client:
-        yield AsyncFileStorage(s3_client, bucket=settings.SESSION_RECORDING_V2_S3_BUCKET)
+        yield AsyncRecordingS3Client(s3_client, bucket=settings.SESSION_RECORDING_V2_S3_BUCKET)
