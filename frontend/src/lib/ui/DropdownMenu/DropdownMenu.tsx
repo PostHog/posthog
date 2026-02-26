@@ -17,34 +17,40 @@ const DropdownMenu = DropdownMenuPrimitive.Root
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 
-const DropdownMenuGroup = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Group>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Group>
->(({ className, ...props }, ref): JSX.Element => {
+const DropdownMenuGroup = ({
+    ref,
+    className,
+    ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Group>): JSX.Element => {
     return <DropdownMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
-})
+}
 DropdownMenuGroup.displayName = DropdownMenuPrimitive.Group.displayName
 
 const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 
 const DropdownMenuSub = DropdownMenuPrimitive.Sub
 
-const DropdownMenuRadioGroup = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.RadioGroup>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>
->(({ className, ...props }, ref): JSX.Element => {
+const DropdownMenuRadioGroup = ({
+    ref,
+    className,
+    ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>): JSX.Element => {
     return (
         <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
     )
-})
+}
 DropdownMenuRadioGroup.displayName = DropdownMenuPrimitive.RadioGroup.displayName
 
-const DropdownMenuItemIndicator = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.ItemIndicator>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.ItemIndicator> & {
-        intent: 'checkbox' | 'radio'
-    }
->(({ className, intent, ...props }, ref): JSX.Element => {
+interface DropdownMenuItemIndicatorProps extends React.ComponentProps<typeof DropdownMenuPrimitive.ItemIndicator> {
+    intent: 'checkbox' | 'radio'
+}
+
+const DropdownMenuItemIndicator = ({
+    ref,
+    className,
+    intent,
+    ...props
+}: DropdownMenuItemIndicatorProps): JSX.Element => {
     return (
         // We need to make a box around the indicator to ensure when it's not "checked" it's still the same size
         <div className="flex place-items-center size-[var(--button-height)] shrink-0">
@@ -60,100 +66,89 @@ const DropdownMenuItemIndicator = React.forwardRef<
             </DropdownMenuPrimitive.ItemIndicator>
         </div>
     )
-})
+}
 DropdownMenuItemIndicator.displayName = DropdownMenuPrimitive.ItemIndicator.displayName
 
-const DropdownMenuSubTrigger = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & {
-        inset?: boolean
-    }
->(({ className, inset, ...props }, ref): JSX.Element => {
+interface DropdownMenuSubTriggerProps extends React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> {
+    inset?: boolean
+}
+
+const DropdownMenuSubTrigger = ({ ref, className, inset, ...props }: DropdownMenuSubTriggerProps): JSX.Element => {
     return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
-})
+}
 DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName
 
-const DropdownMenuSubContent = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
->(
-    ({ className, children, collisionPadding = { top: 50, bottom: 50 }, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.SubContent
-            ref={ref}
-            collisionPadding={collisionPadding}
-            className={cn(
-                'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
-                className
-            )}
-            {...props}
-        >
-            <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
-                {children}
-            </ScrollableShadows>
-        </DropdownMenuPrimitive.SubContent>
-    )
+const DropdownMenuSubContent = ({
+    ref,
+    className,
+    children,
+    collisionPadding = { top: 50, bottom: 50 },
+    ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>): JSX.Element => (
+    <DropdownMenuPrimitive.SubContent
+        ref={ref}
+        collisionPadding={collisionPadding}
+        className={cn('primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]', className)}
+        {...props}
+    >
+        <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
+            {children}
+        </ScrollableShadows>
+    </DropdownMenuPrimitive.SubContent>
 )
 DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayName
 
-const DropdownMenuContent = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Content>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
-        matchTriggerWidth?: boolean
-    }
->(
-    (
-        {
-            className,
-            children,
-            sideOffset = 4,
-            collisionPadding = { top: 50, bottom: 50, left: 10, right: 10 },
-            matchTriggerWidth,
-            ...props
-        },
-        ref
-    ): JSX.Element => {
-        return (
-            <DropdownMenuPrimitive.Portal>
-                <DropdownMenuPrimitive.Content
-                    ref={ref}
-                    sideOffset={sideOffset}
-                    collisionPadding={collisionPadding}
-                    className={cn(
-                        'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
-                        matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
-                        className
-                    )}
-                    loop
-                    {...props}
-                >
-                    <ScrollableShadows
-                        direction="vertical"
-                        styledScrollbars
-                        innerClassName="primitive-menu-content-inner"
-                    >
-                        {children}
-                    </ScrollableShadows>
-                </DropdownMenuPrimitive.Content>
-            </DropdownMenuPrimitive.Portal>
-        )
-    }
-)
+interface DropdownMenuContentProps extends React.ComponentProps<typeof DropdownMenuPrimitive.Content> {
+    matchTriggerWidth?: boolean
+}
+
+const DropdownMenuContent = ({
+    ref,
+    className,
+    children,
+    sideOffset = 4,
+    collisionPadding = { top: 50, bottom: 50, left: 10, right: 10 },
+    matchTriggerWidth,
+    ...props
+}: DropdownMenuContentProps): JSX.Element => {
+    return (
+        <DropdownMenuPrimitive.Portal>
+            <DropdownMenuPrimitive.Content
+                ref={ref}
+                sideOffset={sideOffset}
+                collisionPadding={collisionPadding}
+                className={cn(
+                    'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
+                    matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
+                    className
+                )}
+                loop
+                {...props}
+            >
+                <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
+                    {children}
+                </ScrollableShadows>
+            </DropdownMenuPrimitive.Content>
+        </DropdownMenuPrimitive.Portal>
+    )
+}
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName
 
-const DropdownMenuItem = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Item>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & {
-        inset?: boolean
-    }
->(({ className, inset, ...props }, ref): JSX.Element => {
+interface DropdownMenuItemProps extends React.ComponentProps<typeof DropdownMenuPrimitive.Item> {
+    inset?: boolean
+}
+
+const DropdownMenuItem = ({ ref, className, inset, ...props }: DropdownMenuItemProps): JSX.Element => {
     return <DropdownMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
-})
+}
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName
 
-const DropdownMenuCheckboxItem = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem>
->(({ className, checked, ...props }, ref): JSX.Element => {
+const DropdownMenuCheckboxItem = ({
+    ref,
+    className,
+    checked,
+    ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>): JSX.Element => {
     return (
         <DropdownMenuPrimitive.CheckboxItem
             ref={ref}
@@ -165,13 +160,14 @@ const DropdownMenuCheckboxItem = React.forwardRef<
             {...props}
         />
     )
-})
+}
 DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName
 
-const DropdownMenuRadioItem = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
->(({ className, ...props }, ref): JSX.Element => {
+const DropdownMenuRadioItem = ({
+    ref,
+    className,
+    ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>): JSX.Element => {
     return (
         <DropdownMenuPrimitive.RadioItem
             ref={ref}
@@ -182,32 +178,28 @@ const DropdownMenuRadioItem = React.forwardRef<
             {...props}
         />
     )
-})
+}
 DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName
 
-const DropdownMenuLabel = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Label>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Label> & {
-        inset?: boolean
-    }
->(
-    ({ className, inset, children, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.Label ref={ref} className={cn('px-2', inset && 'pl-7', className)} asChild {...props}>
-            <Label intent="menu">{children}</Label>
-        </DropdownMenuPrimitive.Label>
-    )
+interface DropdownMenuLabelProps extends React.ComponentProps<typeof DropdownMenuPrimitive.Label> {
+    inset?: boolean
+}
+
+const DropdownMenuLabel = ({ ref, className, inset, children, ...props }: DropdownMenuLabelProps): JSX.Element => (
+    <DropdownMenuPrimitive.Label ref={ref} className={cn('px-2', inset && 'pl-7', className)} asChild {...props}>
+        <Label intent="menu">{children}</Label>
+    </DropdownMenuPrimitive.Label>
 )
 DropdownMenuLabel.displayName = DropdownMenuPrimitive.Label.displayName
 
-const DropdownMenuSeparator = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Separator>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>
->(
-    ({ className, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.Separator ref={ref} {...props} asChild>
-            <MenuSeparator className={className} />
-        </DropdownMenuPrimitive.Separator>
-    )
+const DropdownMenuSeparator = ({
+    ref,
+    className,
+    ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Separator>): JSX.Element => (
+    <DropdownMenuPrimitive.Separator ref={ref} {...props} asChild>
+        <MenuSeparator className={className} />
+    </DropdownMenuPrimitive.Separator>
 )
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName
 

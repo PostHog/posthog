@@ -1,5 +1,3 @@
-import { forwardRef } from 'react'
-
 import { IconChevronRight } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
@@ -7,11 +5,13 @@ import { cn } from 'lib/utils/css-classes'
 /* -------------------------------------------------------------------------- */
 /*                           Menu Separator                                 */
 /* -------------------------------------------------------------------------- */
-export const MenuSeparator = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-    ({ className, ...props }, ref) => {
-        return <div ref={ref} className={cn('my-1 h-px bg-border-primary shrink-0 -mx-1', className)} {...props} />
-    }
-)
+interface MenuSeparatorProps extends React.HTMLAttributes<HTMLDivElement> {
+    ref?: React.RefObject<HTMLDivElement>
+}
+
+export const MenuSeparator = ({ ref, className, ...props }: MenuSeparatorProps): JSX.Element => {
+    return <div ref={ref} className={cn('my-1 h-px bg-border-primary shrink-0 -mx-1', className)} {...props} />
+}
 MenuSeparator.displayName = 'MenuSeparator'
 
 /* -------------------------------------------------------------------------- */

@@ -2,7 +2,6 @@ import {
     ReactNode,
     cloneElement,
     createContext,
-    forwardRef,
     isValidElement,
     useCallback,
     useContext,
@@ -73,10 +72,18 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 /** Root ListBox implementation */
-const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
-    { children, className, onFinishedKeyDown, focusedElement, virtualFocus = false, autoSelectFirst = false, ...props },
-    ref
-) {
+const InnerListBox = function ListBox({
+    ref,
+    children,
+    className,
+    onFinishedKeyDown,
+    focusedElement,
+    virtualFocus = false,
+    autoSelectFirst = false,
+    ...props
+}: ListBoxProps & {
+    ref?: React.RefObject<ListBoxHandle>
+}): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const focusableElements = useRef<HTMLElement[]>([])
     const rows = useRef<HTMLElement[][]>([])
@@ -657,7 +664,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             </div>
         </ListBoxContext.Provider>
     )
-})
+}
 
 InnerListBox.displayName = 'ListBox'
 
@@ -675,150 +682,158 @@ export interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> 
     focusKey?: string
     // Index within a group (when inside ListBox.Group)
     index?: number
+    ref?: React.RefObject<HTMLLIElement>
 }
 
-const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
-    (
-        { children, asChild, onClick, virtualFocusIgnore, focusFirst, row, column, focusKey, index, ...props },
-        ref
-    ): JSX.Element => {
-        const { containerRef, syncVirtualFocus } = useContext(ListBoxContext)
-        const groupContext = useContext(ListBoxGroupContext)
+const ListBoxItem = ({
+    ref,
+    children,
+    asChild,
+    onClick,
+    virtualFocusIgnore,
+    focusFirst,
+    row,
+    column,
+    focusKey,
+    index,
+    ...props
+}: ListBoxItemProps): JSX.Element => {
+    const { containerRef, syncVirtualFocus } = useContext(ListBoxContext)
+    const groupContext = useContext(ListBoxGroupContext)
 
-        const handleFocus = (e: React.FocusEvent): void => {
-            e.currentTarget.setAttribute('data-focused', 'true')
-            // after setting data-focused...
-            const rowAttr = (e.currentTarget as HTMLElement).getAttribute('data-row')
-            if (rowAttr != null) {
-                // reach up to the provider via a custom event (no context change needed)
-                ;(e.currentTarget.closest('[role="listbox"]') as HTMLElement | null)?.dispatchEvent(
-                    new CustomEvent('listbox:setStickyRow', {
-                        detail: { row: parseInt(rowAttr, 10) },
-                        bubbles: true,
-                    })
-                )
-            }
-
-            // Sync virtual focus so keyboard navigation follows mouse selection
-            syncVirtualFocus?.(e.currentTarget as HTMLElement)
-
-            // Track all focus keys for history
-            const currentFocusKey = (e.currentTarget as HTMLElement).getAttribute('data-focus-key')
-            if (currentFocusKey) {
-                ;(e.currentTarget.closest('[role="listbox"]') as HTMLElement | null)?.dispatchEvent(
-                    new CustomEvent('listbox:setFocusKey', {
-                        detail: {
-                            focusKey: currentFocusKey,
-                            isContent: !currentFocusKey.startsWith('show-all-'),
-                        },
-                        bubbles: true,
-                    })
-                )
-            }
-            containerRef?.current?.querySelectorAll('[data-listbox-item]').forEach((el: Element) => {
-                if (el !== e.currentTarget) {
-                    el.setAttribute('data-focused', 'false')
-                }
-            })
+    const handleFocus = (e: React.FocusEvent): void => {
+        e.currentTarget.setAttribute('data-focused', 'true')
+        // after setting data-focused...
+        const rowAttr = (e.currentTarget as HTMLElement).getAttribute('data-row')
+        if (rowAttr != null) {
+            // reach up to the provider via a custom event (no context change needed)
+            ;(e.currentTarget.closest('[role="listbox"]') as HTMLElement | null)?.dispatchEvent(
+                new CustomEvent('listbox:setStickyRow', {
+                    detail: { row: parseInt(rowAttr, 10) },
+                    bubbles: true,
+                })
+            )
         }
 
-        const handleBlur = (e: React.FocusEvent): void => {
-            e.currentTarget.setAttribute('data-focused', 'false')
+        // Sync virtual focus so keyboard navigation follows mouse selection
+        syncVirtualFocus?.(e.currentTarget as HTMLElement)
+
+        // Track all focus keys for history
+        const currentFocusKey = (e.currentTarget as HTMLElement).getAttribute('data-focus-key')
+        if (currentFocusKey) {
+            ;(e.currentTarget.closest('[role="listbox"]') as HTMLElement | null)?.dispatchEvent(
+                new CustomEvent('listbox:setFocusKey', {
+                    detail: {
+                        focusKey: currentFocusKey,
+                        isContent: !currentFocusKey.startsWith('show-all-'),
+                    },
+                    bubbles: true,
+                })
+            )
         }
+        containerRef?.current?.querySelectorAll('[data-listbox-item]').forEach((el: Element) => {
+            if (el !== e.currentTarget) {
+                el.setAttribute('data-focused', 'false')
+            }
+        })
+    }
 
-        const handleItemClick = (e: React.MouseEvent): void => {
-            e.currentTarget.setAttribute('aria-current', 'true')
-            containerRef?.current?.querySelectorAll('[data-listbox-item]').forEach((el: Element) => {
-                if (el !== e.currentTarget) {
-                    el.setAttribute('aria-current', 'false')
-                }
-            })
+    const handleBlur = (e: React.FocusEvent): void => {
+        e.currentTarget.setAttribute('data-focused', 'false')
+    }
 
-            if (onClick) {
-                onClick(e as React.MouseEvent<HTMLLIElement, MouseEvent>)
+    const handleItemClick = (e: React.MouseEvent): void => {
+        e.currentTarget.setAttribute('aria-current', 'true')
+        containerRef?.current?.querySelectorAll('[data-listbox-item]').forEach((el: Element) => {
+            if (el !== e.currentTarget) {
+                el.setAttribute('aria-current', 'false')
+            }
+        })
+
+        if (onClick) {
+            onClick(e as React.MouseEvent<HTMLLIElement, MouseEvent>)
+        }
+    }
+
+    // Register with group if inside a group and index is provided
+    const elementRef = useRef<HTMLLIElement>(null)
+
+    useEffect(() => {
+        if (groupContext && index !== undefined && elementRef.current) {
+            groupContext.registerItem(index, elementRef.current)
+            return () => {
+                groupContext.unregisterItem(index)
             }
         }
+    }, [groupContext, index])
 
-        // Register with group if inside a group and index is provided
-        const elementRef = useRef<HTMLLIElement>(null)
+    // Callback ref to capture the actual DOM element
+    const setElementRef = useCallback(
+        (element: HTMLLIElement | null) => {
+            ;(elementRef as React.MutableRefObject<HTMLLIElement | null>).current = element
 
-        useEffect(() => {
-            if (groupContext && index !== undefined && elementRef.current) {
-                groupContext.registerItem(index, elementRef.current)
-                return () => {
-                    groupContext.unregisterItem(index)
+            // Also forward to the provided ref if it exists
+            if (ref) {
+                if (typeof ref === 'function') {
+                    ref(element)
+                } else {
+                    ;(ref as React.MutableRefObject<HTMLLIElement | null>).current = element
                 }
             }
-        }, [groupContext, index])
+        },
+        [ref]
+    )
 
-        // Callback ref to capture the actual DOM element
-        const setElementRef = useCallback(
-            (element: HTMLLIElement | null) => {
-                ;(elementRef as React.MutableRefObject<HTMLLIElement | null>).current = element
+    const itemProps = useMemo(
+        () => ({
+            'data-listbox-item': 'true',
+            'data-focused': 'false',
+            'aria-current': false,
+            'aria-selected': false,
+            ...(row !== undefined ? { 'data-row': row } : {}),
+            ...(column !== undefined ? { 'data-column': column } : {}),
+            ...(focusKey !== undefined ? { 'data-focus-key': focusKey } : {}),
+            tabIndex: -1,
+            role: 'option',
+            onClick: handleItemClick,
+            onFocus: handleFocus,
+            onBlur: handleBlur,
+            ref: setElementRef,
+            ...(virtualFocusIgnore ? { 'data-virtual-focus-ignore': 'true' } : {}),
+            ...(focusFirst ? { 'data-focus-first': 'true' } : {}),
+            ...props,
+        }),
+        [
+            handleItemClick,
+            handleFocus,
+            handleBlur,
+            setElementRef,
+            virtualFocusIgnore,
+            focusFirst,
+            props,
+            row,
+            column,
+            focusKey,
+            index,
+        ]
+    )
 
-                // Also forward to the provided ref if it exists
-                if (ref) {
-                    if (typeof ref === 'function') {
-                        ref(element)
-                    } else {
-                        ;(ref as React.MutableRefObject<HTMLLIElement | null>).current = element
-                    }
+    if (asChild && isValidElement(children)) {
+        return cloneElement(children as React.ReactElement, {
+            ...children.props,
+            ...itemProps,
+            onClick: (e: React.MouseEvent) => {
+                handleItemClick(e)
+                if (children.props.onClick) {
+                    children.props.onClick(e)
                 }
             },
-            [ref]
-        )
-
-        const itemProps = useMemo(
-            () => ({
-                'data-listbox-item': 'true',
-                'data-focused': 'false',
-                'aria-current': false,
-                'aria-selected': false,
-                ...(row !== undefined ? { 'data-row': row } : {}),
-                ...(column !== undefined ? { 'data-column': column } : {}),
-                ...(focusKey !== undefined ? { 'data-focus-key': focusKey } : {}),
-                tabIndex: -1,
-                role: 'option',
-                onClick: handleItemClick,
-                onFocus: handleFocus,
-                onBlur: handleBlur,
-                ref: setElementRef,
-                ...(virtualFocusIgnore ? { 'data-virtual-focus-ignore': 'true' } : {}),
-                ...(focusFirst ? { 'data-focus-first': 'true' } : {}),
-                ...props,
-            }),
-            [
-                handleItemClick,
-                handleFocus,
-                handleBlur,
-                setElementRef,
-                virtualFocusIgnore,
-                focusFirst,
-                props,
-                row,
-                column,
-                focusKey,
-                index,
-            ]
-        )
-
-        if (asChild && isValidElement(children)) {
-            return cloneElement(children as React.ReactElement, {
-                ...children.props,
-                ...itemProps,
-                onClick: (e: React.MouseEvent) => {
-                    handleItemClick(e)
-                    if (children.props.onClick) {
-                        children.props.onClick(e)
-                    }
-                },
-                className: cn(children.props.className, props.className),
-            })
-        }
-
-        return <li {...itemProps}>{children}</li>
+            className: cn(children.props.className, props.className),
+        })
     }
-)
+
+    return <li {...itemProps}>{children}</li>
+}
 
 ListBoxItem.displayName = 'ListBox.Item'
 
@@ -831,88 +846,92 @@ export interface ListBoxGroupProps {
 
 let groupIdCounter = 0
 
-const ListBoxGroup = forwardRef<ListBoxGroupHandle, ListBoxGroupProps>(
-    ({ children, groupId: providedGroupId }, ref): JSX.Element => {
-        const { registerGroupItem, unregisterGroupItem, focusGroupItem } = useContext(ListBoxContext)
-        const groupId = useMemo(() => providedGroupId || `group-${groupIdCounter++}`, [providedGroupId])
-        const groupItems = useRef<Map<number, HTMLLIElement>>(new Map())
-        const currentFocusedIndex = useRef<number | null>(null)
+const ListBoxGroup = ({
+    ref,
+    children,
+    groupId: providedGroupId,
+}: ListBoxGroupProps & {
+    ref?: React.RefObject<ListBoxGroupHandle>
+}): JSX.Element => {
+    const { registerGroupItem, unregisterGroupItem, focusGroupItem } = useContext(ListBoxContext)
+    const groupId = useMemo(() => providedGroupId || `group-${groupIdCounter++}`, [providedGroupId])
+    const groupItems = useRef<Map<number, HTMLLIElement>>(new Map())
+    const currentFocusedIndex = useRef<number | null>(null)
 
-        const registerItem = useCallback(
-            (index: number, element: HTMLLIElement) => {
-                groupItems.current.set(index, element)
-                registerGroupItem?.(groupId, index, element)
-            },
-            [groupId, registerGroupItem]
-        )
+    const registerItem = useCallback(
+        (index: number, element: HTMLLIElement) => {
+            groupItems.current.set(index, element)
+            registerGroupItem?.(groupId, index, element)
+        },
+        [groupId, registerGroupItem]
+    )
 
-        const unregisterItem = useCallback(
-            (index: number) => {
-                groupItems.current.delete(index)
-                unregisterGroupItem?.(groupId, index)
-            },
-            [groupId, unregisterGroupItem]
-        )
+    const unregisterItem = useCallback(
+        (index: number) => {
+            groupItems.current.delete(index)
+            unregisterGroupItem?.(groupId, index)
+        },
+        [groupId, unregisterGroupItem]
+    )
 
-        const resumeFocus = useCallback(
-            (index: number): boolean => {
-                const availableIndices = Array.from(groupItems.current.keys()).sort((a, b) => a - b)
+    const resumeFocus = useCallback(
+        (index: number): boolean => {
+            const availableIndices = Array.from(groupItems.current.keys()).sort((a, b) => a - b)
 
-                // Try to focus the item at the given index
-                if (focusGroupItem?.(groupId, index)) {
-                    currentFocusedIndex.current = index
-                    return true
+            // Try to focus the item at the given index
+            if (focusGroupItem?.(groupId, index)) {
+                currentFocusedIndex.current = index
+                return true
+            }
+
+            // If that fails, try to focus the closest available item
+
+            // Find the closest index to the requested one
+            let closestIndex = availableIndices[0]
+            let minDistance = Math.abs(availableIndices[0] - index)
+
+            for (const availableIndex of availableIndices) {
+                const distance = Math.abs(availableIndex - index)
+                if (distance < minDistance) {
+                    minDistance = distance
+                    closestIndex = availableIndex
                 }
+            }
 
-                // If that fails, try to focus the closest available item
+            if (focusGroupItem?.(groupId, closestIndex)) {
+                currentFocusedIndex.current = closestIndex
+                return true
+            }
 
-                // Find the closest index to the requested one
-                let closestIndex = availableIndices[0]
-                let minDistance = Math.abs(availableIndices[0] - index)
+            return false
+        },
+        [groupId, focusGroupItem]
+    )
 
-                for (const availableIndex of availableIndices) {
-                    const distance = Math.abs(availableIndex - index)
-                    if (distance < minDistance) {
-                        minDistance = distance
-                        closestIndex = availableIndex
-                    }
-                }
+    const getFocusedIndex = useCallback((): number | null => {
+        return currentFocusedIndex.current
+    }, [])
 
-                if (focusGroupItem?.(groupId, closestIndex)) {
-                    currentFocusedIndex.current = closestIndex
-                    return true
-                }
+    useImperativeHandle(
+        ref,
+        () => ({
+            resumeFocus,
+            getFocusedIndex,
+        }),
+        [resumeFocus, getFocusedIndex]
+    )
 
-                return false
-            },
-            [groupId, focusGroupItem]
-        )
+    const groupContextValue = useMemo(
+        () => ({
+            groupId,
+            registerItem,
+            unregisterItem,
+        }),
+        [groupId, registerItem, unregisterItem]
+    )
 
-        const getFocusedIndex = useCallback((): number | null => {
-            return currentFocusedIndex.current
-        }, [])
-
-        useImperativeHandle(
-            ref,
-            () => ({
-                resumeFocus,
-                getFocusedIndex,
-            }),
-            [resumeFocus, getFocusedIndex]
-        )
-
-        const groupContextValue = useMemo(
-            () => ({
-                groupId,
-                registerItem,
-                unregisterItem,
-            }),
-            [groupId, registerItem, unregisterItem]
-        )
-
-        return <ListBoxGroupContext.Provider value={groupContextValue}>{children}</ListBoxGroupContext.Provider>
-    }
-)
+    return <ListBoxGroupContext.Provider value={groupContextValue}>{children}</ListBoxGroupContext.Provider>
+}
 
 ListBoxGroup.displayName = 'ListBox.Group'
 

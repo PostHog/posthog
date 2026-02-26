@@ -1,7 +1,7 @@
 import { PluginKey } from '@tiptap/pm/state'
 import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useState } from 'react'
 
 import { IconCode, IconImage, IconList, IconMinus, IconQuote, IconVideoCamera } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -103,6 +103,7 @@ interface SlashCommandsProps {
     editor: Editor
     range: { from: number; to: number }
     query: string
+    ref?: React.RefObject<SlashCommandsRef>
     onClose?: () => void
 }
 
@@ -110,10 +111,7 @@ interface SlashCommandsRef {
     onKeyDown: (event: KeyboardEvent) => boolean
 }
 
-const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { editor, range, query, onClose },
-    ref
-): JSX.Element {
+const SlashCommands = function SlashCommands({ ref, editor, range, query, onClose }: SlashCommandsProps): JSX.Element {
     const [selectedIndex, setSelectedIndex] = useState(0)
 
     const filteredCommands = SLASH_COMMANDS.filter((item) => {
@@ -195,17 +193,20 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
             ))}
         </div>
     )
-})
+}
 
 interface SlashCommandsPopoverProps extends SlashCommandsProps {
     visible: boolean
     decorationNode?: HTMLElement | null
 }
 
-const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(function SlashCommandsPopover(
-    { visible, decorationNode, onClose, ...props },
-    ref
-): JSX.Element {
+const SlashCommandsPopover = function SlashCommandsPopover({
+    ref,
+    visible,
+    decorationNode,
+    onClose,
+    ...props
+}: SlashCommandsPopoverProps): JSX.Element {
     return (
         <Popover
             placement="bottom-start"
@@ -218,7 +219,7 @@ const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverPr
             <span />
         </Popover>
     )
-})
+}
 
 const SlashCommandPluginKey = new PluginKey('slash-commands')
 

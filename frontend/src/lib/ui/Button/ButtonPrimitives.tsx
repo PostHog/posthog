@@ -1,7 +1,7 @@
 import './ButtonPrimitives.scss'
 
 import { type VariantProps, cva } from 'cva'
-import { ReactNode, createContext, forwardRef, useContext } from 'react'
+import { ReactNode, createContext, useContext } from 'react'
 import * as React from 'react'
 
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -33,6 +33,7 @@ type ButtonGroupProps = {
     children: ReactNode
     className?: string
     groupVariant?: ButtonVariant
+    ref?: React.RefObject<HTMLDivElement>
 } & VariantProps<typeof buttonPrimitiveVariants>
 
 type ButtonBaseProps = {
@@ -63,7 +64,7 @@ type ButtonBaseProps = {
 /*                              Button Group Component                        */
 /* -------------------------------------------------------------------------- */
 
-export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>((props, ref) => {
+export const ButtonGroupPrimitive = ({ ref, ...props }: ButtonGroupProps): JSX.Element => {
     const {
         className,
         groupVariant = 'default',
@@ -117,7 +118,7 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
             </Comp>
         </ButtonContext.Provider>
     )
-})
+}
 
 ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 
@@ -128,6 +129,7 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
     'data-attr'?: string
     forceVariant?: boolean
+    ref?: React.RefObject<HTMLButtonElement>
 }
 
 export const buttonPrimitiveVariants = cva({
@@ -254,7 +256,7 @@ function renderDisabledReasons(disabledReasons: DisabledReasonsObject): JSX.Elem
     )
 }
 
-export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProps>((props, ref) => {
+export const ButtonPrimitive = ({ ref, ...props }: ButtonPrimitiveProps): JSX.Element => {
     const {
         className,
         variant,
@@ -343,6 +345,6 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
     }
 
     return buttonComponent
-})
+}
 
 ButtonPrimitive.displayName = 'ButtonPrimitive'

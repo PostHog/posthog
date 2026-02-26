@@ -7,14 +7,21 @@ interface MessageTemplateProps {
     className?: string
     boxClassName?: string
     wrapperClassName?: string
+    ref?: React.RefObject<HTMLDivElement>
     children?: React.ReactNode
     header?: React.ReactNode
 }
 
-export const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, wrapperClassName, action, header },
-    ref
-) {
+export function MessageTemplate({
+    ref,
+    type,
+    children,
+    className,
+    boxClassName,
+    wrapperClassName,
+    action,
+    header,
+}: MessageTemplateProps): JSX.Element {
     return (
         <div
             className={twMerge(
@@ -42,4 +49,4 @@ export const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateP
             {action}
         </div>
     )
-})
+}

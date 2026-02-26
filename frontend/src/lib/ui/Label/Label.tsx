@@ -1,5 +1,5 @@
 import { cva } from 'cva'
-import { HTMLAttributes, LabelHTMLAttributes, forwardRef } from 'react'
+import { HTMLAttributes, LabelHTMLAttributes } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -12,23 +12,24 @@ const labelVariants = cva({
     },
 })
 
-export interface LabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
+interface LabelAsLabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
     intent?: 'menu'
+    ref?: React.Ref<HTMLLabelElement>
 }
 
-export const Label = forwardRef<HTMLLabelElement, LabelProps>(({ className, intent, htmlFor, ...props }, ref) => {
+export type LabelProps = LabelAsLabelProps
+
+export const Label = ({ ref, className, intent, htmlFor, ...props }: LabelProps): JSX.Element => {
     if (!htmlFor) {
-        // When rendering as div, exclude label-specific props
-        const { form, ...divProps } = props as LabelHTMLAttributes<HTMLLabelElement>
         return (
             <div
                 className={cn(labelVariants({ intent }), className)}
                 ref={ref as React.Ref<HTMLDivElement>}
-                {...(divProps as HTMLAttributes<HTMLDivElement>)}
+                {...(props as HTMLAttributes<HTMLDivElement>)}
             />
         )
     }
     return <label className={cn(labelVariants({ intent }), className)} htmlFor={htmlFor} ref={ref} {...props} />
-})
+}
 
 Label.displayName = 'Label'

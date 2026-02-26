@@ -7,12 +7,13 @@ function PopoverPrimitive({ ...props }: React.ComponentProps<typeof PopoverPrimi
     return <PopoverPrimitiveBase.Root data-slot="popover" {...props} />
 }
 
-const PopoverPrimitiveTrigger = React.forwardRef<
-    React.ComponentRef<typeof PopoverPrimitiveBase.Trigger>,
-    React.ComponentProps<typeof PopoverPrimitiveBase.Trigger>
->(({ ...props }, ref): JSX.Element => {
+interface PopoverPrimitivTiggerProps extends React.ComponentProps<typeof PopoverPrimitiveBase.Trigger> {
+    ref?: React.RefObject<React.ComponentRef<typeof PopoverPrimitiveBase.Trigger>>
+}
+
+const PopoverPrimitiveTrigger = ({ ref, ...props }: PopoverPrimitivTiggerProps): JSX.Element => {
     return <PopoverPrimitiveBase.Trigger ref={ref} data-slot="popover-trigger" {...props} />
-})
+}
 PopoverPrimitiveTrigger.displayName = 'PopoverPrimitiveTrigger'
 
 function PopoverPrimitiveContent({

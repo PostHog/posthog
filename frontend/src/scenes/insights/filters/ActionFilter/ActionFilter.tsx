@@ -5,7 +5,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { forwardRef, useEffect } from 'react'
+import { useEffect } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 
@@ -112,48 +112,47 @@ export interface ActionFilterProps {
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
+    ref?: React.RefObject<HTMLDivElement>
 }
 
-export const ActionFilter = forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
-    {
-        setFilters,
-        filters,
-        typeKey,
-        addFilterDefaultOptions = {},
-        mathAvailability = MathAvailability.All,
-        buttonCopy = '',
-        buttonProps = {},
-        disabled = false,
-        sortable = false,
-        showSeriesIndicator = false,
-        seriesIndicatorType = 'alpha',
-        hideFilter = false,
-        hideRename = false,
-        hideDuplicate = false,
-        propertyFiltersPopover,
-        customRowSuffix,
-        entitiesLimit,
-        showNestedArrow = false,
-        actionsTaxonomicGroupTypes,
-        propertiesTaxonomicGroupTypes,
-        showNumericalPropsOnly,
-        hideDeleteBtn,
-        renderRow,
-        buttonType = 'tertiary',
-        readOnly = false,
-        bordered = false,
-        allowedMathTypes,
-        dataWarehousePopoverFields,
-        filtersLeftPadding,
-        addFilterDocLink,
-        excludedProperties,
-        allowNonCapturedEvents,
-        hogQLGlobals,
-        definitionPopoverRenderer,
-        operatorAllowlist,
-    },
-    ref
-): JSX.Element {
+export function ActionFilter({
+    ref,
+    setFilters,
+    filters,
+    typeKey,
+    addFilterDefaultOptions = {},
+    mathAvailability = MathAvailability.All,
+    buttonCopy = '',
+    buttonProps = {},
+    disabled = false,
+    sortable = false,
+    showSeriesIndicator = false,
+    seriesIndicatorType = 'alpha',
+    hideFilter = false,
+    hideRename = false,
+    hideDuplicate = false,
+    propertyFiltersPopover,
+    customRowSuffix,
+    entitiesLimit,
+    showNestedArrow = false,
+    actionsTaxonomicGroupTypes,
+    propertiesTaxonomicGroupTypes,
+    showNumericalPropsOnly,
+    hideDeleteBtn,
+    renderRow,
+    buttonType = 'tertiary',
+    readOnly = false,
+    bordered = false,
+    allowedMathTypes,
+    dataWarehousePopoverFields,
+    filtersLeftPadding,
+    addFilterDocLink,
+    excludedProperties,
+    allowNonCapturedEvents,
+    hogQLGlobals,
+    definitionPopoverRenderer,
+    operatorAllowlist,
+}: ActionFilterProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const logic = entityFilterLogic({
         teamId: currentTeamId,
@@ -345,4 +344,4 @@ export const ActionFilter = forwardRef<HTMLDivElement, ActionFilterProps>(functi
             )}
         </div>
     )
-})
+}

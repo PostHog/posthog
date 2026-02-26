@@ -1,5 +1,3 @@
-import { forwardRef } from 'react'
-
 import { IconAI, IconWarning } from '@posthog/icons'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -86,23 +84,26 @@ export function eventRowActionsContent(event: EventType): JSX.Element {
     )
 }
 
-export const EventCopyLinkButton = forwardRef<HTMLButtonElement, { event: Pick<EventType, 'uuid' | 'timestamp'> }>(
-    function EventCopyLinkButton({ event }, ref) {
-        return (
-            <LemonButton
-                ref={ref}
-                fullWidth
-                sideIcon={<IconLink />}
-                data-attr="events-table-event-link"
-                onClick={() =>
-                    void copyToClipboard(
-                        urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
-                        'link to event'
-                    )
-                }
-            >
-                Copy link to event
-            </LemonButton>
-        )
-    }
-)
+interface EventCopyLinkButtonProps {
+    event: Pick<EventType, 'uuid' | 'timestamp'>
+    ref?: React.RefObject<HTMLButtonElement>
+}
+
+export function EventCopyLinkButton({ ref, event }: EventCopyLinkButtonProps): JSX.Element {
+    return (
+        <LemonButton
+            ref={ref}
+            fullWidth
+            sideIcon={<IconLink />}
+            data-attr="events-table-event-link"
+            onClick={() =>
+                void copyToClipboard(
+                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
+                    'link to event'
+                )
+            }
+        >
+            Copy link to event
+        </LemonButton>
+    )
+}

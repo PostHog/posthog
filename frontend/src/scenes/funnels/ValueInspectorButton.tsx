@@ -1,5 +1,3 @@
-import { forwardRef } from 'react'
-
 import { Link } from '@posthog/lemon-ui'
 
 interface ValueInspectorButtonProps {
@@ -8,12 +6,17 @@ interface ValueInspectorButtonProps {
     onMouseLeave?: (e?: React.MouseEvent) => void
     children: React.ReactNode
     title?: string | undefined
+    ref?: React.RefObject<HTMLElement>
 }
 
-export const ValueInspectorButton = forwardRef<HTMLElement, ValueInspectorButtonProps>(function ValueInspectorButton(
-    { onClick, onMouseEnter, onMouseLeave, children, title },
-    ref
-): JSX.Element {
+export function ValueInspectorButton({
+    ref,
+    onClick,
+    onMouseEnter,
+    onMouseLeave,
+    children,
+    title,
+}: ValueInspectorButtonProps): JSX.Element {
     return onClick ? (
         <Link
             ref={ref}
@@ -37,4 +40,4 @@ export const ValueInspectorButton = forwardRef<HTMLElement, ValueInspectorButton
             {children}
         </span>
     )
-})
+}

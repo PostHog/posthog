@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { forwardRef } from 'react'
 
 import { LemonBadge, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 
@@ -23,12 +22,18 @@ interface LabelIndicatorProps {
     tooltip?: string
     tooltipPlacement?: TooltipProps['placement']
     className?: string
+    ref?: React.RefObject<HTMLDivElement>
 }
 
-export const LabelIndicator = forwardRef<HTMLDivElement, LabelIndicatorProps>(function LabelIndicator(
-    { intent, label, size, tooltip, tooltipPlacement, className },
-    ref
-): JSX.Element {
+export function LabelIndicator({
+    ref,
+    intent,
+    label,
+    size,
+    tooltip,
+    tooltipPlacement,
+    className,
+}: LabelIndicatorProps): JSX.Element {
     return (
         <Tooltip title={tooltip} placement={tooltipPlacement}>
             <div ref={ref} className={clsx('flex items-center cursor-help', className, sizeVariants[size])}>
@@ -37,7 +42,7 @@ export const LabelIndicator = forwardRef<HTMLDivElement, LabelIndicatorProps>(fu
             </div>
         </Tooltip>
     )
-})
+}
 
 const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     active: 'Active',
@@ -80,10 +85,16 @@ interface StatusIndicatorProps {
     className?: string
 }
 
-export const StatusIndicator = forwardRef<HTMLDivElement, StatusIndicatorProps>(function StatusIndicator(
-    { status, size = 'small', intent = false, className, withTooltip },
-    ref
-): JSX.Element {
+export function StatusIndicator({
+    ref,
+    status,
+    size = 'small',
+    intent = false,
+    className,
+    withTooltip,
+}: StatusIndicatorProps & {
+    ref?: React.RefObject<HTMLDivElement>
+}): JSX.Element {
     return (
         <LabelIndicator
             intent={STATUS_INTENT[status]}
@@ -95,4 +106,4 @@ export const StatusIndicator = forwardRef<HTMLDivElement, StatusIndicatorProps>(
             ref={ref}
         />
     )
-})
+}

@@ -3,7 +3,7 @@ import { ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import {
     IconCursor,
@@ -58,6 +58,7 @@ type SlashCommandConditionalProps =
 type SlashCommandsProps = SlashCommandConditionalProps & {
     query?: string
     decorationNode?: any
+    ref?: React.RefObject<SlashCommandsRef>
     onClose?: () => void
 }
 
@@ -450,10 +451,7 @@ order by count() desc
     },
 ]
 
-export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode, range, getPos, onClose, query }: SlashCommandsProps,
-    ref
-): JSX.Element | null {
+export function SlashCommands({ ref, mode, range, getPos, onClose, query }: SlashCommandsProps): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     // We start with 1 because the first item is the text controls
@@ -622,27 +620,29 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             )}
         </div>
     )
-})
+}
 
-export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(
-    function SlashCommandsPopover(
-        { visible = true, decorationNode, children, onClose, ...props }: SlashCommandsPopoverProps,
-        ref
-    ): JSX.Element | null {
-        return (
-            <Popover
-                placement="right-start"
-                fallbackPlacements={['left-start', 'right-end']}
-                overlay={<SlashCommands ref={ref} onClose={onClose} {...props} />}
-                referenceElement={decorationNode}
-                visible={visible}
-                onClickOutside={onClose}
-            >
-                {children}
-            </Popover>
-        )
-    }
-)
+export function SlashCommandsPopover({
+    ref,
+    visible = true,
+    decorationNode,
+    children,
+    onClose,
+    ...props
+}: SlashCommandsPopoverProps): JSX.Element | null {
+    return (
+        <Popover
+            placement="right-start"
+            fallbackPlacements={['left-start', 'right-end']}
+            overlay={<SlashCommands ref={ref} onClose={onClose} {...props} />}
+            referenceElement={decorationNode}
+            visible={visible}
+            onClickOutside={onClose}
+        >
+            {children}
+        </Popover>
+    )
+}
 
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',

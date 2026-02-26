@@ -1,7 +1,6 @@
 import {
     ReactNode,
     createContext,
-    forwardRef,
     useCallback,
     useContext,
     useEffect,
@@ -34,6 +33,7 @@ const ComboboxContext = createContext<ComboboxContextType | null>(null)
 interface ComboboxProps extends React.HTMLAttributes<HTMLDivElement> {
     children: ReactNode
     insideMenu?: boolean
+    ref?: React.RefObject<ListBoxHandle>
 }
 
 type Action =
@@ -42,93 +42,91 @@ type Action =
 
 type State = Map<string, { visible: boolean; isSearchable: boolean }>
 
-const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(
-    ({ children, className, insideMenu = false, ...props }, ref) => {
-        const listboxRef = useRef<ListBoxHandle>(null)
-        const [searchValue, setSearchValue] = useState('')
+const InnerCombobox = ({ ref, children, className, insideMenu = false, ...props }: ComboboxProps): JSX.Element => {
+    const listboxRef = useRef<ListBoxHandle>(null)
+    const [searchValue, setSearchValue] = useState('')
 
-        const groupReducer = (state: State, action: Action): State => {
-            const newState = new Map(state)
+    const groupReducer = (state: State, action: Action): State => {
+        const newState = new Map(state)
 
-            switch (action.type) {
-                case 'register': {
-                    newState.set(action.id, {
-                        visible: action.visible,
-                        isSearchable: action.isSearchable ?? true,
-                    })
-                    return newState
-                }
-                case 'unregister': {
-                    newState.delete(action.id)
-                    return newState
-                }
-                default:
-                    return state
+        switch (action.type) {
+            case 'register': {
+                newState.set(action.id, {
+                    visible: action.visible,
+                    isSearchable: action.isSearchable ?? true,
+                })
+                return newState
             }
+            case 'unregister': {
+                newState.delete(action.id)
+                return newState
+            }
+            default:
+                return state
         }
-
-        const [groupVisibility, dispatch] = useReducer(groupReducer, new Map())
-
-        const registerGroup = useCallback((id: string, visible: boolean, isSearchable = true): void => {
-            dispatch({ type: 'register', id, visible, isSearchable })
-        }, [])
-
-        const unregisterGroup = useCallback((id: string): void => {
-            dispatch({ type: 'unregister', id })
-        }, [])
-
-        const getVisibleSearchableGroupCount = useCallback((): number => {
-            return Array.from(groupVisibility.values()).filter((group) => group.visible && group.isSearchable).length
-        }, [groupVisibility])
-
-        const contextValue = useMemo(
-            () => ({
-                searchValue,
-                setSearchValue,
-                registerGroup,
-                unregisterGroup,
-                getVisibleSearchableGroupCount,
-                insideMenu,
-            }),
-            [searchValue, registerGroup, unregisterGroup, getVisibleSearchableGroupCount, insideMenu]
-        )
-
-        useImperativeHandle(ref, () => ({
-            recalculateFocusableElements: () => listboxRef.current?.recalculateFocusableElements(),
-            focusFirstItem: () => listboxRef.current?.focusFirstItem(),
-            getFocusableElementsCount: () => listboxRef.current?.getFocusableElementsCount() ?? 0,
-            focusItemByKey: (key: string) => listboxRef.current?.focusItemByKey(key) ?? false,
-            focusPrevious: (stepsBack?: number) => listboxRef.current?.focusPrevious(stepsBack) ?? false,
-            getFocusHistory: () => listboxRef.current?.getFocusHistory() ?? [],
-        }))
-
-        useEffect(() => {
-            listboxRef.current?.recalculateFocusableElements()
-            listboxRef.current?.focusFirstItem()
-        }, [searchValue])
-
-        return (
-            <ComboboxContext.Provider value={contextValue}>
-                <ListBox
-                    ref={listboxRef}
-                    className={className}
-                    {...props}
-                    virtualFocus
-                    role="listbox"
-                    id="combobox-listbox"
-                    style={
-                        {
-                            // Match text input base height with p-1 padding
-                            '--combobox-search-height': 'calc(var(--text-input-height-base) + (var(--spacing) * 2))',
-                        } as React.CSSProperties
-                    }
-                >
-                    {children}
-                </ListBox>
-            </ComboboxContext.Provider>
-        )
     }
-)
+
+    const [groupVisibility, dispatch] = useReducer(groupReducer, new Map())
+
+    const registerGroup = useCallback((id: string, visible: boolean, isSearchable = true): void => {
+        dispatch({ type: 'register', id, visible, isSearchable })
+    }, [])
+
+    const unregisterGroup = useCallback((id: string): void => {
+        dispatch({ type: 'unregister', id })
+    }, [])
+
+    const getVisibleSearchableGroupCount = useCallback((): number => {
+        return Array.from(groupVisibility.values()).filter((group) => group.visible && group.isSearchable).length
+    }, [groupVisibility])
+
+    const contextValue = useMemo(
+        () => ({
+            searchValue,
+            setSearchValue,
+            registerGroup,
+            unregisterGroup,
+            getVisibleSearchableGroupCount,
+            insideMenu,
+        }),
+        [searchValue, registerGroup, unregisterGroup, getVisibleSearchableGroupCount, insideMenu]
+    )
+
+    useImperativeHandle(ref, () => ({
+        recalculateFocusableElements: () => listboxRef.current?.recalculateFocusableElements(),
+        focusFirstItem: () => listboxRef.current?.focusFirstItem(),
+        getFocusableElementsCount: () => listboxRef.current?.getFocusableElementsCount() ?? 0,
+        focusItemByKey: (key: string) => listboxRef.current?.focusItemByKey(key) ?? false,
+        focusPrevious: (stepsBack?: number) => listboxRef.current?.focusPrevious(stepsBack) ?? false,
+        getFocusHistory: () => listboxRef.current?.getFocusHistory() ?? [],
+    }))
+
+    useEffect(() => {
+        listboxRef.current?.recalculateFocusableElements()
+        listboxRef.current?.focusFirstItem()
+    }, [searchValue])
+
+    return (
+        <ComboboxContext.Provider value={contextValue}>
+            <ListBox
+                ref={listboxRef}
+                className={className}
+                {...props}
+                virtualFocus
+                role="listbox"
+                id="combobox-listbox"
+                style={
+                    {
+                        // Match text input base height with p-1 padding
+                        '--combobox-search-height': 'calc(var(--text-input-height-base) + (var(--spacing) * 2))',
+                    } as React.CSSProperties
+                }
+            >
+                {children}
+            </ListBox>
+        </ComboboxContext.Provider>
+    )
+}
 
 InnerCombobox.displayName = 'Combobox'
 

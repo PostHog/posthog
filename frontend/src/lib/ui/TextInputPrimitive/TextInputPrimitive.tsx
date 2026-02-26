@@ -1,7 +1,7 @@
 import './TextInputPrimitive.css'
 
 import { type VariantProps, cva } from 'cva'
-import { forwardRef, useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -88,9 +88,11 @@ export type TextInputBaseProps = {
 } & VariantProps<typeof textInputVariants>
 
 export interface TextInputPrimitiveProps
-    extends TextInputBaseProps, Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {}
+    extends TextInputBaseProps, Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
+    ref?: React.RefObject<HTMLInputElement>
+}
 
-export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiveProps>((props, ref) => {
+export const TextInputPrimitive = ({ ref, ...props }: TextInputPrimitiveProps): JSX.Element => {
     const {
         autoFocus,
         variant,
@@ -157,6 +159,6 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
             {suffix && <div className="absolute right-0 top-0 bottom-0 flex items-center pr-[5px]">{suffix}</div>}
         </div>
     )
-})
+}
 
 TextInputPrimitive.displayName = 'TextInputPrimitive'

@@ -1,5 +1,4 @@
 import { type VariantProps, cva } from 'cva'
-import { forwardRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -32,14 +31,18 @@ export interface IconWrapperProps extends IconWrapperVariantProps {
     ref?: React.Ref<HTMLDivElement>
 }
 
-export const IconWrapper = forwardRef<HTMLDivElement, IconWrapperProps>(
-    ({ className, size = 'md', intent = 'secondary', children }, ref) => {
-        return (
-            <div className={cn(iconWrapperVariants({ size, intent }), className)} ref={ref}>
-                {children}
-            </div>
-        )
-    }
-)
+export const IconWrapper = ({
+    ref,
+    className,
+    size = 'md',
+    intent = 'secondary',
+    children,
+}: IconWrapperProps): JSX.Element => {
+    return (
+        <div className={cn(iconWrapperVariants({ size, intent }), className)} ref={ref}>
+            {children}
+        </div>
+    )
+}
 
 IconWrapper.displayName = 'IconWrapper'
