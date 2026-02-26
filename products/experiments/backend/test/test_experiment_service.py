@@ -95,6 +95,7 @@ class TestExperimentService(APIBaseTest):
 
         experiment = service.create_experiment(name="Stats Test", feature_flag_key="stats-test")
 
+        assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == "bayesian"
 
     def test_stats_config_defaults_from_team(self):
@@ -107,6 +108,7 @@ class TestExperimentService(APIBaseTest):
 
         experiment = service.create_experiment(name="Team Defaults", feature_flag_key="team-defaults")
 
+        assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == "frequentist"
         assert experiment.stats_config["bayesian"]["ci_level"] == 0.90
         assert abs(experiment.stats_config["frequentist"]["alpha"] - 0.10) < 1e-10
@@ -124,6 +126,7 @@ class TestExperimentService(APIBaseTest):
             stats_config={"method": "frequentist"},
         )
 
+        assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == "frequentist"
 
     def test_stats_config_preserves_provided_confidence(self):
@@ -139,6 +142,7 @@ class TestExperimentService(APIBaseTest):
             stats_config={"method": "bayesian", "bayesian": {"ci_level": 0.99}},
         )
 
+        assert experiment.stats_config is not None
         assert experiment.stats_config["bayesian"]["ci_level"] == 0.99
 
     # ------------------------------------------------------------------
@@ -164,6 +168,7 @@ class TestExperimentService(APIBaseTest):
             metrics=metrics,
         )
 
+        assert experiment.metrics is not None
         assert len(experiment.metrics) == 1
         assert "fingerprint" in experiment.metrics[0]
         assert isinstance(experiment.metrics[0]["fingerprint"], str)
