@@ -11,9 +11,10 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, MaxBillingContextSubscriptionLevel
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContextSubscriptionLevel
 
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
+from ee.hogai.context.billing import fetch_server_billing_context
 from ee.hogai.core.agent_modes.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
@@ -37,20 +38,17 @@ class TicketCommand(SlashCommand):
         months_since_creation = (timezone.now() - org_created_at).days / 30
         return months_since_creation < 3
 
-    def _can_create_ticket(self, config: RunnableConfig) -> bool:
-        """Check if user's subscription allows ticket creation."""
-        # Enable ticket creation in local dev
+    def _can_create_ticket(self) -> bool:
+        """Check if user's subscription allows ticket creation via server-side billing verification."""
         if settings.DEBUG:
             return True
 
         if self._is_organization_new():
             return True
 
-        billing_context_data = config.get("configurable", {}).get("billing_context")
-        if not billing_context_data:
+        billing_context = fetch_server_billing_context(self._team)
+        if not billing_context:
             return False
-
-        billing_context = MaxBillingContext.model_validate(billing_context_data)
 
         has_paid_subscription = billing_context.subscription_level in (
             MaxBillingContextSubscriptionLevel.PAID,
@@ -61,7 +59,7 @@ class TicketCommand(SlashCommand):
         return has_paid_subscription or has_active_trial
 
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
-        if not self._can_create_ticket(config):
+        if not self._can_create_ticket():
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(

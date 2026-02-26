@@ -40,12 +40,14 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             context_manager=AssistantContextManager(self.team, self.user, {}),
         )
 
-    async def test_run_with_no_billing_context(self):
-        with patch.object(self.tool._context_manager, "get_billing_context", return_value=None):
-            result = await self.tool.execute()
-            self.assertEqual(result, "No billing information available")
+    @patch("ee.hogai.tools.read_billing_tool.tool.fetch_server_billing_context")
+    async def test_run_with_no_billing_context(self, mock_fetch_billing):
+        mock_fetch_billing.return_value = None
+        result = await self.tool.execute()
+        self.assertEqual(result, "No billing information available")
 
-    async def test_run_with_billing_context(self):
+    @patch("ee.hogai.tools.read_billing_tool.tool.fetch_server_billing_context")
+    async def test_run_with_billing_context(self, mock_fetch_billing):
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
@@ -54,10 +56,8 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
             products=[],
         )
-        with (
-            patch.object(self.tool._context_manager, "get_billing_context", return_value=billing_context),
-            patch.object(self.tool, "_format_billing_context", return_value="Formatted Context"),
-        ):
+        mock_fetch_billing.return_value = billing_context
+        with patch.object(self.tool, "_format_billing_context", return_value="Formatted Context"):
             result = await self.tool.execute()
             self.assertEqual(result, "Formatted Context")
 

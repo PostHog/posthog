@@ -9,6 +9,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.context.billing import fetch_server_billing_context
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxSubtool
 from ee.hogai.tool_errors import MaxToolFatalError
@@ -53,11 +54,10 @@ class ReadBillingTool(MaxSubtool):
         self._teams_map: dict[int, str] = {}
 
     async def execute(self) -> str:
-        billing_context = self._context_manager.get_billing_context()
+        billing_context = await database_sync_to_async(fetch_server_billing_context, thread_sensitive=False)(self._team)
         if not billing_context:
             return "No billing information available"
-        formatted_billing_context = await self._format_billing_context(billing_context)
-        return formatted_billing_context
+        return await self._format_billing_context(billing_context)
 
     @database_sync_to_async(thread_sensitive=False)
     def _format_billing_context(self, billing_context: MaxBillingContext) -> str:

@@ -120,6 +120,15 @@ class AssistantContextManager(AssistantContextMixin):
             return None
         return MaxBillingContext.model_validate(billing_context)
 
+    @database_sync_to_async(thread_sensitive=False)
+    def get_server_billing_context(self) -> MaxBillingContext | None:
+        """
+        Fetches billing context server-side from BillingManager, independent of client-supplied data.
+        """
+        from ee.hogai.context.billing import fetch_server_billing_context
+
+        return fetch_server_billing_context(self._team)
+
     @database_sync_to_async
     def check_user_has_billing_access(self) -> bool:
         """
