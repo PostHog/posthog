@@ -194,8 +194,9 @@ class TestVercelIntegration(TestCase):
         mock_manager_instance.deauthorize.side_effect = Exception("Billing service error")
         mock_billing_manager.return_value = mock_manager_instance
 
-        with self.assertRaises(Exception, msg="Billing service error"):
+        with self.assertRaises(Exception) as context:
             VercelIntegration.delete_installation(self.installation_id)
+        assert "Billing service error" in str(context.exception)
 
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
