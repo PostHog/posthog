@@ -5,21 +5,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from llm_gateway.api.anthropic import (
-    extract_wizard_flags_from_headers,
-    extract_wizard_meta_from_headers,
+    extract_posthog_flags_from_headers,
+    extract_posthog_properties_from_headers,
 )
 
 
-class TestExtractWizardFlagsFromHeaders:
-    def test_extracts_x_wizard_flag_headers(self) -> None:
+class TestExtractPosthogFlagsFromHeaders:
+    def test_extracts_x_posthog_flag_headers(self) -> None:
         request = MagicMock()
         request.headers = MagicMock()
         request.headers.items.return_value = [
-            ("X-WIZARD-FLAG-EXPERIMENT-FEATURE-FLAG-KEY", "variant-name"),
-            ("X-WIZARD-FLAG-ANOTHER-FLAG", "control"),
+            ("X-POSTHOG-FLAG-EXPERIMENT-FEATURE-FLAG-KEY", "variant-name"),
+            ("X-POSTHOG-FLAG-ANOTHER-FLAG", "control"),
             ("Content-Type", "application/json"),
         ]
-        result = extract_wizard_flags_from_headers(request)
+        result = extract_posthog_flags_from_headers(request)
         assert result == {
             "experiment-feature-flag-key": "variant-name",
             "another-flag": "control",
@@ -29,42 +29,42 @@ class TestExtractWizardFlagsFromHeaders:
         request = MagicMock()
         request.headers = MagicMock()
         request.headers.items.return_value = [
-            ("x-wizard-flag-my-flag", "value"),
+            ("x-posthog-flag-my-flag", "value"),
         ]
-        result = extract_wizard_flags_from_headers(request)
+        result = extract_posthog_flags_from_headers(request)
         assert result == {"my-flag": "value"}
 
     def test_extract_ignores_non_matching_headers(self) -> None:
         request = MagicMock()
         request.headers = MagicMock()
         request.headers.items.return_value = [
-            ("X-WIZARD-META-FOO", "meta"),
+            ("X-POSTHOG-PROPERTY-FOO", "prop"),
             ("Authorization", "Bearer x"),
         ]
-        result = extract_wizard_flags_from_headers(request)
+        result = extract_posthog_flags_from_headers(request)
         assert result == {}
 
 
-class TestExtractWizardMetaFromHeaders:
-    def test_extracts_x_wizard_meta_headers(self) -> None:
+class TestExtractPosthogPropertiesFromHeaders:
+    def test_extracts_x_posthog_property_headers(self) -> None:
         request = MagicMock()
         request.headers = MagicMock()
         request.headers.items.return_value = [
-            ("X-WIZARD-META-VARIANT", "memes"),
-            ("X-WIZARD-META-FOO", "bar"),
+            ("X-POSTHOG-PROPERTY-VARIANT", "memes"),
+            ("X-POSTHOG-PROPERTY-FOO", "bar"),
             ("Content-Type", "application/json"),
         ]
-        result = extract_wizard_meta_from_headers(request)
-        assert result == {"wizard-meta-variant": "memes", "wizard-meta-foo": "bar"}
+        result = extract_posthog_properties_from_headers(request)
+        assert result == {"posthog-property-variant": "memes", "posthog-property-foo": "bar"}
 
     def test_extract_case_insensitive(self) -> None:
         request = MagicMock()
         request.headers = MagicMock()
         request.headers.items.return_value = [
-            ("x-wizard-meta-key", "value"),
+            ("x-posthog-property-key", "value"),
         ]
-        result = extract_wizard_meta_from_headers(request)
-        assert result == {"wizard-meta-key": "value"}
+        result = extract_posthog_properties_from_headers(request)
+        assert result == {"posthog-property-key": "value"}
 
     def test_extract_ignores_non_matching_headers(self) -> None:
         request = MagicMock()
@@ -73,7 +73,7 @@ class TestExtractWizardMetaFromHeaders:
             ("X-Other-Header", "other"),
             ("Authorization", "Bearer x"),
         ]
-        result = extract_wizard_meta_from_headers(request)
+        result = extract_posthog_properties_from_headers(request)
         assert result == {}
 
 
