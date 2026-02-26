@@ -431,7 +431,7 @@ export function VirtualizedLogsList({
             {dataSource.slice(startIndex, endIndex).map((log, sliceIndex) => {
                 const index = startIndex + sliceIndex
                 return (
-                    <div key={log.uuid} data-index={index} data-row-key={log.uuid}>
+                    <div key={log.uuid} data-index={index} data-virtualized-index={index} data-row-key={log.uuid}>
                         <LogRow
                             log={log}
                             logIndex={index}

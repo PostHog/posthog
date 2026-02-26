@@ -595,7 +595,8 @@ export const Virtualized = (): JSX.Element => {
         <div id="virtualized-story">
             <DomRowCounter tableSelector="#virtualized-story" />
             <p className="text-muted text-xs mb-2">
-                10,000 rows — scroll to verify smooth performance. The DOM counter above should stay roughly constant.
+                10,000 rows with variable heights — scroll to verify smooth performance. The DOM counter above should
+                stay roughly constant.
             </p>
             <LemonTable<MockLogEntry>
                 virtualized={{ estimatedRowHeight: 36 }}
@@ -621,7 +622,18 @@ export const Virtualized = (): JSX.Element => {
                         ),
                     },
                     { title: 'Service', dataIndex: 'service', width: 150 },
-                    { title: 'Message', dataIndex: 'message' },
+                    {
+                        title: 'Message',
+                        dataIndex: 'message',
+                        render: (message, record) =>
+                            record.id % 5 === 0 ? (
+                                <div className="whitespace-pre-wrap font-mono text-xs">
+                                    {`${message as string}\n  → extra context line 1\n  → extra context line 2${record.id % 15 === 0 ? '\n  → extra context line 3\n  → extra context line 4' : ''}`}
+                                </div>
+                            ) : (
+                                (message as string)
+                            ),
+                    },
                 ]}
             />
         </div>

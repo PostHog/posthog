@@ -567,7 +567,14 @@ export function LemonTable<T extends Record<string, any>>({
                                                     rowRibbonColorDetermined={rowRibbonColorDetermined}
                                                     rowStatusDetermined={rowStatusDetermined}
                                                     columnGroups={columnGroups}
-                                                    onRow={onRow}
+                                                    onRow={
+                                                        virtualized
+                                                            ? (r, i) => ({
+                                                                  ...onRow?.(r, i),
+                                                                  'data-virtualized-index': String(rowIndex),
+                                                              })
+                                                            : onRow
+                                                    }
                                                     expandable={expandable}
                                                     rowCount={paginationState.dataSourcePage.length}
                                                     firstColumnSticky={firstColumnSticky}
