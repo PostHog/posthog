@@ -350,7 +350,7 @@ function ToolsDisplay(): JSX.Element {
     const [collapsed, setCollapsed] = useState(false)
 
     if (!tools) {
-        return <></>
+        return null
     }
 
     const toolsJsonString = localToolsJson ?? JSON.stringify(tools, null, 2)
@@ -576,7 +576,7 @@ function MessageDisplay({ message, index }: { message: Message; index: number })
         <div
             className={`border rounded p-3 relative group hover:shadow-sm transition-shadow ${getRoleBorderClass(
                 message.role
-            )} ${isAssistantWithContent ? 'bg-surface-secondary' : 'bg-white dark:bg-[var(--color-bg-surface-primary)]'}`}
+            )} ${isAssistantWithContent ? 'bg-surface-secondary' : ''}`}
         >
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <LemonButton

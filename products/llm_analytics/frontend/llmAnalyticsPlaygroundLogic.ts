@@ -149,7 +149,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         setMaxTokens: (maxTokens: number | null) => ({ maxTokens }),
         setThinking: (thinking: boolean) => ({ thinking }),
         setReasoningLevel: (reasoningLevel: 'minimal' | 'low' | 'medium' | 'high' | null) => ({ reasoningLevel }),
-        setTools: (tools: any) => ({ tools }),
+        setTools: (tools: Record<string, unknown>[] | null) => ({ tools }),
         clearConversation: true,
         submitPrompt: true,
         setMessages: (messages: Message[]) => ({ messages }),
@@ -199,7 +199,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             null as 'minimal' | 'low' | 'medium' | 'high' | null,
             { setReasoningLevel: (_, { reasoningLevel }) => reasoningLevel },
         ],
-        tools: [null as any, { setTools: (_, { tools }) => tools }],
+        tools: [null as Record<string, unknown>[] | null, { setTools: (_, { tools }) => tools }],
         messages: [
             [] as Message[],
             {
@@ -403,7 +403,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             let latencyMs: number | null = null
             let firstTokenTime: number | null = null
 
-            // Declare startTime outside try block
             let startTime: number | null = null
 
             function handleRateLimitError(error: RateLimitError): void {
@@ -425,28 +424,16 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
 
                 const providerKeyId = values.providerKeyForCurrentModel?.id ?? values.activeProviderKeyId
 
-                const requestData: any = {
+                const requestData: Record<string, unknown> = {
                     system: requestSystemPrompt,
                     messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
                     model: selectedModel.id,
                     provider: selectedModel.provider.toLowerCase(),
                     thinking: values.thinking,
                     ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
-                }
-
-                // Include tools if available
-                if (values.tools) {
-                    requestData.tools = values.tools
-                }
-
-                // Only include max_tokens if it has a value
-                if (values.maxTokens !== null && values.maxTokens > 0) {
-                    requestData.max_tokens = values.maxTokens
-                }
-
-                // Include optional reasoning level if provided
-                if (values.reasoningLevel) {
-                    requestData.reasoning_level = values.reasoningLevel
+                    ...(values.tools ? { tools: values.tools } : {}),
+                    ...(values.maxTokens !== null && values.maxTokens > 0 ? { max_tokens: values.maxTokens } : {}),
+                    ...(values.reasoningLevel ? { reasoning_level: values.reasoningLevel } : {}),
                 }
 
                 await api.stream('/api/llm_proxy/completion', {
@@ -506,7 +493,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     },
                 })
 
-                // Once we've finished streaming - successfuly - mark the task as completed
+                // Once we've finished streaming successfully, mark the task as completed
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
 
                 actions.finalizeAssistantMessage()
