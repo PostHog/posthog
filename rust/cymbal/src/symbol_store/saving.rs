@@ -204,7 +204,10 @@ where
                     team_id,
                     set_ref,
                 });
-            } else if record.last_used.is_some_and(|l| Utc::now() - l < chrono::Duration::days(1)) {
+            } else if record
+                .last_used
+                .is_some_and(|l| Utc::now() - l < chrono::Duration::days(1))
+            {
                 info!("Found recent symbol set error for {}", set_ref);
                 // We tried less than a day ago to get the set data, and failed, so bail out
                 // with the stored error. We unwrap here because we should never store a "no set"
