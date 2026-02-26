@@ -585,12 +585,20 @@ def running_runs_for_batch_export(batch_export_id: UUID):
 
 
 async def cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
-    """Delete a running BatchExportBackfill.
+    """Cancel a running BatchExportBackfill and its associated runs.
 
-    A BatchExportBackfill represents a Temporal Workflow. When deleting the Temporal
-    Schedule that we are backfilling, we should also clean-up any Workflows that are
-    still running.
+    Run cancellation is best-effort to ensure the backfill itself is always cancelled.
     """
+    cancellable_statuses = [BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING]
+    async for run in batch_export_backfill.runs.filter(status__in=cancellable_statuses):
+        try:
+            run_handle = temporal.get_workflow_handle(workflow_id=run.workflow_id)
+            await run_handle.cancel()
+            run.status = BatchExportRun.Status.CANCELLED
+            await run.asave()
+        except Exception:
+            logger.exception("Failed to cancel batch export run %s", run.id)
+
     handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
     await handle.cancel()
 
@@ -599,7 +607,17 @@ async def cancel_running_batch_export_backfill(temporal: Client, batch_export_ba
 
 
 def sync_cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
-    """Cancel a running BatchExportBackfill."""
+    """Cancel a running BatchExportBackfill and its associated runs.
+
+    Run cancellation is best-effort to ensure the backfill itself is always cancelled.
+    """
+
+    cancellable_statuses = [BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING]
+    for run in batch_export_backfill.runs.filter(status__in=cancellable_statuses):
+        try:
+            cancel_running_batch_export_run(temporal, run)
+        except Exception:
+            logger.exception("Failed to cancel batch export run %s", run.id)
 
     handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
     async_to_sync(handle.cancel)()
