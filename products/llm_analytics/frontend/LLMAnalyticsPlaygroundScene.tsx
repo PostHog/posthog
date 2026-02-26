@@ -14,6 +14,7 @@ import {
 import {
     LemonBanner,
     LemonButton,
+    LemonDropdown,
     LemonInput,
     LemonModal,
     LemonSearchableSelect,
@@ -228,79 +229,79 @@ function ModelPicker(): JSX.Element {
     )
 }
 
-function ModelConfigBar(): JSX.Element {
+function SettingsDropdownOverlay(): JSX.Element {
     const { maxTokens, thinking, reasoningLevel } = useValues(llmAnalyticsPlaygroundLogic)
     const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmAnalyticsPlaygroundLogic)
-    const [showSettings, setShowSettings] = useState(false)
-
-    const hasNonDefaultSettings = maxTokens !== null || thinking || reasoningLevel !== null
 
     return (
-        <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-                <div className="flex-1 min-w-[260px] max-w-lg">
-                    <ModelPicker />
-                </div>
+        <div className="space-y-3 p-3 w-[280px]">
+            <div>
+                <label className="text-xs font-medium mb-1 block">Max tokens</label>
+                <LemonInput
+                    type="number"
+                    value={maxTokens ?? undefined}
+                    onChange={(val) => setMaxTokens(val ?? null)}
+                    min={1}
+                    max={16384}
+                    step={64}
+                    placeholder="Model default"
+                    size="small"
+                />
+            </div>
 
+            <div>
+                <label className="text-xs font-medium mb-1 block">Reasoning effort</label>
+                <LemonSelect<'minimal' | 'low' | 'medium' | 'high' | null>
+                    size="small"
+                    placeholder="None"
+                    value={reasoningLevel}
+                    onChange={(value) => setReasoningLevel(value ?? null)}
+                    options={[
+                        { label: 'None', value: null },
+                        { label: 'Minimal', value: 'minimal' },
+                        { label: 'Low', value: 'low' },
+                        { label: 'Medium', value: 'medium' },
+                        { label: 'High', value: 'high' },
+                    ]}
+                    fullWidth
+                    dropdownMatchSelectWidth={false}
+                />
+            </div>
+
+            <LemonSwitch
+                bordered
+                checked={thinking}
+                onChange={setThinking}
+                label="Thinking"
+                size="small"
+                tooltip="Enable thinking/reasoning stream (if supported)"
+            />
+        </div>
+    )
+}
+
+function ModelConfigBar(): JSX.Element {
+    const { maxTokens, thinking, reasoningLevel } = useValues(llmAnalyticsPlaygroundLogic)
+
+    const hasNonDefaultSettings = maxTokens !== null || thinking || reasoningLevel !== 'medium'
+
+    return (
+        <div className="flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-[260px] max-w-lg">
+                <ModelPicker />
+            </div>
+
+            <LemonDropdown overlay={<SettingsDropdownOverlay />} closeOnClickInside={false} placement="bottom-end">
                 <LemonButton
                     type="secondary"
                     size="small"
                     icon={<IconGear />}
-                    onClick={() => setShowSettings(!showSettings)}
-                    active={showSettings || hasNonDefaultSettings}
                     tooltip="Max tokens, thinking, reasoning"
+                    active={hasNonDefaultSettings}
                 >
                     Settings
-                    {hasNonDefaultSettings && !showSettings && (
-                        <span className="ml-1 w-1.5 h-1.5 rounded-full bg-primary inline-block" />
-                    )}
                 </LemonButton>
-            </div>
-
-            {showSettings && (
-                <div className="flex flex-wrap items-end gap-4 p-3 border rounded">
-                    <div className="max-w-[180px]">
-                        <label className="text-xs font-medium mb-1 block">Max tokens</label>
-                        <LemonInput
-                            type="number"
-                            value={maxTokens ?? undefined}
-                            onChange={(val) => setMaxTokens(val ?? null)}
-                            min={1}
-                            max={16384}
-                            step={64}
-                            placeholder="Model default"
-                            size="small"
-                        />
-                    </div>
-
-                    <LemonSwitch
-                        bordered
-                        checked={thinking}
-                        onChange={setThinking}
-                        label="Thinking"
-                        size="small"
-                        tooltip="Enable thinking/reasoning stream (if supported)"
-                    />
-
-                    <div className="max-w-[140px]">
-                        <label className="text-xs font-medium mb-1 block">Reasoning</label>
-                        <LemonSelect<'minimal' | 'low' | 'medium' | 'high' | null>
-                            size="small"
-                            placeholder="None"
-                            value={reasoningLevel}
-                            onChange={(value) => setReasoningLevel(value ?? null)}
-                            options={[
-                                { label: 'None', value: null },
-                                { label: 'Minimal', value: 'minimal' },
-                                { label: 'Low', value: 'low' },
-                                { label: 'Medium', value: 'medium' },
-                                { label: 'High', value: 'high' },
-                            ]}
-                            dropdownMatchSelectWidth={false}
-                        />
-                    </div>
-                </div>
-            )}
+            </LemonDropdown>
         </div>
     )
 }

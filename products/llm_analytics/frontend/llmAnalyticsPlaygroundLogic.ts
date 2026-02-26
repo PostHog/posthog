@@ -196,7 +196,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         maxTokens: [null as number | null, { setMaxTokens: (_, { maxTokens }) => maxTokens }],
         thinking: [false, { setThinking: (_, { thinking }) => thinking }],
         reasoningLevel: [
-            null as 'minimal' | 'low' | 'medium' | 'high' | null,
+            'medium' as 'minimal' | 'low' | 'medium' | 'high' | null,
             { setReasoningLevel: (_, { reasoningLevel }) => reasoningLevel },
         ],
         tools: [null as Record<string, unknown>[] | null, { setTools: (_, { tools }) => tools }],
