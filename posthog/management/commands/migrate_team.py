@@ -175,7 +175,7 @@ def display_existing(*, existing_export: BatchExport, verbose: bool):
         )
 
         if most_recent_completed_run:
-            data_start_at = existing_backfill.start_at
+            data_start_at = existing_backfill.adjusted_start_at or existing_backfill.start_at
             data_end_at = most_recent_completed_run.data_interval_end
             display(
                 "Found an existing migration, range of data migrated:",

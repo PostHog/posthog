@@ -53,7 +53,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     if "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
         config = TrendsAlertConfig.model_validate(alert.config)
     else:
-        ValueError(f"Unsupported alert config type: {alert.config}")
+        raise ValueError(f"Unsupported alert config type: {alert.config}")
 
     condition = AlertCondition.model_validate(alert.condition)
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None

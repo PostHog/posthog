@@ -174,7 +174,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <LemonSwitch
                                 checked={featureFlag.active}
                                 onChange={handleToggleClick}
-                                label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                                label="Enable feature flag"
                                 bordered
                                 fullWidth
                             />

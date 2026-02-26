@@ -163,20 +163,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             })
         },
         askSidePanelMax: ({ prompt }) => {
-            const isRemovingSidePanelFlag = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
-            if (isRemovingSidePanelFlag) {
-                newInternalTab(urls.ai(undefined, prompt))
-                return
-            }
-
-            let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
-            if (!logic) {
-                logic = maxLogic({ tabId: 'sidepanel' })
-                logic.mount() // we're never unmounting this
-            }
-            actions.openSidePanelMax()
-            // HACK: Delay to ensure maxThreadLogic is mounted after the side panel opens - ugly, but works
-            window.setTimeout(() => logic!.actions.askMax(prompt), 100)
+            newInternalTab(urls.ai(undefined, prompt))
         },
         openSidePanelMax: ({ conversationId }) => {
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {

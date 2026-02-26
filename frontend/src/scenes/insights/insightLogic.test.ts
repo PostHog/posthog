@@ -237,6 +237,10 @@ describe('insightLogic', () => {
                     )
                     return [200, response]
                 },
+                '/api/projects/:team/insights/:id': async (req) => {
+                    const payload = await req.json()
+                    return [200, { ...payload, id: req.params['id'] }]
+                },
             },
         })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
@@ -740,6 +744,52 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('setInsight name preservation', () => {
+        it('preserves user-edited name when loading new data for the same insight', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsight']).toFinishAllListeners()
+
+            // simulate user editing the name locally
+            logic.actions.setInsightMetadataLocal({ name: 'User Edited Name' })
+
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: 'User Edited Name', short_id: Insight42 }),
+            })
+
+            // simulate reloading data for the same insight (e.g. query refresh) — name should be preserved
+            logic.actions.setInsight(
+                { ...logic.values.insight, name: '', short_id: Insight42 },
+                { fromPersistentApi: false, overrideQuery: false }
+            )
+
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: 'User Edited Name' }),
+            })
+        })
+
+        it('does not preserve name when switching to a new insight', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsight']).toFinishAllListeners()
+
+            // confirm the loaded insight has a name
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: 'original name', short_id: Insight42 }),
+            })
+
+            // simulate switching to a brand new insight (no short_id)
+            logic.actions.setInsight(
+                { ...createEmptyInsight('new'), query: logic.values.insight.query },
+                { fromPersistentApi: false, overrideQuery: true }
+            )
+
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: '' }),
+            })
+        })
+    })
+
     describe('saving query based insights', () => {
         beforeEach(async () => {
             const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
@@ -754,7 +804,12 @@ describe('insightLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setInsight(
-                    { query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                    {
+                        query: {
+                            kind: NodeKind.DataTableNode,
+                            source: { kind: NodeKind.EventsQuery, select: ['*'] },
+                        } as DataTableNode,
+                    },
                     { overrideQuery: true }
                 )
                 logic.actions.saveInsight()
@@ -765,22 +820,75 @@ describe('insightLogic', () => {
                 [
                     `api/environments/${MOCK_TEAM_ID}/insights`,
                     expect.objectContaining({
-                        derived_name: 'DataTableNode query',
+                        derived_name: '* from events',
                         query: {
                             kind: 'DataTableNode',
+                            source: { kind: 'EventsQuery', select: ['*'] },
                         },
                         saved: true,
                     }),
                     expect.objectContaining({
-                        data: {
-                            derived_name: 'DataTableNode query',
+                        data: expect.objectContaining({
+                            derived_name: '* from events',
                             query: {
                                 kind: 'DataTableNode',
+                                source: { kind: 'EventsQuery', select: ['*'] },
                             },
                             saved: true,
-                        },
+                        }),
                     }),
                 ],
+            ])
+        })
+    })
+
+    describe('confirmDeleteInsight', () => {
+        beforeEach(async () => {
+            const insightProps: InsightLogicProps = { dashboardItemId: Insight42 }
+            logic = insightLogic(insightProps)
+            logic.mount()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: partial({ id: 42 }),
+                })
+        })
+
+        it.each([
+            { scenario: 'with dashboardId', dashboardId: 5 },
+            { scenario: 'without dashboardId', dashboardId: null },
+        ])('$scenario deletes via API then navigates', async ({ dashboardId }) => {
+            jest.spyOn(api, 'update')
+
+            logic.actions.confirmDeleteInsight(dashboardId)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/insights/42'),
+                expect.objectContaining({ deleted: true })
+            )
+
+            const expectedUrl = dashboardId ? urls.dashboard(dashboardId) : urls.savedInsights()
+            await expectLogic(router).toDispatchActions([router.actionCreators.push(expectedUrl)])
+        })
+
+        it('restores insight on undo from dashboard', async () => {
+            logic.actions.confirmDeleteInsight(5)
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Simulate undo — the callback with undo=true should restore the insight
+            await expectLogic(dashboardsModel, () => {
+                dashboardsModel
+                    .findMounted()
+                    ?.actions.updateDashboardInsight(
+                        { ...(logic.values.insight as QueryBasedInsightModel), deleted: false },
+                        [5]
+                    )
+            }).toDispatchActions([
+                (action: any) =>
+                    action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                    action.payload.insight.deleted === false,
             ])
         })
     })
