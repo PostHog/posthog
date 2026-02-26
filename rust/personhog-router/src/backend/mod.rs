@@ -1,4 +1,5 @@
 mod replica;
+pub mod retry;
 
 pub use replica::ReplicaBackend;
 
