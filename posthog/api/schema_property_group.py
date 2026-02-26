@@ -1,14 +1,17 @@
+import re
 import math
-import logging
 from typing import Any
 
 from django.db import IntegrityError, transaction
 
+import structlog
 from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import SchemaPropertyGroup, SchemaPropertyGroupProperty
+
+logger = structlog.get_logger(__name__)
 
 MAX_PROPERTY_NAME_LENGTH = 200
 MAX_ENUM_VALUES = 1000
@@ -193,7 +196,7 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"name": "A property group with this name already exists for this team"}
                 )
-            logging.error(f"Database integrity error while creating property group: {e}", exc_info=True)
+            logger.exception("Database integrity error while creating property group", error=str(e))
             raise serializers.ValidationError("Could not create property group due to a database error.")
 
     def update(self, instance, validated_data):
@@ -238,9 +241,6 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
 
             # Handle duplicate property name within group
             if "unique_property_group_property_name" in error_str:
-                # Extract the property name from the error message
-                import re
-
                 match = re.search(r"\(property_group_id, name\)=\([^,]+, ([^)]+)\)", error_str)
                 if match:
                     property_name = match.group(1)
@@ -255,7 +255,7 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
             if "unique_schema_property_group_team_name" in error_str:
                 raise serializers.ValidationError({"name": "A property group with this name already exists"})
 
-            logging.error(f"Database integrity error while updating property group: {e}", exc_info=True)
+            logger.exception("Database integrity error while updating property group", error=str(e))
             raise serializers.ValidationError("Could not update property group due to a database error.")
 
 
