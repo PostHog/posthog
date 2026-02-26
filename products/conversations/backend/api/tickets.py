@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from collections.abc import Sequence
 
@@ -6,7 +8,13 @@ from django.db.models import Prefetch, Q, QuerySet, Sum
 
 import structlog
 from loginas.utils import is_impersonated_session
-from rest_framework import pagination, serializers, viewsets
+from openai import APITimeoutError, RateLimitError
+from rest_framework import (
+    pagination,
+    serializers,
+    status as drf_status,
+    viewsets,
+)
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -17,8 +25,10 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.utils import relative_date_parse
 
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
@@ -34,6 +44,7 @@ from products.conversations.backend.events import (
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
+from products.conversations.backend.services.ai_suggest import suggest_reply
 
 from ee.models.rbac.role import Role
 
@@ -118,8 +129,11 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     pagination_class = TicketPagination
+    posthog_feature_flag = {
+        "product-support-ai-suggestion": ["suggest_reply"],
+    }
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -350,6 +364,69 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="suggest_reply",
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
+    def suggest_reply_action(self, request, *args, **kwargs):
+        if not self.organization.is_ai_data_processing_approved:
+            return Response(
+                {"detail": "AI data processing is not approved for this organization"},
+                status=drf_status.HTTP_403_FORBIDDEN,
+            )
+
+        ticket = self.get_object()
+
+        messages = list(
+            Comment.objects.filter(
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+            )
+            .exclude(item_context__is_private=True)
+            .order_by("created_at")
+        )
+
+        if not messages:
+            return Response(
+                {"detail": "No messages in this ticket"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            reply_text = suggest_reply(ticket, messages, self.team, request.user.distinct_id)
+            return Response({"suggestion": reply_text})
+        except ValueError as e:
+            # ValueError indicates parsing or empty response issues
+            error_msg = str(e)
+            logger.warning("AI suggest_reply validation error", extra={"ticket_id": str(ticket.id), "error": error_msg})
+            return Response(
+                {"detail": f"Failed to generate suggestion: {error_msg}", "error_type": "validation_error"},
+                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception as e:
+            # Check for specific error types
+            error_type = "unknown_error"
+            error_msg = "Failed to generate suggestion"
+
+            if isinstance(e, APITimeoutError):
+                error_type = "timeout"
+                error_msg = "AI service timed out. Please try again."
+            elif isinstance(e, RateLimitError):
+                error_type = "rate_limit"
+                error_msg = "AI service rate limit reached. Please try again in a moment."
+            else:
+                error_msg = "Failed to generate suggestion. Please try again."
+
+            logger.exception("AI suggest_reply failed", extra={"ticket_id": str(ticket.id), "error": str(e)})
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+            return Response(
+                {"detail": error_msg, "error_type": error_type},
+                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
