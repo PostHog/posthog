@@ -478,6 +478,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             properties={"hidden_prop": "also_hidden", "visible_prop": "also_visible"},
         )
+        flush_persons_and_events()
 
         # Try to import enterprise model, skip test if not available
         try:
@@ -492,12 +493,12 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # Test hidden property returns no values
         hidden_response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=hidden_prop").json()
-        assert len(hidden_response) == 0
+        assert len(hidden_response["results"]) == 0
 
         # Test visible property still returns values
         visible_response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=visible_prop").json()
-        assert len(visible_response) == 2
-        visible_keys = [resp["name"] for resp in visible_response]
+        assert len(visible_response["results"]) == 2
+        visible_keys = [resp["name"] for resp in visible_response["results"]]
         assert "should_appear" in visible_keys
         assert "also_visible" in visible_keys
 
