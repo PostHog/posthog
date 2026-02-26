@@ -24,6 +24,7 @@ describe('dashboardLayoutHclExporter test', () => {
 
             const hcl = generateDashboardLayoutHCL(dashboard, {
                 dashboardTfReference: 'posthog_dashboard.test.id',
+                insightIdReplacements: new Map(),
             }).hcl
 
             expect(hcl).toContain(`resource "posthog_dashboard_layout" "${expected}"`)
@@ -84,6 +85,7 @@ resource "posthog_dashboard_layout" "my_dashboard" {
 
             const result = generateDashboardLayoutHCL(dashboard, {
                 dashboardTfReference: 'posthog_dashboard.no_layouts.id',
+                insightIdReplacements: new Map(),
             })
 
             expect(result.hcl).toContain(`{
@@ -100,6 +102,7 @@ resource "posthog_dashboard_layout" "my_dashboard" {
 
             const result = generateDashboardLayoutHCL(dashboard, {
                 dashboardTfReference: 'posthog_dashboard.new.id',
+                insightIdReplacements: new Map(),
             })
 
             expect(result.hcl).not.toContain('import {')
@@ -114,10 +117,12 @@ resource "posthog_dashboard_layout" "my_dashboard" {
 
             const hclWithImport = generateDashboardLayoutHCL(dashboard, {
                 dashboardTfReference: 'posthog_dashboard.test_dashboard.id',
+                insightIdReplacements: new Map(),
                 includeImport: true,
             }).hcl
             const hclWithoutImport = generateDashboardLayoutHCL(dashboard, {
                 dashboardTfReference: 'posthog_dashboard.test_dashboard.id',
+                insightIdReplacements: new Map(),
                 includeImport: false,
             }).hcl
 
@@ -133,13 +138,43 @@ resource "posthog_dashboard_layout" "my_dashboard" {
 
             const hcl = generateDashboardLayoutHCL(dashboard, {
                 dashboardTfReference: 'posthog_dashboard.test.id',
+                insightIdReplacements: new Map(),
             }).hcl
 
             expect(hcl).toMatch(/# Compatible with posthog provider v\d+\.\d+/)
         })
     })
 
-    describe('filters deleted tiles', () => {
+    describe('filters unusable tiles', () => {
+        it('excludes tiles with neither insight nor text', () => {
+            const dashboard = createTestDashboard({
+                id: 7,
+                name: 'Empty Tiles',
+                tiles: [
+                    { id: 70, insight: { id: 700 }, color: null, layouts: {} },
+                    { id: 71, color: 'blue', layouts: {} },
+                    { id: 72, text: { body: 'Keep me' }, color: null, layouts: {} },
+                ],
+            })
+
+            const result = generateDashboardLayoutHCL(dashboard, {
+                dashboardTfReference: 'posthog_dashboard.empty_tiles.id',
+                insightIdReplacements: new Map(),
+            })
+
+            expect(result.hcl).toContain(`resource "posthog_dashboard_layout" "empty_tiles" {
+  dashboard_id = posthog_dashboard.empty_tiles.id
+  tiles = [
+    {
+      insight_id = 700
+    },
+    {
+      text_body = "Keep me"
+    },
+  ]
+}`)
+        })
+
         it('excludes deleted tiles from output', () => {
             const dashboard = createTestDashboard({
                 id: 6,
@@ -153,6 +188,7 @@ resource "posthog_dashboard_layout" "my_dashboard" {
 
             const result = generateDashboardLayoutHCL(dashboard, {
                 dashboardTfReference: 'posthog_dashboard.mixed_tiles.id',
+                insightIdReplacements: new Map(),
             })
 
             expect(result.hcl).toContain(`tiles = [

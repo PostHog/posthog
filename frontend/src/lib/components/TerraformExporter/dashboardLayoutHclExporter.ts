@@ -11,12 +11,12 @@ export interface DashboardLayoutHclExportOptions extends HclExportOptions {
     insightIdReplacements: Map<number, string>
 }
 
-function formatTileObject(tile: DashboardTile<any>, insightIdReplacements?: Map<number, string>): string[] {
+function formatTileObject(tile: DashboardTile<any>, insightIdReplacements: Map<number, string>): string[] {
     const lines: string[] = []
     lines.push('    {')
 
     if (tile.insight?.id) {
-        const tfRef = insightIdReplacements?.get(tile.insight.id)
+        const tfRef = insightIdReplacements.get(tile.insight.id)
         if (tfRef) {
             lines.push(`      insight_id = ${tfRef}`)
         } else {
@@ -55,7 +55,7 @@ const DASHBOARD_LAYOUT_FIELD_MAPPINGS: FieldMapping<Partial<DashboardType<any>>,
         target: 'tiles',
         shouldInclude: () => true,
         transform: (_, dashboard, options) => {
-            const activeTiles = (dashboard.tiles || []).filter((t) => !t.deleted)
+            const activeTiles = (dashboard.tiles || []).filter((t) => !t.deleted && (t.insight?.id || t.text?.body))
             if (activeTiles.length === 0) {
                 return '[]'
             }
