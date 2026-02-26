@@ -133,6 +133,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         closeBackfillModal: true,
         setEarliestBackfill: true,
         unsetEarliestBackfill: true,
+        backfillCreated: (startAt: string | null, endAt: string | null) => ({ startAt, endAt }),
     }),
     reducers({
         isBackfillModalOpen: [
@@ -317,6 +318,8 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                 })
 
                 actions.closeBackfillModal()
+                lemonToast.success('Backfill created')
+                actions.backfillCreated(startAtStr, endAtStr)
                 return
             },
         },

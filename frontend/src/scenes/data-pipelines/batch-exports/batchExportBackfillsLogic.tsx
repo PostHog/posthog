@@ -30,7 +30,10 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             }),
             ['batchExportConfig'],
         ],
-        actions: [batchExportBackfillModalLogic(props), ['submitBackfillFormSuccess', 'openBackfillModal']],
+        actions: [
+            batchExportBackfillModalLogic(props),
+            ['submitBackfillFormSuccess', 'openBackfillModal', 'backfillCreated'],
+        ],
     })),
     actions({
         loadBackfills: true,
@@ -116,6 +119,55 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             setTimeout(() => {
                 actions.loadBackfills()
             }, 1000)
+        },
+        backfillCreated: async ({ startAt, endAt }, breakpoint) => {
+            const MAX_POLL_ATTEMPTS = 10
+            const POLL_INTERVAL_MS = 1000
+
+            for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
+                await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+                breakpoint()
+
+                try {
+                    const response = await api.batchExports.listBackfills(props.id, {
+                        ordering: '-created_at',
+                    })
+                    // Match by submitted dates, taking the most recent (list is ordered by -created_at).
+                    // We compare parsed timestamps since the submitted format (e.g. "2024-01-15" or
+                    // "2024-01-15T00:00:00.000Z") may differ from the API response format.
+                    const submittedStart = startAt ? dayjs(startAt).valueOf() : null
+                    const submittedEnd = endAt ? dayjs(endAt).valueOf() : null
+                    const matchingBackfill = response.results.find((b) => {
+                        const bStart = b.start_at ? dayjs(b.start_at).valueOf() : null
+                        const bEnd = b.end_at ? dayjs(b.end_at).valueOf() : null
+                        return bStart === submittedStart && bEnd === submittedEnd
+                    })
+
+                    if (matchingBackfill?.total_records_count != null) {
+                        lemonToast.info(
+                            `Estimated ~${matchingBackfill.total_records_count.toLocaleString()} rows to export`,
+                            {
+                                button: {
+                                    label: 'Cancel backfill',
+                                    action: async () => {
+                                        try {
+                                            await api.batchExports.cancelBackfill(props.id, matchingBackfill.id)
+                                            lemonToast.success('Backfill cancelled')
+                                            actions.loadBackfills()
+                                        } catch {
+                                            lemonToast.error('Failed to cancel backfill')
+                                        }
+                                    },
+                                },
+                            }
+                        )
+                        actions.loadBackfills()
+                        return
+                    }
+                } catch {
+                    // ignore polling errors
+                }
+            }
         },
     })),
     afterMount(({ actions }) => {
