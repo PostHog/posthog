@@ -223,8 +223,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <span className="text-warning">
                                                 <b>Warning! </b>Changing this key will break any existing code that
                                                 references it (e.g.{' '}
-                                                <code>getFeatureFlag('{originalFeatureFlag.key}')</code>). Make sure to
-                                                update all SDK calls and integrations.
+                                                <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
+                                                    getFeatureFlag('{originalFeatureFlag.key}')
+                                                </code>
+                                                ). Make sure to update all SDK calls and integrations.
                                             </span>
                                         ) : undefined
                                     }
