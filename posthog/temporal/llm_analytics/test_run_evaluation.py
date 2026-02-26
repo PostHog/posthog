@@ -184,6 +184,7 @@ class TestRunEvaluationWorkflow:
                 assert props["$ai_provider"] == "openai"
                 assert props["$ai_input_tokens"] == 42
                 assert props["$ai_output_tokens"] == 18
+                assert props["$ai_evaluation_type"] == "online"
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""
