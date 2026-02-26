@@ -3500,9 +3500,6 @@ const api = {
             code: string
             server_id: string
             state_token?: string
-            mcp_url?: string
-            display_name?: string
-            description?: string
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('oauth_callback').create({ data })
         },

@@ -132,25 +132,16 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     code,
                     serverId,
                     stateToken,
-                    mcpUrl,
-                    displayName,
-                    description,
                 }: {
                     code: string
                     serverId: string
                     stateToken: string
-                    mcpUrl?: string
-                    displayName?: string
-                    description?: string
                 }) => {
                     try {
                         const installation = (await api.mcpServerInstallations.oauthCallback({
                             code,
                             server_id: serverId,
                             state_token: stateToken,
-                            mcp_url: mcpUrl || '',
-                            display_name: displayName || '',
-                            description: description || '',
                         })) as MCPServerInstallation
                         lemonToast.success('Server connected')
                         actions.loadServers()
@@ -205,9 +196,6 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     code,
                     serverId: parsed.server_id,
                     stateToken: parsed.token,
-                    mcpUrl: parsed.mcp_url,
-                    displayName: parsed.display_name,
-                    description: parsed.description,
                 })
                 router.actions.replace('/settings/mcp-servers')
             } else if (code && server_id) {
