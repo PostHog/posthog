@@ -278,8 +278,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           query: null,
                       },
             setInsight: (state, { insight }) => {
-                // Preserve the user-edited name when loading new data
-                if (!insight.name && state.name) {
+                // Preserve the user-edited name when loading new data for the same insight,
+                // but not when switching to a brand new insight
+                const isSameInsight = insight.short_id && insight.short_id === state.short_id
+                if (!insight.name && state.name && isSameInsight) {
                     return {
                         ...insight,
                         name: state.name,
@@ -422,7 +424,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     mathDefinitions,
                 }).slice(0, 400),
         ],
-        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
+        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name ?? derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
             (s) => [s.insight],
