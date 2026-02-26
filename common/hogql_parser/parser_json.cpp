@@ -1800,9 +1800,25 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       json["materialized"] = ctx->NOT() ? false : true;
     }
     json["columns"] = Json::Null();
-    if (const auto& columnNameList = ctx->withExprColumnNameList()) {
+    json["using_key"] = Json::Null();
+    const auto& columnNameLists = ctx->withExprColumnNameList();
+    if (ctx->USING()) {
+      // USING KEY present: last list is the key columns
+      const auto& usingKeyList = columnNameLists.back();
+      json["using_key"] = Json::array();
+      for (const auto& ident : usingKeyList->identifier()) {
+        json["using_key"].pushBack(visitAsString(ident));
+      }
+      // If there are two lists, the first is the CTE column names
+      if (columnNameLists.size() > 1) {
+        json["columns"] = Json::array();
+        for (const auto& ident : columnNameLists.front()->identifier()) {
+          json["columns"].pushBack(visitAsString(ident));
+        }
+      }
+    } else if (!columnNameLists.empty()) {
       json["columns"] = Json::array();
-      for (const auto& ident : columnNameList->identifier()) {
+      for (const auto& ident : columnNameLists.front()->identifier()) {
         json["columns"].pushBack(visitAsString(ident));
       }
     }

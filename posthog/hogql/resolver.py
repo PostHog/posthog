@@ -181,6 +181,7 @@ class Resolver(CloningVisitor):
                 recursive=True,
                 type=ast.CTETableType(name=node.name, select_query_type=base_select.type),
                 materialized=node.materialized,
+                using_key=node.using_key,
             )
             self.ctes[node.name] = placeholder
 
@@ -229,6 +230,7 @@ class Resolver(CloningVisitor):
             cte_type=node.cte_type,
             recursive=node.recursive,
             materialized=node.materialized,
+            using_key=node.using_key,
             columns=node.columns,
         )
 
