@@ -7,7 +7,6 @@ import { Hub } from '../../types'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'
 import { RetentionService } from '../shared/retention/retention-service'
-import { TeamService } from '../shared/teams/team-service'
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
@@ -40,6 +39,15 @@ jest.mock('../../utils/db/redis', () => ({
         drain: jest.fn().mockResolvedValue(undefined),
         clear: jest.fn().mockResolvedValue(undefined),
     }),
+}))
+
+jest.mock('../../kafka/producer', () => ({
+    KafkaProducerWrapper: {
+        create: jest.fn().mockResolvedValue({
+            produce: jest.fn().mockResolvedValue(undefined),
+            disconnect: jest.fn().mockResolvedValue(undefined),
+        }),
+    },
 }))
 
 jest.mock('./recording-service')
@@ -82,8 +90,7 @@ describe('RecordingApi', () => {
             validateS3Key: jest.fn().mockReturnValue(true),
             formatS3KeyError: jest.fn().mockReturnValue('Invalid key format'),
             getBlock: jest.fn(),
-            deleteRecording: jest.fn(),
-            bulkDeleteRecordings: jest.fn(),
+            deleteRecordings: jest.fn(),
         } as unknown as jest.Mocked<RecordingService>
         ;(getKeyStore as jest.Mock).mockReturnValue(mockKeyStore)
         ;(getBlockDecryptor as jest.Mock).mockReturnValue(mockDecryptor)
@@ -111,15 +118,10 @@ describe('RecordingApi', () => {
                 endpoint: undefined,
                 forcePathStyle: undefined,
             })
-            expect(getKeyStore).toHaveBeenCalledWith(
-                expect.any(TeamService),
-                expect.any(RetentionService),
-                'us-west-2',
-                {
-                    kmsEndpoint: undefined,
-                    dynamoDBEndpoint: undefined,
-                }
-            )
+            expect(getKeyStore).toHaveBeenCalledWith(expect.any(RetentionService), 'us-west-2', {
+                kmsEndpoint: undefined,
+                dynamoDBEndpoint: undefined,
+            })
             expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
             expect(RecordingService).toHaveBeenCalled()
         })
@@ -321,7 +323,12 @@ describe('RecordingApi', () => {
             })
 
             it('should return 410 for deleted recording', async () => {
-                mockService.getBlock.mockResolvedValue({ ok: false, error: 'deleted', deletedAt: 1700000000 })
+                mockService.getBlock.mockResolvedValue({
+                    ok: false,
+                    error: 'deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'user@example.com',
+                })
 
                 const res = await supertest(app)
                     .get('/api/projects/1/recordings/session-123/block')
@@ -329,8 +336,9 @@ describe('RecordingApi', () => {
 
                 expect(res.status).toBe(410)
                 expect(res.body).toEqual({
-                    error: 'Recording has been deleted',
+                    error: 'recording_deleted',
                     deleted_at: 1700000000,
+                    deleted_by: 'user@example.com',
                 })
             })
 
@@ -347,7 +355,7 @@ describe('RecordingApi', () => {
         })
     })
 
-    describe('bulkDeleteRecordings endpoint', () => {
+    describe('deleteRecordings endpoint', () => {
         let app: express.Application
         let server: Server
 
@@ -371,8 +379,8 @@ describe('RecordingApi', () => {
                 ['-1', 'negative number'],
             ])('should return 400 for invalid team_id: %s (%s)', async (teamId) => {
                 const res = await supertest(app)
-                    .post(`/api/projects/${teamId}/recordings/bulk_delete`)
-                    .send({ session_ids: ['session-1'] })
+                    .post(`/api/projects/${teamId}/recordings/delete`)
+                    .send({ session_ids: ['session-1'], deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Invalid team_id parameter' })
@@ -380,26 +388,36 @@ describe('RecordingApi', () => {
 
             it('should return 400 when session_ids is empty', async () => {
                 const res = await supertest(app)
-                    .post('/api/projects/1/recordings/bulk_delete')
-                    .send({ session_ids: [] })
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: [], deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'session_ids must not be empty' })
             })
 
             it('should return 400 when session_ids is missing', async () => {
-                const res = await supertest(app).post('/api/projects/1/recordings/bulk_delete').send({})
+                const res = await supertest(app)
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(400)
                 expect(res.body.error).toBeDefined()
+            })
+
+            it('should return 400 when deleted_by is missing', async () => {
+                const res = await supertest(app)
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: ['session-1'] })
+
+                expect(res.status).toBe(400)
             })
 
             it('should return 400 when too many session_ids', async () => {
                 const sessionIds = Array.from({ length: 101 }, (_, i) => `session-${i}`)
 
                 const res = await supertest(app)
-                    .post('/api/projects/1/recordings/bulk_delete')
-                    .send({ session_ids: sessionIds })
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: sessionIds, deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'Too many session_ids (max 100)' })
@@ -414,8 +432,8 @@ describe('RecordingApi', () => {
 
                 try {
                     const res = await supertest(uninitializedApp)
-                        .post('/api/projects/1/recordings/bulk_delete')
-                        .send({ session_ids: ['session-1'] })
+                        .post('/api/projects/1/recordings/delete')
+                        .send({ session_ids: ['session-1'], deleted_by: 'user@example.com' })
 
                     expect(res.status).toBe(503)
                     expect(res.body).toEqual({ error: 'Service not initialized' })
@@ -427,120 +445,62 @@ describe('RecordingApi', () => {
 
         describe('response serialization', () => {
             it('should return result from service', async () => {
-                mockService.bulkDeleteRecordings.mockResolvedValue({
-                    deleted: ['session-1', 'session-2'],
-                    failed: [{ session_id: 'session-3', error: 'unexpected_error' }],
-                })
+                mockService.deleteRecordings.mockResolvedValue([
+                    {
+                        sessionId: 'session-1',
+                        ok: true,
+                        status: 'deleted',
+                        deletedAt: 1700000000,
+                        deletedBy: 'user@example.com',
+                    },
+                    {
+                        sessionId: 'session-2',
+                        ok: true,
+                        status: 'already_deleted',
+                        deletedAt: 1700000000,
+                        deletedBy: 'original@example.com',
+                    },
+                    { sessionId: 'session-3', ok: false, status: 'delete_failed' },
+                ])
 
                 const res = await supertest(app)
-                    .post('/api/projects/1/recordings/bulk_delete')
-                    .send({ session_ids: ['session-1', 'session-2', 'session-3'] })
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: ['session-1', 'session-2', 'session-3'], deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(200)
-                expect(res.body).toEqual({
-                    deleted: ['session-1', 'session-2'],
-                    failed: [{ session_id: 'session-3', error: 'unexpected_error' }],
-                })
-                expect(mockService.bulkDeleteRecordings).toHaveBeenCalledWith(
+                expect(res.body).toEqual([
+                    {
+                        sessionId: 'session-1',
+                        ok: true,
+                        status: 'deleted',
+                        deletedAt: 1700000000,
+                        deletedBy: 'user@example.com',
+                    },
+                    {
+                        sessionId: 'session-2',
+                        ok: true,
+                        status: 'already_deleted',
+                        deletedAt: 1700000000,
+                        deletedBy: 'original@example.com',
+                    },
+                    { sessionId: 'session-3', ok: false, status: 'delete_failed' },
+                ])
+                expect(mockService.deleteRecordings).toHaveBeenCalledWith(
                     ['session-1', 'session-2', 'session-3'],
-                    1
+                    1,
+                    'user@example.com'
                 )
             })
 
             it('should return 500 when service throws unexpected error', async () => {
-                mockService.bulkDeleteRecordings.mockRejectedValue(new Error('Unexpected error'))
+                mockService.deleteRecordings.mockRejectedValue(new Error('Unexpected error'))
 
                 const res = await supertest(app)
-                    .post('/api/projects/1/recordings/bulk_delete')
-                    .send({ session_ids: ['session-1'] })
+                    .post('/api/projects/1/recordings/delete')
+                    .send({ session_ids: ['session-1'], deleted_by: 'user@example.com' })
 
                 expect(res.status).toBe(500)
-                expect(res.body).toEqual({ error: 'Failed to bulk delete recordings' })
-            })
-        })
-    })
-
-    describe('deleteRecording endpoint', () => {
-        let app: express.Application
-        let server: Server
-
-        beforeEach(async () => {
-            const recordingApi = new RecordingApi({} as RecordingApiHub)
-            await recordingApi.start(mockService)
-            app = express()
-            app.use('/', recordingApi.router())
-            server = app.listen(0, () => {})
-        })
-
-        afterEach(() => {
-            server.close()
-        })
-
-        describe('request parsing', () => {
-            it.each([
-                ['abc', 'non-numeric string'],
-                ['0', 'zero'],
-                ['-1', 'negative number'],
-            ])('should return 400 for invalid team_id: %s (%s)', async (teamId) => {
-                const res = await supertest(app).delete(`/api/projects/${teamId}/recordings/session-123`)
-
-                expect(res.status).toBe(400)
-                expect(res.body).toEqual({ error: 'Invalid team_id parameter' })
-            })
-
-            it('should return 503 if service not initialized', async () => {
-                const uninitializedApi = new RecordingApi({} as RecordingApiHub)
-                const uninitializedApp = express()
-                uninitializedApp.use('/', uninitializedApi.router())
-                const uninitializedServer = uninitializedApp.listen(0, () => {})
-
-                try {
-                    const res = await supertest(uninitializedApp).delete('/api/projects/1/recordings/session-123')
-
-                    expect(res.status).toBe(503)
-                    expect(res.body).toEqual({ error: 'KeyStore not initialized' })
-                } finally {
-                    uninitializedServer.close()
-                }
-            })
-        })
-
-        describe('response serialization', () => {
-            it('should return success when key is deleted', async () => {
-                mockService.deleteRecording.mockResolvedValue({ ok: true, deletedAt: 1700000000 })
-
-                const res = await supertest(app).delete('/api/projects/1/recordings/session-123')
-
-                expect(res.status).toBe(200)
-                expect(res.body).toEqual({
-                    team_id: 1,
-                    session_id: 'session-123',
-                    status: 'deleted',
-                    deleted_at: 1700000000,
-                })
-            })
-
-            it('should return 500 when post-deletion cleanup fails', async () => {
-                mockService.deleteRecording.mockResolvedValue({
-                    ok: false,
-                    error: 'cleanup_failed',
-                    metadataError: new Error('Kafka error'),
-                    postgresError: undefined,
-                })
-
-                const res = await supertest(app).delete('/api/projects/1/recordings/session-123')
-
-                expect(res.status).toBe(500)
-                expect(res.body).toEqual({ error: 'Recording key deleted but post-deletion cleanup failed' })
-            })
-
-            it('should return 500 when service throws unexpected error', async () => {
-                mockService.deleteRecording.mockRejectedValue(new Error('Delete error'))
-
-                const res = await supertest(app).delete('/api/projects/1/recordings/session-123')
-
-                expect(res.status).toBe(500)
-                expect(res.body).toEqual({ error: 'Failed to delete recording key' })
+                expect(res.body).toEqual({ error: 'Failed to delete recordings' })
             })
         })
     })
