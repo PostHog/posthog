@@ -26,28 +26,22 @@ class SentimentResult:
 
 @dataclass
 class TraceResult:
-    trace_id: str
     label: str
     score: float
     scores: dict[str, float]
-    generations: dict[str, Any] = field(default_factory=dict)
-    generation_count: int = 0
+    messages: dict[str, dict[str, Any]] = field(default_factory=dict)
     message_count: int = 0
 
     @classmethod
-    def neutral(cls, trace_id: str) -> "TraceResult":
-        return cls(
-            trace_id=trace_id, label="neutral", score=0.0, scores={"positive": 0.0, "neutral": 0.0, "negative": 0.0}
-        )
+    def neutral(cls) -> "TraceResult":
+        return cls(label="neutral", score=0.0, scores={"positive": 0.0, "neutral": 0.0, "negative": 0.0})
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "trace_id": self.trace_id,
             "label": self.label,
             "score": self.score,
             "scores": self.scores,
-            "generations": self.generations,
-            "generation_count": self.generation_count,
+            "messages": self.messages,
             "message_count": self.message_count,
         }
 

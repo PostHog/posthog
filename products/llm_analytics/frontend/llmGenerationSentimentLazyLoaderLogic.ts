@@ -178,9 +178,10 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
                         chunks.map(async (batch) => {
                             try {
                                 const response = await api.create<BatchGenerationSentimentResponse>(
-                                    `api/environments/${teamId}/llm_analytics/sentiment/generations/`,
+                                    `api/environments/${teamId}/llm_analytics/sentiment/`,
                                     {
-                                        generation_ids: batch,
+                                        ids: batch,
+                                        analysis_level: 'generation',
                                         date_from: dateRangeForBatch?.dateFrom || undefined,
                                         date_to: dateRangeForBatch?.dateTo || undefined,
                                     }

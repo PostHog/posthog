@@ -208,3 +208,8 @@ class TestDualWriteInTraceActivity:
             # Trace-level and generation-level keys should both be in the single set_many call
             assert "llma_sentiment:trace:1:trace-1" in cache_keys
             assert "llma_sentiment:generation:1:gen-1" in cache_keys
+            # Generation cache entry has the unified shape
+            gen_cached = cache_keys["llma_sentiment:generation:1:gen-1"]
+            assert gen_cached["label"] == "positive"
+            assert "messages" in gen_cached
+            assert "message_count" in gen_cached

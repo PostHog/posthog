@@ -391,9 +391,10 @@ export interface PatchedLLMProviderKeyApi {
 export interface SentimentRequestApi {
     /**
      * @minItems 1
-     * @maxItems 5
+     * @maxItems 20
      */
-    trace_ids: string[]
+    ids: string[]
+    analysis_level?: 'trace' | 'generation'
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null
@@ -409,54 +410,22 @@ export interface MessageSentimentApi {
     scores: MessageSentimentApiScores
 }
 
-export type GenerationSentimentApiScores = { [key: string]: number }
+export type SentimentResultApiScores = { [key: string]: number }
 
-export type GenerationSentimentApiMessages = { [key: string]: MessageSentimentApi }
+export type SentimentResultApiMessages = { [key: string]: MessageSentimentApi }
 
-export interface GenerationSentimentApi {
+export interface SentimentResultApi {
     label: string
     score: number
-    scores: GenerationSentimentApiScores
-    messages: GenerationSentimentApiMessages
-}
-
-export type SentimentResponseApiScores = { [key: string]: number }
-
-export type SentimentResponseApiGenerations = { [key: string]: GenerationSentimentApi }
-
-export interface SentimentResponseApi {
-    trace_id: string
-    label: string
-    score: number
-    scores: SentimentResponseApiScores
-    generations: SentimentResponseApiGenerations
-    generation_count: number
+    scores: SentimentResultApiScores
+    messages: SentimentResultApiMessages
     message_count: number
 }
 
-export type SentimentBatchResponseApiResults = { [key: string]: SentimentResponseApi }
+export type SentimentBatchResponseApiResults = { [key: string]: SentimentResultApi }
 
 export interface SentimentBatchResponseApi {
     results: SentimentBatchResponseApiResults
-}
-
-export interface GenerationSentimentRequestApi {
-    /**
-     * @minItems 1
-     * @maxItems 20
-     */
-    generation_ids: string[]
-    force_refresh?: boolean
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
-}
-
-export type GenerationSentimentBatchResponseApiResults = { [key: string]: GenerationSentimentApi }
-
-export interface GenerationSentimentBatchResponseApi {
-    results: GenerationSentimentBatchResponseApiResults
 }
 
 /**
@@ -790,10 +759,6 @@ export type LlmAnalyticsProviderKeysListParams = {
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 

@@ -23,7 +23,6 @@ import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { flattenGenerationMessages } from './sentimentUtils'
 import { CompatMessage } from './types'
 import { normalizeMessages, parseJSONPreview } from './utils'
 
@@ -209,14 +208,7 @@ function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element 
         return <>–</>
     }
 
-    return (
-        <SentimentBar
-            label={cached.label}
-            score={cached.score}
-            size="full"
-            messages={flattenGenerationMessages(cached.generations)}
-        />
-    )
+    return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
 }
 
 function LazyGenerationSentimentCell({ generationEventId }: { generationEventId: string }): JSX.Element {

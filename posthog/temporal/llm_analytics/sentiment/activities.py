@@ -89,6 +89,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
 
     # 4. Build results — different aggregation per level
     output: dict[str, dict[str, Any]] = {}
+    per_gen_for_cache: dict[str, dict[str, dict[str, Any]]] = {}
     offset = 0
     for id_ in input.ids:
         if is_generation:
@@ -97,8 +98,9 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
             output[id_] = build_generation_result(id_, gen_pending, gen_results)
             offset += len(gen_pending)
         else:
-            trace_result, consumed = build_trace_result(id_, pending, all_results, offset)
+            trace_result, per_gen, consumed = build_trace_result(id_, pending, all_results, offset)
             output[id_] = trace_result.to_dict()
+            per_gen_for_cache[id_] = per_gen
             offset += consumed
 
     if is_generation:
@@ -119,8 +121,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     for id_, result in output.items():
         to_cache[_cache_key(input.analysis_level, id_)] = result
         if not is_generation:
-            # Dual-write individual generation results for generation-level cache
-            for gen_uuid, gen_data in result.get("generations", {}).items():
+            for gen_uuid, gen_data in per_gen_for_cache.get(id_, {}).items():
                 to_cache[_cache_key("generation", gen_uuid)] = gen_data
     if to_cache:
         try:
