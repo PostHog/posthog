@@ -85,7 +85,6 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
-    HogQLASTQuery = 'HogQLASTQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
@@ -257,7 +256,6 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | HogQLASTQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -479,11 +477,6 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     explain?: boolean
     /** Client provided name of the query */
     name?: string
-}
-
-export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
-    kind: NodeKind.HogQLASTQuery
-    query: Record<string, any>
 }
 
 export interface HogQueryResponse {
@@ -4689,6 +4682,7 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedConversion = 'Reported Conversion',
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
+    CostPerReportedConversion = 'Cost per Reported Conversion',
 }
 
 export enum MarketingAnalyticsConstants {

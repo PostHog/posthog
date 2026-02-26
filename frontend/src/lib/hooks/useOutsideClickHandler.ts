@@ -23,6 +23,12 @@ export function useOutsideClickHandler(
 
     useEffect(() => {
         function handleClick(event: Event): void {
+            // Ignore non-primary clicks (right-click, middle-click).
+            // Radix context menus (BrowserLikeMenuItems) fire `contextmenu` before `mouseup`,
+            // causing the browser to retarget `mouseup` to <html> which falsely triggers outside-click dismissal.
+            if (event instanceof MouseEvent && event.button !== 0) {
+                return
+            }
             if (exceptions.some((exception) => (event.target as Element)?.matches?.(exception))) {
                 return
             }

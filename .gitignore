@@ -176,5 +176,8 @@ services/mcp/ui-apps-dist
 # Product skills
 .claude/skills/error-tracking
 
+# Test output
+junit.xml
+
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/

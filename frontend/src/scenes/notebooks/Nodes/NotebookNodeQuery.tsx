@@ -122,7 +122,11 @@ const Component = ({
     return (
         <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
-                <ScrollableShadows direction="vertical" className="flex-1">
+                <ScrollableShadows
+                    direction="vertical"
+                    className="flex-1"
+                    hideScrollbars={isInsightVizNode(modifiedQuery) || isSavedInsightNode(modifiedQuery)}
+                >
                     <Query
                         // use separate keys for the settings and visualization to avoid conflicts with insightProps
                         uniqueKey={nodeId + '-component'}

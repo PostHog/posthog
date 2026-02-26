@@ -117,7 +117,7 @@ pub async fn serve<F>(
     let health = HealthRegistry::new("liveness");
 
     // Liveness checks only verify the process is alive (simple heartbeat loop).
-    // Readiness checks (in router.rs) verify DB connectivity before accepting traffic.
+    // Readiness checks (in router.rs) verify the pod isn't shutting down via a preStop marker file.
     let simple_loop = health
         .register(
             "simple_loop".to_string(),

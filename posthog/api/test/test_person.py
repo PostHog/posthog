@@ -389,7 +389,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIsNone(async_deletion.delete_verified_at)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_delete_person_and_recordings(self):
+    @mock.patch("posthog.api.person.PersonViewSet._queue_delete_recordings")
+    def test_delete_person_and_recordings(self, _mock_queue_delete):
         person = _create_person(
             team=self.team,
             distinct_ids=["person_1", "anonymous_id"],
@@ -404,7 +405,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_delete_person_and_recordings_and_events(self):
+    @mock.patch("posthog.api.person.PersonViewSet._queue_delete_recordings")
+    def test_delete_person_and_recordings_and_events(self, _mock_queue_delete):
         person = _create_person(
             team=self.team,
             distinct_ids=["person_1", "anonymous_id"],
@@ -539,7 +541,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
         self.assertEqual(async_deletion.key, str(person.uuid))
 
-    def test_bulk_delete_with_recordings(self):
+    @mock.patch("posthog.api.person.PersonViewSet._queue_delete_recordings")
+    def test_bulk_delete_with_recordings(self, _mock_queue_delete):
         """Test that bulk_delete queues recording deletion"""
         person = _create_person(
             team=self.team,
