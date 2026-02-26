@@ -171,7 +171,7 @@ func TestStatsHandler_ReadsFromRedis(t *testing.T) {
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	rw := events.NewRedisStatsWriterFromClient(client)
+	rw := events.NewStatsInRedisFromClient(client)
 
 	ctx := context.Background()
 	require.NoError(t, rw.AddUser(ctx, apiToken, "user1"))

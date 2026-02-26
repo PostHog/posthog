@@ -2,7 +2,6 @@ package events
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,32 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type fakeClock struct {
-	mu sync.Mutex
-	t  time.Time
-}
-
-func (c *fakeClock) now(_ context.Context) (time.Time, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.t, nil
-}
-
-func (c *fakeClock) advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.t = c.t.Add(d)
-}
-
-func setupMiniredis(t *testing.T) (*RedisStatsWriter, *fakeClock) {
+func setupMiniredis(t *testing.T) (*StatsInRedis, redis.Cmdable) {
 	t.Helper()
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	clk := &fakeClock{t: time.Now()}
-	w := NewRedisStatsWriterFromClient(client)
-	w.nowFunc = clk.now
-	return w, clk
+	w := NewStatsInRedisFromClient(client)
+	return w, client
 }
 
 func TestAddUser_GetUserCount(t *testing.T) {
@@ -158,58 +138,42 @@ func TestAddSession_GetSessionCount(t *testing.T) {
 }
 
 func TestSessionExpiry(t *testing.T) {
-	w, clk := setupMiniredis(t)
+	w, client := setupMiniredis(t)
 	ctx := context.Background()
+	key := sessionKey("token_a")
+	oldScore := float64(time.Now().Add(-6 * time.Minute).Unix())
 
-	require.NoError(t, w.AddSession(ctx, "token_a", "session_1"))
-	require.NoError(t, w.AddSession(ctx, "token_a", "session_2"))
+	client.ZAdd(ctx, key, redis.Z{Score: oldScore, Member: "session_1"})
+	client.ZAdd(ctx, key, redis.Z{Score: oldScore, Member: "session_2"})
 
 	count, err := w.GetSessionCount(ctx, "token_a")
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), count)
-
-	clk.advance(6 * time.Minute)
-
-	count, err = w.GetSessionCount(ctx, "token_a")
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count)
 }
 
 func TestUserExpiry(t *testing.T) {
-	w, clk := setupMiniredis(t)
+	w, client := setupMiniredis(t)
 	ctx := context.Background()
+	key := userKey("token_a")
+	oldScore := float64(time.Now().Add(-61 * time.Second).Unix())
 
-	require.NoError(t, w.AddUser(ctx, "token_a", "user1"))
-	require.NoError(t, w.AddUser(ctx, "token_a", "user2"))
+	client.ZAdd(ctx, key, redis.Z{Score: oldScore, Member: "user1"})
+	client.ZAdd(ctx, key, redis.Z{Score: oldScore, Member: "user2"})
 
 	count, err := w.GetUserCount(ctx, "token_a")
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), count)
-
-	clk.advance(userKeyTTL + time.Second)
-
-	count, err = w.GetUserCount(ctx, "token_a")
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count)
 }
 
 func TestUserNaturalDecay(t *testing.T) {
-	w, clk := setupMiniredis(t)
+	w, client := setupMiniredis(t)
 	ctx := context.Background()
+	key := userKey("token_a")
 
-	require.NoError(t, w.AddUser(ctx, "token_a", "user1"))
-
-	clk.advance(30 * time.Second)
-
-	require.NoError(t, w.AddUser(ctx, "token_a", "user2"))
+	client.ZAdd(ctx, key, redis.Z{Score: float64(time.Now().Add(-70 * time.Second).Unix()), Member: "user1"})
+	client.ZAdd(ctx, key, redis.Z{Score: float64(time.Now().Unix()), Member: "user2"})
 
 	count, err := w.GetUserCount(ctx, "token_a")
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), count)
-
-	clk.advance(40 * time.Second)
-
-	count, err = w.GetUserCount(ctx, "token_a")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), count, "only user2 should remain after user1 ages out")
 }

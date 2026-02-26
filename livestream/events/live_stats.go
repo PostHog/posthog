@@ -30,7 +30,7 @@ type Stats struct {
 	// Counter keeps all events count in the last COUNTER_TTL
 	Counter *SlidingWindowCounter
 
-	RedisWriter *RedisStatsWriter
+	RedisStore *StatsInRedis
 
 	mu sync.RWMutex // guards store
 }
@@ -73,10 +73,12 @@ func (ts *Stats) KeepStats(statsChan chan CountEvent) {
 		ts.GlobalStore.Add(event.DistinctID, NoSpaceType{})
 		metrics.HandledEvents.Inc()
 
-		if ts.RedisWriter != nil {
-			if err := ts.RedisWriter.AddUser(context.Background(), event.Token, event.DistinctID); err != nil {
+		if ts.RedisStore != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := ts.RedisStore.AddUser(ctx, event.Token, event.DistinctID); err != nil {
 				log.Printf("Redis AddUser error: %v", err)
 			}
+			cancel()
 		}
 	}
 }

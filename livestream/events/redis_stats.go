@@ -1,3 +1,13 @@
+/*
+	StatsInRedis provides a shared storage backed by Redis.
+	It enables the /stats endpoint to serve consistent user
+	and session counts across multiple service instances by
+	adding tokens to a sorted set with a short-lived TTL.
+
+	Redis pipelines are used to batch multiple commands into a single round-trip.
+	Each pipeline targets a single key, so all commands hit the same hash slot
+	and are safe by default in cluster mode.
+*/
 package events
 
 import (
@@ -16,23 +26,12 @@ const (
 	sessionKeyTTL = 5 * time.Minute
 )
 
-type RedisStatsWriter struct {
-	client  redis.Cmdable
-
-	// Needed for testing.
-	// By default, nowFunc will be nil and RedisStatsWriter will use Redis' Time so all workers use the same clock
-	// When testing, this can be set to a fake clock to allow time manipulation
-	nowFunc func(ctx context.Context) (time.Time, error)
+type StatsInRedis struct {
+	client redis.Cmdable
 }
 
-func (w *RedisStatsWriter) now(ctx context.Context) (time.Time, error) {
-	if w.nowFunc != nil {
-		return w.nowFunc(ctx)
-	}
-	return w.client.Time(ctx).Result()
-}
-
-func NewRedisStatsWriter(cfg configs.RedisConfig) (*RedisStatsWriter, error) {
+// Creates a Redis-backed stats store from the given config.
+func NewStatsInRedis(cfg configs.RedisConfig) (*StatsInRedis, error) {
 	if cfg.Address == "" {
 		return nil, fmt.Errorf("redis: address not configured")
 	}
@@ -65,7 +64,41 @@ func NewRedisStatsWriter(cfg configs.RedisConfig) (*RedisStatsWriter, error) {
 		return nil, fmt.Errorf("redis ping failed: %w", pingErr)
 	}
 
-	return &RedisStatsWriter{client: client}, nil
+	return &StatsInRedis{client: client}, nil
+}
+
+// Adds a distinct user to a Redis sorted set for the given project token,
+// scored by the current timestamp. The key auto-expires after userKeyTTL.
+func (s *StatsInRedis) AddUser(ctx context.Context, token, distinctId string) error {
+	key := userKey(token)
+	return s.addKey(ctx, key, distinctId, userKeyTTL, "add_user")
+}
+
+// Adds a session ID to a Redis sorted set for the given project token,
+// scored by the current timestamp. The key auto-expires after sessionKeyTTL.
+func (s *StatsInRedis) AddSession(ctx context.Context, token, sessionId string) error {
+	key := sessionKey(token)
+	return s.addKey(ctx, key, sessionId, sessionKeyTTL, "add_session")
+}
+
+// Returns the number of distinct users seen within the last userKeyTTL window for the given token.
+func (s *StatsInRedis) GetUserCount(ctx context.Context, token string) (int64, error) {
+	key := userKey(token)
+	return s.getCount(ctx, key, userKeyTTL, "user_count")
+}
+
+// Returns the number of active sessions within the last sessionKeyTTL window for the given token.
+func (s *StatsInRedis) GetSessionCount(ctx context.Context, token string) (int64, error) {
+	key := sessionKey(token)
+	return s.getCount(ctx, key, sessionKeyTTL, "session_count")
+}
+
+// Close closes the underlying Redis connection if the client supports it.
+func (s *StatsInRedis) Close() error {
+	if c, ok := s.client.(interface{ Close() error }); ok {
+		return c.Close()
+	}
+	return nil
 }
 
 func userKey(token string) string {
@@ -76,63 +109,33 @@ func sessionKey(token string) string {
 	return fmt.Sprintf("livestream:sessions:%s", token)
 }
 
-func (w *RedisStatsWriter) AddUser(ctx context.Context, token, distinctId string) error {
-	key := userKey(token)
-	return w.AddKey(ctx, key, distinctId, userKeyTTL, "add_user")
-}
+// Adds a member to a sorted set scored by the current timestamp, then sets the key expiry. 
+func (s *StatsInRedis) addKey(ctx context.Context, key string, memberId string, ttl time.Duration, metricsLabel string) error {
+	now := time.Now()
 
-func (w *RedisStatsWriter) AddSession(ctx context.Context, token, sessionId string) error {
-	key := sessionKey(token)
-	return w.AddKey(ctx, key, sessionId, sessionKeyTTL, "add_session")
-}
-
-func (w *RedisStatsWriter) GetUserCount(ctx context.Context, token string) (int64, error) {
-	key := userKey(token)
-	return w.GetCount(ctx, key, userKeyTTL, "user_count")
-}
-
-func (w *RedisStatsWriter) GetSessionCount(ctx context.Context, token string) (int64, error) {
-	key := sessionKey(token)
-	return w.GetCount(ctx, key, sessionKeyTTL, "session_count")
-}
-
-func (w *RedisStatsWriter) AddKey(ctx context.Context, key string, memberId string, ttl time.Duration, metricsLabel string) error {
-	start := time.Now()
-
-	now, err := w.now(ctx)
-	if err != nil {
-		metrics.RedisErrors.WithLabelValues(metricsLabel).Inc()
-		return err
-	}
-
-	pipe := w.client.Pipeline()
+	pipe := s.client.Pipeline()
 	pipe.ZAdd(ctx, key, redis.Z{Score: float64(now.Unix()), Member: memberId})
 	pipe.Expire(ctx, key, ttl)
-	_, err = pipe.Exec(ctx)
+	_, err := pipe.Exec(ctx)
 
-	metrics.RedisLatency.WithLabelValues(metricsLabel).Observe(time.Since(start).Seconds())
+	metrics.RedisLatency.WithLabelValues(metricsLabel).Observe(time.Since(now).Seconds())
 	if err != nil {
 		metrics.RedisErrors.WithLabelValues(metricsLabel).Inc()
 	}
 	return err
 }
 
-func (w *RedisStatsWriter) GetCount(ctx context.Context, key string, ttl time.Duration, metricsLabel string) (int64, error) {
-	start := time.Now()
-
-	now, err := w.now(ctx)
-	if err != nil {
-		metrics.RedisErrors.WithLabelValues(metricsLabel).Inc()
-		return 0, err
-	}
+// Returns a sliding-window count by first pruning entries older than the TTL then counting survivors
+func (s *StatsInRedis) getCount(ctx context.Context, key string, ttl time.Duration, metricsLabel string) (int64, error) {
+	now := time.Now()
 	cutoff := float64(now.Add(-ttl).Unix())
 
-	pipe := w.client.Pipeline()
+	pipe := s.client.Pipeline()
 	pipe.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%f", cutoff))
 	cardCmd := pipe.ZCard(ctx, key)
-	_, err = pipe.Exec(ctx)
+	_, err := pipe.Exec(ctx)
 
-	metrics.RedisLatency.WithLabelValues(metricsLabel).Observe(time.Since(start).Seconds())
+	metrics.RedisLatency.WithLabelValues(metricsLabel).Observe(time.Since(now).Seconds())
 	if err != nil {
 		metrics.RedisErrors.WithLabelValues(metricsLabel).Inc()
 		return 0, err
@@ -140,14 +143,7 @@ func (w *RedisStatsWriter) GetCount(ctx context.Context, key string, ttl time.Du
 	return cardCmd.Val(), nil
 }
 
-func (w *RedisStatsWriter) Close() error {
-	if c, ok := w.client.(interface{ Close() error }); ok {
-		return c.Close()
-	}
-	return nil
-}
-
 // Testing helper
-func NewRedisStatsWriterFromClient(client redis.Cmdable) *RedisStatsWriter {
-	return &RedisStatsWriter{client: client}
+func NewStatsInRedisFromClient(client redis.Cmdable) *StatsInRedis {
+	return &StatsInRedis{client: client}
 }

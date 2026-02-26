@@ -34,7 +34,7 @@ func ServedHandler(stats *events.Stats) func(c echo.Context) error {
 	}
 }
 
-func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisWriter *events.RedisStatsWriter) func(c echo.Context) error {
+func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisStore *events.StatsInRedis) func(c echo.Context) error {
 	return func(c echo.Context) error {
 
 		type resp struct {
@@ -48,10 +48,10 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisW
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
 
-		if redisWriter != nil {
+		if redisStore != nil {
 			ctx := c.Request().Context()
-			userCount, userErr := redisWriter.GetUserCount(ctx, token)
-			sessionCount, sessionErr := redisWriter.GetSessionCount(ctx, token)
+			userCount, userErr := redisStore.GetUserCount(ctx, token)
+			sessionCount, sessionErr := redisStore.GetSessionCount(ctx, token)
 
 			if userErr == nil && sessionErr == nil {
 				if userCount == 0 && sessionCount == 0 {
