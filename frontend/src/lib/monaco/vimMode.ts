@@ -203,9 +203,10 @@ function setupClipboardSync(editor: monacoEditor.IStandaloneCodeEditor, statusBa
 }
 
 // The pushInput patch is applied once globally since exCommandHistoryController
-// lives on vimGlobalState (shared across all vim instances). The callback ref
-// lets us swap listeners without re-patching.
-let commandHistoryCallbackRef: ((command: string) => void) | null = null
+// lives on vimGlobalState (shared across all vim instances). Multiple editors
+// can be mounted concurrently (e.g. SQL editor tabs), so we fan out to all
+// registered callbacks.
+const commandHistoryCallbacks = new Set<(command: string) => void>()
 let pushInputPatched = false
 
 function setupCommandHistoryPersistence(
@@ -220,23 +221,21 @@ function setupCommandHistoryPersistence(
         controller.iterator = controller.historyBuffer.length
     }
 
-    commandHistoryCallbackRef = onCommandExecuted
+    commandHistoryCallbacks.add(onCommandExecuted)
 
     if (!pushInputPatched) {
         const origPushInput = controller.pushInput.bind(controller)
         controller.pushInput = function (input: string): void {
             origPushInput(input)
-            if (input && commandHistoryCallbackRef) {
-                commandHistoryCallbackRef(input)
+            if (input) {
+                commandHistoryCallbacks.forEach((cb) => cb(input))
             }
         }
         pushInputPatched = true
     }
 
     return () => {
-        if (commandHistoryCallbackRef === onCommandExecuted) {
-            commandHistoryCallbackRef = null
-        }
+        commandHistoryCallbacks.delete(onCommandExecuted)
     }
 }
 
