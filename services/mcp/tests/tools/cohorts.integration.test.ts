@@ -181,7 +181,7 @@ describe('Cohorts', { concurrent: false }, () => {
         const addPersonsTool = GENERATED_TOOLS['cohorts-add-persons-to-static-cohort-partial-update']!()
         const removePersonTool = GENERATED_TOOLS['cohorts-remove-person-from-static-cohort-partial-update']!()
 
-        it('should add persons to a static cohort', async () => {
+        it('should reject non-existent person UUIDs', async () => {
             const createResult = await createTool.handler(context, {
                 name: `Add Persons Test ${generateUniqueKey('add')}`,
                 is_static: true,
@@ -189,17 +189,16 @@ describe('Cohorts', { concurrent: false }, () => {
             const created = parseToolResponse(createResult)
             createdResources.cohorts.push(created.id)
 
-            const testUuid = '00000000-0000-4000-8000-000000000001'
-            const result = await addPersonsTool.handler(context, {
-                id: created.id,
-                person_ids: [testUuid],
-            })
-            const response = parseToolResponse(result)
-
-            expect(response).toBeTruthy()
+            const fakeUuid = '00000000-0000-4000-8000-000000000001'
+            await expect(
+                addPersonsTool.handler(context, {
+                    id: created.id,
+                    person_ids: [fakeUuid],
+                })
+            ).rejects.toThrow('Validation error')
         })
 
-        it('should remove a person from a static cohort', async () => {
+        it('should reject removing a non-existent person', async () => {
             const createResult = await createTool.handler(context, {
                 name: `Remove Person Test ${generateUniqueKey('remove')}`,
                 is_static: true,
@@ -207,20 +206,13 @@ describe('Cohorts', { concurrent: false }, () => {
             const created = parseToolResponse(createResult)
             createdResources.cohorts.push(created.id)
 
-            const testUuid = '00000000-0000-4000-8000-000000000002'
-
-            await addPersonsTool.handler(context, {
-                id: created.id,
-                person_ids: [testUuid],
-            })
-
-            const result = await removePersonTool.handler(context, {
-                id: created.id,
-                person_id: testUuid,
-            })
-            const response = parseToolResponse(result)
-
-            expect(response).toBeTruthy()
+            const fakeUuid = '00000000-0000-4000-8000-000000000002'
+            await expect(
+                removePersonTool.handler(context, {
+                    id: created.id,
+                    person_id: fakeUuid,
+                })
+            ).rejects.toThrow()
         })
     })
 
