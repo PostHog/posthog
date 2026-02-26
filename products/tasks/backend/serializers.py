@@ -389,6 +389,10 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
     error = serializers.DictField(required=False, help_text="Error details on failure")
 
 
+class CodeInviteRedeemRequestSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50)
+
+
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
     """Query parameters for filtering task run log events"""
 
