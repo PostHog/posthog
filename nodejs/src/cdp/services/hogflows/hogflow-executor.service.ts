@@ -251,7 +251,7 @@ export class HogFlowExecutorService {
             })
             triggerMatch = filterResult.match
         }
-        if (hogFlow.conversion?.filters && person) {
+        if (hogFlow.conversion?.filters?.length && person) {
             if (hogFlow.conversion.bytecode?.length) {
                 const filterResult = await filterFunctionInstrumented({
                     fn: hogFlow,
