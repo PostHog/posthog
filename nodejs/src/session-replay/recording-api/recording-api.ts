@@ -10,6 +10,7 @@ import {
     PluginServerService,
     RedisPool,
 } from '../../types'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../../utils/db/redis'
 import { logger, serializeError } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -21,7 +22,7 @@ import { RetentionService } from '../shared/retention/retention-service'
 import { TeamService } from '../shared/teams/team-service'
 import { RecordingService } from './recording-service'
 import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
-import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
+import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
 export class RecordingApi {
     private s3Client: S3Client | null = null
@@ -33,7 +34,10 @@ export class RecordingApi {
     private kafkaProducer: KafkaProducerWrapper | null = null
     private recordingService: RecordingService | null = null
 
-    constructor(private hub: RecordingApiHub) {}
+    constructor(
+        private config: RecordingApiConfig,
+        private postgres: PostgresRouter
+    ) {}
 
     public get service(): PluginServerService {
         return {
@@ -51,13 +55,13 @@ export class RecordingApi {
         }
 
         // Load S3 settings
-        const s3Region = this.hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
-        const s3Endpoint = this.hub.SESSION_RECORDING_V2_S3_ENDPOINT ?? undefined
-        const s3AccessKeyId = this.hub.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
-        const s3SecretAccessKey = this.hub.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
+        const s3Region = this.config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        const s3Endpoint = this.config.SESSION_RECORDING_V2_S3_ENDPOINT ?? undefined
+        const s3AccessKeyId = this.config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
+        const s3SecretAccessKey = this.config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
 
-        this.s3Bucket = this.hub.SESSION_RECORDING_V2_S3_BUCKET
-        this.s3Prefix = this.hub.SESSION_RECORDING_V2_S3_PREFIX
+        this.s3Bucket = this.config.SESSION_RECORDING_V2_S3_BUCKET
+        this.s3Prefix = this.config.SESSION_RECORDING_V2_S3_PREFIX
 
         logger.info('[RecordingApi] Starting with S3 config', {
             region: s3Region,
@@ -82,21 +86,21 @@ export class RecordingApi {
 
         this.s3Client = new S3Client(s3Config)
 
-        const teamService = new TeamService(this.hub.postgres)
+        const teamService = new TeamService(this.postgres)
         this.redisPool = createRedisPoolFromConfig({
             connection: {
-                url: this.hub.SESSION_RECORDING_API_REDIS_HOST,
-                options: { port: this.hub.SESSION_RECORDING_API_REDIS_PORT },
+                url: this.config.SESSION_RECORDING_API_REDIS_HOST,
+                options: { port: this.config.SESSION_RECORDING_API_REDIS_PORT },
                 name: 'recording-api',
             },
-            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
         const retentionService = new RetentionService(this.redisPool, teamService)
 
         const keyStore: KeyStore = getKeyStore(retentionService, s3Region, {
-            kmsEndpoint: this.hub.SESSION_RECORDING_KMS_ENDPOINT,
-            dynamoDBEndpoint: this.hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+            kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
+            dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
         // In-memory caching is intentionally omitted here — a stale in-memory cache on
         // another instance would allow serving a deleted recording's data.
@@ -107,7 +111,7 @@ export class RecordingApi {
         await this.decryptor.start()
 
         // Initialize Kafka producer for emitting deletion events
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK)
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
         const metadataStore = new SessionMetadataStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS)
 
         // Create the service layer
@@ -118,7 +122,7 @@ export class RecordingApi {
             this.keyStore,
             this.decryptor,
             metadataStore,
-            this.hub.postgres
+            this.postgres
         )
 
         logger.info('[RecordingApi] Started successfully')

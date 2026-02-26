@@ -1,4 +1,4 @@
-import { BuiltLogic, beforeUnmount, connect, kea, path, selectors } from 'kea'
+import { BuiltLogic, actions, beforeUnmount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -18,6 +18,23 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
     connect(() => ({
         values: [teamLogic, ['currentTeam'], projectLogic, ['currentProjectId']],
     })),
+
+    actions({
+        toggleInsightExpanded: (insightShortId: string) => ({ insightShortId }),
+    }),
+
+    reducers({
+        expandedInsightIds: [
+            new Set<string>(),
+            {
+                toggleInsightExpanded: (state, { insightShortId }) => {
+                    const next = new Set(state)
+                    next.has(insightShortId) ? next.delete(insightShortId) : next.add(insightShortId)
+                    return next
+                },
+            },
+        ],
+    }),
 
     selectors({
         primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],

@@ -3,13 +3,13 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { Hub } from '../../types'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'
 import { RetentionService } from '../shared/retention/retention-service'
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
-import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
+import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
 jest.mock('@aws-sdk/client-s3', () => ({
     S3Client: jest.fn().mockImplementation(() => ({
@@ -53,7 +53,8 @@ jest.mock('../../kafka/producer', () => ({
 jest.mock('./recording-service')
 
 describe('RecordingApi', () => {
-    let mockHub: Partial<Hub>
+    let mockConfig: Partial<RecordingApiConfig>
+    const mockPostgres = {} as PostgresRouter
     let mockKeyStore: jest.Mocked<KeyStore>
     let mockDecryptor: jest.Mocked<RecordingDecryptor>
     let mockService: jest.Mocked<RecordingService>
@@ -61,7 +62,7 @@ describe('RecordingApi', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockHub = {
+        mockConfig = {
             SESSION_RECORDING_V2_S3_REGION: 'us-west-2',
             SESSION_RECORDING_V2_S3_ENDPOINT: undefined,
             SESSION_RECORDING_V2_S3_BUCKET: 'test-bucket',
@@ -70,7 +71,6 @@ describe('RecordingApi', () => {
             SESSION_RECORDING_API_REDIS_PORT: 6379,
             REDIS_POOL_MIN_SIZE: 1,
             REDIS_POOL_MAX_SIZE: 10,
-            postgres: {} as any,
         }
 
         mockKeyStore = {
@@ -99,7 +99,7 @@ describe('RecordingApi', () => {
 
     describe('service', () => {
         it('should return service descriptor', () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             const service = recordingApi.service
 
             expect(service.id).toBe('recording-api')
@@ -110,7 +110,7 @@ describe('RecordingApi', () => {
 
     describe('start', () => {
         it('should initialize all components', async () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             await recordingApi.start()
 
             expect(S3Client).toHaveBeenCalledWith({
@@ -127,8 +127,8 @@ describe('RecordingApi', () => {
         })
 
         it('should use default region if not specified', async () => {
-            mockHub.SESSION_RECORDING_V2_S3_REGION = undefined
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            mockConfig.SESSION_RECORDING_V2_S3_REGION = undefined
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
 
             await recordingApi.start()
 
@@ -140,8 +140,8 @@ describe('RecordingApi', () => {
         })
 
         it('should configure forcePathStyle when endpoint is specified', async () => {
-            mockHub.SESSION_RECORDING_V2_S3_ENDPOINT = 'http://localhost:4566'
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            mockConfig.SESSION_RECORDING_V2_S3_ENDPOINT = 'http://localhost:4566'
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
 
             await recordingApi.start()
 
@@ -155,7 +155,7 @@ describe('RecordingApi', () => {
 
     describe('stop', () => {
         it('should clean up all components', async () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             await recordingApi.start()
             const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
 
@@ -166,21 +166,21 @@ describe('RecordingApi', () => {
         })
 
         it('should handle stop when not started', async () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             await expect(recordingApi.stop()).resolves.toBeUndefined()
         })
     })
 
     describe('isHealthy', () => {
         it('should return error when not started', () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             const result = recordingApi.isHealthy()
 
             expect(result.isError()).toBe(true)
         })
 
         it('should return ok when all components initialized', async () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             await recordingApi.start()
 
             const result = recordingApi.isHealthy()
@@ -191,7 +191,7 @@ describe('RecordingApi', () => {
 
     describe('router', () => {
         it('should return an express router', () => {
-            const recordingApi = new RecordingApi(mockHub as Hub)
+            const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres)
             const router = recordingApi.router()
 
             expect(router).toBeDefined()
@@ -204,7 +204,7 @@ describe('RecordingApi', () => {
         const validKey = 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee'
 
         beforeEach(async () => {
-            const recordingApi = new RecordingApi({} as RecordingApiHub)
+            const recordingApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
             await recordingApi.start(mockService)
             app = express()
             app.use('/', recordingApi.router())
@@ -277,7 +277,7 @@ describe('RecordingApi', () => {
             })
 
             it('should return 503 if service not initialized', async () => {
-                const uninitializedApi = new RecordingApi({} as RecordingApiHub)
+                const uninitializedApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
                 const uninitializedApp = express()
                 uninitializedApp.use('/', uninitializedApi.router())
                 const uninitializedServer = uninitializedApp.listen(0, () => {})
@@ -360,7 +360,7 @@ describe('RecordingApi', () => {
         let server: Server
 
         beforeEach(async () => {
-            const recordingApi = new RecordingApi({} as RecordingApiHub)
+            const recordingApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
             await recordingApi.start(mockService)
             app = express()
             app.use(express.json())
@@ -424,7 +424,7 @@ describe('RecordingApi', () => {
             })
 
             it('should return 503 if service not initialized', async () => {
-                const uninitializedApi = new RecordingApi({} as RecordingApiHub)
+                const uninitializedApi = new RecordingApi({} as RecordingApiConfig, mockPostgres)
                 const uninitializedApp = express()
                 uninitializedApp.use(express.json())
                 uninitializedApp.use('/', uninitializedApi.router())

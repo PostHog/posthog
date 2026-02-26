@@ -173,6 +173,7 @@ const LeftHandColumn = (): JSX.Element => {
         logicKey: 'error-tracking-issue',
         persistent: true,
         placement: 'right',
+        persistPrefix: 'error-tracking-issue-view-columns-ratio',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
     const hasTasks = useFeatureFlag('TASKS')
@@ -183,7 +184,7 @@ const LeftHandColumn = (): JSX.Element => {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: desiredSize ?? '30%',
+                width: desiredSize ?? '40%',
                 minWidth: 320,
             }}
             className="flex flex-col h-full relative bg-surface-primary"
