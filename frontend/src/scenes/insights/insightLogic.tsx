@@ -741,7 +741,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         actions.reloadSavedInsights()
                     }
                 },
-                },
                 onError: restoreInsight,
             })
         },
