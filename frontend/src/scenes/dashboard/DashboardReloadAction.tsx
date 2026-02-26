@@ -44,8 +44,18 @@ const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
 }))
 
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, nextAllowedDashboardRefresh, dashboardLoadData } =
-        useValues(dashboardLogic)
+    const {
+        itemsLoading,
+        autoRefresh,
+        refreshMetrics,
+        blockRefresh,
+        nextAllowedDashboardRefresh,
+        dashboardLoadData,
+        hasIntermittentFilters,
+        hasUrlFilters,
+        urlVariables,
+        isAnalyzing,
+    } = useValues(dashboardLogic)
     const {
         triggerDashboardRefresh,
         setAutoRefresh,
@@ -56,7 +66,17 @@ export function DashboardReloadAction(): JSX.Element {
 
     usePageVisibilityCb(setPageVisibility)
 
-    const dashboardAIRefreshEnabled = useFeatureFlag(FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_AI_ANALYSIS)
+    const refreshDisabledReason =
+        !itemsLoading &&
+        blockRefresh &&
+        nextAllowedDashboardRefresh &&
+        dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
+            ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
+            : ''
+
+    const hasOverrides = hasIntermittentFilters || hasUrlFilters || Object.keys(urlVariables).length > 0
+    const dashboardAIRefreshEnabled =
+        useFeatureFlag(FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_AI_ANALYSIS) && !hasOverrides && !refreshDisabledReason
 
     // Force a re-render when nextAllowedDashboardRefresh is reached, since the blockRefresh
     // selector uses now() which isn't reactive - it only recomputes on dependency changes
@@ -78,14 +98,6 @@ export function DashboardReloadAction(): JSX.Element {
         }
     })
 
-    const refreshDisabledReason =
-        !itemsLoading &&
-        blockRefresh &&
-        nextAllowedDashboardRefresh &&
-        dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
-            ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
-            : ''
-
     return (
         <div className="relative flex items-center gap-2">
             {/* Status text */}
@@ -93,7 +105,9 @@ export function DashboardReloadAction(): JSX.Element {
                 {itemsLoading ? (
                     <span className="flex items-center gap-1">
                         <Spinner textColored className="text-sm" />
-                        {refreshMetrics.total ? (
+                        {isAnalyzing ? (
+                            <>Analyzing...</>
+                        ) : refreshMetrics.total ? (
                             <>
                                 {dashboardLoadData?.action === 'initial_load' ? 'Loaded' : 'Refreshed'}{' '}
                                 {refreshMetrics.completed} out of {refreshMetrics.total}

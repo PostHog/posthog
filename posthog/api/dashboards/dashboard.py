@@ -875,26 +875,25 @@ class DashboardsViewSet(
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
 
-        # Capture 'before' state if analysis is requested
-        analyze_refresh = str_to_bool(request.query_params.get("analyze_refresh", "false"))
-        cache_key = None
-
-        if analyze_refresh:
-            before_results = self._get_cached_results_for_analysis(dashboard, request)
-            cache_key = f"dashboard_refresh_before_{dashboard.id}_{request.user.id}"
-            cache.set(cache_key, before_results, timeout=1800)  # 30 minutes
-
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         data = serializer.data
 
-        # Add cache key to response if analysis was requested
-        if cache_key:
-            data["analysis_cache_key"] = cache_key
-
         response = Response(data)
         return response
+
+    @action(methods=["POST"], detail=True)
+    def snapshot(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Snapshot the current dashboard state (from cache) for AI analysis.
+        Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
+        """
+        dashboard = self.get_object()
+        before_results = self._get_cached_results_for_analysis(dashboard, request)
+        cache_key = f"dashboard_refresh_before_{dashboard.id}_{request.user.id}_{now().timestamp()}"
+        cache.set(cache_key, before_results, timeout=1800)  # 30 minutes
+        return Response({"cache_key": cache_key})
 
     @action(methods=["POST"], detail=True)
     def analyze_refresh_result(self, request: Request, *args: Any, **kwargs: Any) -> Response:
