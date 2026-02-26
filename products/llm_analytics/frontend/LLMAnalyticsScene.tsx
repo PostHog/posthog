@@ -515,11 +515,11 @@ function LLMAnalyticsSceneContent(): JSX.Element {
         'data-attr': 'errors-tab',
     })
 
+    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
+
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] || isEarlyAdopter) {
         tabs.push({
             key: 'sessions',
             label: 'Sessions',
@@ -551,8 +551,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
 
     const availableItemsInSidebar = useMemo(() => {
         return [
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] || isEarlyAdopter ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
                     onClick={() => toggleProduct('Clusters', true)}
@@ -576,8 +575,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     evaluations
                 </Link>
             ) : null,
-            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ||
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
+            isPromptManagementEnabled ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
                     onClick={() => toggleProduct('Prompts', true)}
@@ -586,7 +584,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, searchParams, toggleProduct])
+    }, [featureFlags, isEarlyAdopter, isPromptManagementEnabled, searchParams, toggleProduct])
 
     return (
         <SceneContent>
