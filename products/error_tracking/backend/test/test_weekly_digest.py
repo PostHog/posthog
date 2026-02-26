@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from django.utils import timezone
 
 from posthog.models import Team
+from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
@@ -270,12 +271,12 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         self._create_exception_event(issue_id=issue.id)
         flush_persons_and_events()
 
-        org_ids = get_org_ids_with_exceptions(team_ids=[self.team.pk])
+        org_ids = get_org_ids_with_exceptions()
 
         assert self.team.organization_id in org_ids
 
     def test_get_org_ids_with_exceptions_empty(self):
-        org_ids = get_org_ids_with_exceptions(team_ids=[self.team.pk])
+        org_ids = get_org_ids_with_exceptions()
         assert org_ids == []
 
     def test_get_exception_counts_for_org(self):
@@ -289,15 +290,17 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         assert self.team.pk in result
         assert result[self.team.pk]["exception_count"] == 3
 
-    def test_get_exception_counts_for_org_with_filter(self):
+    def test_get_exception_counts_for_org_excludes_other_orgs(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
         issue = self._create_issue()
         self._create_exception_event(issue_id=issue.id)
         flush_persons_and_events()
 
-        other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        result = get_exception_counts_for_org(self.team.organization.id, team_ids_filter=[other_team.pk])
+        result = get_exception_counts_for_org(self.team.organization.id)
 
-        assert self.team.pk not in result
+        assert other_team.pk not in result
 
     def test_auto_select_project_picks_busiest(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
