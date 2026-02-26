@@ -20,6 +20,8 @@ import type {
     EvaluationSummaryRequestApi,
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
+    GenerationSentimentBatchResponseApi,
+    GenerationSentimentRequestApi,
     LLMProviderKeyApi,
     LlmAnalyticsProviderKeysListParams,
     PaginatedDatasetItemListApi,
@@ -424,6 +426,23 @@ export const llmAnalyticsSentimentCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sentimentRequestApi),
+    })
+}
+
+export const getLlmAnalyticsSentimentGenerationsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/sentiment/generations/`
+}
+
+export const llmAnalyticsSentimentGenerationsCreate = async (
+    projectId: string,
+    generationSentimentRequestApi: GenerationSentimentRequestApi,
+    options?: RequestInit
+): Promise<GenerationSentimentBatchResponseApi> => {
+    return apiMutator<GenerationSentimentBatchResponseApi>(getLlmAnalyticsSentimentGenerationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(generationSentimentRequestApi),
     })
 }
 

@@ -440,6 +440,25 @@ export interface SentimentBatchResponseApi {
     results: SentimentBatchResponseApiResults
 }
 
+export interface GenerationSentimentRequestApi {
+    /**
+     * @minItems 1
+     * @maxItems 20
+     */
+    generation_ids: string[]
+    force_refresh?: boolean
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export type GenerationSentimentBatchResponseApiResults = { [key: string]: GenerationSentimentApi }
+
+export interface GenerationSentimentBatchResponseApi {
+    results: GenerationSentimentBatchResponseApiResults
+}
+
 /**
  * * `trace` - trace
  * `event` - event
@@ -771,6 +790,10 @@ export type LlmAnalyticsProviderKeysListParams = {
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 
