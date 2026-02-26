@@ -286,7 +286,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         )
         data["billable_action_types"] = billable_action_types
 
-        if data.get("conversion", {}).get("filters", None) is not None:
+        if (data.get("conversion") or {}).get("filters", None) is not None:
             filters = data["conversion"]["filters"]
             serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
             if self.context.get("is_draft"):
