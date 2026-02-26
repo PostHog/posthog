@@ -14,6 +14,7 @@ import {
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
@@ -1744,7 +1745,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const confirmed = await new Promise<boolean>((resolve) => {
                     LemonDialog.open({
                         title: 'Change flag key?',
-                        description: `Renaming this key will break any existing code that references it (e.g. getFeatureFlag('${originalFlag.key}')). Make sure to update all SDK calls and integrations.`,
+                        description: createElement(
+                            'span',
+                            null,
+                            'Renaming this key will break any existing code that references it (e.g. ',
+                            createElement(
+                                'code',
+                                { className: 'text-xs bg-fill-secondary rounded px-1 py-0.5' },
+                                `getFeatureFlag('${originalFlag.key}')`
+                            ),
+                            '). Make sure to update all SDK calls and integrations.'
+                        ),
                         primaryButton: {
                             children: 'Change key',
                             status: 'danger',
