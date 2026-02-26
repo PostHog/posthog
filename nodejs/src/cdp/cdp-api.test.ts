@@ -878,17 +878,36 @@ describe('CDP API', () => {
             expect(res.body.error).toEqual('Invalid invocation ID')
         })
 
-        it('can invoke a batch export hog function mocked', async () => {
+        it('can invoke a batch export mocked hog function via the API', async () => {
+            mockFetch.mockImplementationOnce(() =>
+                Promise.resolve({
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    json: () => Promise.resolve({ ok: true }),
+                    text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                    dump: () => Promise.resolve(),
+                })
+            )
+
             const res = await supertest(app)
                 .post(
                     `/api/projects/${team.id}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
                 )
-                .send({ clickhouse_event: clickhouseEvent, mock_async_functions: true })
+                .send({ clickhouse_event: clickhouseEvent })
 
             expect(res.status).toEqual(200)
             expect(res.body.status).toEqual('success')
             expect(res.body.errors).toEqual([])
-            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`...`)
+            expect(res.body.logs).toMatchObject([
+                {
+                    level: 'info',
+                    message: expect.stringContaining('Fetch response:'),
+                },
+                {
+                    level: 'debug',
+                    message: expect.stringContaining('Function completed in'),
+                },
+            ])
         })
     })
 })

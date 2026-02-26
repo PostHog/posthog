@@ -41,6 +41,7 @@ import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+import { createInvocation } from './utils/invocation-utils'
 
 /**
  * Hub type for CdpApi.
@@ -723,16 +724,18 @@ export class CdpApi {
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
                 const { team_id, id, hog_function_id } = req.params
-                const { clickhouse_event, mock_async_functions, invocation_id } = req.body
-
+                const { clickhouse_event, invocation_id } = req.body
                 logger.info('⚡️', 'Received batch export invocation', { team_id, batch_export_id: id })
 
                 const invocationID = invocation_id ?? new UUIDT().toString()
-                try {
-                    if (!UUID.validateString(invocationID)) {
-                        return res.status(400).json({ error: 'Invalid invocation ID' })
+                const isValidUUID = (() => {
+                    try {
+                        return UUID.validateString(invocationID)
+                    } catch {
+                        return false
                     }
-                } catch {
+                })()
+                if (!isValidUUID) {
                     return res.status(400).json({ error: 'Invalid invocation ID' })
                 }
 
@@ -754,62 +757,18 @@ export class CdpApi {
                     return res.status(404).json({ error: 'Hog function not found' })
                 }
 
-                let logs: MinimalLogEntry[] = []
-                const errors: any[] = []
+                const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+                const invocation = createInvocation(globalsWithInputs, hogFunction)
+                invocation.id = invocationID
 
-                const {
-                    invocations,
-                    logs: filterLogs,
-                    metrics: filterMetrics,
-                } = await this.hogExecutor.buildHogFunctionInvocations([hogFunction], globals)
-
-                // Add metrics to the logs
-                filterMetrics.forEach((metric) => {
-                    if (metric.metric_name === 'filtered') {
-                        logs.push({
-                            level: 'info',
-                            timestamp: DateTime.now(),
-                            message: `Mapping trigger not matching filters was ignored.`,
-                        })
-                    }
-                })
-
-                filterLogs.forEach((log) => {
-                    logs.push(log)
-                })
-
-                for (const invocation of invocations) {
-                    invocation.id = invocationID
-
-                    const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
-                        mock_async_functions,
-                        logs
-                    )
-
-                    let response: any = null
-                    if (isNativeHogFunction(hogFunction)) {
-                        response = await this.nativeDestinationExecutorService.execute(invocation)
-                    } else if (isSegmentPluginHogFunction(hogFunction)) {
-                        response = await this.segmentDestinationExecutorService.execute(invocation)
-                    } else {
-                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
-                    }
-
-                    logs = logs.concat(response.logs)
-                    if (response.error) {
-                        errors.push(response.error)
-                    }
-                }
-
-                const wasSkipped = invocations.length === 0
+                const result = await this.hogExecutor.executeWithAsyncFunctions(invocation)
 
                 return res.json({
-                    status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
-                    errors: errors.map((e) => String(e)),
-                    logs: logs,
+                    status: result.error ? 'error' : 'success',
+                    errors: result.error ? [String(result.error)] : [],
+                    logs: result.logs,
                 })
             } catch (e) {
-                console.error(e)
                 return res.status(500).json({ errors: [e.message] })
             } finally {
                 await this.hogFunctionMonitoringService.flush()
