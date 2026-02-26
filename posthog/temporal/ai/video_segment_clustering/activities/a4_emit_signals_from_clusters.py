@@ -25,14 +25,14 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     ClusterLabel,
     EmitSignalsActivityInputs,
     EmitSignalsResult,
-    VideoSegmentMetadata,
+    VideoSegment,
 )
+from posthog.temporal.ai.video_segment_clustering.object_storage import load_fetch_result
 from posthog.temporal.ai.video_segment_clustering.priority import (
     calculate_task_metrics,
     parse_datetime_as_utc,
     parse_timestamp_to_seconds,
 )
-from posthog.temporal.ai.video_segment_clustering.state import load_fetch_result
 
 from products.signals.backend.api import emit_signal
 
@@ -93,7 +93,7 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
     segments, distinct_ids = await load_fetch_result(inputs.storage_key)
     active_users_in_period = await sync_to_async(count_distinct_persons)(team, distinct_ids)
 
-    segment_lookup: dict[str, VideoSegmentMetadata] = {s.document_id: s for s in segments}
+    segment_lookup: dict[str, VideoSegment] = {s.document_id: s for s in segments}
     genai_client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
 
     # 1. Label all clusters concurrently
@@ -196,7 +196,7 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
 
 
 async def _generate_label_for_cluster(
-    *, team: Team, cluster_id: int, cluster_segments: list[VideoSegmentMetadata], genai_client
+    *, team: Team, cluster_id: int, cluster_segments: list[VideoSegment], genai_client
 ) -> tuple[int, ClusterLabel]:
     if not cluster_segments:
         raise ValueError("Cluster segments cannot be empty")

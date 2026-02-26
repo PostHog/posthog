@@ -33,19 +33,18 @@ def count_distinct_persons(team: Team, distinct_ids: list[str]) -> int:
 
 
 @sync_to_async
-def fetch_video_segment_metadata_rows(team: Team, lookback_hours: int):
-    """Fetch recent video segment metadata from ClickHouse - just metadata, without embedding vectors."""
+def fetch_video_segment_rows(team: Team, lookback_hours: int):
+    """Fetch recent video segments (metadata + embeddings) from ClickHouse."""
     with tags_context(product=Product.SESSION_SUMMARY):
         result = execute_hogql_query(
-            query_type="VideoSegmentMetadataForClustering",
+            query_type="VideoSegmentsForClustering",
             query=parse_select(
-                # Note: We don't select embedding here to avoid large payloads
                 """
                 SELECT
                     document_id,
                     content,
                     metadata,
-                    timestamp
+                    embedding
                 FROM document_embeddings
                 WHERE timestamp >= now() - INTERVAL {lookback_hours} HOUR
                     AND model_name = {model_name}
@@ -66,39 +65,3 @@ def fetch_video_segment_metadata_rows(team: Team, lookback_hours: int):
             team=team,
         )
     return result.results or []
-
-
-@sync_to_async
-def fetch_video_segment_embedding_vectors(team: Team, document_ids: list[str]) -> dict[str, list[float]]:
-    """Fetch only embedding vectors from ClickHouse, keyed by document_id.
-
-    All other segment metadata is loaded from S3 (see state.py), so this only
-    needs to return the vectors themselves for clustering.
-    """
-    if not document_ids:
-        return {}
-    with tags_context(product=Product.SESSION_SUMMARY):
-        result = execute_hogql_query(
-            query_type="VideoSegmentEmbeddingsForClustering",
-            query=parse_select(
-                """
-                SELECT document_id, embedding
-                FROM document_embeddings
-                WHERE document_id IN {doc_ids}
-                    AND model_name = {model_name}
-                    AND product = {product}
-                    AND document_type = {document_type}
-                    AND rendering = {rendering}
-                LIMIT {max_segments_returned}"""
-            ),
-            placeholders={
-                "doc_ids": ast.Constant(value=document_ids),
-                "model_name": ast.Constant(value=SESSION_SEGMENTS_EMBEDDING_MODEL.value),
-                "product": ast.Constant(value="session-replay"),
-                "document_type": ast.Constant(value="video-segment"),
-                "rendering": ast.Constant(value="video-analysis"),
-                "max_segments_returned": ast.Constant(value=MAX_SEGMENTS_RETURNED),
-            },
-            team=team,
-        )
-    return {row[0]: row[1] for row in (result.results or [])}

@@ -15,7 +15,7 @@ from django.conf import settings
 import aioboto3
 from botocore.client import Config
 
-from posthog.temporal.ai.video_segment_clustering.models import VideoSegmentMetadata
+from posthog.temporal.ai.video_segment_clustering.models import VideoSegment
 
 STORAGE_KEY_PREFIX = "video_segment_clustering"
 
@@ -44,7 +44,7 @@ async def _s3_client() -> AsyncIterator:
 
 async def store_fetch_result(
     key: str,
-    segments: list[VideoSegmentMetadata],
+    segments: list[VideoSegment],
     distinct_ids: list[str],
 ) -> None:
     payload = {
@@ -62,7 +62,7 @@ async def store_fetch_result(
 
 async def load_fetch_result(
     key: str,
-) -> tuple[list[VideoSegmentMetadata], list[str]]:
+) -> tuple[list[VideoSegment], list[str]]:
     """Load fetch result from object storage. Raises ValueError if key not found."""
     async with _s3_client() as client:
         try:
@@ -77,13 +77,9 @@ async def load_fetch_result(
     data = json.loads(gzip.decompress(raw).decode("utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"Object storage key {key} contains invalid data type: {type(data)}")
-    if "segments" in data:
-        segments = [VideoSegmentMetadata(**s) for s in data["segments"]]
-    elif "document_ids" in data:
-        # Handle old format - log warning and handle gracefully
+    if "document_ids" in data:
         raise ValueError(f"Old storage format detected for key {key}. Please re-run workflow.")
-    else:
-        raise ValueError(f"Object storage key {key} missing required segments")
-    if "distinct_ids" not in data:
-        raise ValueError(f"Object storage key {key} missing required distinct_ids")
+    if "segments" not in data or "distinct_ids" not in data:
+        raise ValueError(f"Object storage key {key} missing required keys")
+    segments = [VideoSegment(**s) for s in data["segments"]]
     return segments, data["distinct_ids"]

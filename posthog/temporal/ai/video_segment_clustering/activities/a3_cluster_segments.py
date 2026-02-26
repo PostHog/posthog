@@ -12,19 +12,15 @@ from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics.pairwise import cosine_distances
 from temporalio import activity
 
-from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
     ClusteringResult,
     ClusterSegmentsActivityInputs,
     VideoSegment,
-    VideoSegmentMetadata,
 )
-from posthog.temporal.ai.video_segment_clustering.state import load_fetch_result
+from posthog.temporal.ai.video_segment_clustering.object_storage import load_fetch_result
 from posthog.temporal.common.logger import get_logger
-
-from ..data import fetch_video_segment_embedding_vectors
 
 logger = get_logger(__name__)
 
@@ -63,50 +59,12 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
     6. Remaining segments are marked as noise
 
     """
-    team = await Team.objects.aget(id=inputs.team_id)
-    stored_segments, _ = await load_fetch_result(inputs.storage_key)
-    segments = await _enrich_segments_with_embeddings(team, stored_segments)
+    segments, _ = await load_fetch_result(inputs.storage_key)
 
     # Run in to_thread as clustering is CPU-bound
     clustering_with_centroids = await asyncio.to_thread(_perform_clustering, segments)
 
     return clustering_with_centroids.result
-
-
-async def _enrich_segments_with_embeddings(
-    team: Team,
-    metadata_segments: list[VideoSegmentMetadata],
-) -> list[VideoSegment]:
-    """Combine segment metadata from S3 with embedding vectors from ClickHouse."""
-    if not metadata_segments:
-        return []
-
-    document_ids = [s.document_id for s in metadata_segments]
-    embedding_map = await fetch_video_segment_embedding_vectors(team, document_ids)
-
-    segments: list[VideoSegment] = []
-    for seg in metadata_segments:
-        embedding = embedding_map.get(seg.document_id)
-        if embedding is None:
-            logger.warning(f"No embedding found for document_id: {seg.document_id}")
-            continue
-        segments.append(
-            VideoSegment(
-                document_id=seg.document_id,
-                session_id=seg.session_id,
-                start_time=seg.start_time,
-                end_time=seg.end_time,
-                session_start_time=seg.session_start_time,
-                session_end_time=seg.session_end_time,
-                session_duration=seg.session_duration,
-                session_active_seconds=seg.session_active_seconds,
-                distinct_id=seg.distinct_id,
-                content=seg.content,
-                embedding=embedding,
-            )
-        )
-
-    return segments
 
 
 def _perform_clustering(segments: list[VideoSegment]) -> _ClusteringResultWithCentroids:
