@@ -141,6 +141,7 @@ function extractConversationMessage(rawMessage: RawMessage): Message {
 
 export interface ComparisonItem {
     id: string
+    promptId?: string
     promptLabel?: string
     model: string
     systemPrompt: string
@@ -249,6 +250,53 @@ function resolveProviderKeyForPrompt(
     return providerKeys.find((k) => k.provider === provider && k.state !== 'invalid') ?? null
 }
 
+function appendToolCallChunk(
+    state: Array<{ id: string; name: string; arguments: string }>,
+    toolCall: { id?: string; function: { name?: string; arguments?: string } }
+): Array<{ id: string; name: string; arguments: string }> {
+    if (toolCall.id && toolCall.id !== 'null') {
+        const existingIndex = state.findIndex((tc) => tc.id === toolCall.id)
+        if (existingIndex >= 0) {
+            const updated = [...state]
+            updated[existingIndex] = {
+                ...updated[existingIndex],
+                name: toolCall.function?.name || updated[existingIndex].name,
+                arguments: updated[existingIndex].arguments + (toolCall.function?.arguments || ''),
+            }
+            return updated
+        }
+        return [
+            ...state,
+            {
+                id: toolCall.id,
+                name: toolCall.function?.name || '',
+                arguments: toolCall.function?.arguments || '',
+            },
+        ]
+    }
+
+    if (state.length === 0) {
+        return state
+    }
+
+    const updated = [...state]
+    const lastIndex = updated.length - 1
+    updated[lastIndex] = {
+        ...updated[lastIndex],
+        arguments: updated[lastIndex].arguments + (toolCall.function?.arguments || ''),
+    }
+    return updated
+}
+
+function formatToolCalls(toolCalls: Array<{ id: string; name: string; arguments: string }>): string {
+    if (toolCalls.length === 0) {
+        return ''
+    }
+    return toolCalls
+        .map((tc) => JSON.stringify({ id: tc.id, name: tc.name, arguments: tc.arguments }, null, 2))
+        .join('\n\n')
+}
+
 export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsPlaygroundLogic']),
 
@@ -285,6 +333,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         addToComparison: (item: ComparisonItem) => ({ item }),
+        updateComparisonItem: (id: string, payload: Partial<ComparisonItem>) => ({ id, payload }),
         removeFromComparison: (id: string) => ({ id }),
         clearComparison: true,
         setupPlaygroundFromEvent: (payload: { model?: string; input?: any; tools?: any }) => ({ payload }),
@@ -463,6 +512,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             {
                 submitPrompt: () => [],
                 addToComparison: (state, { item }) => [...state, item],
+                updateComparisonItem: (state, { id, payload }) =>
+                    state.map((item) => (item.id === id ? { ...item, ...payload } : item)),
                 removeFromComparison: (state, { id }) => state.filter((item) => item.id !== id),
                 clearComparison: () => [],
             },
@@ -611,26 +662,42 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 return
             }
 
-            let shouldStopRunning = false
-
-            function handleRateLimitError(error: RateLimitError): void {
-                actions.setRateLimited(error.retryAfterSeconds)
-                shouldStopRunning = true
-            }
-
             try {
-                for (const { prompt, index, messagesToSend } of runnablePrompts) {
-                    if (shouldStopRunning) {
-                        break
-                    }
-
-                    actions.startPromptRun(prompt.id, prompt.model)
-
+                const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
+                    const liveItemId = uuid()
                     let responseUsage: ComparisonItem['usage'] = {}
                     let ttftMs: number | null = null
                     let latencyMs: number | null = null
                     let firstTokenTime: number | null = null
                     let startTime: number | null = null
+                    let responseText = ''
+                    let responseHasError = false
+                    let toolCalls: Array<{ id: string; name: string; arguments: string }> = []
+                    let itemAdded = false
+
+                    const upsertLiveItem = (): void => {
+                        const payload: ComparisonItem = {
+                            id: liveItemId,
+                            promptId: prompt.id,
+                            promptLabel: `Prompt ${index + 1}`,
+                            model: prompt.model,
+                            systemPrompt: prompt.systemPrompt,
+                            requestMessages: messagesToSend,
+                            response: responseText,
+                            error: responseHasError,
+                            usage: responseUsage,
+                            ttftMs,
+                            latencyMs,
+                        }
+                        if (!itemAdded) {
+                            actions.addToComparison(payload)
+                            itemAdded = true
+                        } else {
+                            actions.updateComparisonItem(liveItemId, payload)
+                        }
+                    }
+
+                    upsertLiveItem()
 
                     try {
                         startTime = performance.now()
@@ -638,23 +705,10 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                         const selectedModel = values.effectiveModelOptions.find((m) => m.id === prompt.model)
                         if (!selectedModel?.provider) {
                             lemonToast.error('Selected model not found in available models')
-                            actions.addAssistantMessageChunk('\n\n**Error:** Selected model not available.')
-                            actions.setResponseError(true)
-                            actions.finalizeAssistantMessage()
-                            actions.addToComparison({
-                                id: uuid(),
-                                promptLabel: `Prompt ${index + 1}`,
-                                model: prompt.model,
-                                systemPrompt: prompt.systemPrompt,
-                                requestMessages: messagesToSend,
-                                response: values.currentResponse ?? '',
-                                error: true,
-                                usage: responseUsage,
-                                ttftMs,
-                                latencyMs,
-                            })
-                            actions.stopPromptRun()
-                            continue
+                            responseText = '**Error:** Selected model not available.'
+                            responseHasError = true
+                            upsertLiveItem()
+                            return
                         }
 
                         const providerKeyId =
@@ -692,84 +746,88 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                                             firstTokenTime = performance.now()
                                             ttftMs = firstTokenTime - startTime
                                         }
-                                        actions.addAssistantMessageChunk(data.text)
+                                        responseText += data.text
+                                        upsertLiveItem()
                                     } else if (data.type === 'tool_call') {
                                         if (firstTokenTime === null && startTime !== null) {
                                             firstTokenTime = performance.now()
                                             ttftMs = firstTokenTime - startTime
                                         }
-                                        actions.addToolCallChunk(data)
+                                        toolCalls = appendToolCallChunk(toolCalls, data)
+                                        const toolCallsText = formatToolCalls(toolCalls)
+                                        const separator = responseText.trim() && toolCallsText ? '\n\n' : ''
+                                        actions.updateComparisonItem(liveItemId, {
+                                            response: responseText + separator + toolCallsText,
+                                            ttftMs,
+                                        })
                                     } else if (data.type === 'usage') {
                                         responseUsage = {
                                             prompt_tokens: data.prompt_tokens ?? null,
                                             completion_tokens: data.completion_tokens ?? null,
                                             total_tokens: data.total_tokens ?? null,
                                         }
+                                        actions.updateComparisonItem(liveItemId, { usage: responseUsage })
                                     } else if (data.error) {
-                                        actions.addAssistantMessageChunk(`\n\n**LLM Error:** ${data.error}`)
-                                        actions.setResponseError(true)
+                                        responseText += `\n\n**LLM Error:** ${data.error}`
+                                        responseHasError = true
+                                        upsertLiveItem()
                                     }
                                 } catch (e) {
                                     console.error('Error parsing stream message:', e, 'Data:', event.data)
-                                    actions.addAssistantMessageChunk(
-                                        `\n\n**Stream Error:** Could not parse response chunk.`
-                                    )
-                                    actions.setResponseError(true)
+                                    responseText += `\n\n**Stream Error:** Could not parse response chunk.`
+                                    responseHasError = true
+                                    upsertLiveItem()
                                 }
                             },
                             onError: (err) => {
                                 if (err instanceof RateLimitError) {
-                                    handleRateLimitError(err)
+                                    actions.setRateLimited(err.retryAfterSeconds)
+                                    responseHasError = true
+                                    upsertLiveItem()
                                     return
                                 }
                                 if (err instanceof ApiError && err.status === 402) {
                                     actions.setSubscriptionRequired(true)
-                                    shouldStopRunning = true
+                                    responseHasError = true
+                                    upsertLiveItem()
                                     return
                                 }
-                                actions.addAssistantMessageChunk(
-                                    `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
-                                )
-                                actions.setResponseError(true)
+                                responseText += `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
+                                responseHasError = true
+                                upsertLiveItem()
                             },
                         })
 
                         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
-
-                        actions.finalizeAssistantMessage()
                     } catch (error) {
                         if (error instanceof RateLimitError) {
-                            handleRateLimitError(error)
+                            actions.setRateLimited(error.retryAfterSeconds)
+                            responseHasError = true
                         } else if (error instanceof ApiError && error.status === 402) {
                             actions.setSubscriptionRequired(true)
-                            shouldStopRunning = true
+                            responseHasError = true
                         } else {
-                            actions.addAssistantMessageChunk(`\n\n**Error:** Failed to initiate prompt submission.`)
-                            actions.setResponseError(true)
+                            responseText += `\n\n**Error:** Failed to initiate prompt submission.`
+                            responseHasError = true
                             lemonToast.error('Failed to connect to LLM service. Please try again.')
                         }
-                        actions.finalizeAssistantMessage()
+                        upsertLiveItem()
                     } finally {
                         if (startTime !== null) {
                             latencyMs = performance.now() - startTime
                         }
                     }
 
-                    actions.addToComparison({
-                        id: uuid(),
-                        promptLabel: `Prompt ${index + 1}`,
-                        model: prompt.model,
-                        systemPrompt: prompt.systemPrompt,
-                        requestMessages: messagesToSend,
-                        response: values.currentResponse ?? '',
-                        error: values.responseHasError,
-                        usage: responseUsage,
-                        ttftMs,
-                        latencyMs,
-                    })
+                    const toolCallsText = formatToolCalls(toolCalls)
+                    if (toolCallsText) {
+                        const separator = responseText.trim() ? '\n\n' : ''
+                        responseText += separator + toolCallsText
+                    }
 
-                    actions.stopPromptRun()
-                }
+                    upsertLiveItem()
+                })
+
+                await Promise.allSettled(runs)
             } finally {
                 actions.finishSubmitPrompt()
             }
@@ -934,17 +992,26 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             ): LLMProviderKey | null => resolveProviderKeyForPrompt(activePromptConfig, modelOptions, providerKeys),
         ],
         displayItems: [
-            (s) => [s.comparisonItems, s.submitting, s.currentResponse, s.responseHasError, s.currentStreamingModel],
+            (s) => [
+                s.comparisonItems,
+                s.submitting,
+                s.currentResponse,
+                s.responseHasError,
+                s.currentStreamingModel,
+                s.currentStreamingPromptId,
+            ],
             (
                 comparisonItems: ComparisonItem[],
                 submitting: boolean,
                 currentResponse: string | null,
                 responseHasError: boolean,
-                currentStreamingModel: string | null
+                currentStreamingModel: string | null,
+                currentStreamingPromptId: string | null
             ): ComparisonItem[] => {
                 if (submitting && currentResponse !== null) {
                     const streamingItem: ComparisonItem = {
                         id: '__streaming__',
+                        promptId: currentStreamingPromptId ?? undefined,
                         promptLabel: 'Running',
                         model: currentStreamingModel ?? '-',
                         systemPrompt: '',

@@ -1,16 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import {
-    IconChevronRight,
-    IconGear,
-    IconMessage,
-    IconPencil,
-    IconPlay,
-    IconPlus,
-    IconTrash,
-    IconWrench,
-} from '@posthog/icons'
+import { IconChevronRight, IconGear, IconPencil, IconPlay, IconPlus, IconTrash, IconWrench } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -21,15 +12,12 @@ import {
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
-    LemonTable,
-    LemonTableColumns,
     LemonTag,
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -86,7 +74,7 @@ export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
 
     return (
-        <SceneContent>
+        <SceneContent className="h-full min-h-0 flex flex-col">
             <SceneTitleSection
                 name="Playground"
                 description="Test and experiment with LLM prompts in a sandbox environment."
@@ -169,46 +157,59 @@ function SubscriptionRequiredBanner(): JSX.Element | null {
 
 function PlaygroundLayout(): JSX.Element {
     return (
-        <div className="flex flex-col gap-4 pb-6">
+        <div className="flex flex-1 min-h-0 flex-col gap-4 pb-6">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
-            <section className="rounded overflow-hidden min-h-0 flex flex-col max-h-[55vh] lg:max-h-[60vh]">
-                <div className="min-h-0 overflow-y-auto">
+            <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col">
+                <div className="h-full min-h-0 overflow-y-auto">
                     <PromptConfigsSection />
                 </div>
             </section>
-
-            <ResultsSection />
         </div>
     )
 }
 
 function PromptConfigsSection(): JSX.Element {
-    const { promptConfigs, activePromptId } = useValues(llmAnalyticsPlaygroundLogic)
+    const { promptConfigs, activePromptId, displayItems } = useValues(llmAnalyticsPlaygroundLogic)
     const { removePromptConfig, setActivePromptId } = useActions(llmAnalyticsPlaygroundLogic)
-    const isSinglePrompt = promptConfigs.length === 1
+
+    const promptCount = promptConfigs.length
+    const gridMinWidth = `calc(${promptCount} * 500px + ${Math.max(promptCount - 1, 0)} * 0.75rem)`
+    const latestItemByPromptId = new Map<string, ComparisonItem>()
+
+    for (const item of displayItems) {
+        if (item.promptId) {
+            latestItemByPromptId.set(item.promptId, item)
+        }
+    }
 
     return (
-        <div className="space-y-3">
-            <div className="overflow-x-auto pb-4">
-                <div className={`flex gap-3 ${isSinglePrompt ? 'w-full' : 'w-max min-w-full'}`}>
-                    {promptConfigs.map((prompt, index) => {
-                        const isActive = prompt.id === activePromptId
-                        return (
-                            <PromptCard
-                                key={prompt.id}
-                                prompt={prompt}
-                                index={index}
-                                isActive={isActive}
-                                canRemove={promptConfigs.length > 1}
-                                onActivate={() => setActivePromptId(prompt.id)}
-                                onRemove={() => removePromptConfig(prompt.id)}
-                                isSinglePrompt={isSinglePrompt}
-                            />
-                        )
-                    })}
-                </div>
+        <div className="h-full min-h-0 overflow-x-auto pb-4">
+            <div
+                className="grid h-full min-w-full items-stretch gap-3"
+                style={{
+                    width: `max(100%, ${gridMinWidth})`,
+                    gridAutoFlow: 'column',
+                    gridTemplateColumns: `repeat(${promptCount}, minmax(500px, 1fr))`,
+                    gridTemplateRows: 'minmax(0, 1fr) auto',
+                }}
+            >
+                {promptConfigs.map((prompt, index) => {
+                    const isActive = prompt.id === activePromptId
+                    return [
+                        <PromptCard
+                            key={`prompt-${prompt.id}`}
+                            prompt={prompt}
+                            index={index}
+                            isActive={isActive}
+                            canRemove={promptConfigs.length > 1}
+                            onActivate={() => setActivePromptId(prompt.id)}
+                            onRemove={() => removePromptConfig(prompt.id)}
+                        />,
+                        <PromptResultCard key={`result-${prompt.id}`} item={latestItemByPromptId.get(prompt.id)} />,
+                    ]
+                })}
             </div>
         </div>
     )
@@ -219,7 +220,6 @@ function PromptCard({
     index,
     isActive,
     canRemove,
-    isSinglePrompt,
     onActivate,
     onRemove,
 }: {
@@ -227,7 +227,6 @@ function PromptCard({
     index: number
     isActive: boolean
     canRemove: boolean
-    isSinglePrompt: boolean
     onActivate: () => void
     onRemove: () => void
 }): JSX.Element {
@@ -235,11 +234,11 @@ function PromptCard({
 
     return (
         <div
-            className={`${isSinglePrompt ? 'w-full min-w-[500px]' : 'basis-0 grow min-w-[500px]'} border rounded p-3 bg-surface-primary transition-shadow ${
+            className={`min-w-0 border rounded p-3 bg-surface-primary transition-shadow ${
                 isActive ? 'ring-1 ring-primary/40 shadow-sm' : 'hover:shadow-sm'
-            }`}
+            } h-full flex flex-col min-h-0`}
         >
-            <div className="flex items-center justify-between mb-3 gap-2">
+            <div className="flex items-center justify-between mb-3 gap-2 shrink-0">
                 <button type="button" className="flex items-center gap-2 min-w-0" onClick={onActivate}>
                     <LemonTag type={isActive ? 'highlight' : 'default'} size="small">
                         Prompt {index + 1}
@@ -259,10 +258,67 @@ function PromptCard({
                 />
             </div>
 
-            <div className="space-y-3">
+            <div className="shrink-0 mb-3">
                 <ModelConfigBar promptId={prompt.id} />
+            </div>
+
+            <div className="min-h-0 overflow-y-auto pr-1">
                 <MessagesSection promptId={prompt.id} />
             </div>
+        </div>
+    )
+}
+
+function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
+    const isStreaming = item?.id === '__streaming__'
+
+    return (
+        <div className="border rounded p-3 bg-surface-primary min-h-[180px] min-w-0 flex flex-col min-h-0">
+            <div className="flex items-center justify-between gap-2 mb-2">
+                <LemonTag type="default" size="small">
+                    Result
+                </LemonTag>
+                {isStreaming && <span className="text-xs text-muted">Streaming...</span>}
+            </div>
+
+            {!item ? (
+                <div className="text-xs text-muted flex-1 min-h-[96px] flex items-center justify-center border rounded bg-surface-secondary">
+                    Run prompts to see results here.
+                </div>
+            ) : (
+                <>
+                    <div
+                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs whitespace-normal break-words p-2 min-w-0 rounded border bg-surface-secondary leading-5 ${
+                            item.error ? 'text-danger' : ''
+                        }`}
+                        style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                    >
+                        {item.response ? (
+                            <div
+                                className="whitespace-pre-wrap break-words"
+                                style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                            >
+                                {item.response}
+                            </div>
+                        ) : isStreaming ? (
+                            <LemonSkeleton active className="my-1 h-4" />
+                        ) : (
+                            <span className="text-muted italic">No response</span>
+                        )}
+                    </div>
+                    <div className="mt-2 pt-2 border-t grid grid-cols-2 gap-2 text-[11px] text-muted">
+                        <div>
+                            In: {item.usage?.prompt_tokens != null ? formatTokens(item.usage.prompt_tokens) : '-'}
+                        </div>
+                        <div>
+                            Out:{' '}
+                            {item.usage?.completion_tokens != null ? formatTokens(item.usage.completion_tokens) : '-'}
+                        </div>
+                        <div>TTFT: {formatMs(item.ttftMs)}</div>
+                        <div>Latency: {formatMs(item.latencyMs)}</div>
+                    </div>
+                </>
+            )}
         </div>
     )
 }
@@ -769,96 +825,6 @@ function MessageDisplay({
                     />
                 )}
             </AnimatedCollapsible>
-        </div>
-    )
-}
-
-function ResultsSection(): JSX.Element {
-    const { submitting, displayItems } = useValues(llmAnalyticsPlaygroundLogic)
-
-    const columns: LemonTableColumns<ComparisonItem> = [
-        {
-            title: 'Prompt',
-            dataIndex: 'promptLabel',
-            render: (promptLabel) => <span className="text-xs">{promptLabel || '-'}</span>,
-            width: 120,
-        },
-        {
-            title: 'Model',
-            dataIndex: 'model',
-            render: (model, item) => (
-                <LemonTag type={item.error ? 'danger' : 'default'}>
-                    {typeof model === 'string' ? model || '-' : '-'}
-                </LemonTag>
-            ),
-            sorter: (a, b) => a.model.localeCompare(b.model),
-        },
-        {
-            title: 'Response',
-            dataIndex: 'response',
-            render: (response, item) => (
-                <div className={`max-h-40 overflow-y-auto text-xs break-words p-1 ${item.error ? 'text-danger' : ''}`}>
-                    {typeof response === 'string' && response ? (
-                        <LemonMarkdown className="break-words" lowKeyHeadings wrapCode>
-                            {response}
-                        </LemonMarkdown>
-                    ) : item.id === '__streaming__' ? (
-                        <LemonSkeleton active className="my-1" />
-                    ) : (
-                        <span className="text-muted italic">No response</span>
-                    )}
-                </div>
-            ),
-            width: '35%',
-        },
-        {
-            title: 'In tokens',
-            dataIndex: 'usage',
-            render: (_, item) => (item.usage?.prompt_tokens != null ? formatTokens(item.usage.prompt_tokens) : '-'),
-            align: 'right' as const,
-            tooltip: 'Input/prompt tokens',
-        },
-        {
-            title: 'Out tokens',
-            dataIndex: 'usage',
-            render: (_, item) =>
-                item.usage?.completion_tokens != null ? formatTokens(item.usage.completion_tokens) : '-',
-            align: 'right' as const,
-            tooltip: 'Output/completion tokens',
-        },
-        {
-            title: 'TTFT',
-            dataIndex: 'ttftMs',
-            render: (ttftMs) => formatMs(ttftMs as number | null),
-            sorter: (a, b) => (a.ttftMs ?? Infinity) - (b.ttftMs ?? Infinity),
-            align: 'right',
-            tooltip: 'Time to first token',
-        },
-        {
-            title: 'Latency',
-            dataIndex: 'latencyMs',
-            render: (latencyMs) => formatMs(latencyMs as number | null),
-            sorter: (a, b) => (a.latencyMs ?? Infinity) - (b.latencyMs ?? Infinity),
-            align: 'right',
-            tooltip: 'Total request latency',
-        },
-    ]
-
-    if (displayItems.length === 0) {
-        return (
-            <div className="border rounded p-6">
-                <div className="flex flex-col items-center justify-center h-24 text-muted">
-                    <IconMessage className="text-3xl mb-2 opacity-40" />
-                    <p>Run your prompts to see results</p>
-                    <p className="text-xs opacity-60">Press Cmd+Enter from any message</p>
-                </div>
-            </div>
-        )
-    }
-
-    return (
-        <div className="border rounded p-4">
-            <LemonTable dataSource={displayItems} columns={columns} rowKey="id" loading={submitting} embedded />
         </div>
     )
 }
