@@ -85,7 +85,6 @@ export function isDataNode(node?: Record<string, any> | null): node is EventsQue
         isEventsQuery(node) ||
         isActorsQuery(node) ||
         isHogQLQuery(node) ||
-        isHogQLASTQuery(node) ||
         isHogQLMetadata(node)
     )
 }
