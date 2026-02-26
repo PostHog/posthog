@@ -348,6 +348,10 @@ class InCohortResolver(TraversingVisitor):
         compare: ast.CompareOperation,
         negative: bool,
     ):
+        from posthog.hogql.functions.cohort import get_cohort_subquery_or_inline
+        from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+        from posthog.hogql.transforms.property_types import PropertySwapper
+
         must_add_join = True
         last_join = select.select_from
         while last_join:
@@ -360,8 +364,6 @@ class InCohortResolver(TraversingVisitor):
                 break
 
         if must_add_join:
-            from posthog.hogql.functions.cohort import get_cohort_subquery_or_inline
-
             inline_ast = get_cohort_subquery_or_inline(cohort_id, is_static, version, self.context)
             if inline_ast is not None:
                 subquery = parse_select(
@@ -412,9 +414,6 @@ class InCohortResolver(TraversingVisitor):
             # that need resolving. resolve_in_cohorts runs after resolve_lazy_tables
             # in the pipeline, so we resolve lazy tables on the new join here.
             if inline_ast is not None:
-                from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-                from posthog.hogql.transforms.property_types import PropertySwapper
-
                 resolve_lazy_tables(new_join, self.dialect, [self.stack[-1]], self.context)
                 if self.context.property_swapper:
                     new_join = cast(

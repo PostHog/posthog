@@ -1,5 +1,7 @@
 from typing import Optional
 
+import posthoganalytics
+
 from posthog.schema import InlineCohortCalculation
 
 from posthog.hogql import ast
@@ -15,6 +17,10 @@ def get_cohort_subquery_or_inline(
     version: Optional[int],
     context: HogQLContext,
 ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+    from posthog.models import Cohort, Team
+    from posthog.models.cohort.calculation_history import CohortCalculationHistory
+
     if is_static:
         return None
 
@@ -23,10 +29,6 @@ def get_cohort_subquery_or_inline(
         return None
 
     if mode is None or mode == InlineCohortCalculation.AUTO:
-        import posthoganalytics
-
-        from posthog.models import Team
-
         team = context.team or Team.objects.get(id=context.team_id)
         flag_enabled = posthoganalytics.feature_enabled(
             "inline-cohort-calculation",
@@ -45,40 +47,37 @@ def get_cohort_subquery_or_inline(
         if not flag_enabled:
             return None
 
-        from posthog.models.cohort.calculation_history import CohortCalculationHistory
-
-        # Check the most recent completed calculation (successful or not)
-        newest_calc = (
+        recent_calcs = list(
             CohortCalculationHistory.objects.filter(
                 cohort_id=cohort_id,
                 finished_at__isnull=False,
             )
-            .order_by("-started_at")
-            .first()
+            .order_by("-started_at")[:5]
+            .values_list("error", "started_at", "finished_at")
         )
-        if newest_calc is None:
+        if not recent_calcs:
             return None
-        # If the newest calculation failed, don't inline — the cohort query
-        # is likely to fail too.
         # TODO: surface a warning to the user that their cohort calculation is failing
-        if newest_calc.error is not None:
-            return None
-        duration = newest_calc.duration_seconds
-        if duration is None or duration >= 10:
+        if recent_calcs[0][0] is not None:
             return None
 
-    from posthog.models import Cohort
+        durations = sorted(
+            (finished_at - started_at).total_seconds()
+            for error, started_at, finished_at in recent_calcs
+            if error is None
+        )
+        if not durations:
+            return None
+        median_duration = durations[len(durations) // 2]
+        if median_duration >= 10:
+            return None
 
     cohort = Cohort.objects.get(id=cohort_id)
     if not cohort.properties.flat:
         return None
 
-    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-
     team = context.team
     if team is None:
-        from posthog.models import Team
-
         team = Team.objects.get(id=context.team_id)
 
     return HogQLCohortQuery(cohort=cohort, team=team).get_query()
@@ -101,11 +100,11 @@ def cohort_query_node(node: ast.Expr, context: HogQLContext) -> ast.Expr:
 
 
 def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.Expr:
+    from posthog.models import Cohort
+
     arg = args[0]
     if not isinstance(arg, ast.Constant):
         raise QueryError("cohort() takes only constant arguments", node=arg)
-
-    from posthog.models import Cohort
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
         cohorts1 = Cohort.objects.filter(
