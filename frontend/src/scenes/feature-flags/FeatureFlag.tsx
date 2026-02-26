@@ -48,6 +48,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
@@ -145,6 +146,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         setActiveTab,
         updateFlag,
         saveFeatureFlag,
+        submitFeatureFlagWithValidation,
     } = useActions(featureFlagLogic)
 
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
@@ -872,6 +874,21 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 description={featureFlag.name}
                                 resourceType={{
                                     type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
+                                }}
+                                canEdit={
+                                    !featureFlag.deleted &&
+                                    userHasAccess(
+                                        AccessControlResourceType.FeatureFlag,
+                                        AccessControlLevel.Editor,
+                                        featureFlag.user_access_level
+                                    )
+                                }
+                                saveOnBlur
+                                onNameChange={(newKey) => {
+                                    submitFeatureFlagWithValidation({ ...featureFlag, key: newKey })
+                                }}
+                                onDescriptionChange={(newName) => {
+                                    submitFeatureFlagWithValidation({ ...featureFlag, name: newName })
                                 }}
                                 actions={
                                     <AccessControlAction
