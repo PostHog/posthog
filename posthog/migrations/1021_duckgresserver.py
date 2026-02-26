@@ -10,7 +10,7 @@ import posthog.helpers.encrypted_fields
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1019_alter_integration_kind_pinterest_ads"),
+        ("posthog", "1020_batchexportbackfill_total_records_and_adjusted_start"),
     ]
 
     operations = [

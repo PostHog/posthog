@@ -172,6 +172,7 @@ export function Annotations(): JSX.Element {
                     >
                         <LemonButton
                             type="primary"
+                            data-attr="create-annotation"
                             onClick={() => openModalToCreateAnnotation()}
                             size="small"
                             tooltip="New annotation"
