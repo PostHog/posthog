@@ -1509,8 +1509,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 5.24.17
-        version: 5.24.17
+        specifier: 5.25.0
+        version: 5.25.0
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -2818,8 +2818,8 @@ importers:
         specifier: 4.2.2
         version: 4.2.2
       posthog-node:
-        specifier: ^5.24.17
-        version: 5.24.17
+        specifier: ^5.25.0
+        version: 5.25.0
       uuid:
         specifier: ^11.1.0
         version: 11.1.0
@@ -17946,8 +17946,8 @@ packages:
   posthog-js@1.354.2:
     resolution: {integrity: sha512-6bfPjqxLmLoyXHDh0634Mx88Ub8mtekQoFazrQfpo4wrrf5+LSsfDnyR9adQhEnHtllbbBe3IFF2Zbdb5e+VCQ==}
 
-  posthog-node@5.24.17:
-    resolution: {integrity: sha512-mdb8TKt+YCRbGQdYar3AKNUPCyEiqcprScF4unYpGALF6HlBaEuO6wPuIqXXpCWkw4VclJYCKbb6lq6pH6bJeA==}
+  posthog-node@5.25.0:
+    resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
     engines: {node: ^20.20.0 || >=22.22.0}
 
   posthtml-parser@0.11.0:
@@ -41165,7 +41165,7 @@ snapshots:
       query-selector-shadow-dom: 1.0.1
       web-vitals: 5.1.0
 
-  posthog-node@5.24.17:
+  posthog-node@5.25.0:
     dependencies:
       '@posthog/core': 1.23.1
 
