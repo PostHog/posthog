@@ -1,10 +1,12 @@
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.printer.access_control import build_access_control_guard, get_blocked_resource_ids
 
 from posthog.models import OrganizationMembership
 
@@ -71,6 +73,201 @@ class TestAccessControlSystemTables(BaseTest):
         # Unscoped tables remain
         assert "cohorts" in system_node.children
         assert "teams" in system_node.children
+
+
+class TestAccessControlGuard(BaseTest):
+    """Test object-level access control guard generation."""
+
+    def _get_dashboards_table(self, database: Database):
+        from posthog.hogql.database.postgres_table import PostgresTable
+
+        system_node = database.tables.children.get("system")
+        assert system_node is not None
+        dashboards_node = system_node.children.get("dashboards")
+        assert dashboards_node is not None
+        table = dashboards_node.get()
+        assert isinstance(table, PostgresTable)
+        return table
+
+    def test_get_blocked_resource_ids_empty_for_admin(self):
+        """Org admins should have no blocked IDs."""
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user)
+
+        blocked_ids = get_blocked_resource_ids("dashboard", context)
+        assert blocked_ids == set()
+
+    def test_get_blocked_resource_ids_empty_without_user(self):
+        """Without user context, no IDs should be blocked."""
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=None)
+
+        blocked_ids = get_blocked_resource_ids("dashboard", context)
+        assert blocked_ids == set()
+
+    def test_build_access_control_guard_returns_none_for_admin(self):
+        """Org admins should not have an access control guard."""
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user)
+        database = Database.create_for(team=self.team, user=self.user)
+        context.database = database
+
+        table = self._get_dashboards_table(database)
+        table_type = ast.TableType(table=table)
+
+        guard = build_access_control_guard(table, table_type, context)
+        assert guard is None
+
+    def test_build_access_control_guard_returns_none_without_user(self):
+        """Without user context, no guard should be generated."""
+        from posthog.hogql.database.schema.system import dashboards
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=None)
+        database = Database.create_for(team=self.team, user=None)
+        context.database = database
+
+        table_type = ast.TableType(table=dashboards)
+
+        guard = build_access_control_guard(dashboards, table_type, context)
+        assert guard is None
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestObjectLevelAccessControl(BaseTest):
+    """Test object-level access control (get_blocked_resource_ids)."""
+
+    def _setup_permissions(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        self.database = Database.create_for(team=self.team, user=self.user)
+        self.context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user)
+        self.context.database = self.database
+
+    def test_no_object_overrides_means_no_blocked_ids(self):
+        """If there are no object-level AC entries, nothing is blocked (resource-level already passed)."""
+        self._setup_permissions()
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert blocked == set()
+
+    def test_object_default_none_blocks_object(self):
+        """Object-level default 'none' with no member/role override blocks the object."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert "42" in blocked
+
+    def test_object_default_editor_allows_object(self):
+        """Object-level default 'editor' means the object is accessible."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert "42" not in blocked
+
+    def test_object_default_none_with_member_editor_override_allows(self):
+        """Object default 'none' but member-specific 'editor' override → allowed (highest wins)."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        # Team-wide default: no access
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+        )
+        # Member-specific override: editor access
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+            organization_member=self.membership,
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert "42" not in blocked
+
+    def test_object_default_editor_with_member_none_blocks(self):
+        """Explicit member 'none' override takes priority over object default 'editor'."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        # Object default: editor access
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+        )
+        # Member-specific override: none
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+            organization_member=self.membership,
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert "42" in blocked
+
+    def test_multiple_objects_mixed_access(self):
+        """Multiple objects: some blocked, some allowed."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        # Dashboard 10: blocked (default none, no overrides)
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="10", access_level="none")
+        # Dashboard 20: allowed (default editor)
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="20", access_level="editor")
+        # Dashboard 30: allowed (default none + member editor)
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="30", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="30",
+            access_level="editor",
+            organization_member=self.membership,
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert blocked == {"10"}
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))

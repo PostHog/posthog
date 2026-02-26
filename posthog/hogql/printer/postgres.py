@@ -112,6 +112,14 @@ class PostgresPrinter(HogQLPrinter):
         # Team ID filtering is not required for Postgres queries
         pass
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        # Access control is not implemented for Postgres dialect yet
+        return None
+
     def _print_identifier(self, name: str) -> str:
         return escape_postgres_identifier(name)
 
