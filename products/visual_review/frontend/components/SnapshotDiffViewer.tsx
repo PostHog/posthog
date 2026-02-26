@@ -1,6 +1,7 @@
 import { IconCheck, IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import type { SnapshotApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
@@ -59,33 +60,13 @@ export function SnapshotDiffViewer({
                     )}
                 </div>
 
-                {/* Side-by-side Before/After */}
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="flex flex-col">
-                        <div className="px-3 py-2 bg-bg-3000 border border-b-0 rounded-t text-sm font-medium">
-                            Before
-                        </div>
-                        <div className="border rounded-b overflow-hidden bg-bg-light flex-1">
-                            {baselineUrl ? (
-                                <img src={baselineUrl} alt="Before" className="w-full h-auto" />
-                            ) : (
-                                <div className="p-8 text-center text-muted">No baseline</div>
-                            )}
-                        </div>
-                    </div>
-                    <div className="flex flex-col">
-                        <div className="px-3 py-2 bg-bg-3000 border border-b-0 rounded-t text-sm font-medium">
-                            After
-                        </div>
-                        <div className="border rounded-b overflow-hidden bg-bg-light flex-1">
-                            {currentUrl ? (
-                                <img src={currentUrl} alt="After" className="w-full h-auto" />
-                            ) : (
-                                <div className="p-8 text-center text-muted">No current</div>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                <VisualImageDiffViewer
+                    baselineUrl={baselineUrl || null}
+                    currentUrl={currentUrl || null}
+                    diffUrl={snapshot.diff_artifact?.download_url || null}
+                    diffPercentage={snapshot.diff_percentage ?? null}
+                    result={(snapshot.result || 'unchanged') as VisualDiffResult}
+                />
 
                 {/* Navigation and actions */}
                 <div className="flex items-center justify-between mt-4">
@@ -131,59 +112,6 @@ export function SnapshotDiffViewer({
                             <h4 className="text-xs font-semibold text-muted uppercase mb-1">Environment</h4>
                             <p className="text-sm font-mono">
                                 {width}×{height}
-                            </p>
-                        </div>
-                    )}
-
-                    <div>
-                        <h4 className="text-xs font-semibold text-muted uppercase mb-1">Snapshot</h4>
-                        <dl className="space-y-1 text-sm">
-                            <div className="flex justify-between">
-                                <dt className="text-muted">Result</dt>
-                                <dd className="font-medium capitalize">{snapshot.result}</dd>
-                            </div>
-                        </dl>
-                    </div>
-
-                    {(snapshot.baseline_artifact?.content_hash || snapshot.current_artifact?.content_hash) && (
-                        <div>
-                            <h4 className="text-xs font-semibold text-muted uppercase mb-1">Hashes</h4>
-                            <dl className="space-y-1 text-sm">
-                                {snapshot.baseline_artifact?.content_hash && (
-                                    <div>
-                                        <dt className="text-muted text-xs">Baseline</dt>
-                                        <Tooltip title={snapshot.baseline_artifact.content_hash}>
-                                            <dd className="font-mono text-xs truncate">
-                                                {snapshot.baseline_artifact.content_hash.slice(0, 12)}...
-                                            </dd>
-                                        </Tooltip>
-                                    </div>
-                                )}
-                                {snapshot.current_artifact?.content_hash && (
-                                    <div>
-                                        <dt className="text-muted text-xs">Current</dt>
-                                        <Tooltip title={snapshot.current_artifact.content_hash}>
-                                            <dd className="font-mono text-xs truncate">
-                                                {snapshot.current_artifact.content_hash.slice(0, 12)}...
-                                            </dd>
-                                        </Tooltip>
-                                    </div>
-                                )}
-                            </dl>
-                        </div>
-                    )}
-
-                    {snapshot.diff_percentage !== null && (
-                        <div>
-                            <h4 className="text-xs font-semibold text-muted uppercase mb-1">Diff</h4>
-                            <p className="text-sm">
-                                <span className="font-semibold">{snapshot.diff_percentage.toFixed(1)}%</span>
-                                {snapshot.diff_pixel_count !== null && (
-                                    <span className="text-muted">
-                                        {' '}
-                                        ({snapshot.diff_pixel_count.toLocaleString()} pixels)
-                                    </span>
-                                )}
                             </p>
                         </div>
                     )}
