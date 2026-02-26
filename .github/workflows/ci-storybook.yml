@@ -42,6 +42,7 @@ jobs:
                         - '.storybook/**'
                         - 'package.json'
                         - 'pnpm-workspace.yaml'
+                        - 'pnpm-lock.yaml'
                         - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
 
