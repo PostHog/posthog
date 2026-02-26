@@ -46,13 +46,31 @@ class TestAccessControlSystemTables(BaseTest):
         system_node = database.tables.children.get("system")
         assert system_node is not None
 
-    def test_database_without_user_returns_all_tables(self):
-        """Without user context, all tables should be available (backwards compat)."""
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_database_without_user_denies_scoped_tables(self):
+        """Without user context, scoped tables should be removed and denied (fail-closed)."""
         database = Database.create_for(team=self.team, user=None)
 
-        # All system tables should be present
         system_node = database.tables.children.get("system")
         assert system_node is not None
+        # Scoped tables removed from schema
+        assert "dashboards" not in system_node.children
+        assert "insights" not in system_node.children
+        assert "experiments" not in system_node.children
+        assert "feature_flags" not in system_node.children
+        assert "surveys" not in system_node.children
+        assert "data_warehouse_sources" not in system_node.children
+        # But tracked in denied list for clear error messages
+        assert "system.dashboards" in database._denied_tables
+        assert "system.insights" in database._denied_tables
+        assert "system.experiments" in database._denied_tables
+        assert "system.feature_flags" in database._denied_tables
+        assert "system.surveys" in database._denied_tables
+        assert "system.data_warehouse_sources" in database._denied_tables
+        # Unscoped tables remain
+        assert "cohorts" in system_node.children
+        assert "actions" in system_node.children
+        assert "teams" in system_node.children
 
 
 class TestAccessControlGuard(BaseTest):
@@ -105,14 +123,15 @@ class TestAccessControlGuard(BaseTest):
 
     def test_build_access_control_guard_returns_none_without_user(self):
         """Without user context, no guard should be generated."""
+        from posthog.hogql.database.schema.system import dashboards
+
         context = HogQLContext(team_id=self.team.pk, team=self.team, user=None)
         database = Database.create_for(team=self.team, user=None)
         context.database = database
 
-        table = self._get_dashboards_table(database)
-        table_type = ast.TableType(table=table)
+        table_type = ast.TableType(table=dashboards)
 
-        guard = build_access_control_guard(table, table_type, context)
+        guard = build_access_control_guard(dashboards, table_type, context)
         assert guard is None
 
 
@@ -333,8 +352,11 @@ class TestAccessControlIntegration(BaseTest):
         assert "id" in sql
         assert "name" in sql
 
-    def test_query_without_user_compiles(self):
-        """Queries without user context should compile (backwards compatibility)."""
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_query_without_user_fails_on_scoped_table(self):
+        """Querying a scoped system table without user should fail with access error."""
+        from posthog.hogql.errors import QueryError
+
         context = HogQLContext(
             team_id=self.team.pk,
             team=self.team,
@@ -342,7 +364,33 @@ class TestAccessControlIntegration(BaseTest):
             enable_select_queries=True,
         )
 
-        # Should compile without errors
-        sql = self._compile_select("SELECT id, name FROM system.dashboards", context)
+        with self.assertRaises(QueryError) as cm:
+            self._compile_select("SELECT id, name FROM system.dashboards", context)
+        assert "don't have access" in str(cm.exception)
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
+    def test_database_without_user_keeps_all_tables_when_flag_off(self):
+        """When the feature flag is off, all tables remain accessible even without user."""
+        database = Database.create_for(team=self.team, user=None)
+        system_node = database.tables.children.get("system")
+        assert system_node is not None
+        assert "dashboards" in system_node.children
+        assert "insights" in system_node.children
+        assert "experiments" in system_node.children
+        assert "feature_flags" in system_node.children
+        assert "surveys" in system_node.children
+        assert len(database._denied_tables) == 0
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_query_without_user_works_for_unscoped_tables(self):
+        """Unscoped system tables should still be queryable without user context."""
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            user=None,
+            enable_select_queries=True,
+        )
+
+        sql = self._compile_select("SELECT id, name FROM system.cohorts", context)
         assert "id" in sql
         assert "name" in sql

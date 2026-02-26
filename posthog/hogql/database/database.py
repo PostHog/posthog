@@ -51,6 +51,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
@@ -350,8 +351,6 @@ class Database(BaseModel):
 
     def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
         """Remove system tables user doesn't have resource access to."""
-        from posthog.hogql.database.postgres_table import PostgresTable
-
         from posthog.models import OrganizationMembership
         from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
@@ -375,7 +374,24 @@ class Database(BaseModel):
             if access_level and access_level != NO_ACCESS_LEVEL:
                 continue  # User has access, keep it
 
-            # No access — remove from schema
+            # No access - remove from schema
+            del system_node.children[table_node.name]
+            denied.add(f"system.{table_node.name}")
+
+        self._denied_tables = denied
+
+    def _filter_all_scoped_system_tables(self) -> None:
+        """Remove ALL access-controlled system tables"""
+        system_node = self.tables.children.get("system")
+        if not system_node or not hasattr(system_node, "children"):
+            return
+
+        denied: set[str] = set()
+        for table_node in list(system_node.children.values()):
+            table = table_node.table
+            if not isinstance(table, PostgresTable) or table.access_scope is None:
+                continue  # Not access-controlled, keep it
+
             del system_node.children[table_node.name]
             denied.add(f"system.{table_node.name}")
 
@@ -651,7 +667,7 @@ class Database(BaseModel):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
         with timings.measure("filter_system_tables_for_user"):
-            if user is not None and team is not None:
+            if team is not None:
                 is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
                     "hogql-access-control",
                     str(team.uuid),
@@ -663,7 +679,10 @@ class Database(BaseModel):
                     send_feature_flag_events=False,
                 )
                 if is_hogql_access_control_enabled:
-                    database._filter_system_tables_for_user(user, team)
+                    if user is not None:
+                        database._filter_system_tables_for_user(user, team)
+                    else:
+                        database._filter_all_scoped_system_tables()
 
         with timings.measure("modifiers"):
             modifiers = create_default_modifiers_for_team(team, modifiers)
