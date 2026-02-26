@@ -66,7 +66,7 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
     team = await Team.objects.aget(id=inputs.team_id)
     document_ids, _ = await load_fetch_result(inputs.storage_key)
     # We fetch segments here instead of passing via Temporal, to avoid large Temporal payloads (each embedding is 3 KB)
-    segments = await _fetch_embeddings_by_document_ids(team, document_ids)
+    segments = await _fetch_embeddings(team, inputs.lookback_hours)
 
     # Run in to_thread as clustering is CPU-bound
     clustering_with_centroids = await asyncio.to_thread(_perform_clustering, segments)
@@ -74,14 +74,11 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
     return clustering_with_centroids.result
 
 
-async def _fetch_embeddings_by_document_ids(
+async def _fetch_embeddings(
     team: Team,
-    document_ids: list[str],
+    lookback_hours: int,
 ) -> list[VideoSegment]:
-    if not document_ids:
-        return []
-
-    rows = await fetch_video_segment_embedding_rows(team, document_ids)
+    rows = await fetch_video_segment_embedding_rows(team, lookback_hours)
     segments: list[VideoSegment] = []
 
     for row in rows:

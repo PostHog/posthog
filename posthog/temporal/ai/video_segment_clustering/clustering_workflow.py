@@ -110,6 +110,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                 ClusterSegmentsActivityInputs(
                     team_id=inputs.team_id,
                     storage_key=fetch_result.storage_key,
+                    lookback_hours=inputs.lookback_hours,
                 )
             ],
             start_to_close_timeout=timedelta(seconds=180),

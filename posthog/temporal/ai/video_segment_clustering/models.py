@@ -111,6 +111,7 @@ class FetchSegmentsActivityInputs:
 class ClusterSegmentsActivityInputs:
     team_id: int
     storage_key: str
+    lookback_hours: int
 
 
 @dataclass

@@ -115,10 +115,9 @@ async def _mock_load_fetch_result(key: str) -> tuple[list[str], list[str]]:
     return document_ids, distinct_ids
 
 
-async def _mock_fetch_embeddings_by_document_ids(_team, document_ids: list[str]) -> list[VideoSegment]:
+async def _mock_fetch_embeddings(_team, lookback_hours: int) -> list[VideoSegment]:
     """Mock that returns pre-loaded VideoSegments with embeddings."""
-    doc_id_to_segment = {s.document_id: s for s in _test_video_segments}
-    return [doc_id_to_segment[doc_id] for doc_id in document_ids if doc_id in doc_id_to_segment]
+    return list(_test_video_segments)
 
 
 async def test_video_segment_clustering_workflow_emits_signals(ateam, test_segments_and_embeddings):
@@ -130,8 +129,8 @@ async def test_video_segment_clustering_workflow_emits_signals(ateam, test_segme
 
         with (
             patch(
-                "posthog.temporal.ai.video_segment_clustering.activities.a3_cluster_segments._fetch_embeddings_by_document_ids",
-                side_effect=_mock_fetch_embeddings_by_document_ids,
+                "posthog.temporal.ai.video_segment_clustering.activities.a3_cluster_segments._fetch_embeddings",
+                side_effect=_mock_fetch_embeddings,
             ),
             patch(
                 "posthog.temporal.ai.video_segment_clustering.activities.a3_cluster_segments.load_fetch_result",
