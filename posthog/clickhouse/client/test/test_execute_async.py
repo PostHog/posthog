@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
+from parameterized import parameterized
+
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
@@ -474,3 +476,63 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         # Both should execute (force bypasses deduplication)
         self.assertEqual(execute_process_query_mock.call_count, 2)
+
+    @parameterized.expand(
+        [
+            ("failed_task", True),
+            ("succeeded_task", False),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_stale_mapping_from_completed_task_does_not_block_reenqueue(
+        self, _name, task_errored, execute_process_query_mock
+    ):
+        """
+        A cache_key mapping left over from a completed task (whether it failed or succeeded
+        without cleaning up its mapping) must not prevent a fresh task from being enqueued.
+        """
+        query = build_query("SELECT 1")
+        cache_key = "stale_mapping_cache_key"
+        old_query_id = "old_completed_query_id"
+
+        # Simulate a stale mapping: previous task completed but did not clean up
+        old_manager = QueryStatusManager(old_query_id, self.team.id)
+        old_manager.store_query_status(
+            QueryStatus(id=old_query_id, team_id=self.team.id, complete=True, error=task_errored)
+        )
+        old_manager.register_cache_key_mapping(cache_key)
+
+        new_status = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, _test_only_bypass_celery=True
+        )
+
+        # A new task was enqueued — not the old completed one returned
+        execute_process_query_mock.assert_called_once()
+        self.assertNotEqual(new_status.id, old_query_id)
+        self.assertFalse(new_status.complete)
+        # The new task registered its own mapping, replacing the stale one
+        self.assertEqual(old_manager.get_running_query_by_cache_key(cache_key), new_status.id)
+
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_in_progress_mapping_still_deduplicates(self, execute_process_query_mock):
+        """
+        A cache_key mapping from a task that has NOT yet completed must still prevent
+        a duplicate task from being enqueued.
+        """
+        query = build_query("SELECT 1")
+        cache_key = "in_progress_cache_key"
+        in_progress_query_id = "in_progress_query_id"
+
+        in_progress_manager = QueryStatusManager(in_progress_query_id, self.team.id)
+        in_progress_manager.store_query_status(
+            QueryStatus(id=in_progress_query_id, team_id=self.team.id, complete=False, error=False)
+        )
+        in_progress_manager.register_cache_key_mapping(cache_key)
+
+        second_status = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, _test_only_bypass_celery=True
+        )
+
+        # No new task should be enqueued
+        execute_process_query_mock.assert_not_called()
+        self.assertEqual(second_status.id, in_progress_query_id)
