@@ -654,33 +654,6 @@ def _parse_default_repo_command(text: str) -> DefaultRepoCommand | None:
     return None
 
 
-def _get_user_default_repo(team_id: int, user_id: int, channel: str) -> str | None:
-    from products.slack_app.backend.models import SlackUserRepoPreference
-
-    preference = SlackUserRepoPreference.objects.filter(team_id=team_id, user_id=user_id, channel=channel).first()
-    return preference.repository if preference else None
-
-
-def _set_user_default_repo(team_id: int, user_id: int, channel: str, repository: str) -> None:
-    from products.slack_app.backend.models import SlackUserRepoPreference
-
-    SlackUserRepoPreference.objects.update_or_create(
-        team_id=team_id,
-        user_id=user_id,
-        channel=channel,
-        defaults={"repository": repository},
-    )
-
-
-def _clear_user_default_repo(team_id: int, user_id: int, channel: str) -> bool:
-    from products.slack_app.backend.models import SlackUserRepoPreference
-
-    deleted_count, _ = SlackUserRepoPreference.objects.filter(
-        team_id=team_id, user_id=user_id, channel=channel
-    ).delete()
-    return bool(deleted_count)
-
-
 def _post_repo_picker_message(
     *,
     slack: SlackIntegration,
@@ -889,22 +862,33 @@ def select_repository(
     if explicit_repo:
         return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_called=False)
 
-    user_default_repo = _get_user_default_repo(integration.team_id, user.id, channel)
+    from posthog.models.user_repo_preference import UserRepoPreference
+
+    user_default_repo = UserRepoPreference.get_default(
+        integration.team_id,
+        user.id,
+        UserRepoPreference.ScopeType.SLACK_CHANNEL,
+        channel,
+    )
     if user_default_repo and user_default_repo in all_repos:
         return RepoDecision(mode="auto", repository=user_default_repo, reason="user_default_repo", llm_called=False)
 
     if user_default_repo and user_default_repo not in all_repos:
-        _clear_user_default_repo(integration.team_id, user.id, channel)
+        UserRepoPreference.clear_default(
+            integration.team_id,
+            user.id,
+            UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            channel,
+        )
 
     if not user_default_repo:
-        from products.slack_app.backend.models import SlackUserRepoPreference
-
         other_channel_defaults_count = (
-            SlackUserRepoPreference.objects.filter(
+            UserRepoPreference.objects.filter(
                 team_id=integration.team_id,
                 user_id=user.id,
+                scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
             )
-            .exclude(channel=channel)
+            .exclude(scope_id=channel)
             .count()
         )
         logger.info(

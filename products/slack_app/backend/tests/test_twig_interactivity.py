@@ -16,8 +16,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-
-from products.slack_app.backend.models import SlackUserRepoPreference
+from posthog.models.user_repo_preference import UserRepoPreference
 
 
 def _sign_request(body: bytes, secret: str) -> tuple[str, str]:
@@ -391,7 +390,15 @@ class TestProcessTwigRepoSelection(TestCase):
 
         mock_resolve.assert_not_called()
         mock_client.chat_update.assert_not_called()
-        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user, channel="C001").count() == 0
+        assert (
+            UserRepoPreference.objects.filter(
+                team=self.team,
+                user=self.user,
+                scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+                scope_id="C001",
+            ).count()
+            == 0
+        )
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
     def test_user_mismatch_rejected(self, mock_get_repos):
@@ -401,7 +408,15 @@ class TestProcessTwigRepoSelection(TestCase):
 
         process_twig_repo_selection(self._make_payload(user_id="U_WRONG", action_id="twig_default_repo_select"))
 
-        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user, channel="C001").count() == 0
+        assert (
+            UserRepoPreference.objects.filter(
+                team=self.team,
+                user=self.user,
+                scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+                scope_id="C001",
+            ).count()
+            == 0
+        )
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
     @patch("posthog.models.integration.WebClient")
@@ -414,7 +429,15 @@ class TestProcessTwigRepoSelection(TestCase):
             self._make_payload(repo="posthog/nonexistent", action_id="twig_default_repo_select")
         )
 
-        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user, channel="C001").count() == 0
+        assert (
+            UserRepoPreference.objects.filter(
+                team=self.team,
+                user=self.user,
+                scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+                scope_id="C001",
+            ).count()
+            == 0
+        )
 
     def test_expired_token_is_noop(self):
         cache.delete(f"twig_repo_picker_ctx:{self.context_token}")
@@ -423,7 +446,15 @@ class TestProcessTwigRepoSelection(TestCase):
 
         process_twig_repo_selection(self._make_payload(action_id="twig_default_repo_select"))
 
-        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user, channel="C001").count() == 0
+        assert (
+            UserRepoPreference.objects.filter(
+                team=self.team,
+                user=self.user,
+                scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+                scope_id="C001",
+            ).count()
+            == 0
+        )
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -441,7 +472,12 @@ class TestProcessTwigRepoSelection(TestCase):
 
         payload = self._make_payload(action_id="twig_default_repo_select")
         process_twig_repo_selection(payload)
-        preference = SlackUserRepoPreference.objects.get(team=self.team, user=self.user, channel="C001")
+        preference = UserRepoPreference.objects.get(
+            team=self.team,
+            user=self.user,
+            scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            scope_id="C001",
+        )
         assert preference.repository == "posthog/posthog"
         assert mock_client.chat_update.call_count == 1
 
@@ -471,7 +507,12 @@ class TestProcessTwigRepoSelection(TestCase):
 
         process_twig_repo_selection(self._make_payload(action_id="twig_default_repo_select", repo="posthog/posthog-js"))
 
-        preference = SlackUserRepoPreference.objects.get(team=self.team, user=self.user, channel="C001")
+        preference = UserRepoPreference.objects.get(
+            team=self.team,
+            user=self.user,
+            scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            scope_id="C001",
+        )
         assert preference.repository == "posthog/posthog-js"
 
     @patch("products.tasks.backend.services.agent_command.send_cancel")

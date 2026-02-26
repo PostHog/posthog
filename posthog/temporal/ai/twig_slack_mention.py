@@ -208,15 +208,13 @@ def handle_twig_default_repo_command_activity(
     user_id: int,
 ) -> bool:
     from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.user_repo_preference import UserRepoPreference
 
     from products.slack_app.backend.api import (
-        _clear_user_default_repo,
         _extract_explicit_repo,
         _get_full_repo_names,
-        _get_user_default_repo,
         _parse_default_repo_command,
         _post_repo_picker_message,
-        _set_user_default_repo,
     )
 
     integration = Integration.objects.select_related("team", "team__organization").get(
@@ -231,7 +229,12 @@ def handle_twig_default_repo_command_activity(
         return False
 
     if default_repo_command.action == "show":
-        default_repo = _get_user_default_repo(integration.team_id, user_id, channel)
+        default_repo = UserRepoPreference.get_default(
+            integration.team_id,
+            user_id,
+            UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            channel,
+        )
         if default_repo:
             slack.client.chat_postMessage(
                 channel=channel,
@@ -251,7 +254,12 @@ def handle_twig_default_repo_command_activity(
         return True
 
     if default_repo_command.action == "clear":
-        cleared = _clear_user_default_repo(integration.team_id, user_id, channel)
+        cleared = UserRepoPreference.clear_default(
+            integration.team_id,
+            user_id,
+            UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            channel,
+        )
         text = (
             "Cleared your default repository for this channel."
             if cleared
@@ -304,7 +312,13 @@ def handle_twig_default_repo_command_activity(
         )
         return True
 
-    _set_user_default_repo(integration.team_id, user_id, channel, explicit_repo)
+    UserRepoPreference.set_default(
+        integration.team_id,
+        user_id,
+        UserRepoPreference.ScopeType.SLACK_CHANNEL,
+        channel,
+        repository=explicit_repo,
+    )
     slack.client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,

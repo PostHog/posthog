@@ -7,9 +7,9 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.user_repo_preference import UserRepoPreference
 
 from products.slack_app.backend.api import _extract_explicit_repo, guess_repository, select_repository
-from products.slack_app.backend.models import SlackUserRepoPreference
 
 
 def _make_llm_response(content: str) -> MagicMock:
@@ -172,10 +172,11 @@ class TestSelectRepository:
         assert decision.llm_called is False
 
     def test_user_default_repo_auto(self):
-        SlackUserRepoPreference.objects.create(
+        UserRepoPreference.objects.create(
             team=self.team,
             user=self.user,
-            channel=self.channel,
+            scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            scope_id=self.channel,
             repository="posthog/posthog-js",
         )
 
@@ -194,10 +195,11 @@ class TestSelectRepository:
         assert decision.llm_called is False
 
     def test_user_default_repo_is_channel_scoped(self):
-        SlackUserRepoPreference.objects.create(
+        UserRepoPreference.objects.create(
             team=self.team,
             user=self.user,
-            channel="C_OTHER",
+            scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            scope_id="C_OTHER",
             repository="posthog/posthog-js",
         )
 
@@ -214,10 +216,11 @@ class TestSelectRepository:
         assert decision.reason == "no_explicit_multi_repo"
 
     def test_invalid_user_default_repo_is_cleared(self):
-        SlackUserRepoPreference.objects.create(
+        UserRepoPreference.objects.create(
             team=self.team,
             user=self.user,
-            channel=self.channel,
+            scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            scope_id=self.channel,
             repository="posthog/deleted-repo",
         )
 
@@ -232,7 +235,15 @@ class TestSelectRepository:
 
         assert decision.mode == "picker"
         assert decision.reason == "no_explicit_multi_repo"
-        assert SlackUserRepoPreference.objects.filter(team=self.team, user=self.user, channel=self.channel).count() == 0
+        assert (
+            UserRepoPreference.objects.filter(
+                team=self.team,
+                user=self.user,
+                scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
+                scope_id=self.channel,
+            ).count()
+            == 0
+        )
 
     def test_no_repos_picker(self):
         decision = select_repository(

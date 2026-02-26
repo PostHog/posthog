@@ -8,12 +8,12 @@ logger = structlog.get_logger(__name__)
 def process_twig_repo_selection(payload: dict) -> None:
     """Process default-repo picker selection from Slack interactivity callback."""
     from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.user_repo_preference import UserRepoPreference
 
     from products.slack_app.backend.api import (
         _decode_picker_context,
         _extract_context_token,
         _get_full_repo_names,
-        _set_user_default_repo,
         resolve_slack_user,
     )
 
@@ -115,7 +115,13 @@ def process_twig_repo_selection(payload: dict) -> None:
         except Exception:
             logger.warning("twig_default_repo_selection_update_failed", channel=channel)
 
-    _set_user_default_repo(integration.team_id, user_context.user.id, channel, selected_repo)
+    UserRepoPreference.set_default(
+        integration.team_id,
+        user_context.user.id,
+        UserRepoPreference.ScopeType.SLACK_CHANNEL,
+        channel,
+        repository=selected_repo,
+    )
     try:
         slack.client.chat_postMessage(
             channel=channel,
