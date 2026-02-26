@@ -5,18 +5,21 @@ import { logger } from '~/utils/logger'
 import { FetchOptions, FetchResponse } from '~/utils/request'
 
 export class InternalFetchService {
-    constructor(private config: Pick<PluginsServerConfig, 'INTERNAL_API_SECRET'>) {}
+    constructor(private config: Pick<PluginsServerConfig, 'INTERNAL_API_SECRET' | 'INTERNAL_API_BASE_URL'>) {}
 
     async fetch({
-        url,
+        urlPath,
         fetchParams,
     }: {
-        url: string
+        urlPath: `/${string}`
         fetchParams: FetchOptions
     }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
-        logger.debug('Making internal fetch request', { url })
+        logger.debug('Making internal fetch request', { urlPath })
+
+        const internalUrl = `${this.config.INTERNAL_API_BASE_URL || 'http://localhost:8000'}${urlPath}`
+
         return await cdpTrackedFetch({
-            url,
+            url: internalUrl,
             fetchParams: {
                 ...fetchParams,
                 headers: {

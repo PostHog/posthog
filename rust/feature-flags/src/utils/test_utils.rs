@@ -1397,4 +1397,20 @@ impl TestContext {
         .await?;
         Ok(())
     }
+
+    pub async fn remove_user_from_organization(
+        &self,
+        user_id: i32,
+        org_id: &uuid::Uuid,
+    ) -> Result<(), Error> {
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        sqlx::query(
+            "DELETE FROM posthog_organizationmembership WHERE user_id = $1 AND organization_id = $2",
+        )
+        .bind(user_id)
+        .bind(org_id)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
+    }
 }

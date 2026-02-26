@@ -9,7 +9,10 @@ jest.mock('~/cdp/services/hog-executor.service', () => ({
 
 describe('InternalFetchService', () => {
     it('calls cdpTrackedFetch with internal auth header and templateId', async () => {
-        const internalFetchService = new InternalFetchService({ INTERNAL_API_SECRET: 'secret-123' })
+        const internalFetchService = new InternalFetchService({
+            INTERNAL_API_SECRET: 'secret-123',
+            INTERNAL_API_BASE_URL: 'https://internal.example.com',
+        })
         const mockedCdpTrackedFetch = jest.mocked(cdpTrackedFetch)
 
         mockedCdpTrackedFetch.mockResolvedValueOnce({
@@ -19,7 +22,7 @@ describe('InternalFetchService', () => {
         })
 
         await internalFetchService.fetch({
-            url: 'https://internal.example.com/health',
+            urlPath: '/health' as const,
             fetchParams: { method: 'POST', headers: { 'X-Test': 'abc' } } as any,
         })
 
@@ -38,14 +41,17 @@ describe('InternalFetchService', () => {
     })
 
     it('rethrows exceptions from cdpTrackedFetch', async () => {
-        const internalFetchService = new InternalFetchService({ INTERNAL_API_SECRET: 'secret-123' })
+        const internalFetchService = new InternalFetchService({
+            INTERNAL_API_SECRET: 'secret-123',
+            INTERNAL_API_BASE_URL: 'https://internal.example.com',
+        })
         const mockedCdpTrackedFetch = jest.mocked(cdpTrackedFetch)
 
         mockedCdpTrackedFetch.mockRejectedValueOnce(new Error('boom'))
 
         await expect(
             internalFetchService.fetch({
-                url: 'https://internal.example.com/boom',
+                urlPath: '/boom' as const,
                 fetchParams: { method: 'GET' } as any,
             })
         ).rejects.toThrow('boom')
