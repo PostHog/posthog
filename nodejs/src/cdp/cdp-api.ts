@@ -728,7 +728,11 @@ export class CdpApi {
                 logger.info('⚡️', 'Received batch export invocation', { team_id, batch_export_id: id })
 
                 const invocationID = invocation_id ?? new UUIDT().toString()
-                if (!UUID.validateString(invocationID)) {
+                try {
+                    if (!UUID.validateString(invocationID)) {
+                        return res.status(400).json({ error: 'Invalid invocation ID' })
+                    }
+                } catch {
                     return res.status(400).json({ error: 'Invalid invocation ID' })
                 }
 
@@ -737,6 +741,9 @@ export class CdpApi {
                     return res.status(404).json({ error: 'Team not found' })
                 }
 
+                if (!clickhouse_event) {
+                    return res.status(400).json({ error: 'Missing event' })
+                }
                 const globals = convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.hub.SITE_URL)
                 if (!globals.event) {
                     return res.status(400).json({ error: 'Missing event' })
@@ -799,6 +806,7 @@ export class CdpApi {
                     logs: logs,
                 })
             } catch (e) {
+                console.error(e)
                 return res.status(500).json({ errors: [e.message] })
             } finally {
                 await this.hogFunctionMonitoringService.flush()

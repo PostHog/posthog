@@ -16,6 +16,7 @@ import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
+import { insertBatchExport } from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
@@ -780,21 +781,25 @@ describe('CDP API', () => {
         })
     })
     describe('batch export hog function invocations', () => {
-        const batchExportId = new UUIDT().toString()
+        let batchExportId: string
         let batchExportHogFunction: HogFunctionType
-
-        const clickhouseEvent = {
-            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-            event: '$pageview',
-            team_id: team.id,
-            distinct_id: '123',
-            timestamp: '2021-09-28T14:00:00Z',
-            created_at: '2021-09-28T14:00:00Z',
-            properties: '{"$lib_version":"1.0.0"}',
-            elements_chain: '',
-        }
+        let clickhouseEvent: Record<string, any>
 
         beforeEach(async () => {
+            clickhouseEvent = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                event: '$pageview',
+                team_id: team.id,
+                distinct_id: '123',
+                timestamp: '2021-09-28T14:00:00Z',
+                created_at: '2021-09-28T14:00:00Z',
+                properties: JSON.stringify({ $lib_version: '1.0.0' }),
+                elements_chain: '',
+            }
+
+            batchExportId = new UUIDT().toString()
+            await insertBatchExport(hub.postgres, team.id, batchExportId)
+
             batchExportHogFunction = await insertHogFunction({
                 name: 'test batch export hog function',
                 ...HOG_EXAMPLES.simple_fetch,
@@ -829,8 +834,6 @@ describe('CDP API', () => {
         })
 
         it('errors if hog function belongs to a different team', async () => {
-            // hogFunction (from outer beforeEach) has no batch_export_id and belongs to team.id,
-            // but we're requesting it under a different team's path
             const res = await supertest(app)
                 .post(
                     `/api/projects/${new UUIDT().toString()}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
