@@ -209,6 +209,19 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @patch("products.mcp_store.backend.api.is_url_allowed", return_value=(False, "Local/metadata host"))
+    def test_install_custom_oauth_ssrf_blocked(self, _mock):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={
+                "name": "Evil OAuth",
+                "url": "http://169.254.169.254/mcp",
+                "auth_type": "oauth",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @ALLOW_URL
     def test_installation_name_field(self, _mock):
         response = self.client.post(

@@ -172,7 +172,7 @@ class TestAuthHeaders(TestCallMCPServerTool):
 class TestSSRFPrevention(TestCallMCPServerTool):
     async def test_rejects_url_not_in_installations(self):
         tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
-        with self.assertRaises(MaxToolRetryableError) as ctx:
+        with self.assertRaises(MaxToolFatalError) as ctx:
             await tool._arun_impl(server_url="https://evil.com/mcp", tool_name="__list_tools__")
         self.assertIn("not in the user's installed MCP servers", str(ctx.exception))
 
@@ -243,6 +243,7 @@ class TestCallTool(TestCallMCPServerTool):
 
     async def test_mcp_client_error_becomes_retryable(self):
         tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
+        tool._refresh_auth_or_mark_reauth = AsyncMock()
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
             mock_instance.initialize = AsyncMock(side_effect=MCPClientError("Connection refused"))
@@ -254,6 +255,7 @@ class TestCallTool(TestCallMCPServerTool):
 
     async def test_timeout_error_becomes_retryable(self):
         tool = self._create_tool(installations=[{"display_name": "Slow", "url": "https://mcp.slow.com"}])
+        tool._refresh_auth_or_mark_reauth = AsyncMock()
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
@@ -266,6 +268,7 @@ class TestCallTool(TestCallMCPServerTool):
 
     async def test_connect_error_becomes_retryable(self):
         tool = self._create_tool(installations=[{"display_name": "Down", "url": "https://mcp.down.com"}])
+        tool._refresh_auth_or_mark_reauth = AsyncMock()
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
@@ -343,9 +346,10 @@ class TestIsTokenExpiring(TestCallMCPServerTool):
         tool = self._create_tool(installations=[inst])
         self.assertEqual(tool._is_token_expiring(self.SERVER_URL), expected)
 
-    def test_unknown_server_returns_false(self):
+    def test_unknown_server_raises_fatal(self):
         tool = self._create_tool(installations=[])
-        self.assertFalse(tool._is_token_expiring("https://unknown.example.com"))
+        with self.assertRaises(MaxToolFatalError):
+            tool._is_token_expiring("https://unknown.example.com")
 
 
 class TestSSRFProtection(TestCallMCPServerTool):

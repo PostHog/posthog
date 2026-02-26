@@ -6,9 +6,21 @@ from urllib.parse import urlparse
 import requests
 import structlog
 
+from posthog.security.url_validation import is_url_allowed
+
 logger = structlog.get_logger(__name__)
 
 TIMEOUT = 10
+
+
+class SSRFBlockedError(Exception):
+    pass
+
+
+def _validate_url(url: str) -> None:
+    allowed, reason = is_url_allowed(url)
+    if not allowed:
+        raise SSRFBlockedError(f"URL blocked by SSRF protection: {reason} ({url})")
 
 
 def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
@@ -17,6 +29,7 @@ def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
     if parsed.path and parsed.path != "/":
         metadata_url = f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server{parsed.path}"
 
+    _validate_url(metadata_url)
     metadata_resp = requests.get(metadata_url, timeout=TIMEOUT)
     metadata_resp.raise_for_status()
     metadata = metadata_resp.json()
@@ -35,9 +48,12 @@ def discover_oauth_metadata(server_url: str) -> dict:
 
     # Step 1: Try RFC 9728 Protected Resource Metadata to find the authorization server
     resource_url = f"{origin}/.well-known/oauth-protected-resource{path}"
+    _validate_url(resource_url)
     resource_resp = requests.get(resource_url, timeout=TIMEOUT)
     if resource_resp.status_code == 404 and path:
-        resource_resp = requests.get(f"{origin}/.well-known/oauth-protected-resource", timeout=TIMEOUT)
+        fallback_url = f"{origin}/.well-known/oauth-protected-resource"
+        _validate_url(fallback_url)
+        resource_resp = requests.get(fallback_url, timeout=TIMEOUT)
 
     if resource_resp.ok:
         resource_data = resource_resp.json()
@@ -60,6 +76,7 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
     if not registration_endpoint:
         raise ValueError("Authorization server does not support Dynamic Client Registration")
 
+    _validate_url(registration_endpoint)
     resp = requests.post(
         registration_endpoint,
         json={
@@ -73,6 +90,7 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
     )
     resp.raise_for_status()
     data = resp.json()
+    data.pop("client_secret", None)  # Not used for public clients; don't store in plaintext
 
     client_id = data.get("client_id")
     if not client_id:
@@ -108,8 +126,11 @@ def refresh_oauth_token(
         data["client_secret"] = client_secret
 
     try:
+        _validate_url(token_url)
         resp = requests.post(token_url, data=data, timeout=TIMEOUT)
         resp.raise_for_status()
+    except SSRFBlockedError:
+        raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
     except requests.RequestException:
         raise TokenRefreshError("Token refresh request failed")
 
