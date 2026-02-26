@@ -25,6 +25,7 @@ import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordin
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
 import { processAllSnapshots } from './snapshot-processing/process-all-snapshots'
+import { keyForSource } from './snapshot-processing/source-key'
 import { SnapshotStore } from './snapshot-store/SnapshotStore'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
@@ -171,10 +172,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         loadSnapshotsForSourceSuccess: () => {
             actions.reportUsageIfFullyLoaded()
-            // Skip legacy processing when SnapshotStore handles snapshots directly
-            if (!values.snapshotStore) {
-                actions.processSnapshotsAsync()
-            }
+            actions.processSnapshotsAsync()
         },
 
         loadRecordingCommentsSuccess: () => {
@@ -192,15 +190,38 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         processSnapshotsAsync: async (_, breakpoint) => {
             cache.processingCache = cache.processingCache || { snapshots: {} }
 
+            const sources = values.snapshotSources
+            let snapshotsBySource
+            if (values.snapshotStore && sources) {
+                // Build from store entries so processAllSnapshots can run
+                // Meta synthesis, mobile FullSnapshot creation, etc.
+                snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
+                for (let i = 0; i < sources.length; i++) {
+                    const entry = values.snapshotStore.getEntry(i)
+                    if (entry?.state === 'loaded' && entry.processedSnapshots?.length) {
+                        snapshotsBySource[keyForSource(sources[i])] = {
+                            snapshots: entry.processedSnapshots,
+                        }
+                    }
+                }
+            } else {
+                snapshotsBySource = values.snapshotsBySources
+            }
+
             const result = await processAllSnapshots(
-                values.snapshotSources,
-                values.snapshotsBySources,
+                sources,
+                snapshotsBySource,
                 cache.processingCache,
                 values.viewportForTimestamp,
                 props.sessionRecordingId
             )
 
             breakpoint()
+
+            // Release raw snapshot arrays from the store — only the metadata
+            // (fullSnapshotTimestamps, metaTimestamps, state) is still needed.
+            values.snapshotStore?.clearSnapshotData()
+
             actions.setProcessedSnapshots(result)
         },
 
@@ -214,11 +235,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
     })),
     selectors(({ cache }) => ({
         snapshots: [
-            (s) => [s.processedSnapshots, s.snapshotStore, s.storeVersion],
-            (processedSnapshots: RecordingSnapshot[], snapshotStore: SnapshotStore | null): RecordingSnapshot[] => {
-                if (snapshotStore) {
-                    return snapshotStore.getAllLoadedSnapshots()
-                }
+            (s) => [s.processedSnapshots],
+            (processedSnapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
                 return processedSnapshots
             },
         ],
@@ -304,11 +322,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         snapshotsByWindowId: [
-            (s) => [s.snapshots, s.snapshotStore, s.storeVersion],
-            (snapshots: RecordingSnapshot[], snapshotStore: SnapshotStore | null): Record<number, eventWithTime[]> => {
-                if (snapshotStore) {
-                    return snapshotStore.getSnapshotsByWindowId()
-                }
+            (s) => [s.snapshots],
+            (snapshots: RecordingSnapshot[]): Record<number, eventWithTime[]> => {
                 return mapSnapshotsToWindowId(snapshots || [])
             },
         ],
