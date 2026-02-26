@@ -67,7 +67,7 @@ const cdpHttpRequestTiming = new Histogram({
 export const shadowFetchContext = new AsyncLocalStorage<boolean>()
 
 // Stale keep-alive connections produce these errors when the server has closed its end before
-// we reuse the socket. A single in-process retry on a fresh connection resolves them immediately.
+// we reuse the socket. A single in-process retry on a fresh connection may resolve them immediately.
 export function isConnectionLevelError(error: any): boolean {
     return (
         error?.code === 'UND_ERR_SOCKET' || // undici SocketError ("other side closed")
