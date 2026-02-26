@@ -28,9 +28,8 @@
 
     <!-- Total -->
     <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 8px;">
-        <h3 style="margin: 0 0 4px 0; text-align: left;">Total</h3>
-        <p style="margin: 0 0 16px 0; font-size: 0.85em; color: #6b7280; text-align: left;">All exceptions captured across <strong>{{ section.team.name }}</strong> in the last 7 days.</p>
         <div style="text-align: center;">
+            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px;">Total exceptions</div>
             <p style="margin: 0; font-size: 2.5em; font-weight: bold; line-height: 1.1;">
                 {{ section.exception_count|compact_number }}
             </p>
@@ -82,7 +81,7 @@
     <!-- Top issues -->
     {% if section.top_issues %}
     <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 8px;">
-        <h3 style="margin: 0 0 4px 0; text-align: left;">Highest volume issues</h3>
+        <h3 style="margin: 0 0 4px 0; text-align: left;">Top issues</h3>
         <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues sorted by occurrence count this week</p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
             <thead>
