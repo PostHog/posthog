@@ -55,6 +55,7 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { projectLogic } from 'scenes/projectLogic'
+import { HomeTab } from 'scenes/saved-insights/HomeTab'
 import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -691,6 +692,7 @@ export function SavedInsights(): JSX.Element {
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
+    const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
 
     const { tab } = filters
 
@@ -888,7 +890,8 @@ export function SavedInsights(): JSX.Element {
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
-                    { key: SavedInsightsTabs.All, label: 'All insights' },
+                    ...(showHomeTab ? [{ key: SavedInsightsTabs.Home, label: 'Home' }] : []),
+                    { key: SavedInsightsTabs.All, label: 'Insights' },
                     {
                         key: SavedInsightsTabs.Alerts,
                         label: <div className="flex items-center gap-2">Alerts</div>,
@@ -898,7 +901,9 @@ export function SavedInsights(): JSX.Element {
                 sceneInset
             />
 
-            {tab === SavedInsightsTabs.History ? (
+            {tab === SavedInsightsTabs.Home ? (
+                <HomeTab />
+            ) : tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : tab === SavedInsightsTabs.Alerts ? (
                 <Alerts alertId={alertModalId} />

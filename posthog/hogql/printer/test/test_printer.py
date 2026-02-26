@@ -3420,6 +3420,12 @@ class TestPrinter(BaseTest):
             self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
 
+    def test_cte_column_name_list_not_supported(self):
+        with self.assertRaises(NotImplementedError):
+            self._select(
+                "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
+            )
+
 
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
@@ -4388,6 +4394,40 @@ class TestPostgresPrinter(BaseTest):
             type_name=type_name,
         )
         self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+
+    @parameterized.expand(
+        [
+            (
+                "basic",
+                "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
+                "stats(a, b) AS",
+            ),
+            (
+                "single column",
+                "WITH single(x) AS (SELECT event FROM events) SELECT x FROM single",
+                "single(x) AS",
+            ),
+            (
+                "reserved word as column name",
+                "WITH stats(select, from) AS (SELECT event, timestamp FROM events) SELECT stats.select FROM stats",
+                'stats("select", "from") AS',
+            ),
+            (
+                "used in join",
+                """
+                WITH cte1(id, val) AS (SELECT event, timestamp FROM events),
+                     cte2(id, val) AS (SELECT event, timestamp FROM events)
+                SELECT c1.id, c2.val
+                FROM cte1 AS c1
+                JOIN cte2 AS c2 ON c1.id = c2.id
+                """,
+                "cte1(id, val) AS",
+            ),
+        ]
+    )
+    def test_cte_column_name_list(self, _name: str, query: str, expected_fragment: str):
+        result = self._select(query)
+        self.assertIn(expected_fragment, result)
 
     def test_with_recursive(self):
         query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"

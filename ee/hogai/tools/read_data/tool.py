@@ -438,7 +438,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
             tile
-            async for tile in dashboard.tiles.exclude(insight__deleted=True, deleted=True).select_related("insight")
+            async for tile in dashboard.tiles.exclude(insight__deleted=True)
+            .exclude(deleted=True)
+            .select_related("insight")
         ]
 
         # Build DashboardInsightContext models for all tiles
