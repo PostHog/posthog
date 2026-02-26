@@ -133,56 +133,27 @@ function PlaygroundLayout(): JSX.Element {
 
 function ComposerHeader(): JSX.Element {
     const { messages, submitting } = useValues(llmAnalyticsPlaygroundLogic)
-    const { addMessage, clearConversation, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
+    const { submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
 
     return (
-        <div className="px-4 py-3 border-b">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h3 className="text-lg font-semibold">Playground</h3>
-                    <p className="text-xs text-muted">Build a task, run it, and compare results.</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        onClick={() => addMessage()}
-                        disabledReason={submitting ? 'Generating...' : undefined}
-                        data-attr="ai-playground-run-button"
-                    >
-                        Add message
-                    </LemonButton>
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        onClick={clearConversation}
-                        disabledReason={
-                            messages.length === 0 ? 'No messages to clear' : submitting ? 'Generating...' : undefined
-                        }
-                        tooltip="Clear all messages"
-                    >
-                        Clear all
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlay />}
-                        onClick={() => submitPrompt()}
-                        loading={submitting}
-                        tooltip="Run prompt (⌘↵)"
-                        disabledReason={
-                            submitting
-                                ? 'Generating...'
-                                : messages.length === 0
-                                  ? 'Add messages to start the conversation'
-                                  : undefined
-                        }
-                        data-attr="playground-run"
-                    >
-                        Run
-                    </LemonButton>
-                </div>
-            </div>
+        <div className="px-4 py-3 border-b flex items-center justify-end">
+            <LemonButton
+                type="primary"
+                icon={<IconPlay />}
+                onClick={() => submitPrompt()}
+                loading={submitting}
+                tooltip="Run prompt (⌘↵)"
+                disabledReason={
+                    submitting
+                        ? 'Generating...'
+                        : messages.length === 0
+                          ? 'Add messages to start the conversation'
+                          : undefined
+                }
+                data-attr="playground-run"
+            >
+                Run
+            </LemonButton>
         </div>
     )
 }
@@ -358,38 +329,27 @@ function ModelConfigBar(): JSX.Element {
 }
 
 function MessagesSection(): JSX.Element {
-    const { messages, tools } = useValues(llmAnalyticsPlaygroundLogic)
-    return (
-        <div className="border rounded p-3">
-            <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-semibold uppercase tracking-wide text-muted">Conversation</h4>
-            </div>
-
-            <div className="space-y-3">
-                <SystemMessageDisplay />
-                {tools && <ToolsDisplay />}
-                {messages.map((message, index) => (
-                    <MessageDisplay key={index} index={index} message={message} />
-                ))}
-                {messages.length === 0 && <EmptyMessagesState />}
-            </div>
-
-            <div data-attr="messages-end" />
-        </div>
-    )
-}
-
-function EmptyMessagesState(): JSX.Element {
+    const { messages, tools, submitting } = useValues(llmAnalyticsPlaygroundLogic)
     const { addMessage } = useActions(llmAnalyticsPlaygroundLogic)
 
     return (
-        <div className="flex flex-col items-center justify-center py-16 text-muted border border-dashed rounded">
-            <IconMessage className="text-4xl mb-2 opacity-40" />
-            <p className="mb-1">No messages yet</p>
-            <p className="text-xs opacity-60 mb-4">Add a message to start building your prompt</p>
-            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addMessage()}>
-                Add your first message
-            </LemonButton>
+        <div className="space-y-3">
+            <SystemMessageDisplay />
+            {tools && <ToolsDisplay />}
+            {messages.map((message, index) => (
+                <MessageDisplay key={index} index={index} message={message} />
+            ))}
+            <div className="flex items-center gap-2">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconPlus />}
+                    onClick={() => addMessage()}
+                    disabledReason={submitting ? 'Generating...' : undefined}
+                >
+                    Message
+                </LemonButton>
+            </div>
         </div>
     )
 }
