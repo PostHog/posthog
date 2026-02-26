@@ -4345,6 +4345,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("lt", "semver_lt", "10.20.30"),
             ("lte", "semver_lte", "1.0.0"),
             ("tilde", "semver_tilde", "1.2.3"),
+            ("tilde_bare_major", "semver_tilde", "1"),
             ("caret", "semver_caret", "0.2.3"),
             ("wildcard", "semver_wildcard", "1.2.*"),
         ]
