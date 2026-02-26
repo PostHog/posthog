@@ -21,6 +21,14 @@ function isValidGenerationSentiment(value: unknown): value is GenerationSentimen
 
 const BATCH_MAX_SIZE = 20
 
+function chunk<T>(arr: T[], size: number): T[][] {
+    const chunks: T[][] = []
+    for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size))
+    }
+    return chunks
+}
+
 export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentLazyLoaderLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmGenerationSentimentLazyLoaderLogic']),
 
@@ -164,28 +172,33 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
                         return
                     }
 
-                    // No chunking needed — BATCH_MAX_SIZE is 20, matching the API limit
-                    try {
-                        const response = await api.create<BatchGenerationSentimentResponse>(
-                            `api/environments/${teamId}/llm_analytics/sentiment/generations/`,
-                            {
-                                generation_ids: allIds.slice(0, BATCH_MAX_SIZE),
-                                date_from: dateRangeForBatch?.dateFrom || undefined,
-                                date_to: dateRangeForBatch?.dateTo || undefined,
+                    const chunks = chunk(allIds, BATCH_MAX_SIZE)
+
+                    await Promise.allSettled(
+                        chunks.map(async (batch) => {
+                            try {
+                                const response = await api.create<BatchGenerationSentimentResponse>(
+                                    `api/environments/${teamId}/llm_analytics/sentiment/generations/`,
+                                    {
+                                        generation_ids: batch,
+                                        date_from: dateRangeForBatch?.dateFrom || undefined,
+                                        date_to: dateRangeForBatch?.dateTo || undefined,
+                                    }
+                                )
+
+                                const results: Record<string, GenerationSentiment | null> = {}
+
+                                for (const generationId of batch) {
+                                    const raw = response.results[generationId]
+                                    results[generationId] = isValidGenerationSentiment(raw) ? raw : null
+                                }
+
+                                actions.loadGenerationSentimentBatchSuccess(results, batch)
+                            } catch {
+                                actions.loadGenerationSentimentBatchFailure(batch)
                             }
-                        )
-
-                        const results: Record<string, GenerationSentiment | null> = {}
-
-                        for (const generationId of allIds) {
-                            const raw = response.results[generationId]
-                            results[generationId] = isValidGenerationSentiment(raw) ? raw : null
-                        }
-
-                        actions.loadGenerationSentimentBatchSuccess(results, allIds)
-                    } catch {
-                        actions.loadGenerationSentimentBatchFailure(allIds)
-                    }
+                        })
+                    )
                 }, 0)
             },
         }
