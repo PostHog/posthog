@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import {
     IconChevronDown,
@@ -132,20 +132,6 @@ function SubscriptionRequiredBanner(): JSX.Element | null {
 }
 
 function PlaygroundLayout(): JSX.Element {
-    const { submitting, currentResponse, responseHasError } = useValues(llmAnalyticsPlaygroundLogic)
-    const { addResponseToHistory, addMessage } = useActions(llmAnalyticsPlaygroundLogic)
-    const prevSubmittingRef = useRef(false)
-
-    useEffect(() => {
-        const wasSubmitting = prevSubmittingRef.current
-        prevSubmittingRef.current = submitting
-
-        if (wasSubmitting && !submitting && currentResponse && currentResponse.trim() && !responseHasError) {
-            addResponseToHistory(currentResponse)
-            addMessage()
-        }
-    }, [submitting])
-
     return (
         <div className="flex flex-col gap-4 pb-6">
             <RateLimitBanner />
