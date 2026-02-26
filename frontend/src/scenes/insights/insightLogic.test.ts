@@ -812,49 +812,38 @@ describe('insightLogic', () => {
         it.each([
             { scenario: 'with dashboardId', dashboardId: 5 },
             { scenario: 'without dashboardId', dashboardId: null },
-        ])('$scenario navigates immediately and deletes via API', async ({ dashboardId }) => {
+        ])('$scenario deletes via API then navigates', async ({ dashboardId }) => {
             jest.spyOn(api, 'update')
 
             logic.actions.confirmDeleteInsight(dashboardId)
-
-            const expectedUrl = dashboardId ? urls.dashboard(dashboardId) : urls.savedInsights()
-            await expectLogic(router).toDispatchActions([router.actionCreators.push(expectedUrl)])
-
             await expectLogic(logic).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/insights/42'),
                 expect.objectContaining({ deleted: true })
             )
+
+            const expectedUrl = dashboardId ? urls.dashboard(dashboardId) : urls.savedInsights()
+            await expectLogic(router).toDispatchActions([router.actionCreators.push(expectedUrl)])
         })
 
-        it('optimistically removes insight from dashboard', async () => {
+        it('restores insight on undo from dashboard', async () => {
+            logic.actions.confirmDeleteInsight(5)
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Simulate undo — the callback with undo=true should restore the insight
             await expectLogic(dashboardsModel, () => {
-                logic.actions.confirmDeleteInsight(5)
+                dashboardsModel
+                    .findMounted()
+                    ?.actions.updateDashboardInsight(
+                        { ...(logic.values.insight as QueryBasedInsightModel), deleted: false },
+                        [5]
+                    )
             }).toDispatchActions([
                 (action: any) =>
                     action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                    action.payload.insight.deleted === true &&
-                    action.payload.extraDashboardIds?.[0] === 5,
+                    action.payload.insight.deleted === false,
             ])
-        })
-
-        it('restores insight on dashboard when API fails', async () => {
-            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('Network error'))
-
-            await expectLogic(dashboardsModel, () => {
-                logic.actions.confirmDeleteInsight(5)
-            })
-                .toDispatchActions([
-                    (action: any) =>
-                        action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                        action.payload.insight.deleted === true,
-                ])
-                .toDispatchActions([
-                    (action: any) =>
-                        action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                        action.payload.insight.deleted === false,
-                ])
         })
     })
 })

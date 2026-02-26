@@ -713,36 +713,32 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 secondaryButton: { children: 'Cancel' },
             })
         },
-        confirmDeleteInsight: ({ dashboardId }) => {
+        confirmDeleteInsight: async ({ dashboardId }) => {
             const { insight, currentTeamId } = values
-            const insightModel = { ...(insight as QueryBasedInsightModel), deleted: true, dashboards: [] }
-            if (dashboardId) {
-                dashboardsModel.actions.updateDashboardInsight(insightModel, [dashboardId])
-                router.actions.push(urls.dashboard(dashboardId))
-            } else {
-                router.actions.push(urls.savedInsights())
-            }
-            const restoreInsight = (): void => {
-                if (dashboardId) {
-                    dashboardsModel.actions.updateDashboardInsight(
-                        { ...(insight as QueryBasedInsightModel), deleted: false },
-                        [dashboardId]
-                    )
-                }
-                actions.reloadSavedInsights()
-            }
-            void deleteInsightWithUndo({
+            await deleteInsightWithUndo({
                 object: insight as QueryBasedInsightModel,
                 endpoint: `projects/${currentTeamId}/insights`,
                 callback: (undo: boolean) => {
-                    if (undo) {
-                        restoreInsight()
-                    } else {
-                        actions.reloadSavedInsights()
+                    if (undo && dashboardId) {
+                        dashboardsModel
+                            .findMounted()
+                            ?.actions.updateDashboardInsight(
+                                { ...(insight as QueryBasedInsightModel), deleted: false },
+                                [dashboardId]
+                            )
                     }
+                    actions.reloadSavedInsights()
                 },
-                onError: restoreInsight,
             })
+            if (dashboardId) {
+                router.actions.push(urls.dashboard(dashboardId))
+                dashboardsModel.actions.updateDashboardInsight(
+                    { ...(insight as QueryBasedInsightModel), deleted: true, dashboards: [] },
+                    [dashboardId]
+                )
+            } else {
+                router.actions.push(urls.savedInsights())
+            }
         },
         setInsightFeedback: ({ feedback }) => {
             const eventName = `customer-analytics-insight-${feedback}`
