@@ -4,7 +4,6 @@ import { useState } from 'react'
 import {
     IconChevronDown,
     IconChevronRight,
-    IconCopy,
     IconGear,
     IconMessage,
     IconPencil,
@@ -31,7 +30,6 @@ import {
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -144,10 +142,7 @@ function PlaygroundLayout(): JSX.Element {
                 </div>
             </section>
 
-            <section className="border rounded p-4">
-                <OutputSection />
-            </section>
-            <ComparisonTablePanel />
+            <ResultsSection />
         </div>
     )
 }
@@ -234,8 +229,8 @@ function ModelPicker(): JSX.Element {
 }
 
 function ModelConfigBar(): JSX.Element {
-    const { maxTokens, thinking, reasoningLevel, tools } = useValues(llmAnalyticsPlaygroundLogic)
-    const { setMaxTokens, setThinking, setReasoningLevel, setTools } = useActions(llmAnalyticsPlaygroundLogic)
+    const { maxTokens, thinking, reasoningLevel } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmAnalyticsPlaygroundLogic)
     const [showSettings, setShowSettings] = useState(false)
 
     const hasNonDefaultSettings = maxTokens !== null || thinking || reasoningLevel !== null
@@ -260,18 +255,6 @@ function ModelConfigBar(): JSX.Element {
                         <span className="ml-1 w-1.5 h-1.5 rounded-full bg-primary inline-block" />
                     )}
                 </LemonButton>
-
-                {!tools && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconPlus />}
-                        onClick={() => setTools([])}
-                        tooltip="Add tools block"
-                    >
-                        Add tools
-                    </LemonButton>
-                )}
             </div>
 
             {showSettings && (
@@ -324,7 +307,7 @@ function ModelConfigBar(): JSX.Element {
 
 function MessagesSection(): JSX.Element {
     const { messages, tools, submitting } = useValues(llmAnalyticsPlaygroundLogic)
-    const { addMessage } = useActions(llmAnalyticsPlaygroundLogic)
+    const { addMessage, setTools } = useActions(llmAnalyticsPlaygroundLogic)
 
     return (
         <div className="space-y-3">
@@ -343,6 +326,17 @@ function MessagesSection(): JSX.Element {
                 >
                     Message
                 </LemonButton>
+                {!tools && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={() => setTools([])}
+                        disabledReason={submitting ? 'Generating...' : undefined}
+                    >
+                        Tools
+                    </LemonButton>
+                )}
             </div>
         </div>
     )
@@ -627,105 +621,31 @@ function MessageDisplay({ message, index }: { message: Message; index: number })
     )
 }
 
-function OutputSection(): JSX.Element {
-    const { submitting, currentResponse, lastRunDetails, responseHasError } = useValues(llmAnalyticsPlaygroundLogic)
-    const { addCurrentRunToComparison } = useActions(llmAnalyticsPlaygroundLogic)
-
-    return (
-        <div data-attr="output-section">
-            <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold">Latest run</h3>
-                <div className="flex gap-2">
-                    {!submitting && currentResponse && currentResponse.trim() && !responseHasError && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconCopy />}
-                            onClick={() => void copyToClipboard(currentResponse, 'response')}
-                            tooltip="Copy response"
-                        />
-                    )}
-                    {!submitting && lastRunDetails && !responseHasError && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={addCurrentRunToComparison}
-                            tooltip="Add this run to comparison table"
-                            data-attr="playground-add-to-compare"
-                        >
-                            Add to compare
-                        </LemonButton>
-                    )}
-                </div>
-            </div>
-
-            <div
-                className={`relative border rounded p-4 min-h-32 bg-white dark:bg-[var(--color-bg-surface-primary)] ${
-                    responseHasError ? 'border-red-300 dark:border-red-800' : ''
-                }`}
-            >
-                {submitting && (
-                    <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary animate-pulse rounded-t" />
-                )}
-                {submitting && (currentResponse === null || currentResponse === '') && (
-                    <LemonSkeleton active className="my-2" />
-                )}
-                {currentResponse !== null ? (
-                    responseHasError ? (
-                        <pre className="whitespace-pre-wrap text-sm break-words text-red-800 dark:text-red-200">
-                            {currentResponse}
-                        </pre>
-                    ) : (
-                        <LemonMarkdown className="text-sm break-words" lowKeyHeadings wrapCode>
-                            {currentResponse}
-                        </LemonMarkdown>
-                    )
-                ) : (
-                    <div className="flex flex-col items-center justify-center h-24 text-muted">
-                        <IconMessage className="text-3xl mb-2 opacity-40" />
-                        <p>Run your prompt to see the response</p>
-                        <p className="text-xs opacity-60">Press Cmd+Enter from any message</p>
-                    </div>
-                )}
-            </div>
-
-            {!submitting && lastRunDetails && !responseHasError && (
-                <div className="flex items-center gap-3 mt-2 text-xs text-muted">
-                    <LemonTag type="muted" size="small">
-                        {lastRunDetails.model}
-                    </LemonTag>
-                    {lastRunDetails.usage?.prompt_tokens != null && (
-                        <span>{formatTokens(lastRunDetails.usage.prompt_tokens)} in</span>
-                    )}
-                    {lastRunDetails.usage?.completion_tokens != null && (
-                        <span>{formatTokens(lastRunDetails.usage.completion_tokens)} out</span>
-                    )}
-                    {lastRunDetails.ttftMs != null && <span>TTFT {formatMs(lastRunDetails.ttftMs)}</span>}
-                    {lastRunDetails.latencyMs != null && <span>Total {formatMs(lastRunDetails.latencyMs)}</span>}
-                </div>
-            )}
-        </div>
-    )
-}
-
-function ComparisonTablePanel(): JSX.Element {
-    const { comparisonItems } = useValues(llmAnalyticsPlaygroundLogic)
-    const { clearComparison } = useActions(llmAnalyticsPlaygroundLogic)
+function ResultsSection(): JSX.Element {
+    const { submitting, displayItems } = useValues(llmAnalyticsPlaygroundLogic)
 
     const columns: LemonTableColumns<ComparisonItem> = [
         {
             title: 'Model',
             dataIndex: 'model',
-            render: (model) => <LemonTag>{typeof model === 'string' ? model || '-' : '-'}</LemonTag>,
+            render: (model, item) => (
+                <LemonTag type={item.error ? 'danger' : 'default'}>
+                    {typeof model === 'string' ? model || '-' : '-'}
+                </LemonTag>
+            ),
             sorter: (a, b) => a.model.localeCompare(b.model),
         },
         {
             title: 'Response',
             dataIndex: 'response',
-            render: (response) => (
-                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs break-words p-1 border rounded">
+            render: (response, item) => (
+                <div className={`max-h-40 overflow-y-auto text-xs break-words p-1 ${item.error ? 'text-danger' : ''}`}>
                     {typeof response === 'string' && response ? (
-                        response
+                        <LemonMarkdown className="break-words" lowKeyHeadings wrapCode>
+                            {response}
+                        </LemonMarkdown>
+                    ) : item.id === '__streaming__' ? (
+                        <LemonSkeleton active className="my-1" />
                     ) : (
                         <span className="text-muted italic">No response</span>
                     )}
@@ -766,35 +686,21 @@ function ComparisonTablePanel(): JSX.Element {
         },
     ]
 
+    if (displayItems.length === 0) {
+        return (
+            <div className="border rounded p-4">
+                <div className="flex flex-col items-center justify-center h-24 text-muted">
+                    <IconMessage className="text-3xl mb-2 opacity-40" />
+                    <p>Run your prompt to see results</p>
+                    <p className="text-xs opacity-60">Press Cmd+Enter from any message</p>
+                </div>
+            </div>
+        )
+    }
+
     return (
-        <div className="border rounded p-4 min-h-0 flex flex-col">
-            <div className="flex justify-between items-center mb-4 shrink-0">
-                <h3 className="text-lg font-semibold">Comparison</h3>
-                {comparisonItems.length > 0 && (
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        size="small"
-                        icon={<IconTrash />}
-                        onClick={clearComparison}
-                        tooltip="Clear all comparison items"
-                    >
-                        Clear all
-                    </LemonButton>
-                )}
-            </div>
-            <div className="flex-1 overflow-hidden">
-                {comparisonItems.length > 0 ? (
-                    <LemonTable dataSource={comparisonItems} columns={columns} rowKey="id" loading={false} embedded />
-                ) : (
-                    <div className="flex flex-col items-center justify-center h-24 text-muted border border-dashed rounded">
-                        <p className="text-sm">No runs in comparison yet.</p>
-                        <p className="text-xs opacity-70">
-                            Run a prompt, then use <span className="font-medium">Add to compare</span>.
-                        </p>
-                    </div>
-                )}
-            </div>
+        <div className="border rounded p-4">
+            <LemonTable dataSource={displayItems} columns={columns} rowKey="id" loading={submitting} embedded />
         </div>
     )
 }

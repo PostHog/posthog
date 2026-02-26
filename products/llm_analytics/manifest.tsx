@@ -43,7 +43,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsPlayground: {
             import: () => import('./frontend/LLMAnalyticsPlaygroundScene'),
             projectBased: true,
-            name: 'LLM playground',
+            name: 'Playground',
             description: 'Test and experiment with LLM prompts in a sandbox environment.',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',

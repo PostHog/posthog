@@ -96,6 +96,7 @@ export interface ComparisonItem {
     systemPrompt: string
     requestMessages: Message[]
     response: string
+    error?: boolean
     usage?: {
         prompt_tokens?: number | null
         completion_tokens?: number | null
@@ -162,9 +163,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         finalizeAssistantMessage: true,
         addMessage: (message?: Partial<Message>) => ({ message }),
         updateMessage: (index: number, payload: Partial<Message>) => ({ index, payload }),
-        addResponseToHistory: (content: string) => ({ content }),
-        addCurrentRunToComparison: true,
-        setLastRunDetails: (details: ComparisonItem | null) => ({ details }),
         addToComparison: (item: ComparisonItem) => ({ item }),
         removeFromComparison: (id: string) => ({ id }),
         clearComparison: true,
@@ -219,12 +217,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     const newState = [...state]
                     newState[index] = { ...newState[index], ...payload }
                     return newState
-                },
-                addResponseToHistory: (state, { content }) => {
-                    if (content) {
-                        return [...state, { role: 'assistant', content }]
-                    }
-                    return state
                 },
             },
         ],
@@ -285,17 +277,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 submitPrompt: () => '',
                 addAssistantMessageChunk: (state, { text }) => (state ?? '') + text,
                 addFinalizedContent: (state, { text }) => (state ?? '') + text,
-                addResponseToHistory: (state) => state,
-                clearConversation: () => null,
-                setMessages: () => null,
-            },
-        ],
-        lastRunDetails: [
-            null as ComparisonItem | null,
-            {
-                submitPrompt: () => null,
-                setLastRunDetails: (_, { details }) => details,
-                addToComparison: () => null,
                 clearConversation: () => null,
                 setMessages: () => null,
             },
@@ -303,6 +284,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         comparisonItems: [
             [] as ComparisonItem[],
             {
+                submitPrompt: () => [],
                 addToComparison: (state, { item }) => [...state, item],
                 removeFromComparison: (state, { id }) => state.filter((item) => item.id !== id),
                 clearComparison: () => [],
@@ -316,7 +298,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 clearResponseError: () => false,
                 clearConversation: () => false,
                 setMessages: () => false,
-                addResponseToHistory: () => false,
             },
         ],
         rateLimitedUntil: [
@@ -556,16 +537,12 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     systemPrompt: requestSystemPrompt,
                     requestMessages: requestMessages,
                     response: values.currentResponse,
+                    error: values.responseHasError,
                     usage: responseUsage,
                     ttftMs: ttftMs,
                     latencyMs: latencyMs,
                 }
-                actions.setLastRunDetails(runDetails)
-            }
-        },
-        addCurrentRunToComparison: () => {
-            if (values.lastRunDetails) {
-                actions.addToComparison(values.lastRunDetails)
+                actions.addToComparison(runDetails)
             }
         },
         setupPlaygroundFromEvent: ({ payload }) => {
@@ -704,6 +681,29 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 }
                 const provider = selectedModel.provider.toLowerCase()
                 return providerKeys.find((k) => k.provider === provider && k.state !== 'invalid') ?? null
+            },
+        ],
+        displayItems: [
+            (s) => [s.comparisonItems, s.submitting, s.currentResponse, s.responseHasError, s.model],
+            (
+                comparisonItems: ComparisonItem[],
+                submitting: boolean,
+                currentResponse: string | null,
+                responseHasError: boolean,
+                model: string
+            ): ComparisonItem[] => {
+                if (submitting && currentResponse !== null) {
+                    const streamingItem: ComparisonItem = {
+                        id: '__streaming__',
+                        model,
+                        systemPrompt: '',
+                        requestMessages: [],
+                        response: currentResponse,
+                        error: responseHasError,
+                    }
+                    return [...comparisonItems, streamingItem]
+                }
+                return comparisonItems
             },
         ],
         hasProviderKey: [(s) => [s.providerKeyForCurrentModel], (key: LLMProviderKey | null): boolean => key !== null],

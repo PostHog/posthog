@@ -350,7 +350,7 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsPlayground: {
         projectBased: true,
-        name: 'LLM playground',
+        name: 'Playground',
         description: 'Test and experiment with LLM prompts in a sandbox environment.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',

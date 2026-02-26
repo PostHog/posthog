@@ -361,24 +361,6 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             logic.actions.updateMessage(10, { content: 'Should not update' })
             expect(logic.values.messages).toEqual(originalMessages)
         })
-
-        it('should add response to history only when content exists', () => {
-            logic.actions.setMessages([{ role: 'user', content: 'Question' }])
-
-            logic.actions.addResponseToHistory('Assistant response')
-
-            expect(logic.values.messages).toEqual([
-                { role: 'user', content: 'Question' },
-                { role: 'assistant', content: 'Assistant response' },
-            ])
-
-            // Should not add empty responses
-            logic.actions.addResponseToHistory('')
-            expect(logic.values.messages).toHaveLength(2)
-
-            logic.actions.addResponseToHistory(null as any)
-            expect(logic.values.messages).toHaveLength(2)
-        })
     })
 
     describe('effectiveModelOptions', () => {
