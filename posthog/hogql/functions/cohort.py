@@ -1,4 +1,8 @@
+import datetime
 from typing import Optional
+
+from django.db import models
+from django.utils import timezone
 
 import posthoganalytics
 
@@ -58,29 +62,34 @@ def get_cohort_subquery_or_inline(
         if not flag_enabled:
             return None
 
-        recent_calcs = list(
+        newest_calc = (
             CohortCalculationHistory.objects.filter(
                 cohort_id=cohort_id,
                 finished_at__isnull=False,
             )
-            .order_by("-started_at")[:5]
-            .values_list("error", "started_at", "finished_at")
+            .order_by("-started_at")
+            .values("error")
+            .first()
         )
-        if not recent_calcs:
-            return None
-        # TODO: surface a warning to the user that their cohort calculation is failing
-        if recent_calcs[0][0] is not None:
-            return None
+        if newest_calc is not None:
+            if newest_calc["error"] is not None:
+                return None
 
-        durations = [
-            (finished_at - started_at).total_seconds()
-            for error, started_at, finished_at in recent_calcs
-            if error is None
-        ]
-        if not should_inline_based_on_durations(durations):
-            return None
+            seven_days_ago = timezone.now() - datetime.timedelta(days=7)
+            durations = list(
+                CohortCalculationHistory.objects.filter(
+                    cohort_id=cohort_id,
+                    finished_at__isnull=False,
+                    error__isnull=True,
+                    started_at__gte=seven_days_ago,
+                )
+                .annotate(duration=models.F("finished_at") - models.F("started_at"))
+                .values_list("duration", flat=True)
+            )
+            if not should_inline_based_on_durations([d.total_seconds() for d in durations]):
+                return None
 
-    cohort = Cohort.objects.get(id=cohort_id)
+    cohort = Cohort.objects.get(id=cohort_id, team__project_id=context.project_id)
     if not cohort.properties.flat:
         return None
 

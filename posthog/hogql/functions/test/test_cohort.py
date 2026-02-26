@@ -247,6 +247,36 @@ class TestInlineCohortSubquery(BaseTest):
         self.assertEqual(len(response.results), 2)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_inline_cohort_auto_mode_newest_calc_failed(self):
+        cohort, random_uuid = self._setup_cohort_with_new_person_after_calculation()
+        now = timezone.now()
+        CohortCalculationHistory.objects.create(
+            team=self.team,
+            cohort=cohort,
+            filters={},
+            started_at=now - timezone.timedelta(hours=2),
+            finished_at=now - timezone.timedelta(hours=2),
+        )
+        CohortCalculationHistory.objects.create(
+            team=self.team,
+            cohort=cohort,
+            filters={},
+            started_at=now,
+            finished_at=now,
+            error="timeout",
+        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = execute_hogql_query(
+                f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'",
+                self.team,
+                modifiers=HogQLQueryModifiers(
+                    inCohortVia="subquery", inlineCohortCalculation=InlineCohortCalculation.AUTO
+                ),
+                pretty=False,
+            )
+        self.assertEqual(len(response.results), 1)
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_inline_cohort_auto_mode_flag_disabled(self):
         cohort, random_uuid = self._setup_cohort_with_new_person_after_calculation()
         with patch("posthoganalytics.feature_enabled", return_value=False):
