@@ -359,27 +359,17 @@ function ModelConfigBar(): JSX.Element {
 
 function MessagesSection(): JSX.Element {
     const { messages, tools } = useValues(llmAnalyticsPlaygroundLogic)
-    const [expandTextAreas, setExpandTextAreas] = useState(false)
-
     return (
         <div className="border rounded p-3">
             <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-semibold uppercase tracking-wide text-muted">Conversation</h4>
-                <LemonSwitch
-                    bordered
-                    checked={expandTextAreas}
-                    onChange={setExpandTextAreas}
-                    label="Expand editors"
-                    size="small"
-                    tooltip="Expand all text areas to show full content"
-                />
             </div>
 
             <div className="space-y-3">
-                <SystemMessageDisplay expandTextAreas={expandTextAreas} />
-                {tools && <ToolsDisplay expandTextAreas={expandTextAreas} />}
+                <SystemMessageDisplay />
+                {tools && <ToolsDisplay />}
                 {messages.map((message, index) => (
-                    <MessageDisplay key={index} index={index} message={message} expandTextAreas={expandTextAreas} />
+                    <MessageDisplay key={index} index={index} message={message} />
                 ))}
                 {messages.length === 0 && <EmptyMessagesState />}
             </div>
@@ -404,7 +394,7 @@ function EmptyMessagesState(): JSX.Element {
     )
 }
 
-function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.Element {
+function ToolsDisplay(): JSX.Element {
     const { tools } = useValues(llmAnalyticsPlaygroundLogic)
     const { setTools, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
@@ -471,7 +461,7 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
                             value={toolsJsonString}
                             onChange={handleToolsChange}
                             defaultNumberOfLines={2}
-                            maxNumberOfLines={expandTextAreas ? 60 : 6}
+                            maxNumberOfLines={60}
                             onPressCmdEnter={() => submitPrompt()}
                         />
                     </div>
@@ -510,7 +500,7 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
     )
 }
 
-function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.Element {
+function SystemMessageDisplay(): JSX.Element {
     const { systemPrompt } = useValues(llmAnalyticsPlaygroundLogic)
     const { setSystemPrompt, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
@@ -554,7 +544,7 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
                         value={systemPrompt}
                         onChange={setSystemPrompt}
                         minRows={2}
-                        maxRows={expandTextAreas ? 16 : 8}
+                        maxRows={undefined}
                         onPressCmdEnter={() => submitPrompt()}
                     />
                 </AnimatedCollapsible>
@@ -589,15 +579,7 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
     )
 }
 
-function MessageDisplay({
-    message,
-    index,
-    expandTextAreas,
-}: {
-    message: Message
-    index: number
-    expandTextAreas: boolean
-}): JSX.Element {
+function MessageDisplay({ message, index }: { message: Message; index: number }): JSX.Element {
     const { updateMessage, deleteMessage, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
 
     const handleRoleChange = (newRole: MessageRole): void => {
@@ -683,7 +665,7 @@ function MessageDisplay({
                     value={message.content}
                     onChange={handleContentChange}
                     minRows={2}
-                    maxRows={expandTextAreas ? 16 : 8}
+                    maxRows={undefined}
                     onPressCmdEnter={() => submitPrompt()}
                 />
             )}
