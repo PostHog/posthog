@@ -760,9 +760,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team,
             )
 
-        # Derive flag activation from the persisted instance, which now
-        # reflects the full effect of this update.
-        should_flag_be_active = bool(instance.start_date) and not instance.end_date and not instance.archived
+        should_flag_be_active = self._should_survey_flags_be_active(instance)
 
         if instance.targeting_flag:
             instance.targeting_flag.active = should_flag_be_active
@@ -814,8 +812,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance.actions.set(Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids))
         instance.save()
 
+    def _should_survey_flags_be_active(self, instance: Survey) -> bool:
+        return bool(instance.start_date) and not instance.end_date and not instance.archived
+
     def _add_user_survey_interacted_filters(self, instance: Survey):
-        should_flag_be_active = bool(instance.start_date) and not instance.end_date and not instance.archived
+        should_flag_be_active = self._should_survey_flags_be_active(instance)
 
         survey_key = f"{instance.id}"
         if instance.iteration_count is not None and instance.iteration_count > 0:
