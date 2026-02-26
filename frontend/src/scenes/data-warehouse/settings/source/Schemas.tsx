@@ -119,7 +119,13 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                                     },
                                 })
                             }}
-                            disabled={sourceLoading}
+                            disabledReason={
+                                sourceLoading
+                                    ? 'Source is loading'
+                                    : refreshingSchemas
+                                      ? 'Schema refresh in progress'
+                                      : undefined
+                            }
                         >
                             Sync now
                         </LemonButton>
@@ -129,7 +135,9 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                             type="secondary"
                             loading={refreshingSchemas}
                             onClick={() => refreshSchemas()}
-                            disabled={sourceLoading || refreshingSchemas}
+                            disabledReason={
+                                sourceLoading ? 'Source is loading' : syncingNow ? 'Sync in progress' : undefined
+                            }
                         >
                             Pull new schemas
                         </LemonButton>
