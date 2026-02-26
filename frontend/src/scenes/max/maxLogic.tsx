@@ -19,7 +19,14 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
 import { AgentMode, RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
-import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
+import {
+    Breadcrumb,
+    Conversation,
+    ConversationDetail,
+    ConversationStatus,
+    RecordingUniversalFilters,
+    SidePanelTab,
+} from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -111,7 +118,7 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
 
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
-    props({} as { tabId: string | 'sidepanel' }),
+    props({} as { tabId: string | 'sidepanel'; onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void }),
     tabAwareScene(),
 
     connect(() => ({
@@ -234,6 +241,13 @@ export const maxLogic = kea<maxLogicType>([
 
     selectors({
         tabId: [() => [(_, props) => props?.tabId || ''], (tabId) => tabId],
+        onAcceptSessionFilters: [
+            () => [
+                (_, props) =>
+                    (props?.onAcceptSessionFilters ?? null) as ((filters: RecordingUniversalFilters) => void) | null,
+            ],
+            (cb: ((filters: RecordingUniversalFilters) => void) | null) => cb,
+        ],
         conversation: [
             (s) => [s.conversationHistory, s.conversationId],
             (conversationHistory, conversationId) => {
@@ -252,8 +266,8 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         headline: [
-            (s) => [s.conversation, s.toolHeadlines],
-            (conversation, toolHeadlines) => {
+            (s) => [s.conversation, s.toolHeadlines, s.frontendConversationId],
+            (conversation, toolHeadlines, frontendConversationId) => {
                 if (process.env.STORYBOOK) {
                     return HEADLINES[0] // Preventing UI snapshots from being different every time
                 }
@@ -261,7 +275,8 @@ export const maxLogic = kea<maxLogicType>([
                 return toolHeadlines.length > 0
                     ? toolHeadlines[0]
                     : HEADLINES[
-                          parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
+                          parseInt((conversation?.id || frontendConversationId).split('-').at(-1) as string, 16) %
+                              HEADLINES.length
                       ]
             },
             // It's important we use a deep equality check for outputs, because we want to avoid needless re-renders
@@ -584,17 +599,12 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     }
     let current = element.parentElement
     while (current) {
-        if (current.classList.contains('SidePanel3000__content')) {
-            return current
-        }
         if (current.tagName === 'MAIN') {
             return current
         }
-        // New side panel layout (UX_REMOVE_SIDEPANEL flag)
         if (current instanceof HTMLElement && current.dataset.attr === 'side-panel-content') {
             return current
         }
-        // Full screen Max with UX_REMOVE_SIDEPANEL flag (AiFirstMaxInstance)
         if (current instanceof HTMLElement && current.dataset.attr === 'max-scrollable') {
             return current
         }

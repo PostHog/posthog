@@ -483,14 +483,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-                        {
-                            identifier: Scene.RevenueAnalytics,
-                            label: 'Revenue analytics',
-                            icon: <IconPiggyBank />,
-                            to: urls.revenueAnalytics(),
-                            tag: 'beta' as const,
-                            tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
-                        },
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -615,10 +617,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.Apps,
-                            label: 'Apps',
+                            identifier: Scene.WebScripts,
+                            label: 'Web scripts',
                             icon: <IconPlug />,
-                            to: urls.apps(),
+                            to: urls.webScripts(),
                             tooltipDocLink: 'https://posthog.com/docs/cdp/apps',
                         },
                         {

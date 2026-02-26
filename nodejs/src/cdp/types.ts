@@ -105,6 +105,7 @@ export type HogFunctionInvocationGlobals = {
     }
 
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
+    unsubscribe_url_one_click?: string // For email actions, the one-click unsubscribe URL to use
 
     actions?: HogFunctionInvocationActionVariables
     variables?: Record<string, any> // For HogFlows, workflow-level variables
@@ -362,6 +363,7 @@ export type HogFunctionTypeType =
     | 'transformation'
     | 'internal_destination'
     | 'source_webhook'
+    | 'warehouse_source_webhook'
     | 'site_destination'
 
 export interface HogFunctionMappingType {
@@ -389,6 +391,7 @@ export type HogFunctionType = {
     execution_order?: number
     created_at: string
     updated_at: string
+    metadata?: Record<string, any>
 }
 
 export type HogFunctionMappingTemplate = HogFunctionMappingType & {

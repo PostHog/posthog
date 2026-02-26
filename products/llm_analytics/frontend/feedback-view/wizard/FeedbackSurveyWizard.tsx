@@ -10,8 +10,8 @@ import { ColorInput } from 'scenes/surveys/wizard/ColorInput'
 
 import { Survey, SurveyAppearance } from '~/types'
 
-import { FeedbackPreviewMock } from './FeedbackPreviewMock'
 import { getManualCaptureExample, getReactExample } from './codeExamples'
+import { FeedbackPreviewMock } from './FeedbackPreviewMock'
 import { WizardStep, feedbackSurveyWizardLogic } from './feedbackSurveyWizardLogic'
 
 const SURVEY_PRESET_COLORS = ['#ffffff', '#171717', '#3b82f6', '#22c55e', '#f97316', '#a855f7']
@@ -294,7 +294,7 @@ function ImplementStep(): JSX.Element {
                 <div className="flex gap-2">
                     <LemonButton
                         type="primary"
-                        to="https://posthog.com/docs/ai-engineering"
+                        to="https://posthog.com/docs/llm-analytics/collect-user-feedback"
                         targetBlank
                         disableClientSideRouting
                     >

@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
@@ -63,14 +64,39 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     serializer_class = ProxyRecordSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
 
+    DEFAULT_MAX_PROXY_RECORDS = 2
+
+    @property
+    def max_proxy_records(self) -> int:
+        feature = self.organization.get_available_feature(AvailableFeature.MANAGED_REVERSE_PROXY)
+        if feature is None:
+            # Allow a default quota even without the billing feature so existing
+            # orgs aren't broken if they haven't migrated to a plan that includes it
+            return self.DEFAULT_MAX_PROXY_RECORDS
+        limit = feature.get("limit")
+        return limit if limit is not None else self.DEFAULT_MAX_PROXY_RECORDS
+
     def list(self, request, *args, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")
         serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        return Response(
+            {
+                "results": serializer.data,
+                "max_proxy_records": self.max_proxy_records,
+            }
+        )
 
     def create(self, request, *args, **kwargs):
         domain = request.data.get("domain")
         queryset = self.organization.proxy_records.order_by("-created_at")
+
+        max_records = self.max_proxy_records
+        if queryset.count() >= max_records:
+            return Response(
+                {"detail": f"Maximum of {max_records} proxy records per organization."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         record = queryset.create(
             organization_id=self.organization.id,
             created_by=request.user,

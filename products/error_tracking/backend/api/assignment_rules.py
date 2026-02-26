@@ -53,6 +53,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
             assignment_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
             assignment_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
 
+        assignment_rule.disabled_data = None
         assignment_rule.save()
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)

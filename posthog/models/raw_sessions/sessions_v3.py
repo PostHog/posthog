@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
@@ -88,7 +90,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Ideally we would not need to store this separately, as the ID *is* the timestamp
     -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
     -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
-    session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+    session_timestamp DateTime64 {session_timestamp_modifier} fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
 
     -- ClickHouse will pick the latest value of distinct_id for the session
     -- this is fine since even if the distinct_id changes during a session
@@ -209,6 +211,7 @@ SETTINGS {settings}
         table_name=SHARDED_RAW_SESSIONS_TABLE_V3(),
         engine=SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
         settings=SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3(),
+        session_timestamp_modifier="DEFAULT",
     )
 
 
@@ -299,7 +302,7 @@ PROPERTIES = f"""
         ]) AS Array(String)) as ad_ids_set"""
 
 
-def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE"):
+def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
     return """
 WITH
     {PROPERTIES},
@@ -309,6 +312,7 @@ WITH
 SELECT
     team_id,
     `$session_id_uuid` AS session_id_v7,
+    {session_timestamp}
 
     initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
     initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
@@ -386,6 +390,9 @@ AND {where}
         source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
+        session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS session_timestamp,"
+        if include_session_timestamp
+        else "",
     )
 
 
@@ -420,7 +427,7 @@ MODIFY QUERY
     )
 
 
-def RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(source_table, where="TRUE"):
+def RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
     return """
 WITH
     min_first_timestamp as timestamp,
@@ -432,7 +439,7 @@ WITH
 SELECT
     team_id,
     toUInt128(accurateCast(session_id, 'UUID')) AS session_id_v7,
-
+    {session_timestamp}
     initializeAggregation('argMaxState', source_table.distinct_id, min_ts_64) as distinct_id,
     initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
 
@@ -508,6 +515,9 @@ AND {where}
     """.format(
         source_table=source_table,
         where=where,
+        session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))) AS session_timestamp,"
+        if include_session_timestamp
+        else "",
     )
 
 
@@ -525,52 +535,83 @@ AS
             where=where,
             # use sharded_session_replay_events, this means that the mv MUST be created on every data node
             source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_session_replay_events",
+            include_session_timestamp=True,
         ),
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where: str, shard_index: int, num_shards: int):
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(
+    where: str,
+    shard_index: Optional[int] = None,
+    num_shards: Optional[int] = None,
+    target_table: Optional[str] = None,
+    include_session_timestamp: bool = True,
+):
     """
     Generates SQL to backfill sessions from events.
 
     Each shard should call this with its own shard_index to only SELECT events
     that will end up on that shard, then INSERT directly to the local sharded table.
+
+    include_session_timestamp must be True when the target table has session_timestamp
+    as DEFAULT (sharded/writable tables), and False when it is MATERIALIZED (distributed).
     """
-    shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
-    combined_where = f"({where}) AND {shard_filter}"
+    if not target_table:
+        target_table = SHARDED_RAW_SESSIONS_TABLE_V3()
+    if shard_index is not None and num_shards is not None:
+        shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
+        combined_where = f"({where}) AND {shard_filter}"
+    else:
+        combined_where = where
 
     return """
 INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
+        target_table=target_table,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=combined_where,
             source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
+            include_session_timestamp=include_session_timestamp,
         ),
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where: str, shard_index: int, num_shards: int):
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
+    where: str,
+    shard_index: Optional[int] = None,
+    num_shards: Optional[int] = None,
+    target_table: Optional[str] = None,
+    include_session_timestamp: bool = True,
+):
     """
     Generates SQL to backfill sessions from session replay events.
 
     Each shard should call this with its own shard_index to only SELECT recordings
     that will end up on that shard, then INSERT directly to the local sharded table.
+
+    include_session_timestamp must be True when the target table has session_timestamp
+    as DEFAULT (sharded/writable tables), and False when it is MATERIALIZED (distributed).
     """
-    shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
-    combined_where = f"({where}) AND {shard_filter}"
+    if not target_table:
+        target_table = SHARDED_RAW_SESSIONS_TABLE_V3()
+    if shard_index is not None and num_shards is not None:
+        shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
+        combined_where = f"({where}) AND {shard_filter}"
+    else:
+        combined_where = where
 
     return """
 INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
+        target_table=target_table,
         select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
             where=combined_where,
             source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
+            include_session_timestamp=include_session_timestamp,
         ),
     )
 
@@ -588,6 +629,7 @@ def WRITABLE_RAW_SESSIONS_TABLE_SQL_V3():
             # shard via session_id so that all events for a session are on the same shard
             sharding_key="cityHash64(session_id_v7)",
         ),
+        session_timestamp_modifier="DEFAULT",
     )
 
 
@@ -601,6 +643,7 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3():
             data_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
             sharding_key="cityHash64(session_id_v7)",
         ),
+        session_timestamp_modifier="MATERIALIZED",
     )
 
 

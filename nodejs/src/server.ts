@@ -4,7 +4,7 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { setupCommonRoutes, setupExpressApp } from './api/router'
+import { initializePrometheusLabels, setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
@@ -18,6 +18,7 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
+import { createHogTransformerService } from './cdp/hog-transformations/hog-transformer.service'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -30,6 +31,7 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { SessionRecordingIngester } from './session-recording/consumer'
+import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -67,7 +69,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = setupExpressApp()
+        this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
         this.setupContinuousProfiling()
     }
@@ -93,6 +95,7 @@ export class PluginServer {
         const startupTimer = new Date()
         this.setupListeners()
         this.nodeInstrumentation.setupThreadPerformanceInterval()
+        initializePrometheusLabels(this.config)
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config))
@@ -119,7 +122,7 @@ export class PluginServer {
 
                 for (const consumerOption of consumersOptions) {
                     serviceLoaders.push(async () => {
-                        const consumer = new IngestionConsumer(hub, {
+                        const consumer = new IngestionConsumer(hub, createHogTransformerService(hub), {
                             INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                             INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                         })
@@ -129,7 +132,7 @@ export class PluginServer {
                 }
             } else if (capabilities.ingestionV2) {
                 serviceLoaders.push(async () => {
-                    const consumer = new IngestionConsumer(hub)
+                    const consumer = new IngestionConsumer(hub, createHogTransformerService(hub))
                     await consumer.start()
                     return consumer.service
                 })
@@ -268,7 +271,7 @@ export class PluginServer {
 
             // The service commands is always created
             serviceLoaders.push(() => {
-                const serverCommands = new ServerCommands(hub)
+                const serverCommands = new ServerCommands(hub.pubSub)
                 this.expressApp.use('/', serverCommands.router())
                 return Promise.resolve(serverCommands.service)
             })
@@ -302,6 +305,15 @@ export class PluginServer {
                     const consumer = new CdpBatchHogFlowRequestsConsumer(hub)
                     await consumer.start()
                     return consumer.service
+                })
+            }
+
+            if (capabilities.recordingApi) {
+                serviceLoaders.push(async () => {
+                    const api = new RecordingApi(hub, hub.postgres)
+                    this.expressApp.use('/', api.router())
+                    await api.start()
+                    return api.service
                 })
             }
 

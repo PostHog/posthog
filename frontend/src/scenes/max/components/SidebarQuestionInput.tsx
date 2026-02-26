@@ -7,14 +7,23 @@ import { CSSTransition } from 'react-transition-group'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { checkSuggestionRequiresUserInput, formatSuggestion, stripSuggestionPlaceholders } from '../utils'
 import { InputFormArea } from './InputFormArea'
 import { QuestionInput } from './QuestionInput'
 
-export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean }): JSX.Element {
+export function SidebarQuestionInput({
+    isSticky = false,
+    sidePanel = false,
+}: {
+    isSticky?: boolean
+    sidePanel?: boolean
+}): JSX.Element {
     const { focusCounter, threadVisible } = useValues(maxLogic)
+
     // Use raw state values instead of selector to ensure re-renders on state changes
     const {
         threadLoading,
@@ -69,7 +78,7 @@ export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean 
         <QuestionInput
             isSticky={isSticky}
             textAreaRef={textAreaRef}
-            containerClassName="px-3 mx-auto self-center pb-1 backdrop-blur-sm z-50"
+            containerClassName={cn('px-3 mx-auto self-center pb-1 backdrop-blur-sm z-50', sidePanel && 'px-0')}
             isThreadVisible={threadVisible}
         >
             <SuggestionsList />

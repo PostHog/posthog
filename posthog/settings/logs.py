@@ -99,6 +99,16 @@ LOGGING = {
         "posthog.tasks.hypercache_verification": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.storage.hypercache_verifier": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.temporal.data_imports.pipelines.pipeline_v3.load": {
+            "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "posthog.models.resource_transfer.inter_project_transferer": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        },
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
     },

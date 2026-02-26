@@ -235,7 +235,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             data_interval_end=now,
         )
 
-        # Test with threshold 0.0 (default) - should notify on any failure
+        # Default threshold is 1% - failure rate 0.5 exceeds it, so notify
         send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
@@ -295,9 +295,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_should_send_pipeline_error_notification(self, MockEmailMessage: MagicMock) -> None:
-        # Test default behavior (threshold 0.0) - should notify on any failure
+        # Default threshold is 1% (0.01) - notify when failure rate exceeds that
         assert should_send_pipeline_error_notification(self.user, failure_rate=0.1) is True
-        assert should_send_pipeline_error_notification(self.user, failure_rate=0.0) is True
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.02) is True
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.01) is False
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.0) is False
 
         # Test with threshold 0.5
         self.user.partial_notification_settings = {
@@ -320,7 +322,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_get_members_to_notify_for_pipeline_error(self, MockEmailMessage: MagicMock) -> None:
         user2 = self._create_user("test2@posthog.com")
 
-        # Test with default settings (threshold 0.0) - both users should be notified
+        # Default threshold is 1% - failure rate 0.5 exceeds it, so both users notified
         memberships = get_members_to_notify_for_pipeline_error(cast(Team, self.user.team), failure_rate=0.5)
         assert len(memberships) == 2
         assert {m.user.email for m in memberships} == {self.user.email, user2.email}
@@ -791,7 +793,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # Create users with different error rate thresholds
-        # User with no threshold (default 0.0) - should receive all functions
+        # User with default threshold (1%) - receives functions with failure rate > 1%
         self._create_user("no_threshold@posthog.com")
 
         # User with 10% threshold - should only receive functions with failure_rate > 10%

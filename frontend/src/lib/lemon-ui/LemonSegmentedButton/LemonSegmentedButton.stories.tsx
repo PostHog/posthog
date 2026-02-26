@@ -56,3 +56,8 @@ export const Small: Story = Template.bind({})
 Small.args = {
     size: 'small',
 }
+
+export const Disabled: Story = Template.bind({})
+Disabled.args = {
+    disabledReason: 'Choose a chart type first.',
+}

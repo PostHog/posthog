@@ -51,8 +51,8 @@ test.describe('Signup', () => {
             }
             await route.fulfill({ json: response })
         })
-        await page.locator('[data-attr=menu-item-me]').click()
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-button]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
         await expect(page).toHaveURL(/.*\/login/)
         await page.goto('/signup')
     })
@@ -116,7 +116,7 @@ test.describe('Signup', () => {
 
     test('Can submit the signup form multiple times if there is a generic email set', async ({ page }) => {
         let signupRequestBody: string | null = null
-        const email = `new_user+generic_error_test@posthog.com`
+        const email = `new_user+generic_error_test_${Math.floor(Math.random() * 10000)}@posthog.com`
 
         await page.route('/api/signup/', async (route) => {
             signupRequestBody = route.request().postData()

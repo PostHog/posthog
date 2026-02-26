@@ -12,6 +12,7 @@ from posthog.schema import AlertState, InsightThresholdType
 
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
@@ -187,6 +188,49 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_alert_cleans_up_hog_functions(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_id = alert["id"]
+
+        linked_hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Slack notification for alert",
+            type="internal_destination",
+            hog="return 1",
+            enabled=True,
+            filters={
+                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": alert_id, "operator": "exact", "type": "event"}],
+            },
+        )
+        unrelated_hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Unrelated destination",
+            type="internal_destination",
+            hog="return 1",
+            enabled=True,
+            filters={
+                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": "some-other-id", "operator": "exact", "type": "event"}],
+            },
+        )
+
+        self.client.delete(f"/api/projects/{self.team.id}/alerts/{alert_id}")
+
+        linked_hog_function.refresh_from_db()
+        assert linked_hog_function.deleted is True
+        assert linked_hog_function.enabled is False
+
+        unrelated_hog_function.refresh_from_db()
+        assert unrelated_hog_function.deleted is False
+        assert unrelated_hog_function.enabled is True
 
     def test_snooze_alert(self) -> None:
         creation_request = {

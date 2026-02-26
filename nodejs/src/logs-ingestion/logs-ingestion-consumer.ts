@@ -62,13 +62,13 @@ export type UsageStatsByTeam = Map<number, UsageStats>
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
     help: 'The number of logs ingestion messages dropped',
-    labelNames: ['reason'],
+    labelNames: ['reason', 'team_id'],
 })
 
 export const logMessageDlqCounter = new Counter({
     name: 'logs_ingestion_message_dlq_count',
     help: 'The number of logs ingestion messages sent to DLQ',
-    labelNames: ['reason'],
+    labelNames: ['reason', 'team_id'],
 })
 
 export const logsBytesReceivedCounter = new Counter({
@@ -84,6 +84,7 @@ export const logsBytesAllowedCounter = new Counter({
 export const logsBytesDroppedCounter = new Counter({
     name: 'logs_ingestion_bytes_dropped_total',
     help: 'Total uncompressed bytes dropped due to quota or rate limiting',
+    labelNames: ['team_id'],
 })
 
 export const logsRecordsReceivedCounter = new Counter({
@@ -99,6 +100,7 @@ export const logsRecordsAllowedCounter = new Counter({
 export const logsRecordsDroppedCounter = new Counter({
     name: 'logs_ingestion_records_dropped_total',
     help: 'Total log records dropped due to quota or rate limiting',
+    labelNames: ['team_id'],
 })
 
 export class LogsIngestionConsumer {
@@ -200,8 +202,6 @@ export class LogsIngestionConsumer {
     ): UsageStatsByTeam {
         let totalBytesAllowed = 0
         let totalRecordsAllowed = 0
-        let totalBytesDropped = 0
-        let totalRecordsDropped = 0
         const usageStats: UsageStatsByTeam = new Map()
 
         for (const message of allowedMessages) {
@@ -226,13 +226,17 @@ export class LogsIngestionConsumer {
             stats.bytesDropped += message.bytesUncompressed
             stats.recordsDropped += message.recordCount
             usageStats.set(message.teamId, stats)
-
-            totalBytesDropped += message.bytesUncompressed
-            totalRecordsDropped += message.recordCount
         }
 
-        logsBytesDroppedCounter.inc(totalBytesDropped)
-        logsRecordsDroppedCounter.inc(totalRecordsDropped)
+        for (const [teamId, stats] of usageStats) {
+            const teamIdLabel = teamId.toString()
+            if (stats.bytesDropped > 0) {
+                logsBytesDroppedCounter.inc({ team_id: teamIdLabel }, stats.bytesDropped)
+            }
+            if (stats.recordsDropped > 0) {
+                logsRecordsDroppedCounter.inc({ team_id: teamIdLabel }, stats.recordsDropped)
+            }
+        }
 
         return usageStats
     }
@@ -255,15 +259,19 @@ export class LogsIngestionConsumer {
             ).filter((token): token is string => token !== null)
         )
 
+        const droppedCountByTeam = new Map<number, number>()
         for (const message of messages) {
             if (quotaLimitedTokens.has(message.token)) {
                 quotaDroppedMessages.push(message)
+                droppedCountByTeam.set(message.teamId, (droppedCountByTeam.get(message.teamId) || 0) + 1)
             } else {
                 quotaAllowedMessages.push(message)
             }
         }
 
-        logMessageDroppedCounter.inc({ reason: 'quota_limited' }, quotaDroppedMessages.length)
+        for (const [teamId, count] of droppedCountByTeam) {
+            logMessageDroppedCounter.inc({ reason: 'quota_limited', team_id: teamId.toString() }, count)
+        }
 
         return { quotaAllowedMessages, quotaDroppedMessages }
     }
@@ -273,7 +281,15 @@ export class LogsIngestionConsumer {
         rateLimiterDroppedMessages: LogsIngestionMessage[]
     }> {
         const { allowed, dropped } = await this.rateLimiter.filterMessages(messages)
-        logMessageDroppedCounter.inc({ reason: 'rate_limited' }, dropped.length)
+
+        const droppedCountByTeam = new Map<number, number>()
+        for (const message of dropped) {
+            droppedCountByTeam.set(message.teamId, (droppedCountByTeam.get(message.teamId) || 0) + 1)
+        }
+        for (const [teamId, count] of droppedCountByTeam) {
+            logMessageDroppedCounter.inc({ reason: 'rate_limited', team_id: teamId.toString() }, count)
+        }
+
         return { rateLimiterAllowedMessages: allowed, rateLimiterDroppedMessages: dropped }
     }
 
@@ -331,7 +347,7 @@ export class LogsIngestionConsumer {
         const errorMessage = error instanceof Error ? error.message : String(error)
         const errorName = error instanceof Error ? error.name : 'UnknownError'
 
-        logMessageDlqCounter.inc({ reason: errorName })
+        logMessageDlqCounter.inc({ reason: errorName, team_id: message.teamId.toString() })
 
         try {
             await this.kafkaProducer!.produce({
@@ -420,19 +436,26 @@ export class LogsIngestionConsumer {
 
                     if (!token) {
                         logger.error('missing_token')
-                        logMessageDroppedCounter.inc({ reason: 'missing_token' })
+                        logMessageDroppedCounter.inc({ reason: 'missing_token', team_id: 'unknown' })
                         return
                     }
 
-                    let team = await this.hub.teamManager.getTeamByToken(token)
-                    if (isDevEnv() && token === 'phc_local') {
-                        // phc_local is a special token used in dev to refer to team 1
-                        team = await this.hub.teamManager.getTeam(1)
+                    let team
+                    try {
+                        team = await this.hub.teamManager.getTeamByToken(token)
+                        if (isDevEnv() && token === 'phc_local') {
+                            // phc_local is a special token used in dev to refer to team 1
+                            team = await this.hub.teamManager.getTeam(1)
+                        }
+                    } catch (e) {
+                        logger.error('team_lookup_error', { error: e })
+                        logMessageDroppedCounter.inc({ reason: 'team_lookup_error', team_id: 'unknown' })
+                        return
                     }
 
                     if (!team) {
                         logger.error('team_not_found', { token_with_no_team: token })
-                        logMessageDroppedCounter.inc({ reason: 'team_not_found' })
+                        logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
                         return
                     }
 
@@ -450,7 +473,7 @@ export class LogsIngestionConsumer {
                     })
                 } catch (e) {
                     logger.error('Error parsing message', e)
-                    logMessageDroppedCounter.inc({ reason: 'parse_error' })
+                    logMessageDroppedCounter.inc({ reason: 'parse_error', team_id: 'unknown' })
                     return
                 }
             })

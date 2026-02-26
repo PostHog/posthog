@@ -41,6 +41,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -48,17 +49,16 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { projectLogic } from 'scenes/projectLogic'
-import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -708,40 +708,31 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <>
+                    <div className="flex items-center gap-1">
                         <LemonTableLink
                             to={urls.insightView(insight.short_id)}
-                            title={
-                                <>
-                                    {name || <i>{summarizeInsight(insight.query)}</i>}
-
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Insight}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={insight.user_access_level}
-                                    >
-                                        <LemonButton
-                                            className="ml-1"
-                                            size="xsmall"
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                updateFavoritedInsight(insight, !insight.favorited)
-                                            }}
-                                            icon={
-                                                insight.favorited ? (
-                                                    <IconStarFilled className="text-warning" />
-                                                ) : (
-                                                    <IconStar className="text-secondary" />
-                                                )
-                                            }
-                                            tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
-                                        />
-                                    </AccessControlAction>
-                                </>
-                            }
+                            title={name || <i>{summarizeInsight(insight.query)}</i>}
                             description={insight.description}
                         />
-                    </>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Insight}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={insight.user_access_level}
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
+                                icon={
+                                    insight.favorited ? (
+                                        <IconStarFilled className="text-warning" />
+                                    ) : (
+                                        <IconStar className="text-secondary" />
+                                    )
+                                }
+                                tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
+                            />
+                        </AccessControlAction>
+                    </div>
                 )
             },
             sorter: (a, b) => (a.name || summarizeInsight(a.query)).localeCompare(b.name || summarizeInsight(b.query)),
@@ -751,7 +742,7 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'tags' as keyof QueryBasedInsightModel,
             key: 'tags',
             render: function renderTags(tags: string[]) {
-                return <ObjectTags tags={tags} staticOnly />
+                return <ObjectTags tags={[...tags].sort()} staticOnly />
             },
         },
         {

@@ -11,6 +11,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect, sync_connect
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 
 if TYPE_CHECKING:
@@ -82,7 +83,7 @@ async def execute_task_processing_workflow_async(
             logger.warning(f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled")
             return
 
-        workflow_id = f"task-processing-{task_id}-{run_id}"
+        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(
@@ -160,7 +161,7 @@ def execute_task_processing_workflow(
             logger.warning(f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled")
             return
 
-        workflow_id = f"task-processing-{task_id}-{run_id}"
+        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(
@@ -191,9 +192,7 @@ def execute_task_processing_workflow(
         logger.exception(f"Failed to start task processing workflow: {e}")
 
 
-def execute_video_segment_clustering_workflow(
-    team_id: int, lookback_hours: int | None = None, skip_priming: bool = False
-) -> dict[str, Any]:
+def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool = False) -> dict[str, Any]:
     """
     Execute the video segment clustering workflow for a single team synchronously.
     Waits for the workflow to complete and returns the result.
@@ -209,12 +208,10 @@ def execute_video_segment_clustering_workflow(
     from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
 
     try:
-        effective_lookback = lookback_hours or int(constants.DEFAULT_LOOKBACK_WINDOW.total_seconds() / 3600)
         workflow_id = f"video-segment-clustering-team-{team_id}-manual-{datetime.now().isoformat()}"
 
         workflow_input = ClusteringWorkflowInputs(
             team_id=team_id,
-            lookback_hours=effective_lookback,
             min_segments=constants.MIN_SEGMENTS_FOR_CLUSTERING,
             skip_priming=skip_priming,
         )

@@ -660,8 +660,9 @@ class PostgreSQLConsumer(Consumer):
         schema: str,
         table_name: str,
         schema_columns: list[str],
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.client = client
         self.schema = schema
@@ -900,6 +901,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                     schema=inputs.schema,
                     table_name=pg_stage_table if merge_settings.requires_merge else pg_table,
                     schema_columns=schema_columns,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
                 transformer = CSVStreamTransformer(

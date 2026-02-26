@@ -21,6 +21,7 @@ export interface InferredSelector {
     autoData: string
     text: string | null
     excludeText?: boolean
+    precision?: number
 }
 
 export interface InferenceResult {

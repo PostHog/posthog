@@ -12,9 +12,9 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { DataWarehouseViewLink } from '~/types'
 
-import { ViewLinkKeyLabel } from './ViewLinkModal'
 import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
 import type { viewLinkLogicType } from './viewLinkLogicType'
+import { ViewLinkKeyLabel } from './ViewLinkModal'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
@@ -309,6 +309,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     listeners(({ actions, values }) => ({
         toggleNewJoinModal: ({ join }) => {
             actions.setViewLinkValues(join ?? NEW_VIEW_LINK)
+            if (join?.source_table_name) {
+                actions.loadSourceTablePreview(join.source_table_name)
+            }
+            if (join?.joining_table_name) {
+                actions.loadJoiningTablePreview(join.joining_table_name)
+            }
         },
         toggleEditJoinModal: ({ join }) => {
             actions.setViewLinkValues(join)

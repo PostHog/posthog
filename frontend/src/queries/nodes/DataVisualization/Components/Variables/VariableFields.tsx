@@ -32,6 +32,13 @@ export const getCodeName = (name: string): string => {
     )
 }
 
+export const sanitizeCodeName = (name: string): string => {
+    return name
+        .trim()
+        .replace(/[^a-zA-Z0-9\s_]/g, '')
+        .replace(/\s/g, '_')
+}
+
 export const formatVariableReference = (codeName: string): string => {
     return `{variables.${codeName}}`
 }

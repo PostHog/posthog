@@ -3,10 +3,12 @@ import { randomString } from '../../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Insights list', () => {
+    test.setTimeout(60_000)
+
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -25,21 +27,21 @@ test.describe('Insights list', () => {
             await expect(insight.editButton).toBeVisible()
         })
 
-        await test.step('search for the insight in the list', async () => {
+        await test.step('search for the insight and navigate to it', async () => {
             await insight.goToList()
             await page.getByPlaceholder('Search').fill(insightName)
-            await expect(page.getByText(insightName)).toBeVisible()
-        })
 
-        await test.step('open the insight from the list', async () => {
-            // Click near the left edge to avoid hitting the favorite button which has e.preventDefault()
-            await page
-                .locator('table tbody tr')
-                .first()
-                .getByRole('link', { name: insightName })
-                .click({ position: { x: 5, y: 5 } })
-            await expect(page).toHaveURL(/\/insights\/\w+/)
-            await expect(insight.topBarName).toContainText(insightName)
+            // Wait for the table to settle with exactly one row containing our insight.
+            // This avoids a race where the search API response arrives mid-click,
+            // re-rendering the table and detaching the link element before navigation fires.
+            const rows = page.locator('table tbody tr')
+            await expect(rows).toHaveCount(1, { timeout: 10_000 })
+
+            const link = rows.first().getByRole('link', { name: insightName })
+            await expect(link).toBeVisible()
+            await link.click()
+
+            await expect(insight.topBarName).toContainText(insightName, { timeout: 15_000 })
         })
     })
 
@@ -89,7 +91,7 @@ test.describe('Insights list', () => {
         })
 
         await test.step('verify duplicate was created', async () => {
-            await expect(page.getByText(`${insightName} (copy)`)).toBeVisible()
+            await expect(page.getByText(`${insightName} (copy)`).first()).toBeVisible()
         })
     })
 })

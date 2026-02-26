@@ -364,6 +364,7 @@
                 "plan",
                 "execution",
                 "survey",
+                "onboarding",
                 "research",
                 "flags"
             ],
@@ -1966,6 +1967,7 @@
                 "search_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
+                "experiment_session_replays_summary",
                 "create_survey",
                 "edit_survey",
                 "analyze_survey_responses",
@@ -1996,7 +1998,8 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
-                "finalize_plan"
+                "finalize_plan",
+                "recommend_products"
             ],
             "type": "string"
         },
@@ -2043,8 +2046,15 @@
                     "type": "string"
                 },
                 "ui_payload": {
-                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
-                    "type": "object"
+                    "anyOf": [
+                        {
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend."
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -2123,6 +2133,10 @@
         },
         "AssistantTrendsDisplayType": {
             "anyOf": [
+                {
+                    "const": "Auto",
+                    "type": "string"
+                },
                 {
                     "const": "ActionsLineGraph",
                     "type": "string"
@@ -2251,6 +2265,7 @@
                     "default": "ActionsLineGraph",
                     "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
+                        "Auto",
                         "ActionsLineGraph",
                         "ActionsBar",
                         "ActionsUnstackedBar",
@@ -2611,7 +2626,7 @@
                     "items": {
                         "$ref": "#/definitions/Breakdown"
                     },
-                    "maxLength": 3,
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
@@ -8038,6 +8053,7 @@
         },
         "ChartDisplayType": {
             "enum": [
+                "Auto",
                 "ActionsLineGraph",
                 "ActionsBar",
                 "ActionsUnstackedBar",
@@ -11716,6 +11732,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "DomainConnectProviderName": {
+            "const": "Cloudflare",
+            "type": "string"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
@@ -11941,6 +11961,10 @@
                 "limit": {
                     "$ref": "#/definitions/integer",
                     "description": "Maximum number of results to return. If not provided, returns all results."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
                 },
                 "refresh": {
                     "$ref": "#/definitions/EndpointRefreshMode",
@@ -15408,7 +15432,111 @@
                 "BingAds",
                 "Shopify",
                 "Attio",
-                "SnapchatAds"
+                "SnapchatAds",
+                "Linear",
+                "Intercom",
+                "Amplitude",
+                "Mixpanel",
+                "Jira",
+                "ActiveCampaign",
+                "Marketo",
+                "Adjust",
+                "AppsFlyer",
+                "Freshdesk",
+                "GoogleAnalytics",
+                "Pipedrive",
+                "SendGrid",
+                "Slack",
+                "PagerDuty",
+                "Asana",
+                "Notion",
+                "Airtable",
+                "Greenhouse",
+                "BambooHR",
+                "Lever",
+                "GitLab",
+                "Datadog",
+                "Sentry",
+                "Pendo",
+                "FullStory",
+                "AmazonAds",
+                "PinterestAds",
+                "AppleSearchAds",
+                "QuickBooks",
+                "Xero",
+                "NetSuite",
+                "WooCommerce",
+                "BigCommerce",
+                "PayPal",
+                "Square",
+                "Zoom",
+                "Trello",
+                "Monday",
+                "ClickUp",
+                "Confluence",
+                "Recurly",
+                "SalesLoft",
+                "Outreach",
+                "Gong",
+                "Calendly",
+                "Typeform",
+                "Iterable",
+                "ZohoCRM",
+                "Close",
+                "Oracle",
+                "DynamoDB",
+                "Elasticsearch",
+                "Kafka",
+                "LaunchDarkly",
+                "Braintree",
+                "Recharge",
+                "HelpScout",
+                "Gorgias",
+                "Instagram",
+                "YouTubeAnalytics",
+                "FacebookPages",
+                "TwitterAds",
+                "Workday",
+                "ServiceNow",
+                "Pardot",
+                "Copper",
+                "Front",
+                "ChartMogul",
+                "Zuora",
+                "Paddle",
+                "CircleCI",
+                "CockroachDB",
+                "Firebase",
+                "AzureBlob",
+                "GoogleDrive",
+                "OneDrive",
+                "SharePoint",
+                "Box",
+                "SFTP",
+                "MicrosoftTeams",
+                "Aircall",
+                "Webflow",
+                "Okta",
+                "Auth0",
+                "Productboard",
+                "Smartsheet",
+                "Wrike",
+                "Plaid",
+                "SurveyMonkey",
+                "Eventbrite",
+                "RingCentral",
+                "Twilio",
+                "Freshsales",
+                "Shortcut",
+                "ConvertKit",
+                "Drip",
+                "CampaignMonitor",
+                "MailerLite",
+                "Omnisend",
+                "Brevo",
+                "Postmark",
+                "Granola",
+                "BuildBetter"
             ],
             "type": "string"
         },
@@ -15619,6 +15747,7 @@
                 "error_tracking",
                 "heatmap",
                 "session_replay",
+                "session_profile",
                 "survey",
                 "product_tour",
                 "user_interview",
@@ -15636,6 +15765,7 @@
                 "workflows",
                 "notebook",
                 "action",
+                "activity",
                 "comment",
                 "annotation",
                 "event",
@@ -15665,6 +15795,7 @@
                 "toolbar",
                 "settings",
                 "health",
+                "inbox",
                 "sdk_doctor",
                 "pipeline_status",
                 "llm_evaluations",
@@ -16301,7 +16432,7 @@
             "type": "array"
         },
         "FunnelVizType": {
-            "enum": ["steps", "time_to_convert", "trends"],
+            "enum": ["steps", "time_to_convert", "trends", "flow"],
             "type": "string"
         },
         "FunnelsActorsQuery": {
@@ -16427,6 +16558,10 @@
                     },
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
+                },
+                "showTrendLines": {
+                    "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
+                    "type": "boolean"
                 },
                 "showValuesOnSeries": {
                     "default": false,
@@ -16572,7 +16707,14 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AnyEntityNode"
+                            },
+                            {
+                                "$ref": "#/definitions/GroupNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -17013,8 +17155,33 @@
             },
             "type": "object"
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+        "HedgehogActorAccessoryOption": {
+            "enum": [
+                "beret",
+                "cap",
+                "chef",
+                "cowboy",
+                "eyepatch",
+                "flag",
+                "glasses",
+                "graduation",
+                "parrot",
+                "party",
+                "pineapple",
+                "sunglasses",
+                "tophat",
+                "xmas-hat",
+                "xmas-antlers",
+                "xmas-scarf"
+            ],
+            "type": "string"
+        },
+        "HedgehogActorColorOption": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "greyscale", "sepia", "invert", "rainbow"],
+            "type": "string"
+        },
+        "HedgehogActorSkinOption": {
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -18533,7 +18700,8 @@
                 "vercel",
                 "azure-blob",
                 "firebase",
-                "jira"
+                "jira",
+                "pinterest-ads"
             ],
             "type": "string"
         },
@@ -18548,6 +18716,9 @@
                     "type": "string"
                 },
                 "createdAt": {
+                    "type": "string"
+                },
+                "distinctId": {
                     "type": "string"
                 },
                 "errorCount": {
@@ -18592,7 +18763,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "createdAt", "person", "events"],
+            "required": ["id", "createdAt", "distinctId", "events"],
             "type": "object"
         },
         "LLMTraceEvent": {
@@ -18631,6 +18802,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "additionalProperties": {},
                     "type": "object"
                 },
                 "uuid": {
@@ -19610,8 +19782,8 @@
             },
             "type": "object"
         },
-        "MarketingAnalyticsHelperForColumnNames": {
-            "enum": ["Goal", "Cost per"],
+        "MarketingAnalyticsConstants": {
+            "enum": ["Goal", "Cost per", "const:"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -20055,6 +20227,103 @@
                             "const": "campaigns",
                             "type": "string"
                         },
+                        "conversionActionTypes": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "fallback": {
+                                    "items": [
+                                        {
+                                            "const": "purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "onsite_conversion.lead_grouped",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_complete_registration_add_meta_leads",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "mobile_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "subscribe",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 14,
+                                    "minItems": 14,
+                                    "type": "array"
+                                },
+                                "omni": {
+                                    "items": [
+                                        {
+                                            "const": "omni_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 5,
+                                    "minItems": 5,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["omni", "fallback"],
+                            "type": "object"
+                        },
                         "defaultSources": {
                             "items": [
                                 {
@@ -20146,7 +20415,8 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "conversionActionTypes"
                     ],
                     "type": "object"
                 },
@@ -20357,6 +20627,114 @@
                         "tableExclusions",
                         "defaultSources",
                         "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "conversionFields": {
+                            "items": [
+                                {
+                                    "const": "conversion_purchases",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_sign_ups",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_subscribe",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        "conversionValueFields": {
+                            "items": [
+                                {
+                                    "const": "conversion_purchases_value",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_sign_ups_value",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_subscribe_value",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        "defaultSources": {
+                            "items": {
+                                "const": "snapchat",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "snapchat",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "SnapchatAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats_daily",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats_daily",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource",
+                        "conversionFields",
+                        "conversionValueFields"
                     ],
                     "type": "object"
                 }
@@ -21132,6 +21510,7 @@
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
                 },
+                "result": {},
                 "type": {
                     "const": "insight",
                     "type": "string"
@@ -21342,6 +21721,29 @@
                 }
             ]
         },
+        "MetaAdsConversionFallbackActionTypes": {
+            "enum": [
+                "purchase",
+                "offsite_conversion.fb_pixel_purchase",
+                "app_custom_event.fb_mobile_purchase",
+                "lead",
+                "offsite_conversion.fb_pixel_lead",
+                "onsite_conversion.lead_grouped",
+                "complete_registration",
+                "offsite_conversion.fb_pixel_complete_registration",
+                "app_custom_event.fb_mobile_complete_registration",
+                "offsite_complete_registration_add_meta_leads",
+                "app_install",
+                "mobile_app_install",
+                "subscribe",
+                "offsite_conversion.fb_pixel_subscribe"
+            ],
+            "type": "string"
+        },
+        "MetaAdsConversionOmniActionTypes": {
+            "enum": ["omni_purchase", "omni_lead", "omni_complete_registration", "omni_app_install", "omni_subscribe"],
+            "type": "string"
+        },
         "MetaAdsDefaultSources": {
             "enum": [
                 "meta",
@@ -21369,14 +21771,24 @@
             "properties": {
                 "accessories": {
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/HedgehogActorAccessoryOption"
                     },
                     "type": "array"
                 },
                 "color": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/HedgehogColorOptions"
+                            "$ref": "#/definitions/HedgehogActorColorOption"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "skin": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogActorSkinOption"
                         },
                         {
                             "type": "null"
@@ -21387,7 +21799,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["use_as_profile", "color", "accessories"],
+            "required": ["use_as_profile"],
             "type": "object"
         },
         "ModeContext": {
@@ -21513,7 +21925,7 @@
             "type": "string"
         },
         "NativeMarketingSource": {
-            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds"],
+            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds", "SnapchatAds"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -22282,6 +22694,9 @@
                 "is_identified": {
                     "type": "boolean"
                 },
+                "last_seen_at": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -22392,57 +22807,6 @@
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
         },
-        "PlaywrightWorkspaceSetupData": {
-            "additionalProperties": false,
-            "properties": {
-                "organization_name": {
-                    "type": "string"
-                },
-                "skip_onboarding": {
-                    "type": "boolean"
-                },
-                "use_current_time": {
-                    "type": "boolean"
-                }
-            },
-            "type": "object"
-        },
-        "PlaywrightWorkspaceSetupResult": {
-            "additionalProperties": false,
-            "properties": {
-                "organization_id": {
-                    "type": "string"
-                },
-                "organization_name": {
-                    "type": "string"
-                },
-                "personal_api_key": {
-                    "type": "string"
-                },
-                "team_id": {
-                    "type": "string"
-                },
-                "team_name": {
-                    "type": "string"
-                },
-                "user_email": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "organization_id",
-                "team_id",
-                "organization_name",
-                "team_name",
-                "user_id",
-                "user_email",
-                "personal_api_key"
-            ],
-            "type": "object"
-        },
         "ProductAnalyticsInsightQueryNode": {
             "anyOf": [
                 {
@@ -22540,6 +22904,8 @@
                 "workflow_created",
                 "data_pipeline_created",
                 "batch_export_created",
+                "batch_export_updated",
+                "batch_export_backfill_created",
                 "notebook_created",
                 "product_tour_created",
                 "task_created",
@@ -22780,7 +23146,9 @@
                 "semver_lte",
                 "semver_tilde",
                 "semver_caret",
-                "semver_wildcard"
+                "semver_wildcard",
+                "icontains_multi",
+                "not_icontains_multi"
             ],
             "type": "string"
         },
@@ -22855,6 +23223,11 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
+                },
+                "limit_context": {
+                    "description": "Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.",
+                    "enum": ["posthog_ai", null],
+                    "type": ["string", "null"]
                 },
                 "name": {
                     "description": "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",
@@ -28306,8 +28679,11 @@
         "RetentionValue": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_value": {
+                    "type": "number"
+                },
                 "count": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 },
                 "label": {
                     "type": "string"
@@ -30341,6 +30717,26 @@
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
         },
+        "SnapchatAdsConversionFields": {
+            "enum": ["conversion_purchases", "conversion_sign_ups", "conversion_subscribe"],
+            "type": "string"
+        },
+        "SnapchatAdsConversionValueFields": {
+            "enum": ["conversion_purchases_value", "conversion_sign_ups_value", "conversion_subscribe_value"],
+            "type": "string"
+        },
+        "SnapchatAdsDefaultSources": {
+            "enum": ["snapchat"],
+            "type": "string"
+        },
+        "SnapchatAdsTableExclusions": {
+            "enum": ["stats_daily"],
+            "type": "string"
+        },
+        "SnapchatAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
@@ -30481,6 +30877,9 @@
         "SourceFieldInputConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "label": {
                     "type": "string"
                 },
@@ -31486,7 +31885,11 @@
                 "numerical_event_properties",
                 "person_properties",
                 "pageview_urls",
+                "pageview_events",
                 "screens",
+                "screen_events",
+                "email_addresses",
+                "autocapture_events",
                 "custom_events",
                 "wildcard",
                 "groups",
@@ -31512,6 +31915,7 @@
                 "activity_log_properties",
                 "max_ai_context",
                 "workflow_variables",
+                "suggested_filters",
                 "empty"
             ],
             "type": "string"
@@ -31708,38 +32112,6 @@
                 "results",
                 "timezone"
             ],
-            "type": "object"
-        },
-        "TestSetupRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "data": {
-                    "type": "object"
-                }
-            },
-            "type": "object"
-        },
-        "TestSetupResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "available_tests": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "error": {
-                    "type": "string"
-                },
-                "result": {},
-                "success": {
-                    "type": "boolean"
-                },
-                "test_name": {
-                    "type": "string"
-                }
-            },
-            "required": ["success", "test_name"],
             "type": "object"
         },
         "TikTokAdsDefaultSources": {
@@ -33203,6 +33575,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
                 }
             ]
         },

@@ -50,7 +50,7 @@ async def create_trace_clustering_coordinator_schedule(client: Client):
             execution_timeout=COORDINATOR_EXECUTION_TIMEOUT,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.BUFFER_ONE),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if await a_schedule_exists(client, COORDINATOR_SCHEDULE_ID):
@@ -97,7 +97,7 @@ async def create_generation_clustering_coordinator_schedule(client: Client):
             execution_timeout=COORDINATOR_EXECUTION_TIMEOUT,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.BUFFER_ONE),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if await a_schedule_exists(client, GENERATION_COORDINATOR_SCHEDULE_ID):

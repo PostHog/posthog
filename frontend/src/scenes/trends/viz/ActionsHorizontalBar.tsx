@@ -16,7 +16,11 @@ import { trendsDataLogic } from '../trendsDataLogic'
 
 type DataSet = any
 
-export function ActionsHorizontalBar({ showPersonsModal = true, context }: ChartParams): JSX.Element | null {
+export function ActionsHorizontalBar({
+    showPersonsModal = true,
+    context,
+    inCardView,
+}: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
 
@@ -33,6 +37,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
+        isSingleSeriesDefinition,
         getTrendsColor,
         getTrendsHidden,
         theme,
@@ -96,8 +101,11 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             trendsFilter={trendsFilter}
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
-            ignoreActionsInSeriesLabels={context?.ignoreActionsInSeriesLabels}
+            ignoreActionsInSeriesLabels={
+                context?.ignoreActionsInSeriesLabels || (isSingleSeriesDefinition && !!breakdownFilter?.breakdown)
+            }
             isStacked={false}
+            inCardView={inCardView}
             onClick={
                 context?.onDataPointClick || (showPersonsModal && !trendsFilter?.formula && !hasDataWarehouseSeries)
                     ? (point) => {

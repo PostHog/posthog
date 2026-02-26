@@ -7,8 +7,7 @@ pub struct CheckpointConfig {
     pub checkpoint_interval: Duration,
 
     /// How many incremental checkpoint attempts to perform between full
-    /// uploads of all checkpoint files. If 0, we allways perform a
-    /// full upload on every attempt
+    /// uploads of all checkpoint files. If 0, we always perform a full upload on every attempt.
     pub checkpoint_full_upload_interval: u32,
 
     /// Base directory for local checkpoints
@@ -106,8 +105,8 @@ impl Default for CheckpointConfig {
             s3_attempt_timeout: Duration::from_secs(20),
             s3_max_retries: 3,
             checkpoint_import_attempt_depth: 10,
-            max_concurrent_checkpoint_file_downloads: 50,
-            max_concurrent_checkpoint_file_uploads: 25,
+            max_concurrent_checkpoint_file_downloads: 100,
+            max_concurrent_checkpoint_file_uploads: 100,
             checkpoint_partition_import_timeout: Duration::from_secs(240),
         }
     }

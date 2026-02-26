@@ -16,15 +16,8 @@ export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
 export const MAX_LOG_LENGTH = 10000
 const TRUNCATION_SUFFIX = '... (truncated)'
 
-export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
-    'email',
-    'Email',
-    'name',
-    'Name',
-    'username',
-    'Username',
-    'UserName',
-]
+// Sync with person.py and constants.tsx
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'name', 'username']
 
 export const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
     const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -97,12 +90,10 @@ export function convertToHogFunctionInvocationGlobals(
 export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
     team,
     personId,
-    distinctId,
     siteUrl,
 }: {
     team: Team
     personId: string
-    distinctId: string
     siteUrl: string
 }): HogFunctionInvocationGlobals {
     const projectUrl = `${siteUrl}/project/${team.id}`
@@ -111,7 +102,7 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
         id: personId,
         properties: {},
         name: '',
-        url: `${projectUrl}/person/${encodeURIComponent(distinctId)}`,
+        url: `${projectUrl}/person/${encodeURIComponent(personId)}`,
     }
 
     const context: HogFunctionInvocationGlobals = {
@@ -124,7 +115,7 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             event: '$batch_hog_flow_invocation',
             properties: {},
             uuid: new UUIDT().toString(),
-            distinct_id: distinctId,
+            distinct_id: '', // Not applicable for batch processing but left here for compatibility
             elements_chain: '',
             timestamp: DateTime.now().toISO(),
             url: '',

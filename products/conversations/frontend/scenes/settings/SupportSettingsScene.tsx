@@ -10,6 +10,8 @@ import {
     LemonInput,
     LemonSelect,
     LemonSwitch,
+    LemonTag,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
@@ -123,6 +125,159 @@ function AuthorizedDomains(): JSX.Element {
     )
 }
 
+function SlackSection(): JSX.Element {
+    return (
+        <SceneSection
+            title="SupportHog Slack bot"
+            description="Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from Slack messages."
+            className="mt-4"
+        >
+            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
+                <SlackChannelSection />
+            </LemonCard>
+        </SceneSection>
+    )
+}
+
+function SlackChannelSection(): JSX.Element {
+    const {
+        slackConnected,
+        slackChannelId,
+        slackChannels,
+        slackChannelsLoading,
+        slackTicketEmoji,
+        slackTicketEmojiValue,
+    } = useValues(supportSettingsLogic)
+    const {
+        connectSlack,
+        setSlackChannel,
+        loadSlackChannelsWithToken,
+        setSlackTicketEmojiValue,
+        saveSlackTicketEmoji,
+        disconnectSlack,
+    } = useActions(supportSettingsLogic)
+
+    return (
+        <div className="flex flex-col gap-y-2">
+            <div>
+                <label className="font-medium">Connection</label>
+                <p className="text-xs text-muted-alt">
+                    Install the SupportHog bot in your Slack workspace to enable support ticket creation from channels,
+                    mentions, and emoji reactions. This is separate from the main PostHog Slack integration.
+                </p>
+                {!slackConnected && (
+                    <LemonButton
+                        className="mt-2"
+                        type="primary"
+                        size="small"
+                        onClick={() => connectSlack(window.location.pathname)}
+                    >
+                        Add SupportHog to Slack
+                    </LemonButton>
+                )}
+            </div>
+            {slackConnected && (
+                <>
+                    <LemonDivider />
+                    <div className="gap-4">
+                        <div>
+                            <label className="font-medium">Support channel</label>
+                            <p className="text-xs text-muted-alt">
+                                Messages posted in this channel will automatically create support tickets. Thread
+                                replies become ticket messages.
+                            </p>
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <LemonSelect
+                                value={slackChannelId}
+                                options={[
+                                    { value: null, label: 'None' },
+                                    ...slackChannels.map((c: { id: string; name: string }) => ({
+                                        value: c.id,
+                                        label: `#${c.name}`,
+                                    })),
+                                ]}
+                                onChange={(value) => {
+                                    const channel = slackChannels.find((c: { id: string }) => c.id === value)
+                                    setSlackChannel(value, channel?.name ?? null)
+                                }}
+                                loading={slackChannelsLoading}
+                                placeholder="Select channel"
+                            />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={loadSlackChannelsWithToken}
+                                loading={slackChannelsLoading}
+                            >
+                                Refresh
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex items-center gap-4 justify-between">
+                        <div>
+                            <label className="font-medium">Ticket emoji trigger</label>
+                            <p className="text-xs text-muted-alt">
+                                React with this emoji on any message to create a support ticket from it.
+                            </p>
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <LemonInput
+                                value={slackTicketEmojiValue ?? slackTicketEmoji}
+                                onChange={setSlackTicketEmojiValue}
+                                placeholder="ticket"
+                                className="max-w-[200px]"
+                            />
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={saveSlackTicketEmoji}
+                                disabledReason={!slackTicketEmojiValue ? 'Enter an emoji name' : undefined}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex items-center gap-4 justify-between">
+                        <div>
+                            <label className="font-medium">Bot mention</label>
+                            <p className="text-xs text-muted-alt">
+                                Users can @mention the bot in any channel to create a support ticket.
+                            </p>
+                        </div>
+                        <LemonTag type="success">Active</LemonTag>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            size="small"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Remove SupportHog bot?',
+                                    description:
+                                        'This will stop creating tickets from Slack messages. Existing tickets will not be affected.',
+                                    primaryButton: {
+                                        status: 'danger',
+                                        children: 'Remove',
+                                        onClick: disconnectSlack,
+                                    },
+                                    secondaryButton: { children: 'Cancel' },
+                                })
+                            }}
+                        >
+                            Remove SupportHog bot
+                        </LemonButton>
+                    </div>
+                </>
+            )}
+        </div>
+    )
+}
+
 export function SupportSettingsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -212,6 +367,7 @@ export function SupportSettingsScene(): JSX.Element {
                             <BrowserNotificationsSection />
                         </LemonCard>
                     </SceneSection>
+                    <SlackSection />
                     <SceneSection title="In-app widget" className="mt-4">
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
@@ -515,6 +671,96 @@ export function SupportSettingsScene(): JSX.Element {
                                     </div>
                                 </>
                             )}
+                        </LemonCard>
+                    </SceneSection>
+                    <SceneSection
+                        title="Workflows"
+                        description={
+                            <>
+                                Use these events as triggers in <Link to="/workflows">Workflows</Link> to automate
+                                ticket actions.
+                            </>
+                        }
+                        className="mt-4"
+                    >
+                        <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
+                            <div className="flex flex-col gap-4">
+                                <div>
+                                    <h4 className="font-semibold mb-1">Trigger events</h4>
+                                    <p className="text-xs text-muted-alt mb-2">
+                                        These events are automatically captured when ticket or message state changes.
+                                        Use them as workflow triggers.
+                                    </p>
+                                    <table className="w-full text-sm">
+                                        <thead>
+                                            <tr className="border-b">
+                                                <th className="text-left py-1.5 pr-4 font-medium">Event</th>
+                                                <th className="text-left py-1.5 font-medium">When</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_ticket_created</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    A customer opens a new ticket
+                                                </td>
+                                            </tr>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_ticket_status_changed</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    Ticket status changes (e.g. new → pending → resolved)
+                                                </td>
+                                            </tr>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">
+                                                        $conversation_ticket_priority_changed
+                                                    </code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    Ticket priority is set or changed
+                                                </td>
+                                            </tr>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_ticket_assigned</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    Ticket is assigned to a team member
+                                                </td>
+                                            </tr>
+                                            <tr className="border-b">
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_message_sent</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    A team member sends a reply on a ticket
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td className="py-1.5 pr-4">
+                                                    <code className="text-xs">$conversation_message_received</code>
+                                                </td>
+                                                <td className="py-1.5 text-xs text-muted-alt">
+                                                    A customer sends a message on a ticket
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold mb-1">Workflow actions</h4>
+                                    <p className="text-xs text-muted-alt">
+                                        Use <strong>Get ticket</strong> to fetch current ticket data into workflow
+                                        variables (ticket_status, ticket_priority, ticket_number, etc.) and{' '}
+                                        <strong>Update ticket</strong> to change a ticket's status or priority.
+                                    </p>
+                                </div>
+                            </div>
                         </LemonCard>
                     </SceneSection>
                 </>

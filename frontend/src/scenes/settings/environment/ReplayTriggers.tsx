@@ -7,8 +7,8 @@ import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summa
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { isNumeric } from 'lib/utils'
-import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
+import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'

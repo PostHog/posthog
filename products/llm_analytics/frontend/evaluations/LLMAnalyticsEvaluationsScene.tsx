@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
@@ -17,6 +17,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,15 +28,15 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { LLMProviderKeysSettings } from '../settings/LLMProviderKeysSettings'
+import { providerKeyStateLabel, providerLabel } from '../settings/providerKeyStateUtils'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
-import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import {
     EvaluationMetrics,
     PASS_RATE_SUCCESS_THRESHOLD,
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
+import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig } from './types'
 
@@ -45,14 +46,25 @@ export const scene: SceneExport = {
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
-function LLMAnalyticsEvaluationsContent(): JSX.Element {
-    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter, dateFilter } =
-        useValues(llmEvaluationsLogic)
+function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Element {
+    const evaluationsLogic = llmEvaluationsLogic({ tabId })
+    const metricsLogic = evaluationMetricsLogic({ tabId })
+    const {
+        evaluations,
+        filteredEvaluations,
+        evaluationsLoading,
+        evaluationsFilter,
+        dateFilter,
+        unhealthyProviderKeysUsedByEvaluations,
+    } = useValues(evaluationsLogic)
     const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
-        useActions(llmEvaluationsLogic)
-    const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
+        useActions(evaluationsLogic)
+    const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
+    const { searchParams } = useValues(router)
+    const evaluationUrl = (id: string): string => combineUrl(urls.llmAnalyticsEvaluation(id), searchParams).url
+    const settingsUrl = combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url
 
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
         filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
@@ -68,7 +80,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             key: 'name',
             render: (_, evaluation) => (
                 <div className="flex flex-col">
-                    <Link to={urls.llmAnalyticsEvaluation(evaluation.id)} className="font-semibold text-primary">
+                    <Link to={evaluationUrl(evaluation.id)} className="font-semibold text-primary">
                         {evaluation.name}
                     </Link>
                     {evaluation.description && <div className="text-muted text-sm">{evaluation.description}</div>}
@@ -117,7 +129,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                 <div className="flex flex-wrap gap-1">
                     {evaluation.conditions.map((condition) => (
                         <LemonTag key={condition.id} type="option">
-                            {condition.rollout_percentage}%
+                            {parseFloat(condition.rollout_percentage.toFixed(2))}%
                             {condition.properties.length > 0 &&
                                 ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
                         </LemonTag>
@@ -147,7 +159,9 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         <div className="text-sm">
                             {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
                         </div>
-                        <div className={`font-semibold ${passRateColor}`}>{stats.pass_rate}%</div>
+                        <div className={`font-semibold ${passRateColor}`}>
+                            {parseFloat(stats.pass_rate.toFixed(2))}%
+                        </div>
                     </div>
                 )
             },
@@ -165,7 +179,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconPencil />}
-                            onClick={() => push(urls.llmAnalyticsEvaluation(evaluation.id))}
+                            onClick={() => push(evaluationUrl(evaluation.id))}
                         />
                     </AccessControlAction>
                     <AccessControlAction
@@ -206,6 +220,24 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
         <div className="space-y-4">
             <TrialUsageMeter showSettingsLink={false} />
 
+            {unhealthyProviderKeysUsedByEvaluations.length > 0 && (
+                <LemonBanner type="warning">
+                    <div className="space-y-2">
+                        <p>Some evaluations are using API keys that need attention.</p>
+                        <ul className="list-disc pl-5 space-y-1">
+                            {unhealthyProviderKeysUsedByEvaluations.map((providerKey) => (
+                                <li key={providerKey.id}>
+                                    <span className="font-semibold">{providerKey.name}</span> (
+                                    {providerLabel(providerKey.provider)}) - {providerKeyStateLabel(providerKey.state)}:{' '}
+                                    {providerKey.error_message || 'Unknown error'}
+                                </li>
+                            ))}
+                        </ul>
+                        <Link to={settingsUrl}>Go to settings to fix API keys.</Link>
+                    </div>
+                </LemonBanner>
+            )}
+
             <LemonBanner type="info" dismissKey="evals-billing-notice">
                 Each evaluation run counts as an LLM analytics event.
             </LemonBanner>
@@ -224,7 +256,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        to={urls.llmAnalyticsEvaluationTemplates()}
+                        to={combineUrl(urls.llmAnalyticsEvaluationTemplates(), searchParams).url}
                         data-attr="create-evaluation-button"
                         tooltip="Create evaluation"
                     >
@@ -263,55 +295,54 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     )
 }
 
-export function LLMAnalyticsEvaluationsScene(): JSX.Element {
+export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX.Element {
     const { searchParams } = useValues(router)
+    const evaluationsLogic = useMountedLogic(llmEvaluationsLogic({ tabId }))
+    const metricsLogic = evaluationMetricsLogic({ tabId })
 
-    const activeTab = searchParams.tab || 'evaluations'
+    useAttachedLogic(metricsLogic, evaluationsLogic)
 
     const tabs: LemonTab<string>[] = [
         {
             key: 'evaluations',
             label: 'Evaluations',
-            content: (
-                <BindLogic logic={llmEvaluationsLogic} props={{}}>
-                    <BindLogic logic={evaluationMetricsLogic} props={{}}>
-                        <LLMAnalyticsEvaluationsContent />
-                    </BindLogic>
-                </BindLogic>
-            ),
+            content: <LLMAnalyticsEvaluationsContent tabId={tabId} />,
             link: combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: undefined }).url,
             'data-attr': 'evaluations-tab',
         },
         {
             key: 'settings',
             label: 'Settings',
-            content: <LLMProviderKeysSettings />,
-            link: combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url,
+            link: urls.settings('environment-llm-analytics', 'llm-analytics-byok'),
+            content: <></>,
             'data-attr': 'settings-tab',
         },
     ]
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Evaluations"
-                description="Configure and monitor automated LLM output evaluations."
-                resourceType={{
-                    type: 'llm_evaluations',
-                }}
-                actions={
-                    <LemonButton
-                        to="https://posthog.com/docs/llm-analytics/evaluations"
-                        type="secondary"
-                        targetBlank
-                        size="small"
-                    >
-                        Documentation
-                    </LemonButton>
-                }
-            />
-
-            <LemonTabs activeKey={activeTab} data-attr="evaluations-tabs" tabs={tabs} sceneInset />
-        </SceneContent>
+        <BindLogic logic={llmEvaluationsLogic} props={{ tabId }}>
+            <BindLogic logic={evaluationMetricsLogic} props={{ tabId }}>
+                <SceneContent>
+                    <SceneTitleSection
+                        name="Evaluations"
+                        description="Configure and monitor automated LLM output evaluations."
+                        resourceType={{
+                            type: 'llm_evaluations',
+                        }}
+                        actions={
+                            <LemonButton
+                                to="https://posthog.com/docs/llm-analytics/evaluations"
+                                type="secondary"
+                                targetBlank
+                                size="small"
+                            >
+                                Documentation
+                            </LemonButton>
+                        }
+                    />
+                    <LemonTabs activeKey="evaluations" data-attr="evaluations-tabs" tabs={tabs} sceneInset />
+                </SceneContent>
+            </BindLogic>
+        </BindLogic>
     )
 }

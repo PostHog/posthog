@@ -775,8 +775,9 @@ class BigQueryConsumer(Consumer):
         client: BigQueryClient,
         table: BigQueryTable,
         file_format: FileFormat,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.client = client
         self.table = table
@@ -833,6 +834,7 @@ async def run_consumers(
     queue: RecordBatchQueue,
     can_perform_merge: bool,
     max_consumers: int,
+    model: str = "events",
 ) -> BatchExportResult:
     tasks = []
     max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
@@ -843,6 +845,7 @@ async def run_consumers(
                 client=client,
                 table=table,
                 file_format=file_format,
+                model=model,
             )
 
             if can_perform_merge:
@@ -1056,6 +1059,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         client=bq_client,
                         table=bigquery_consumer_table,
                         file_format=file_format,
+                        model=model.name if isinstance(model, BatchExportModel) else "events",
                     )
 
                     if can_perform_merge:
@@ -1099,6 +1103,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         queue=queue,
                         can_perform_merge=can_perform_merge,
                         max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
+                        model=model.name if isinstance(model, BatchExportModel) else "events",
                     )
 
                 if can_perform_merge:

@@ -1,12 +1,15 @@
 import os
+import json
 import uuid
 import logging
 import traceback
+from datetime import datetime
 from typing import cast
 
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
+import requests as http_requests
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -17,24 +20,34 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.storage import object_storage
 
 from .models import Task, TaskRun
+from .repository_readiness import compute_repository_readiness
 from .serializers import (
+    ConnectionTokenResponseSerializer,
     ErrorResponseSerializer,
+    RepositoryReadinessQuerySerializer,
+    RepositoryReadinessResponseSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
+    TaskRunCommandRequestSerializer,
+    TaskRunCommandResponseSerializer,
+    TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
+    TaskRunSessionLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
-from .temporal.client import execute_task_processing_workflow, execute_video_segment_clustering_workflow
+from .services.connection_token import create_sandbox_connection_token
+from .temporal.client import execute_task_processing_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +72,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "destroy",
             "run",
-            "cluster_video_segments",
+            "repository_readiness",
         ]
     }
 
@@ -73,6 +86,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        query_serializer=RepositoryReadinessQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=RepositoryReadinessResponseSerializer, description="Repository readiness status"
+            ),
+        },
+        summary="Get repository readiness",
+        description="Get autonomy readiness details for a specific repository in the current project.",
+    )
+    @action(detail=False, methods=["get"], url_path="repository_readiness", required_scopes=["task:read"])
+    def repository_readiness(self, request, **kwargs):
+        repository = request.validated_query_data["repository"]
+        window_days = request.validated_query_data["window_days"]
+        refresh = request.validated_query_data["refresh"]
+
+        result = compute_repository_readiness(
+            team=self.team,
+            repository=repository,
+            window_days=window_days,
+            refresh=refresh,
+        )
+        return Response(result)
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team, deleted=False).order_by("-created_at")
@@ -148,7 +185,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskSerializer(task).data)
 
     @validated_request(
-        request_serializer=None,
+        request_serializer=TaskRunCreateRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             404: OpenApiResponse(description="Task not found"),
@@ -159,10 +196,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
+        mode = request.validated_data.get("mode", "background")
 
-        logger.info(f"Creating task run for task {task.id}")
+        logger.info(f"Creating task run for task {task.id} with mode={mode}")
 
-        task_run = task.create_run()
+        task_run = task.create_run(mode=mode)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 
@@ -171,58 +209,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task.refresh_from_db()
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
-
-    @validated_request(
-        request_serializer=None,
-        responses={
-            200: OpenApiResponse(description="Clustering workflow completed"),
-            500: OpenApiResponse(description="Clustering workflow failed"),
-        },
-        summary="Run video segment clustering",
-        description="Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.",
-    )
-    @action(detail=False, methods=["post"], url_path="cluster_video_segments", required_scopes=["task:write"])
-    def cluster_video_segments(self, request, **kwargs):
-        """Run video segment clustering workflow for the current team.
-
-        This is a DEBUG endpoint for manually triggering the clustering workflow.
-        Blocks until the workflow completes and returns the result.
-        """
-        from django.conf import settings
-
-        if not settings.DEBUG:
-            return Response(
-                {"error": "This endpoint is only available in DEBUG mode"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            # Use 7 days lookback for manual debug runs (vs watermark-based for scheduled runs)
-            lookback_hours = 7 * 24  # 7 days
-            result = execute_video_segment_clustering_workflow(team_id=self.team.id, lookback_hours=lookback_hours)
-
-            response_status = status.HTTP_200_OK if result.get("success") else status.HTTP_500_INTERNAL_SERVER_ERROR
-
-            return Response(
-                {
-                    "workflow_id": result["workflow_id"],
-                    "lookback_hours": lookback_hours,
-                    "success": result.get("success"),
-                    "error": result.get("error"),
-                    "segments_processed": result.get("segments_processed"),
-                    "clusters_found": result.get("clusters_found"),
-                    "reports_created": result.get("reports_created"),
-                    "reports_updated": result.get("reports_updated"),
-                    "artefacts_created": result.get("artefacts_created"),
-                },
-                status=response_status,
-            )
-        except Exception:
-            logger.exception(f"Failed to run video segment clustering workflow for team {self.team.id}")
-            return Response(
-                {"error": "Failed to run video segment clustering workflow"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
 
 
 @extend_schema(tags=["task-runs"])
@@ -245,6 +231,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "set_output",
             "append_log",
+            "session_logs",
+            "command",
         ]
     }
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -296,22 +284,48 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def partial_update(self, request, *args, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+        old_status = task_run.status
 
         # Update fields from validated data
         for key, value in request.validated_data.items():
             setattr(task_run, key, value)
 
+        new_status = request.validated_data.get("status")
+        terminal_statuses = [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]
+
         # Auto-set completed_at if status is completed or failed
-        if "status" in request.validated_data and request.validated_data["status"] in [
-            TaskRun.Status.COMPLETED,
-            TaskRun.Status.FAILED,
-        ]:
+        if new_status in terminal_statuses:
             if not task_run.completed_at:
                 task_run.completed_at = timezone.now()
+
+            # Signal Temporal workflow if status changed to terminal state
+            if old_status != new_status:
+                self._signal_workflow_completion(
+                    task_run,
+                    new_status,
+                    request.validated_data.get("error_message"),
+                )
 
         task_run.save()
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    def _signal_workflow_completion(self, task_run: TaskRun, status: str, error_message: str | None) -> None:
+        """Send completion signal to Temporal workflow."""
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(task_run.workflow_id)
+
+            import asyncio
+
+            asyncio.run(handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error_message]))
+            logger.info(f"Signaled workflow completion for task run {task_run.id} with status {status}")
+        except Exception as e:
+            logger.warning(f"Failed to signal workflow completion for task run {task_run.id}: {e}")
 
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task
@@ -375,11 +389,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="append_log", required_scopes=["task:write"])
     def append_log(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+        timer = ServerTimingsGathered()
 
         entries = request.validated_data["entries"]
-        task_run.append_log(entries)
+        with timer("s3_append"):
+            task_run.append_log(entries)
 
-        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+        task_run.heartbeat_workflow()
+
+        response = Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+        response["Server-Timing"] = timer.to_header_string()
+        return response
 
     @validated_request(
         request_serializer=TaskRunArtifactsUploadRequestSerializer,
@@ -502,7 +522,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
 
-    @validated_request(
+    @extend_schema(
         responses={
             200: OpenApiResponse(description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),
@@ -513,7 +533,290 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-        log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+        timer = ServerTimingsGathered()
+
+        with timer("s3_read"):
+            log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+
         response = HttpResponse(log_content, content_type="application/jsonl")
         response["Cache-Control"] = "no-cache"
+        response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=ConnectionTokenResponseSerializer,
+                description="Connection token for direct sandbox connection",
+            ),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get sandbox connection token",
+        description="Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.",
+    )
+    @action(detail=True, methods=["get"], url_path="connection_token", required_scopes=["task:read"])
+    def connection_token(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        user = request.user
+
+        token = create_sandbox_connection_token(
+            task_run=task_run,
+            user_id=user.id,
+            distinct_id=user.distinct_id,
+        )
+
+        return Response(ConnectionTokenResponseSerializer({"token": token}).data)
+
+    @validated_request(
+        request_serializer=TaskRunCommandRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunCommandResponseSerializer, description="Agent server response"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid command or no active sandbox"),
+            404: OpenApiResponse(description="Task run not found"),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Agent server unreachable"),
+        },
+        summary="Send command to agent server",
+        description="Forward a JSON-RPC command to the agent server running in the sandbox. "
+        "Supports user_message, cancel, and close commands.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="command", required_scopes=["task:write"])
+    def command(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        state = task_run.state or {}
+
+        sandbox_url = state.get("sandbox_url")
+        if not sandbox_url:
+            return Response(
+                ErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not self._is_valid_sandbox_url(sandbox_url):
+            logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        connection_token = create_sandbox_connection_token(
+            task_run=task_run,
+            user_id=request.user.id,
+            distinct_id=request.user.distinct_id,
+        )
+
+        sandbox_connect_token = state.get("sandbox_connect_token")
+
+        command_payload: dict = {
+            "jsonrpc": request.validated_data["jsonrpc"],
+            "method": request.validated_data["method"],
+        }
+        if request.validated_data.get("params"):
+            command_payload["params"] = request.validated_data["params"]
+        if "id" in request.validated_data and request.validated_data["id"] is not None:
+            command_payload["id"] = request.validated_data["id"]
+
+        try:
+            agent_response = self._proxy_command_to_agent_server(
+                sandbox_url=sandbox_url,
+                connection_token=connection_token,
+                sandbox_connect_token=sandbox_connect_token,
+                payload=command_payload,
+            )
+
+            if agent_response.ok:
+                return Response(agent_response.json())
+
+            try:
+                error_body = agent_response.json()
+            except Exception:
+                error_body = {}
+
+            if agent_response.status_code == 401:
+                error_msg = error_body.get("error", "Agent server authentication failed")
+                logger.warning(f"Agent server auth failed for task run {task_run.id}: {error_msg}")
+            elif agent_response.status_code == 400:
+                error_msg = error_body.get("error", "Agent server rejected the command")
+                logger.warning(f"Agent server rejected command for task run {task_run.id}: {error_msg}")
+            else:
+                error_msg = error_body.get("error", f"Agent server returned {agent_response.status_code}")
+
+            return Response(
+                ErrorResponseSerializer({"error": error_msg}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        except http_requests.ConnectionError:
+            logger.warning(f"Agent server unreachable for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except http_requests.Timeout:
+            logger.warning(f"Agent server request timed out for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Agent server request timed out"}).data,
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+        except Exception:
+            logger.exception(f"Failed to proxy command to agent server for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+    @staticmethod
+    def _is_valid_sandbox_url(url: str) -> bool:
+        """Validate sandbox URL against allowlist to prevent SSRF.
+
+        Only allows:
+        - http://localhost:{port} (Docker sandboxes)
+        - http://127.0.0.1:{port} (Docker sandboxes)
+        - https://*.modal.run (Modal sandboxes)
+        """
+        from urllib.parse import urlparse
+
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return False
+
+        if parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1"):
+            return True
+
+        if parsed.scheme == "https" and parsed.hostname and parsed.hostname.endswith(".modal.run"):
+            return True
+
+        return False
+
+    @staticmethod
+    def _proxy_command_to_agent_server(
+        sandbox_url: str,
+        connection_token: str,
+        sandbox_connect_token: str | None,
+        payload: dict,
+    ) -> http_requests.Response:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {connection_token}",
+        }
+
+        command_url = f"{sandbox_url.rstrip('/')}/command"
+
+        # Modal connect tokens use Authorization: Bearer for tunnel auth,
+        # which conflicts with the JWT auth the agent server expects.
+        # Pass the Modal token as a query parameter instead so both
+        # auth mechanisms can coexist.
+        params = {}
+        if sandbox_connect_token:
+            params["_modal_connect_token"] = sandbox_connect_token
+
+        return http_requests.post(
+            command_url,
+            json=payload,
+            headers=headers,
+            params=params,
+            timeout=600,
+        )
+
+    @validated_request(
+        query_serializer=TaskRunSessionLogsQuerySerializer,
+        responses={
+            200: OpenApiResponse(description="Filtered log events as JSON array"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get filtered task run session logs",
+        description="Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.",
+    )
+    @action(detail=True, methods=["get"], url_path="session_logs", required_scopes=["task:read"])
+    def session_logs(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        timer = ServerTimingsGathered()
+
+        with timer("s3_read"):
+            log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+
+        if not log_content.strip():
+            response = JsonResponse([], safe=False)
+            response["X-Total-Count"] = "0"
+            response["X-Filtered-Count"] = "0"
+            response["Cache-Control"] = "no-cache"
+            response["Server-Timing"] = timer.to_header_string()
+            return response
+
+        # Parse all JSONL entries
+        all_entries = []
+        for line in log_content.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                all_entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+        total_count = len(all_entries)
+
+        # Apply filters from validated query params
+        params = request.validated_query_data
+        after = params.get("after")
+        event_types_str = params.get("event_types")
+        exclude_types_str = params.get("exclude_types")
+        limit = params.get("limit", 1000)
+
+        event_types = {t.strip() for t in event_types_str.split(",") if t.strip()} if event_types_str else None
+        exclude_types = {t.strip() for t in exclude_types_str.split(",") if t.strip()} if exclude_types_str else None
+
+        with timer("filter"):
+            filtered = []
+            for entry in all_entries:
+                # Filter by timestamp (parse to avoid Z vs +00:00 and fractional second mismatches)
+                if after:
+                    entry_ts = entry.get("timestamp", "")
+                    if not entry_ts:
+                        continue  # Skip entries without timestamps
+                    try:
+                        entry_dt = datetime.fromisoformat(entry_ts.replace("Z", "+00:00"))
+                        if entry_dt <= after:
+                            continue
+                    except (ValueError, TypeError):
+                        continue  # Skip entries with unparseable timestamps
+
+                # Determine the event type for filtering
+                event_type = self._get_event_type(entry)
+
+                if event_types and event_type not in event_types:
+                    continue
+                if exclude_types and event_type in exclude_types:
+                    continue
+
+                filtered.append(entry)
+
+                if len(filtered) >= limit:
+                    break
+
+        response = JsonResponse(filtered, safe=False)
+        response["X-Total-Count"] = str(total_count)
+        response["X-Filtered-Count"] = str(len(filtered))
+        response["Cache-Control"] = "no-cache"
+        response["Server-Timing"] = timer.to_header_string()
+        return response
+
+    @staticmethod
+    def _get_event_type(entry: dict) -> str:
+        """Extract the event type from a log entry for filtering purposes.
+
+        For _posthog/* events, returns the notification method (e.g., '_posthog/console').
+        For session/update events, returns the sessionUpdate value (e.g., 'agent_message_chunk').
+        """
+        notification = entry.get("notification", {})
+        if not isinstance(notification, dict):
+            return ""
+        method = notification.get("method", "")
+
+        if method == "session/update":
+            params = notification.get("params", {})
+            update = params.get("update", {}) if isinstance(params, dict) else {}
+            return str(update.get("sessionUpdate", method)) if isinstance(update, dict) else method
+
+        return method

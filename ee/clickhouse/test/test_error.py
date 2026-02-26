@@ -2,7 +2,7 @@ import pytest
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.errors import ch_error_type, wrap_query_error
+from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 
 
 @pytest.mark.parametrize(
@@ -10,8 +10,11 @@ from posthog.errors import ch_error_type, wrap_query_error
     [
         (AttributeError("Foobar"), "AttributeError", "Foobar", None, "AttributeError"),
         (
-            ServerException("Estimated query execution time (34.5 seconds) is too long. Aborting query", code=160),
-            "EstimatedQueryExecutionTimeTooLong",
+            ServerException(
+                "Estimated query execution time (34.5 seconds) is too long. Aborting query",
+                code=160,
+            ),
+            "ClickHouseEstimatedQueryExecutionTimeTooLong",
             "Estimated query execution time (34.5 seconds) is too long. Try reducing its scope by changing the time range.",
             None,
             "CHQueryErrorTooSlow",
@@ -139,9 +142,9 @@ from posthog.errors import ch_error_type, wrap_query_error
         ),
     ],
 )
-def test_wrap_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
-    label = ch_error_type(error)
-    new_error = wrap_query_error(error)
+def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
+    label = clickhouse_error_type(error)
+    new_error = wrap_clickhouse_query_error(error)
     assert type(new_error).__name__ == expected_type
     assert str(new_error) == expected_message
     assert getattr(new_error, "code", None) == expected_code

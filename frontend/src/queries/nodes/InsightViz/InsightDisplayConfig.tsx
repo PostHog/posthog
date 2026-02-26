@@ -16,6 +16,7 @@ import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
@@ -26,13 +27,12 @@ import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMulti
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
-import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
-import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
@@ -86,10 +86,15 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
-        isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
-    const showMultipleYAxesConfig = isTrends || isStickiness
-    const showAlertThresholdLinesConfig = isTrends
-    const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
+        isTrends &&
+        !isValidBreakdown(breakdownFilter) &&
+        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph)
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
+    const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
+    const isLineGraph =
+        display === ChartDisplayType.ActionsLineGraph ||
+        display === ChartDisplayType.ActionsAreaGraph ||
+        (!display && isTrendsQuery(querySource))
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
     const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
@@ -115,7 +120,9 @@ export function InsightDisplayConfig(): JSX.Element {
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                          ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),
+                          ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
+                              ? [{ label: () => <ShowTrendLinesFilter /> }]
+                              : []),
                       ],
                   },
               ]
@@ -197,7 +204,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                       checked={showMovingAverage}
                                       disabledReason={
                                           !isLineGraph
-                                              ? 'Moving average is only available for line graphs'
+                                              ? 'Moving average is only available for line and area graphs'
                                               : !isLinearScale
                                                 ? 'Moving average is only supported for linear scale.'
                                                 : undefined

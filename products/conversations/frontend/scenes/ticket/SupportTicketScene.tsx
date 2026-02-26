@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -51,9 +51,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         previousTicketsLoading,
         exceptionsQuery,
         chatPanelWidth,
+        hasUnsavedChanges,
+        draftContent,
+        draftIsPrivate,
     } = useValues(logic)
-    const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
-    const { push } = useActions(router)
+    const {
+        setStatus,
+        setPriority,
+        setAssignee,
+        sendMessage,
+        updateTicket,
+        loadOlderMessages,
+        setDraftContent,
+        setDraftIsPrivate,
+    } = useActions(logic)
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -122,6 +133,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
                         showPrivateOption
+                        unreadCustomerCount={ticket?.unread_customer_count}
+                        showDeliveryStatus={ticket?.channel_source === 'widget'}
+                        draftContent={draftContent}
+                        onDraftChange={setDraftContent}
+                        isPrivate={draftIsPrivate}
+                        onPrivateChange={setDraftIsPrivate}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />
@@ -137,9 +154,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-semibold">Customer</h3>
                                     <LemonButton
-                                        size="xsmall"
+                                        size="small"
                                         type="secondary"
-                                        onClick={() => push(urls.personByDistinctId(ticket.distinct_id))}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
+                                        }}
                                     >
                                         View person
                                     </LemonButton>
@@ -195,6 +215,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            {ticket?.channel_source === 'slack' &&
+                                ticket?.slack_team_id &&
+                                ticket?.slack_channel_id &&
+                                ticket?.slack_thread_ts && (
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-muted-alt">Slack thread</span>
+                                        <Link
+                                            to={`https://app.slack.com/client/${ticket.slack_team_id}/${ticket.slack_channel_id}/thread/${ticket.slack_channel_id}-${ticket.slack_thread_ts.replace('.', '')}`}
+                                            target="_blank"
+                                            className="text-xs"
+                                        >
+                                            <LemonTag type="highlight">Open in Slack</LemonTag>
+                                        </Link>
+                                    </div>
+                                )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>
@@ -211,7 +246,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Status</span>
                                 <LemonSelect
-                                    size="xsmall"
+                                    size="small"
                                     value={status}
                                     options={statusOptionsWithoutAll}
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
@@ -221,7 +256,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Priority</span>
                                 <LemonSelect
-                                    size="xsmall"
+                                    size="small"
                                     value={priority}
                                     options={priorityOptions}
                                     onChange={(value: TicketPriority | null) => value && setPriority(value)}
@@ -233,7 +268,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <AssigneeSelect assignee={assignee} onChange={setAssignee}>
                                     {(resolvedAssignee, isOpen) => (
                                         <LemonButton
-                                            size="xsmall"
+                                            size="small"
                                             type="secondary"
                                             active={isOpen}
                                             sideIcon={<IconChevronDown />}
@@ -248,34 +283,46 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
-                            <LemonButton type="primary" size="small" onClick={() => updateTicket()}>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => updateTicket()}
+                                disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                            >
                                 Save changes
                             </LemonButton>
                         </div>
                     </LemonCard>
 
-                    {/* Session Recording Panel */}
-                    <SessionRecordingPanel sessionContext={ticket?.session_context} distinctId={ticket?.distinct_id} />
+                    {ticket?.channel_source === 'widget' && (
+                        <>
+                            {/* Session Recording Panel */}
+                            <SessionRecordingPanel
+                                sessionContext={ticket?.session_context}
+                                distinctId={ticket?.distinct_id}
+                            />
 
-                    {/* Recent Events Panel */}
-                    <RecentEventsPanel
-                        eventsQuery={eventsQuery}
-                        distinctId={ticket?.distinct_id}
-                        sessionId={ticket?.session_id}
-                    />
+                            {/* Recent Events Panel */}
+                            <RecentEventsPanel
+                                eventsQuery={eventsQuery}
+                                distinctId={ticket?.distinct_id}
+                                sessionId={ticket?.session_id}
+                            />
 
-                    {/* Exceptions Panel */}
-                    <ExceptionsPanel
-                        exceptionsQuery={exceptionsQuery}
-                        sessionId={ticket?.session_id}
-                        distinctId={ticket?.distinct_id}
-                    />
+                            {/* Exceptions Panel */}
+                            <ExceptionsPanel
+                                exceptionsQuery={exceptionsQuery}
+                                sessionId={ticket?.session_id}
+                                distinctId={ticket?.distinct_id}
+                            />
 
-                    {/* Previous Tickets Panel */}
-                    <PreviousTicketsPanel
-                        previousTickets={previousTickets}
-                        previousTicketsLoading={previousTicketsLoading}
-                    />
+                            {/* Previous Tickets Panel */}
+                            <PreviousTicketsPanel
+                                previousTickets={previousTickets}
+                                previousTicketsLoading={previousTicketsLoading}
+                            />
+                        </>
+                    )}
                 </div>
             </div>
         </SceneContent>

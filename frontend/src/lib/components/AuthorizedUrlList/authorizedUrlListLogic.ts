@@ -204,14 +204,20 @@ export const filterNotAuthorizedUrls = (
     const suggestedDomains: SuggestedDomain[] = []
 
     suggestions.forEach(({ url, count }) => {
-        const parsedUrl = sanitizePossibleWildCardedURL(url)
-        const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+        let urlWithoutPath: string
+        try {
+            const parsedUrl = sanitizePossibleWildCardedURL(url)
+            urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+        } catch {
+            // Skip invalid URLs (e.g., "/" or "/billing" paths without a domain)
+            return
+        }
         // Have we already added this domain?
         if (suggestedDomains.some((sd) => sd.url === urlWithoutPath)) {
             return
         }
 
-        if (!checkUrlIsAuthorized(parsedUrl, authorizedUrls)) {
+        if (!checkUrlIsAuthorized(urlWithoutPath, authorizedUrls)) {
             suggestedDomains.push({ url: urlWithoutPath, count })
         }
     })
@@ -267,7 +273,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     loaders(({ values, props }) => ({
         suggestions: {
             __default: [] as SuggestedDomain[],
-            loadSuggestions: async () => {
+            loadSuggestions: async (_: void, breakpoint) => {
                 const query = hogql`
                     select properties.$current_url, count()
                     from events
@@ -284,6 +290,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     scene: currentScene,
                     productKey: 'platform_and_support',
                 })
+                breakpoint()
                 const result = response.results as [string, number][]
 
                 if (result && result.length === 0) {

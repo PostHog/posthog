@@ -160,7 +160,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
 
 
 def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
-    email_targets = alert.subscribed_users.all().values_list("email", flat=True)
+    email_targets = alert.get_subscribed_users_emails()
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing"
         campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
@@ -208,7 +208,7 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> Non
     #         "alert_name": alert.name,
     #     },
     # )
-    # targets = alert.subscribed_users.all().values_list("email", flat=True)
+    # targets = alert.get_subscribed_users_emails()
     # for target in targets:
     #     message.add_recipient(email=target)
 

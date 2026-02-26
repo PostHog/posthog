@@ -11,8 +11,6 @@ import { urls } from 'scenes/urls'
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { Survey, SurveyAppearance } from '~/types'
 
-import { QuickSurveyModal } from './QuickSurveyModal'
-import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { AbsoluteCornerBadge } from './components/AbsoluteCornerBadge'
 import {
     NewSurvey,
@@ -22,6 +20,8 @@ import {
     defaultSurveyAppearance,
     defaultSurveyTemplates as templates,
 } from './constants'
+import { QuickSurveyModal } from './QuickSurveyModal'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {

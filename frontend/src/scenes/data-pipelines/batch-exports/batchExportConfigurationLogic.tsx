@@ -733,6 +733,10 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                     if (props.id) {
                         const res = await api.batchExports.update(props.id, data)
                         lemonToast.success('Batch export configuration updated successfully')
+                        void addProductIntent({
+                            product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                            intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
+                        })
                         return res
                     }
                     const res = await api.batchExports.create(data)

@@ -1,0 +1,5 @@
+# Error tracking (search for a value in an error and filtering by custom properties)
+
+```sql
+{{ render_hogql_example({"kind": "ErrorTrackingQuery", "filterTestAccounts": false, "dateRange": {"date_from": "-24h"}, "orderBy": "last_seen", "orderDirection": "DESC", "volumeResolution": 20, "searchQuery": "constant", "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": [{"type": "event", "key": "tag", "operator": "exact", "value": "max_ai"}]}]}}) }}
+```

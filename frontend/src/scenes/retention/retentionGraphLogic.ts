@@ -7,7 +7,7 @@ import { dateOptionPlurals } from 'scenes/retention/constants'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DateRange, RetentionQuery } from '~/queries/schema/schema-general'
+import { DateRange, RetentionFilter, RetentionQuery } from '~/queries/schema/schema-general'
 import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 
@@ -34,6 +34,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 'selectedBreakdownValue',
                 'retentionMeans',
                 'breakdownDisplayNames',
+                'isPropertyValueAggregation',
             ],
             teamLogic,
             ['timezone'],
@@ -41,8 +42,12 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
     })),
     selectors({
         trendSeries: [
-            (s) => [s.results, s.retentionFilter],
-            (results, retentionFilter): RetentionTrendPayload[] => {
+            (s) => [s.results, s.retentionFilter, s.isPropertyValueAggregation],
+            (
+                results: ProcessedRetentionPayload[],
+                retentionFilter: RetentionFilter | null | undefined,
+                isPropertyValueAggregation: boolean
+            ): RetentionTrendPayload[] => {
                 const { period } = retentionFilter || {}
 
                 return results.map((cohortRetention: ProcessedRetentionPayload, datasetIndex) => {
@@ -53,7 +58,9 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         labels: cohortRetention.values.map((_, index) => `${period} ${index}`),
                         count: 0,
                         label: formatRetentionCohortLabel(cohortRetention, period),
-                        data: cohortRetention.values.map((value) => value.percentage),
+                        data: cohortRetention.values.map((value) =>
+                            isPropertyValueAggregation ? (value.aggregation_value ?? 0) : value.percentage
+                        ),
                         index: datasetIndex,
                     }
                 })
@@ -61,14 +68,27 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
         ],
 
         intervalViewSeries: [
-            (s) => [s.filteredResults, s.retentionFilter, s.hasValidBreakdown, s.breakdownDisplayNames],
-            (filteredResults, retentionFilter, hasValidBreakdown, breakdownDisplayNames): RetentionTrendPayload[] => {
+            (s) => [
+                s.filteredResults,
+                s.retentionFilter,
+                s.hasValidBreakdown,
+                s.breakdownDisplayNames,
+                s.isPropertyValueAggregation,
+            ],
+            (
+                filteredResults: ProcessedRetentionPayload[],
+                retentionFilter: RetentionFilter | null | undefined,
+                hasValidBreakdown: boolean,
+                breakdownDisplayNames: Record<string, string>,
+                isPropertyValueAggregation: boolean
+            ): RetentionTrendPayload[] => {
                 const selectedInterval = retentionFilter?.selectedInterval ?? null
                 if (selectedInterval === null) {
                     return []
                 }
 
                 const { period } = retentionFilter || {}
+
                 const formatCohortLabel = (cohort: ProcessedRetentionPayload): string => {
                     if (cohort.date) {
                         return period === 'Hour' ? cohort.date.format('MMM D, h A') : cohort.date.format('MMM D')
@@ -109,7 +129,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                     }
 
                     const group = groupsByBreakdown.get(breakdownKey)!
-                    group.data.push(value.percentage)
+                    group.data.push(isPropertyValueAggregation ? (value.aggregation_value ?? 0) : value.percentage)
                     group.labels.push(formatCohortLabel(cohort))
                     group.days.push(value.cellDate.toISOString())
                 })
@@ -129,14 +149,19 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
 
         showTrendLines: [
             (s) => [s.querySource],
-            (querySource) => {
+            (querySource: RetentionQuery | null) => {
                 return (querySource as RetentionQuery)?.retentionFilter?.showTrendLines ?? false
             },
         ],
 
         incompletenessOffsetFromEnd: [
             (s) => [s.dateRange, s.retentionFilter, s.trendSeries, s.timezone],
-            (dateRange: DateRange | null | undefined, retentionFilter, trendSeries, timezone) => {
+            (
+                dateRange: DateRange | null | undefined,
+                retentionFilter: RetentionFilter | null | undefined,
+                trendSeries: RetentionTrendPayload[],
+                timezone: string
+            ) => {
                 const { date_to } = dateRange || {}
                 const { period } = retentionFilter || {}
 
@@ -165,7 +190,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
 
         aggregationGroupTypeIndex: [
             (s) => [s.querySource],
-            (querySource) => {
+            (querySource: RetentionQuery | null) => {
                 return (
                     (isLifecycleQuery(querySource) || isStickinessQuery(querySource)
                         ? null
@@ -191,6 +216,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 s.shouldShowMeanPerBreakdown,
                 s.breakdownDisplayNames,
                 s.intervalViewSeries,
+                s.isPropertyValueAggregation,
             ],
             (
                 hasValidBreakdown: boolean,
@@ -200,7 +226,8 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 retentionFilter: any,
                 shouldShowMeanPerBreakdown: boolean,
                 breakdownDisplayNames: Record<string, string>,
-                intervalViewSeries: RetentionTrendPayload[]
+                intervalViewSeries: RetentionTrendPayload[],
+                isPropertyValueAggregation: boolean
             ): RetentionTrendPayload[] => {
                 // If an interval is selected, show the interval view
                 const selectedInterval = retentionFilter?.selectedInterval ?? null
@@ -233,7 +260,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
 
                         meanSeries.push({
                             breakdown_value: displayLabel,
-                            data: meanData.meanPercentages,
+                            data: isPropertyValueAggregation ? meanData.meanValues : meanData.meanPercentages,
                             days: days,
                             labels: days,
                             count: meanData.totalCohortSize,
@@ -257,7 +284,11 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
 
         xAxisLabels: [
             (s) => [s.retentionFilter, s.results, s.filteredResults],
-            (retentionFilter, results, filteredResults) => {
+            (
+                retentionFilter: RetentionFilter | null | undefined,
+                results: ProcessedRetentionPayload[],
+                filteredResults: ProcessedRetentionPayload[]
+            ) => {
                 if (!retentionFilter || !results) {
                     return []
                 }
