@@ -356,6 +356,10 @@ impl FlagsCanonicalLogLine {
     /// which runs on the tokio task after rayon returns.
     ///
     /// Numeric counters are summed; boolean flags are OR'd.
+    ///
+    // TODO: consider splitting these eval counters into an `EvalCounters` sub-struct
+    // so that new counters are merged automatically and this field list doesn't drift.
+    // See https://github.com/PostHog/posthog/issues/49255
     pub fn merge_rayon_delta(&mut self, delta: &FlagsCanonicalLogLine) {
         self.flags_device_id_bucketing += delta.flags_device_id_bucketing;
         self.cohorts_evaluated += delta.cohorts_evaluated;
@@ -839,7 +843,7 @@ mod tests {
             &[(0, 0, 0, 0, true, false), (0, 0, 0, 0, false, true)],
             0, 0, 0, 0, true, true
         )]
-        fn test_merge_rayon_delta(
+        fn test_merge_rayon_delta_from_zero(
             #[case] deltas: &[(usize, usize, usize, usize, bool, bool)],
             #[case] expected_device_id: usize,
             #[case] expected_cohorts: usize,
@@ -869,6 +873,38 @@ mod tests {
             assert_eq!(log.property_cache_misses, expected_cache_misses);
             assert_eq!(log.person_properties_not_cached, expected_person_not_cached);
             assert_eq!(log.group_properties_not_cached, expected_group_not_cached);
+        }
+
+        #[test]
+        fn test_merge_into_preexisting_counters() {
+            let mut log = FlagsCanonicalLogLine {
+                property_cache_hits: 10,
+                property_cache_misses: 5,
+                cohorts_evaluated: 3,
+                flags_device_id_bucketing: 2,
+                person_properties_not_cached: true,
+                group_properties_not_cached: false,
+                ..Default::default()
+            };
+
+            let delta = FlagsCanonicalLogLine {
+                property_cache_hits: 7,
+                property_cache_misses: 3,
+                cohorts_evaluated: 2,
+                flags_device_id_bucketing: 1,
+                person_properties_not_cached: false,
+                group_properties_not_cached: true,
+                ..Default::default()
+            };
+
+            log.merge_rayon_delta(&delta);
+
+            assert_eq!(log.property_cache_hits, 17);
+            assert_eq!(log.property_cache_misses, 8);
+            assert_eq!(log.cohorts_evaluated, 5);
+            assert_eq!(log.flags_device_id_bucketing, 3);
+            assert!(log.person_properties_not_cached);
+            assert!(log.group_properties_not_cached);
         }
 
         #[test]
@@ -942,6 +978,27 @@ mod tests {
             let _guard = install_rayon_canonical_log();
             let delta = take_rayon_canonical_log().unwrap();
             assert_eq!(delta.property_cache_hits, 0);
+        }
+
+        #[test]
+        fn test_guard_cleans_up_on_panic() {
+            use std::panic::catch_unwind;
+
+            // Ensure clean state
+            drop(take_rayon_canonical_log());
+
+            let result = catch_unwind(|| {
+                let _guard = install_rayon_canonical_log();
+                with_canonical_log(|log| log.property_cache_hits = 42);
+                panic!("simulated evaluation panic");
+            });
+
+            assert!(result.is_err(), "should have caught the panic");
+            // The guard's Drop should have cleared the thread-local
+            assert!(
+                take_rayon_canonical_log().is_none(),
+                "thread-local should be clean after panic"
+            );
         }
 
         #[test]

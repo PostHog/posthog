@@ -1014,8 +1014,8 @@ impl FeatureFlagMatcher {
             .collect();
 
         // Each rayon thread accumulates evaluation counters in a thread-local
-        // FlagsCanonicalLogLine. After evaluation, the per-flag deltas are sent
-        // back through the oneshot channel and merged into the request's
+        // FlagsCanonicalLogLine. After evaluation, the per-flag deltas are
+        // returned alongside each flag result and merged into the request's
         // tokio task-local canonical log.
         let work = move || {
             flags_to_evaluate
