@@ -41,13 +41,22 @@ export interface PlaywrightSetupDashboard {
     variable_overrides?: Record<string, any>
 }
 
+export interface PlaywrightSetupEvent {
+    event: string
+    distinct_id: string
+    timestamp: string // ISO 8601 timestamp
+    properties?: Record<string, any>
+}
+
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
     use_current_time?: boolean
     skip_onboarding?: boolean
+    no_demo_data?: boolean
     insight_variables?: PlaywrightSetupVariable[]
     insights?: PlaywrightSetupInsight[]
     dashboards?: PlaywrightSetupDashboard[]
+    events?: PlaywrightSetupEvent[]
 }
 
 export interface PlaywrightSetupCreatedVariable {

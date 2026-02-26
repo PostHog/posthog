@@ -18,15 +18,12 @@ from ee.hogai.core.agent_modes import AgentToolkit
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import ErrorTrackingAgentToolkit
-from ee.hogai.core.agent_modes.presets.product_analytics import (
-    ProductAnalyticsAgentToolkit,
-    ReadOnlyProductAnalyticsAgentToolkit,
-)
+from ee.hogai.core.agent_modes.presets.product_analytics import ReadOnlyProductAnalyticsAgentToolkit
 from ee.hogai.core.agent_modes.presets.session_replay import SessionReplayAgentToolkit
 from ee.hogai.core.agent_modes.presets.sql import SQLAgentToolkit
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder, AgentPromptBuilderBase
 from ee.hogai.core.agent_modes.toolkit import AgentToolkitManager
-from ee.hogai.core.plan_mode import ONBOARDING_TASK_PROMPT, PLANNING_TASK_PROMPT
+from ee.hogai.core.plan_mode import PLANNING_TASK_PROMPT
 from ee.hogai.research_agent.executables import ResearchAgentExecutable, ResearchAgentToolsExecutable
 from ee.hogai.research_agent.prompts import (
     BASIC_FUNCTIONALITY_PROMPT,
@@ -41,6 +38,7 @@ from ee.hogai.research_agent.prompts import (
     SWITCHING_TO_RESEARCH_MODE_PROMPT,
     TASK_MANAGEMENT_PROMPT,
 )
+from ee.hogai.research_agent.prompts.plan import ONBOARDING_TASK_PROMPT
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
     CreateFormTool,
@@ -77,7 +75,7 @@ research_agent = AgentModeDefinition(
 research_agent_product_analytics_agent = AgentModeDefinition(
     mode=AgentMode.PRODUCT_ANALYTICS,
     mode_description="General-purpose mode for product analytics tasks.",
-    toolkit_class=ProductAnalyticsAgentToolkit,
+    toolkit_class=ReadOnlyProductAnalyticsAgentToolkit,
     node_class=ResearchAgentExecutable,
     tools_node_class=ResearchAgentToolsExecutable,
 )
@@ -102,14 +100,6 @@ research_agent_error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
     mode_description="Error tracking mode for researching data.",
     toolkit_class=ErrorTrackingAgentToolkit,
-    node_class=ResearchAgentExecutable,
-    tools_node_class=ResearchAgentToolsExecutable,
-)
-
-research_agent_plan_product_analytics_agent = AgentModeDefinition(
-    mode=AgentMode.PRODUCT_ANALYTICS,
-    mode_description="General-purpose mode for product analytics tasks.",
-    toolkit_class=ReadOnlyProductAnalyticsAgentToolkit,  # Only CreateInsightTool
     node_class=ResearchAgentExecutable,
     tools_node_class=ResearchAgentToolsExecutable,
 )
@@ -226,17 +216,14 @@ class ResearchAgentModeManager(AgentModeManager):
             AgentMode.SQL: research_agent_sql_agent,
             AgentMode.SESSION_REPLAY: research_agent_session_replay_agent,
             AgentMode.ERROR_TRACKING: research_agent_error_tracking_agent,
+            AgentMode.PRODUCT_ANALYTICS: research_agent_product_analytics_agent,
         }
         return {
             AgentMode.PLAN: {
                 **default_mode_registry,
                 AgentMode.RESEARCH: research_agent,
-                AgentMode.PRODUCT_ANALYTICS: research_agent_plan_product_analytics_agent,
             },
-            AgentMode.RESEARCH: {
-                **default_mode_registry,
-                AgentMode.PRODUCT_ANALYTICS: research_agent_product_analytics_agent,
-            },
+            AgentMode.RESEARCH: default_mode_registry,
         }
 
     @property

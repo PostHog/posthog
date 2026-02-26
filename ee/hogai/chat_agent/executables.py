@@ -1,13 +1,25 @@
+import asyncio
+
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AgentMode
 
+from ee.hogai.chat_agent.toolkit import DEFAULT_TOOLS
 from ee.hogai.core.agent_modes.executables import AgentExecutable, AgentToolsExecutable
 from ee.hogai.core.plan_mode import PlanModeExecutable, PlanModeToolsExecutable
+from ee.hogai.tools.switch_mode import _get_default_tools_prompt, _get_modes_prompt
+from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import CLEAR_SUPERMODE, AssistantState, PartialAssistantState
 
 SWITCH_TO_EXECUTION_MODE_PROMPT = """
-Planning complete. Switched to execution mode, which defaults to product analytics mode, with access to all tools, like dashboard creation.
+Planning complete. Switched to execution mode, which defaults to product analytics mode.
+
+Available tools and modes:
+## Common tools
+{{{default_tools}}}
+
+## Specialized modes
+{{{available_modes}}}
 
 You MUST continue executing the plan until it is complete. Do not respond with text only - proceed with tool calls until you have completed the tasks.
 """
@@ -79,9 +91,30 @@ class ChatAgentPlanToolsExecutable(PlanModeToolsExecutable):
         # Chat agent exits plan mode entirely (supermode becomes None via CLEAR_SUPERMODE)
         return CLEAR_SUPERMODE
 
-    @property
-    def transition_prompt(self) -> str:
-        return SWITCH_TO_EXECUTION_MODE_PROMPT
+    async def get_transition_prompt(self) -> str:
+        from ee.hogai.chat_agent.mode_manager import get_execution_mode_registry  # circular import
+
+        execution_registry = get_execution_mode_registry(self._team, self._user)
+
+        default_tools, available_modes = await asyncio.gather(
+            _get_default_tools_prompt(
+                team=self._team,
+                user=self._user,
+                default_tool_classes=DEFAULT_TOOLS,
+            ),
+            _get_modes_prompt(
+                team=self._team,
+                user=self._user,
+                context_manager=self.context_manager,
+                mode_registry=execution_registry,
+            ),
+        )
+
+        return format_prompt_string(
+            SWITCH_TO_EXECUTION_MODE_PROMPT,
+            default_tools=default_tools,
+            available_modes=available_modes,
+        )
 
     def _should_transition(self, state: AssistantState, result: PartialAssistantState) -> bool:
         # Transition when switching from plan mode to execution mode

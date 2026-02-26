@@ -13,6 +13,7 @@ from typing import Any, Optional, Union
 from django.conf import settings as app_settings
 
 import sqlparse
+import structlog
 from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -155,7 +156,8 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 @patchable
@@ -218,7 +220,7 @@ def sync_execute(
     if not workload:
         workload = Workload.DEFAULT
         # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
-        logging.warning(f"workload is None", traceback.format_stack())
+        logger.warning("workload is None", stacktrace=traceback.format_stack())
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
@@ -286,7 +288,7 @@ def sync_execute(
 
     if (
         not TEST
-        and ch_user == ClickHouseUser.APP
+        and ch_user in (ClickHouseUser.APP, ClickHouseUser.DEFAULT)
         and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None)
     ):
         missing = []
@@ -300,9 +302,9 @@ def sync_execute(
             missing.append("query_type")
 
         logger.warning(
-            "sync_execute called with missing query tags: %s\n%s",
-            ", ".join(missing),
-            "".join(traceback.format_stack()),
+            "sync_execute called with missing query tags",
+            tags=",".join(missing),
+            stacktrace="".join(traceback.format_stack()),
         )
 
     settings = {
