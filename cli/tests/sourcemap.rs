@@ -234,10 +234,7 @@ fn test_reinject_without_new_release() {
     // Chunk ID should be a 32-char hex string (content hash)
     assert_eq!(chunk_id.len(), 32);
     assert!(chunk_id.chars().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(
-        &first_pair.sourcemap.get_chunk_id().unwrap(),
-        &chunk_id
-    );
+    assert_eq!(&first_pair.sourcemap.get_chunk_id().unwrap(), &chunk_id);
     assert!(&first_pair.sourcemap.get_release_id().is_none());
 }
 
@@ -256,10 +253,7 @@ fn test_reinject_with_new_release() {
     // Chunk ID should be a 32-char hex string (content hash)
     assert_eq!(chunk_id.len(), 32);
     assert!(chunk_id.chars().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(
-        &first_pair.sourcemap.get_chunk_id().unwrap(),
-        &chunk_id
-    );
+    assert_eq!(&first_pair.sourcemap.get_chunk_id().unwrap(), &chunk_id);
     assert_eq!(
         first_pair.sourcemap.get_release_id().unwrap(),
         release_id.clone()
