@@ -297,6 +297,18 @@ function formatToolCalls(toolCalls: Array<{ id: string; name: string; arguments:
         .join('\n\n')
 }
 
+function normalizeUsageFromStreamChunk(data: Record<string, any>): ComparisonItem['usage'] {
+    const promptTokens = data.input_tokens ?? data.prompt_tokens ?? null
+    const completionTokens = data.output_tokens ?? data.completion_tokens ?? null
+    const totalTokens = data.total_tokens ?? null
+
+    return {
+        prompt_tokens: typeof promptTokens === 'number' ? promptTokens : null,
+        completion_tokens: typeof completionTokens === 'number' ? completionTokens : null,
+        total_tokens: typeof totalTokens === 'number' ? totalTokens : null,
+    }
+}
+
 export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsPlaygroundLogic']),
 
@@ -761,11 +773,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                                             ttftMs,
                                         })
                                     } else if (data.type === 'usage') {
-                                        responseUsage = {
-                                            prompt_tokens: data.prompt_tokens ?? null,
-                                            completion_tokens: data.completion_tokens ?? null,
-                                            total_tokens: data.total_tokens ?? null,
-                                        }
+                                        responseUsage = normalizeUsageFromStreamChunk(data)
                                         actions.updateComparisonItem(liveItemId, { usage: responseUsage })
                                     } else if (data.error) {
                                         responseText += `\n\n**LLM Error:** ${data.error}`

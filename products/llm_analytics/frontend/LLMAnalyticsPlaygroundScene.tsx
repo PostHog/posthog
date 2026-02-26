@@ -1,7 +1,17 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronRight, IconGear, IconPencil, IconPlay, IconPlus, IconTrash, IconWrench } from '@posthog/icons'
+import {
+    IconChevronRight,
+    IconCopy,
+    IconGear,
+    IconPencil,
+    IconPlay,
+    IconPlus,
+    IconStack,
+    IconTrash,
+    IconWrench,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -20,6 +30,7 @@ import {
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -28,6 +39,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ByokModelPicker } from './ByokModelPicker'
 import { JSONEditor } from './components/JSONEditor'
+import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import {
     ComparisonItem,
     Message,
@@ -35,18 +47,6 @@ import {
     PromptConfig,
     llmAnalyticsPlaygroundLogic,
 } from './llmAnalyticsPlaygroundLogic'
-import { formatTokens } from './utils'
-
-const formatMs = (ms: number | null | undefined): string => {
-    if (ms === null || typeof ms === 'undefined') {
-        return '-'
-    }
-    if (ms < 1000) {
-        return `${ms.toFixed(0)} ms`
-    }
-    return `${(ms / 1000).toFixed(2)} s`
-}
-
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -161,7 +161,7 @@ function PlaygroundLayout(): JSX.Element {
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
-            <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col">
+            <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
                 <div className="h-full min-h-0 overflow-y-auto">
                     <PromptConfigsSection />
                 </div>
@@ -175,7 +175,7 @@ function PromptConfigsSection(): JSX.Element {
     const { removePromptConfig, setActivePromptId } = useActions(llmAnalyticsPlaygroundLogic)
 
     const promptCount = promptConfigs.length
-    const gridMinWidth = `calc(${promptCount} * 500px + ${Math.max(promptCount - 1, 0)} * 0.75rem)`
+    const gridMinWidth = `calc(${promptCount} * 500px + ${Math.max(promptCount - 1, 0)} * 1rem)`
     const latestItemByPromptId = new Map<string, ComparisonItem>()
 
     for (const item of displayItems) {
@@ -187,7 +187,7 @@ function PromptConfigsSection(): JSX.Element {
     return (
         <div className="h-full min-h-0 overflow-x-auto pb-4">
             <div
-                className="grid h-full min-w-full items-stretch gap-3"
+                className="grid h-full min-w-full items-stretch gap-4"
                 style={{
                     width: `max(100%, ${gridMinWidth})`,
                     gridAutoFlow: 'column',
@@ -234,31 +234,32 @@ function PromptCard({
 
     return (
         <div
-            className={`min-w-0 border rounded p-3 bg-surface-primary transition-shadow ${
+            className={`min-w-0 border rounded p-4 bg-transparent transition-shadow group/prompt ${
                 isActive ? 'ring-1 ring-primary/40 shadow-sm' : 'hover:shadow-sm'
             } h-full flex flex-col min-h-0`}
         >
-            <div className="flex items-center justify-between mb-3 gap-2 shrink-0">
+            <div className="flex items-center justify-between mb-4 gap-2 shrink-0">
                 <button type="button" className="flex items-center gap-2 min-w-0" onClick={onActivate}>
                     <LemonTag type={isActive ? 'highlight' : 'default'} size="small">
                         Prompt {index + 1}
                     </LemonTag>
-                    <span className="text-xs text-muted truncate">{prompt.model || 'No model selected'}</span>
                 </button>
 
-                <LemonButton
-                    size="small"
-                    status="danger"
-                    icon={<IconTrash />}
-                    noPadding
-                    disabledReason={
-                        !canRemove ? 'At least one prompt is required' : submitting ? 'Generating...' : undefined
-                    }
-                    onClick={onRemove}
-                />
+                {canRemove && (
+                    <div className="opacity-0 group-hover/prompt:opacity-100 group-focus-within/prompt:opacity-100 transition-opacity">
+                        <LemonButton
+                            size="small"
+                            status="danger"
+                            icon={<IconTrash />}
+                            noPadding
+                            disabledReason={submitting ? 'Generating...' : undefined}
+                            onClick={onRemove}
+                        />
+                    </div>
+                )}
             </div>
 
-            <div className="shrink-0 mb-3">
+            <div className="shrink-0 mb-4">
                 <ModelConfigBar promptId={prompt.id} />
             </div>
 
@@ -270,25 +271,25 @@ function PromptCard({
 }
 
 function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
-    const isStreaming = item?.id === '__streaming__'
+    const isStreaming = !!item && item.latencyMs == null && !item.error && !item.response.trim()
 
     return (
-        <div className="border rounded p-3 bg-surface-primary min-h-[180px] min-w-0 flex flex-col min-h-0">
-            <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="border rounded p-4 bg-transparent h-[300px] min-w-0 flex flex-col">
+            <div className="flex items-center justify-between gap-2 mb-3">
                 <LemonTag type="default" size="small">
                     Result
                 </LemonTag>
-                {isStreaming && <span className="text-xs text-muted">Streaming...</span>}
             </div>
 
             {!item ? (
-                <div className="text-xs text-muted flex-1 min-h-[96px] flex items-center justify-center border rounded bg-surface-secondary">
-                    Run prompts to see results here.
+                <div className="text-xs text-muted flex-1 min-h-[96px] flex flex-col items-center justify-center border border-dashed rounded bg-surface-secondary gap-2">
+                    <IconPlay className="w-5 h-5 opacity-20" />
+                    <span>Run prompt to see result</span>
                 </div>
             ) : (
                 <>
                     <div
-                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs whitespace-normal break-words p-2 min-w-0 rounded border bg-surface-secondary leading-5 ${
+                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs whitespace-normal break-words p-3 min-w-0 rounded border bg-surface-secondary leading-5 ${
                             item.error ? 'text-danger' : ''
                         }`}
                         style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
@@ -301,22 +302,27 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                                 {item.response}
                             </div>
                         ) : isStreaming ? (
-                            <LemonSkeleton active className="my-1 h-4" />
+                            <div className="h-full flex items-center justify-center text-xs text-muted">
+                                <div className="inline-flex items-center gap-2">
+                                    <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                                    <span>Generating response...</span>
+                                </div>
+                            </div>
                         ) : (
                             <span className="text-muted italic">No response</span>
                         )}
                     </div>
-                    <div className="mt-2 pt-2 border-t grid grid-cols-2 gap-2 text-[11px] text-muted">
-                        <div>
-                            In: {item.usage?.prompt_tokens != null ? formatTokens(item.usage.prompt_tokens) : '-'}
-                        </div>
-                        <div>
-                            Out:{' '}
-                            {item.usage?.completion_tokens != null ? formatTokens(item.usage.completion_tokens) : '-'}
-                        </div>
-                        <div>TTFT: {formatMs(item.ttftMs)}</div>
-                        <div>Latency: {formatMs(item.latencyMs)}</div>
-                    </div>
+                    {!!item.response && (
+                        <MetadataHeader
+                            className="mt-2 pt-2"
+                            isError={item.error}
+                            inputTokens={item.usage?.prompt_tokens ?? undefined}
+                            outputTokens={item.usage?.completion_tokens ?? undefined}
+                            latency={typeof item.latencyMs === 'number' ? item.latencyMs / 1000 : undefined}
+                            timeToFirstToken={typeof item.ttftMs === 'number' ? item.ttftMs / 1000 : undefined}
+                            isStreaming={isStreaming}
+                        />
+                    )}
                 </>
             )}
         </div>
@@ -416,7 +422,7 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
     }
 
     return (
-        <div className="space-y-3 p-3 w-[280px]">
+        <div className="space-y-4 p-4 w-[300px]">
             <div>
                 <label className="text-xs font-medium mb-1 block">Max tokens</label>
                 <LemonInput
@@ -630,6 +636,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
+    const { promptConfigs } = useValues(llmAnalyticsPlaygroundLogic)
     const { setSystemPrompt, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
     const [collapsed, setCollapsed] = useState(false)
@@ -638,10 +645,39 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
         return <LemonSkeleton className="h-12" />
     }
 
+    const hasOtherPrompts = promptConfigs.length > 1
+    const copySystemPromptToOtherPrompts = (): void => {
+        if (!hasOtherPrompts) {
+            return
+        }
+
+        for (const otherPrompt of promptConfigs) {
+            if (otherPrompt.id !== promptId) {
+                setSystemPrompt(prompt.systemPrompt, otherPrompt.id)
+            }
+        }
+    }
+
     return (
         <>
-            <div className="border rounded p-3 relative group bg-surface-secondary border-l-4 border-l-[var(--color-purple-500)]">
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="border rounded p-4 py-2 relative group border-l-4 border-l-[var(--color-purple-500)]">
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                    <LemonButton
+                        size="small"
+                        icon={<IconCopy />}
+                        tooltip="Copy system prompt"
+                        noPadding
+                        onClick={() => void copyToClipboard(prompt.systemPrompt, 'system prompt')}
+                    />
+                    {hasOtherPrompts && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconStack />}
+                            tooltip="Apply this system prompt to other prompts"
+                            noPadding
+                            onClick={copySystemPromptToOtherPrompts}
+                        />
+                    )}
                     <LemonButton
                         size="small"
                         icon={<IconPencil />}
@@ -687,6 +723,13 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                 title="Edit system prompt"
                 width="90vw"
                 maxWidth="1200px"
+                footer={
+                    <div className="flex justify-end gap-2">
+                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
+                            Close
+                        </LemonButton>
+                    </div>
+                }
             >
                 <div className="space-y-4">
                     <div>
@@ -698,11 +741,6 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                             onChange={(value) => setSystemPrompt(value, promptId)}
                             minRows={8}
                         />
-                    </div>
-                    <div className="flex justify-end gap-2">
-                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
-                            Close
-                        </LemonButton>
                     </div>
                 </div>
             </LemonModal>
@@ -721,6 +759,7 @@ function MessageDisplay({
 }): JSX.Element {
     const { updateMessage, deleteMessage, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
     const [collapsed, setCollapsed] = useState(false)
+    const [showEditModal, setShowEditModal] = useState(false)
 
     const handleRoleChange = (newRole: MessageRole): void => {
         updateMessage(index, { role: newRole }, promptId)
@@ -766,65 +805,109 @@ function MessageDisplay({
     const useJsonEditor = trimmedContent.startsWith('{') || trimmedContent.startsWith('[')
 
     return (
-        <div className={`border rounded p-3 relative group bg-surface-secondary ${getRoleBorderClass(message.role)}`}>
-            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <LemonButton
-                    size="small"
-                    status="danger"
-                    icon={<IconTrash />}
-                    tooltip="Delete message"
-                    noPadding
-                    onClick={() => deleteMessage(index, promptId)}
-                />
-            </div>
-
-            <div
-                className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
-                onClick={() => setCollapsed(!collapsed)}
-            >
-                <CollapsibleChevron collapsed={collapsed} />
-                <span className={`w-2 h-2 rounded-full shrink-0 ${getRoleDotClass(message.role)}`} />
-                <div onClick={(e) => e.stopPropagation()}>
-                    <LemonSelect<MessageRole>
+        <>
+            <div className={`border rounded p-4 py-2 relative group ${getRoleBorderClass(message.role)}`}>
+                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                    <LemonButton
                         size="small"
-                        options={roleOptions}
-                        value={message.role}
-                        onChange={handleRoleChange}
-                        dropdownMatchSelectWidth={false}
+                        icon={<IconCopy />}
+                        tooltip="Copy message"
+                        noPadding
+                        onClick={() => void copyToClipboard(message.content, `${message.role} message`)}
+                    />
+                    <LemonButton
+                        size="small"
+                        icon={<IconPencil />}
+                        tooltip="Edit message in modal"
+                        noPadding
+                        onClick={() => setShowEditModal(true)}
+                    />
+                    <LemonButton
+                        size="small"
+                        status="danger"
+                        icon={<IconTrash />}
+                        tooltip="Delete message"
+                        noPadding
+                        onClick={() => deleteMessage(index, promptId)}
                     />
                 </div>
-                {collapsed && (
-                    <span className="text-xs text-muted truncate flex-1">
-                        {message.content
-                            ? message.content.slice(0, 80) + (message.content.length > 80 ? '…' : '')
-                            : `Empty ${message.role} message`}
-                    </span>
-                )}
-            </div>
 
-            <AnimatedCollapsible collapsed={collapsed}>
-                {useJsonEditor ? (
-                    <div className={`border rounded ${INLINE_JSON_MAX_HEIGHT_CLASS}`}>
-                        <JSONEditor
-                            value={message.content}
-                            onChange={handleContentChange}
-                            defaultNumberOfLines={2}
-                            maxNumberOfLines={INLINE_JSON_MAX_LINES}
-                            onPressCmdEnter={() => submitPrompt()}
+                <div
+                    className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
+                    onClick={() => setCollapsed(!collapsed)}
+                >
+                    <CollapsibleChevron collapsed={collapsed} />
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${getRoleDotClass(message.role)}`} />
+                    <div onClick={(e) => e.stopPropagation()}>
+                        <LemonSelect<MessageRole>
+                            size="small"
+                            options={roleOptions}
+                            value={message.role}
+                            onChange={handleRoleChange}
+                            dropdownMatchSelectWidth={false}
                         />
                     </div>
-                ) : (
-                    <LemonTextArea
-                        className="text-sm w-full"
-                        placeholder={`Enter ${message.role} message here...`}
-                        value={message.content}
-                        onChange={handleContentChange}
-                        minRows={2}
-                        maxRows={undefined}
-                        onPressCmdEnter={() => submitPrompt()}
-                    />
-                )}
-            </AnimatedCollapsible>
-        </div>
+                    {collapsed && (
+                        <span className="text-xs text-muted truncate flex-1">
+                            {message.content
+                                ? message.content.slice(0, 80) + (message.content.length > 80 ? '…' : '')
+                                : `Empty ${message.role} message`}
+                        </span>
+                    )}
+                </div>
+
+                <AnimatedCollapsible collapsed={collapsed}>
+                    {useJsonEditor ? (
+                        <div className={`border rounded ${INLINE_JSON_MAX_HEIGHT_CLASS}`}>
+                            <JSONEditor
+                                value={message.content}
+                                onChange={handleContentChange}
+                                defaultNumberOfLines={2}
+                                maxNumberOfLines={INLINE_JSON_MAX_LINES}
+                                onPressCmdEnter={() => submitPrompt()}
+                            />
+                        </div>
+                    ) : (
+                        <LemonTextArea
+                            className="text-sm w-full"
+                            placeholder={`Enter ${message.role} message here...`}
+                            value={message.content}
+                            onChange={handleContentChange}
+                            minRows={2}
+                            maxRows={undefined}
+                            onPressCmdEnter={() => submitPrompt()}
+                        />
+                    )}
+                </AnimatedCollapsible>
+            </div>
+
+            <LemonModal
+                isOpen={showEditModal}
+                onClose={() => setShowEditModal(false)}
+                title="Edit message"
+                width="90vw"
+                maxWidth="1200px"
+                footer={
+                    <div className="flex justify-end gap-2">
+                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
+                            Close
+                        </LemonButton>
+                    </div>
+                }
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="font-semibold mb-1 block text-sm">Message content</label>
+                        <LemonTextArea
+                            className="text-sm w-full"
+                            placeholder={`Enter ${message.role} message here...`}
+                            value={message.content}
+                            onChange={handleContentChange}
+                            minRows={8}
+                        />
+                    </div>
+                </div>
+            </LemonModal>
+        </>
     )
 }
