@@ -2,6 +2,8 @@ from typing import Literal
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
@@ -14,6 +16,7 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -320,4 +323,24 @@ class TestPostgresTable(BaseTest):
         self.assertEqual(
             self._select("SELECT id FROM postgres_table LIMIT 10"),
             f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(postgres_table.properties, %(hogql_val_15)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_16)s), 1)) LIMIT 10",
+        )
+
+
+ALL_POSTGRES_SYSTEM_TABLES = [
+    (name, node.table) for name, node in SystemTables().children.items() if isinstance(node.table, PostgresTable)
+]
+
+
+class TestPostgresTablePrimaryKey(BaseTest):
+    """Validate primary_key auto-detection and access_scope constraints."""
+
+    @parameterized.expand(ALL_POSTGRES_SYSTEM_TABLES)
+    def test_tables_with_access_scope_have_single_column_pk(self, table_name, table):
+        """Object-level access control requires a single-column PK to filter by."""
+        if table.access_scope is None:
+            return
+        assert table.primary_key is not None, (
+            f"system.{table_name} has access_scope='{table.access_scope}' "
+            f"but no single-column primary key (composite PK). "
+            f"Object-level access control requires a single-column PK."
         )

@@ -520,6 +520,14 @@ class BasePrinter(Visitor[str]):
         scope = ast.SelectQueryType(tables={"t": node_type})
         return [resolve_types(clone_expr(pred), self.context, self.DIALECT_NAME, [scope]) for pred in predicates]
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        if self.dialect != "hogql":
+            raise NotImplementedError("HogQLPrinter._ensure_access_control_where_clause not overridden")
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         """Print a table reference. Fail-fast by default: each dialect must override.
 
@@ -568,14 +576,22 @@ class BasePrinter(Visitor[str]):
 
             self._collect_table_top_level_settings(table_type.table)
 
-            # :IMPORTANT: Ensures team_id filtering on every table. For LEFT JOINs, we add it to the
-            # ON clause (not WHERE) to preserve LEFT JOIN semantics - otherwise NULL rows get filtered out.
+            # :IMPORTANT: Ensures team_id and and resource_id filtering on every table.
+            # For LEFT JOINs, we add guards to ON (not WHERE) to preserve NULL rows.
             team_id_expr = self._ensure_team_id_where_clause(table_type, node.type)
-            is_left_join = node.join_type is not None and "LEFT" in node.join_type
-            if is_left_join and team_id_expr is not None and node.constraint is not None:
-                team_id_for_on_clause = team_id_expr
+            access_control_expr = self._ensure_access_control_where_clause(table_type, node.type)
+
+            combined_guard: ast.Expr | None = None
+            if team_id_expr and access_control_expr:
+                combined_guard = ast.And(exprs=[team_id_expr, access_control_expr], type=ast.BooleanType())
             else:
-                extra_where = team_id_expr
+                combined_guard = team_id_expr or access_control_expr
+
+            is_left_join = node.join_type is not None and "LEFT" in node.join_type
+            if is_left_join and combined_guard is not None and node.constraint is not None:
+                team_id_for_on_clause = combined_guard
+            else:
+                extra_where = combined_guard
 
             # Apply table-level predicates (e.g., date filters on PostgresTable).
             predicate_exprs = self._get_table_predicates(table_type, node.type)
