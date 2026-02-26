@@ -172,6 +172,14 @@ export class SnapshotStore {
         return { sourceIndex: bestSourceIndex, timestamp: bestTs }
     }
 
+    clearSnapshotData(): void {
+        for (const entry of this.entries) {
+            entry.processedSnapshots = null
+        }
+        this.mergedSnapshotsCache = null
+        this.snapshotsByWindowIdCache = null
+    }
+
     getUnloadedIndicesInRange(start: number, end: number): number[] {
         const result: number[] = []
         const clampedStart = Math.max(0, start)

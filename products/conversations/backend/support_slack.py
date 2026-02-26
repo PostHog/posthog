@@ -82,16 +82,16 @@ def save_supporthog_slack_token(
 ) -> None:
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
     old_token = config.slack_bot_token
+    old_slack_team_id = config.slack_team_id
 
     settings = team.conversations_settings or {}
-    old_slack_team_id = settings.get("slack_team_id")
-    settings["slack_team_id"] = slack_team_id
     settings["slack_enabled"] = True
     team.conversations_settings = settings
 
     with transaction.atomic():
         config.slack_bot_token = bot_token
-        config.save(update_fields=["slack_bot_token"])
+        config.slack_team_id = slack_team_id
+        config.save(update_fields=["slack_bot_token", "slack_team_id"])
         team.save(update_fields=["conversations_settings"])
 
     log_activity(
@@ -115,7 +115,7 @@ def save_supporthog_slack_token(
                 Change(
                     type="Team",
                     action="created" if old_slack_team_id is None else "changed",
-                    field="conversations_settings.slack_team_id",
+                    field="slack_team_id",
                     before=old_slack_team_id,
                     after=slack_team_id,
                 ),
@@ -141,7 +141,8 @@ def clear_supporthog_slack_token(
 
     with transaction.atomic():
         config.slack_bot_token = None
-        config.save(update_fields=["slack_bot_token"])
+        config.slack_team_id = None
+        config.save(update_fields=["slack_bot_token", "slack_team_id"])
         team.save(update_fields=["conversations_settings"])
 
     log_activity(
