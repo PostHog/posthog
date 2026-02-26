@@ -1,7 +1,7 @@
 import uuid
 import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 from django.conf import settings
@@ -154,7 +154,7 @@ def should_send_notification(
             return False
 
         if team_id is not None:
-            project_settings = settings.get("error_tracking_weekly_digest_project_enabled", None)
+            project_settings: dict[str, Any] | None = settings.get("error_tracking_weekly_digest_project_enabled", None)
             if project_settings is not None:
                 return project_settings.get(str(team_id), False)
 
@@ -1476,14 +1476,17 @@ def send_error_tracking_weekly_digest_for_org(org_id: str, team_ids_filter: list
             "ingestion_failures_url": build_ingestion_failures_url(team_id),
         }
 
-    memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
+    all_memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
 
     allowed_emails = settings.ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS
     if not allowed_emails:
         logger.info(f"No allowed emails configured, skipping org {org_id}")
         return
-    if "*" not in allowed_emails:
-        memberships = [m for m in memberships if m.user.email in allowed_emails]
+    memberships: list[OrganizationMembership] = (
+        [m for m in all_memberships if m.user.email in allowed_emails]
+        if "*" not in allowed_emails
+        else list(all_memberships)
+    )
 
     date_suffix = timezone.now().strftime("%Y-%W-%d-%H")
     sent_count = 0

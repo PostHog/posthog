@@ -284,7 +284,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
             self._create_exception_event(issue_id=issue.id)
         flush_persons_and_events()
 
-        result = get_exception_counts_for_org(self.team.organization_id)
+        result = get_exception_counts_for_org(self.team.organization.id)
 
         assert self.team.pk in result
         assert result[self.team.pk]["exception_count"] == 3
@@ -295,7 +295,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        result = get_exception_counts_for_org(self.team.organization_id, team_ids_filter=[other_team.pk])
+        result = get_exception_counts_for_org(self.team.organization.id, team_ids_filter=[other_team.pk])
 
         assert self.team.pk not in result
 
