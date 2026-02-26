@@ -41,6 +41,7 @@ jobs:
                         - 'ee/frontend/**'
                         - '.storybook/**'
                         - 'package.json'
+                        - 'pnpm-workspace.yaml'
                         - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
 
