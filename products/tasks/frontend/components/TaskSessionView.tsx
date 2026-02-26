@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'

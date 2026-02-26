@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, type JSX } from 'react'
 
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'

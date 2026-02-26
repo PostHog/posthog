@@ -1,7 +1,7 @@
 import './VirtualizedLogsList.scss'
 
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
+import { CSSProperties, useCallback, useEffect, useMemo, useRef, type JSX } from 'react'
 import { List, getScrollbarSize, useDynamicRowHeight, useListRef } from 'react-window'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'

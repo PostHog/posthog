@@ -1,4 +1,5 @@
 import { actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'

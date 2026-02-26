@@ -1,6 +1,6 @@
 import { useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, LemonTextAreaMarkdown } from '@posthog/lemon-ui'

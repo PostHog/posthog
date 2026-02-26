@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 
 import { IconDownload, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'

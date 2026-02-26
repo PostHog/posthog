@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { PropertyFilterType } from '~/types'
 
 import { LogAttributes } from 'products/logs/frontend/components/LogsViewer/LogAttributes'

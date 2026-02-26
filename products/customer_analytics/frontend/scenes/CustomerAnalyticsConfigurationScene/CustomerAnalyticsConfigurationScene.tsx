@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
 

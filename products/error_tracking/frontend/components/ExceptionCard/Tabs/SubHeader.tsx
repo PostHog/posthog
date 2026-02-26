@@ -1,4 +1,4 @@
-import { HTMLProps } from 'react'
+import { HTMLProps, type JSX } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 

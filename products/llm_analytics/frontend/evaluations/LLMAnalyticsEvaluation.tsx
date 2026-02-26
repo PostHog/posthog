@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { IconArrowLeft, IconInfo } from '@posthog/icons'
 import {

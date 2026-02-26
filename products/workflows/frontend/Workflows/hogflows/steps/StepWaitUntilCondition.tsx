@@ -1,5 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonLabel } from '@posthog/lemon-ui'
 

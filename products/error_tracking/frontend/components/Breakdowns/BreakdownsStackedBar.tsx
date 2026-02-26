@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { getSeriesColor } from 'lib/colors'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'

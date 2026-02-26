@@ -3,7 +3,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PropsWithChildren, useEffect } from 'react'
+import { PropsWithChildren, useEffect, type JSX } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'

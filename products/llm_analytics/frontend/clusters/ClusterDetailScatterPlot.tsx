@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { Chart } from 'lib/Chart'
 import { useChart } from 'lib/hooks/useChart'

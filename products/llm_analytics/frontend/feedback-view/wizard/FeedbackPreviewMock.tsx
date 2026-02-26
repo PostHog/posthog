@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type JSX } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 

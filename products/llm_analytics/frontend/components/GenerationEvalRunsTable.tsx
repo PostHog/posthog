@@ -1,4 +1,5 @@
 import { BuiltLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
 import { LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'

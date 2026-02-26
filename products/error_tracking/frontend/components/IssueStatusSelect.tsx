@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

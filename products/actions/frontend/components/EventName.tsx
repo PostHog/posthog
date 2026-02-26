@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { AnthropicLogo } from 'scenes/onboarding/sdks/logos/AnthropicLogo'
 import geminiImage from 'scenes/onboarding/sdks/logos/gemini.svg'
 import { OpenAILogo } from 'scenes/onboarding/sdks/logos/OpenAILogo'

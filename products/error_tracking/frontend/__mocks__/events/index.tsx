@@ -1,5 +1,5 @@
 import { BindLogic, useActions } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventProperties } from 'lib/components/Errors/types'

@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 interface SortState {
     column: string
     direction: 'ASC' | 'DESC'

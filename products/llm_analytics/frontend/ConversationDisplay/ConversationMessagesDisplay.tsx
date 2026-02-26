@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

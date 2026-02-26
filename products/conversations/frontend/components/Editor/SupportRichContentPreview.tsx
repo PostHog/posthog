@@ -2,6 +2,7 @@ import './SupportEditor.scss'
 
 import { JSONContent } from '@tiptap/core'
 import { EditorContent } from '@tiptap/react'
+import type { JSX } from 'react'
 
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { cn } from 'lib/utils/css-classes'

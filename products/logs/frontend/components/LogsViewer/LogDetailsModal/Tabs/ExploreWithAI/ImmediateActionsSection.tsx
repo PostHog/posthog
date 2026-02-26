@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PRIORITY_TAG_TYPE, PRIORITY_TOOLTIP } from './constants'

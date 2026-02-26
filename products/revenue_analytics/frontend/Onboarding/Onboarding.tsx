@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { MouseEvent, useCallback } from 'react'
+import { MouseEvent, useCallback, type JSX } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'

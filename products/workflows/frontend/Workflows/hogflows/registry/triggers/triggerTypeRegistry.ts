@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { FeatureFlagKey } from 'lib/constants'
 
 export type TriggerTypeDefinition = {

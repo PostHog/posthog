@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 

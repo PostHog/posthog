@@ -1,5 +1,6 @@
 import { Meta } from '@storybook/react'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonCard } from '@posthog/lemon-ui'
 

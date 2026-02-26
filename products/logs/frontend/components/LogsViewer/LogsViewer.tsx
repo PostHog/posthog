@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, type JSX } from 'react'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'

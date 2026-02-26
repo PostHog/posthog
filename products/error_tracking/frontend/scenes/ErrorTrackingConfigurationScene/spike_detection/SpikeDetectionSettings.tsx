@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonButton, LemonMenuOverlay } from '@posthog/lemon-ui'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'

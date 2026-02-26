@@ -1,5 +1,5 @@
 import { JSONContent } from '@tiptap/core'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'

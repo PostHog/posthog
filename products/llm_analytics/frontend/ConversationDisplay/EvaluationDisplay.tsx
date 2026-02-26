@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconCheck, IconMinus, IconX } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 

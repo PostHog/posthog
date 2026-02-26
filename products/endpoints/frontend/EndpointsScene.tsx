@@ -1,5 +1,6 @@
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconBook, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

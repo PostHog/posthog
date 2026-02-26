@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { isObject } from 'lib/utils'

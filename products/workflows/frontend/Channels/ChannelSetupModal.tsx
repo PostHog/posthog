@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from './EmailSetup/EmailSetupModal'

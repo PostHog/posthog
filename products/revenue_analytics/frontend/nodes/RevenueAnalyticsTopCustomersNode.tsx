@@ -1,5 +1,5 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'

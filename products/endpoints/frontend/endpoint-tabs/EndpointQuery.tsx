@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
-import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'

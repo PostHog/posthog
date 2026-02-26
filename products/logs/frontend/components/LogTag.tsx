@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 
 import { LogMessage } from '~/queries/schema/schema-general'

@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type JSX } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'

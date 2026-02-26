@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Spinner } from '@posthog/lemon-ui'
 
 export function AIDataLoading({ variant = 'inline' }: { variant?: 'inline' | 'block' }): JSX.Element {

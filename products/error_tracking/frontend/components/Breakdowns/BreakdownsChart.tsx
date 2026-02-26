@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { Query } from '~/queries/Query/Query'
 import { FilterLogicalOperator } from '~/types'

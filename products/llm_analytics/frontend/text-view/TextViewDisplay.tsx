@@ -3,7 +3,7 @@
  * Shows a formatted text representation with copy functionality and expandable truncated sections
  */
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type JSX } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'

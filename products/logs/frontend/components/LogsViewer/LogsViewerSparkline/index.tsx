@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, type JSX } from 'react'
 
 import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 

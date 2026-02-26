@@ -2,6 +2,7 @@
  * Renders structured summary with collapsible sections
  */
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 

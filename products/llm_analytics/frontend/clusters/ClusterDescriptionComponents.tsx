@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 /**
  * Shared components for rendering cluster and trace descriptions.
  */

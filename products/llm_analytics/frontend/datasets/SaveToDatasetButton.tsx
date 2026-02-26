@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import React, { useMemo } from 'react'
+import React, { useMemo, type JSX } from 'react'
 
 import { IconDatabase, IconExternal, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'

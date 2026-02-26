@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { AssigneeDisplay, AssigneeIconDisplayProps } from './AssigneeDisplay'
 

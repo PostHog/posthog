@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'

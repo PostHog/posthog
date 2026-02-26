@@ -1,6 +1,6 @@
 import { BaseEdge, Edge, EdgeLabelRenderer, EdgeProps, useEdges } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, type JSX } from 'react'
 
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'

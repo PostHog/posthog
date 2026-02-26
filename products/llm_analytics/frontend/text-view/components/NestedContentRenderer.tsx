@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 /**
  * Component for rendering nested content that may contain truncated segments
  * Used for expandable sections within the main text view

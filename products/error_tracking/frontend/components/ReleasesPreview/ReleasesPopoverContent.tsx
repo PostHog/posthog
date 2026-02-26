@@ -1,4 +1,4 @@
-import { ReactNode, createElement, useMemo } from 'react'
+import { ReactNode, createElement, useMemo, type JSX } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconCommit, IconGitBranch, IconGitRepository, IconShare } from '@posthog/icons'

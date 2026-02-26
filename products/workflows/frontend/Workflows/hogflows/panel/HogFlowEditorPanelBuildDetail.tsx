@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { IconExternal, IconPlay, IconPlus, IconX } from '@posthog/icons'
 import {

@@ -1,5 +1,5 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'

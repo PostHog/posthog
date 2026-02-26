@@ -3,7 +3,7 @@ import './WorkflowTemplateChooser.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'

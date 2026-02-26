@@ -1,5 +1,5 @@
 import * as d3 from 'd3'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { cn } from 'lib/utils/css-classes'

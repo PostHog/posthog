@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 /**
  * Component for rendering different segment types (truncated, gen_expandable, tools_expandable)
  */

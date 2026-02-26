@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { JSONViewer } from 'lib/components/JSONViewer'
 
 import { PropertyFilterType } from '~/types'

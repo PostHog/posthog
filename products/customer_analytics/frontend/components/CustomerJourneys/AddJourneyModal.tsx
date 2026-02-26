@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 

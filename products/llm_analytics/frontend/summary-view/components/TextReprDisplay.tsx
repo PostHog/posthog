@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 /**
  * Displays line-numbered text representation
  */

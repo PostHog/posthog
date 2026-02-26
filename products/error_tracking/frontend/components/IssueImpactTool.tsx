@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import MaxTool from 'scenes/max/MaxTool'
 

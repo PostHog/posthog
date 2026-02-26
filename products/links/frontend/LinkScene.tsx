@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { QRCodeSVG } from 'qrcode.react'
+import type { JSX } from 'react'
 
 import { IconCopy, IconDownload } from '@posthog/icons'
 import {

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconCheckCircle, IconRevert, IconSort, IconTrash, IconUpload, IconWarning } from '@posthog/icons'

@@ -1,5 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'

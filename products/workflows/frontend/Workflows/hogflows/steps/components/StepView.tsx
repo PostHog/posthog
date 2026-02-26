@@ -1,6 +1,6 @@
 import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconCopy, IconDrag, IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'

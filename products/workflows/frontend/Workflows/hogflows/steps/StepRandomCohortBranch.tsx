@@ -1,6 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 

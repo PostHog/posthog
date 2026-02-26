@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { NewTicket } from './NewTicket'
 import { RestoreTickets } from './RestoreTickets'

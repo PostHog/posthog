@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'

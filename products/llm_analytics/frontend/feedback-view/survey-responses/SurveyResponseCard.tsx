@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Link } from '@posthog/lemon-ui'
 
 import { isThumbQuestion } from 'scenes/surveys/utils'

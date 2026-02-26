@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SurveyQuestion } from '~/types'
 
 export function ChoiceResponse({ value, question }: { value: unknown; question: SurveyQuestion }): JSX.Element {

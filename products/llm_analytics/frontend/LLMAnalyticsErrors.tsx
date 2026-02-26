@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 

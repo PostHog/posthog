@@ -1,4 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'

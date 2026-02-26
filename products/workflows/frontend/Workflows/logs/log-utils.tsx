@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconTrash } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 

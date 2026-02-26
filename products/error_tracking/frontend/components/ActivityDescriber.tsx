@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 

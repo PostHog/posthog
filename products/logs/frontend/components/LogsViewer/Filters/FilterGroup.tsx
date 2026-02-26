@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef, useState, type JSX } from 'react'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 

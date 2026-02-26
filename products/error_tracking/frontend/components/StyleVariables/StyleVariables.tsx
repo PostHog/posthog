@@ -1,5 +1,7 @@
 import './StyleVariables.scss'
 
+import type { JSX } from 'react'
+
 import { cn } from 'lib/utils/css-classes'
 
 export function StyleVariables({

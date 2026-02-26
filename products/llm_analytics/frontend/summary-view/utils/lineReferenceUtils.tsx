@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 /**
  * Utilities for parsing and handling line references in summaries
  */

@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { highlightPythonSyntax } from './codeUtils'
 

@@ -2,6 +2,7 @@ import './MessageTemplatesGrid.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 

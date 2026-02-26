@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
 

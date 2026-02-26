@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'

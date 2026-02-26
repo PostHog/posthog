@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useState, type JSX } from 'react'
 
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 

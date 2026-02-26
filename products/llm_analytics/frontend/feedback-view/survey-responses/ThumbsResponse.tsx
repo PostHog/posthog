@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 
 import { SurveyQuestion } from '~/types'

@@ -4,6 +4,7 @@
  * Provides AI-powered summarization of LLM traces and events with line references.
  */
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconComment, IconLetter } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 

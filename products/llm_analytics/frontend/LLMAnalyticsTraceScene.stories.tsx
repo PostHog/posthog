@@ -1,5 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { HighlightedContentWrapper } from './HighlightedContentWrapper'
 import { XMLViewer } from './XMLViewer'
 

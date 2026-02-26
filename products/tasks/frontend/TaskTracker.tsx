@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { sceneConfigurations } from 'scenes/scenes'

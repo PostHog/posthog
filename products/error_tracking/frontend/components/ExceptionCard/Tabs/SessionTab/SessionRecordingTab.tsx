@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 import { match } from 'ts-pattern'
 
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'

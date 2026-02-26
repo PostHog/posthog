@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'

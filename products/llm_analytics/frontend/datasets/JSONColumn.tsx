@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 

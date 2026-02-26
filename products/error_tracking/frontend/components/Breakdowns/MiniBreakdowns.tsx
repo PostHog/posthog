@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { BreakdownsTileButton } from './BreakdownsTileButton'
 import { BREAKDOWN_PRESETS } from './consts'
 

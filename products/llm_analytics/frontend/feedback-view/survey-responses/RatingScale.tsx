@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 
 import { RatingSurveyQuestion } from '~/types'

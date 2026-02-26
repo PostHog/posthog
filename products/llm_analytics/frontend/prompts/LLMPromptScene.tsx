@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'

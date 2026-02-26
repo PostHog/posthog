@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 
 import { NodeKind } from '~/queries/schema/schema-general'

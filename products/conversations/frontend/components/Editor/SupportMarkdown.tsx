@@ -1,6 +1,7 @@
 import './SupportMarkdown.scss'
 
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { LemonMarkdown, LemonMarkdownProps } from 'lib/lemon-ui/LemonMarkdown'
 

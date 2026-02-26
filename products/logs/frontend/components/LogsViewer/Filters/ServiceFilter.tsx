@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import type { JSX } from 'react'
 
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { projectLogic } from 'scenes/projectLogic'

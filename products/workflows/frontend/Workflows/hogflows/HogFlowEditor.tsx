@@ -11,7 +11,7 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 

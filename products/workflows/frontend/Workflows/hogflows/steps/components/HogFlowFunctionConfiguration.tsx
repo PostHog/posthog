@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 

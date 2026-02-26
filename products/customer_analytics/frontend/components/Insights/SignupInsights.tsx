@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { CustomerAnalyticsQueryCard } from 'products/customer_analytics/frontend/components/CustomerAnalyticsQueryCard'
 import {

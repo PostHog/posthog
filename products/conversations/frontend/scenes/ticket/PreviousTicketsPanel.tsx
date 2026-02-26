@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'

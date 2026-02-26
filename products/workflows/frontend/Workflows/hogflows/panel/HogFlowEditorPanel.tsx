@@ -1,6 +1,7 @@
 import { useReactFlow } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconArrowLeft, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'

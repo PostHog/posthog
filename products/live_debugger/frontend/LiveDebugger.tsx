@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'

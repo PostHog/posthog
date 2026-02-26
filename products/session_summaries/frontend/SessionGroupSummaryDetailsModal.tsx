@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { IconShare, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'

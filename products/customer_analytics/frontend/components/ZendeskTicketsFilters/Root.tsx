@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 export const FiltersRoot = ({ children }: { children: ReactNode }): JSX.Element => {
     return <div className="flex flex-wrap gap-2">{children}</div>

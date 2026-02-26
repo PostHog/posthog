@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconCopy, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'

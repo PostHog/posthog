@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 
 import { IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {

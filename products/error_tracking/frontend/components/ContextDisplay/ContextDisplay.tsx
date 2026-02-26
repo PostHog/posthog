@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 import { match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'

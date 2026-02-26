@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'

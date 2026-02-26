@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 

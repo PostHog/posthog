@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'

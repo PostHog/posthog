@@ -2,7 +2,7 @@ import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 import { useRef } from 'react'
 
 import { IconFilter, IconList, IconSearch } from '@posthog/icons'

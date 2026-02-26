@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconClock, IconPlayFilled } from '@posthog/icons'
 import { IconChevronDown } from '@posthog/icons'

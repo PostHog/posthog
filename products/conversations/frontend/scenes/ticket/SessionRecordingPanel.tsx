@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'

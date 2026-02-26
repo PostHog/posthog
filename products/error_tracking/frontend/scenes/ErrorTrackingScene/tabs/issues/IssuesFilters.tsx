@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { QuickFiltersSection } from 'lib/components/QuickFilters/QuickFiltersSection'

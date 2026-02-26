@@ -1,4 +1,5 @@
 import { JSONContent } from '@tiptap/core'
+import type { JSX } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'

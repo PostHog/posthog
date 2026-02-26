@@ -1,7 +1,7 @@
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { IconCopy, IconDrag, IconPlus } from '@posthog/icons'
 

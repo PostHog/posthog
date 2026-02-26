@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'

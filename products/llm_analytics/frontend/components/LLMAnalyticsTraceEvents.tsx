@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { LLMTrace } from '~/queries/schema/schema-general'

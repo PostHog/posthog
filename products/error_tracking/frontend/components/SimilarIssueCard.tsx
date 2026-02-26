@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 import { IconDirectedGraph, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

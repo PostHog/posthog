@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 /**
  * Component for rendering text with clickable URLs, event links, and line numbers
  */

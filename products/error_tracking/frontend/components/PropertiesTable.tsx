@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconCopy, IconFilter, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 

@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconChevronDown, IconRefresh } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, LemonTag } from '@posthog/lemon-ui'

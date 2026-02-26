@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useFeatureFlagEnabled } from 'posthog-js/react'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'

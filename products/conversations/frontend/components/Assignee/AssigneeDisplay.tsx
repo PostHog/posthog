@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React, { useMemo } from 'react'
+import React, { useMemo, type JSX } from 'react'
 import { match } from 'ts-pattern'
 
 import { IconPerson } from '@posthog/icons'

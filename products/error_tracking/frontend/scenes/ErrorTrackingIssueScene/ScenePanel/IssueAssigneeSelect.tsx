@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 

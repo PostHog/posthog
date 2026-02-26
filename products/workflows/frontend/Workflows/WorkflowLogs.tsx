@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconClock } from '@posthog/icons'
 import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'

@@ -1,5 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 

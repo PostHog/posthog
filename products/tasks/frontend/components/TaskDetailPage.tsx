@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'

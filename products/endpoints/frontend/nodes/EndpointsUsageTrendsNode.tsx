@@ -1,5 +1,5 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 

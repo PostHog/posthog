@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconCursorClick, IconPencil } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'

@@ -10,7 +10,7 @@ import { EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconCode, IconImage } from '@posthog/icons'
 

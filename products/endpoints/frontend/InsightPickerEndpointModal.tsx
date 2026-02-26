@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
+import type { JSX } from 'react'
 
 import { IconCode2, IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
 

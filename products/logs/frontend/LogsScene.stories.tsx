@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'

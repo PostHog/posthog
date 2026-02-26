@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
 export function LLMInputOutput({

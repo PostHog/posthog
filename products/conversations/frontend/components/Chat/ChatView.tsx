@@ -1,4 +1,5 @@
 import { JSONContent } from '@tiptap/core'
+import type { JSX } from 'react'
 
 import { LemonCard } from '@posthog/lemon-ui'
 

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CONFIDENCE_CONFIG } from './constants'

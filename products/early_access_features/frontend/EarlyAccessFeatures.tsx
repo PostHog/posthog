@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 

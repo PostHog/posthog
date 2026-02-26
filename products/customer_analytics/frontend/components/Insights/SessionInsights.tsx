@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'

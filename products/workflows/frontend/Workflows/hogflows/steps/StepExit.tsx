@@ -1,4 +1,5 @@
 import { Node } from '@xyflow/react'
+import type { JSX } from 'react'
 
 import { HogFlowAction } from '../types'
 

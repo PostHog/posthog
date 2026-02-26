@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip, lemonToast } from '@posthog/lemon-ui'
@@ -355,7 +356,6 @@ export function ExternalDataSourceConfiguration({
                     },
                 ]}
             />
-
             {/* To be used above by the join features */}
             <ViewLinkModal mode="revenue_analytics" />
             {managedViewsetsEnabled && (

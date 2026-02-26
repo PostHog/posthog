@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { PropsWithChildren, useState } from 'react'
+import { PropsWithChildren, useState, type JSX } from 'react'
 import { match } from 'ts-pattern'
 
 import { IconChevronRight } from '@posthog/icons'

@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconGlobe, IconHome, IconLaptop } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptionLeaf, LemonSelectSection } from '@posthog/lemon-ui'

@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { IconAI } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'

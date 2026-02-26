@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
@@ -35,7 +36,9 @@ export function MRRBreakdownChart(): JSX.Element {
             ({
                 ...dataset,
                 id: idx,
-                action: { ...dataset.action, order: idx }, // Required to make SeriesLetter work as expected
+
+                // Required to make SeriesLetter work as expected
+                action: { ...dataset.action, order: idx },
             }) as GraphDataset
     )
 

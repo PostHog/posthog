@@ -1,4 +1,4 @@
-import { Children } from 'react'
+import { Children, type JSX } from 'react'
 import { match } from 'ts-pattern'
 
 import { IconBug } from '@posthog/icons'

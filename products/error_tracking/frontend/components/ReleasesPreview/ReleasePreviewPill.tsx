@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconCommit } from '@posthog/icons'
 import { LemonTag, Popover } from '@posthog/lemon-ui'

@@ -1,5 +1,5 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { TASK_STATUS_CONFIG } from '../lib/task-status'

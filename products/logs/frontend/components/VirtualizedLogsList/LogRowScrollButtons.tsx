@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'

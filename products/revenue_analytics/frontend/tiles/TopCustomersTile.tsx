@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconInfo, IconLineGraph } from '@posthog/icons'
 import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'

@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 import { BindLogic, useActions } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'

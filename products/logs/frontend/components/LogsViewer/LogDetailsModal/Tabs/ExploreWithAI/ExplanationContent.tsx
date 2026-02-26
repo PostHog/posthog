@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'

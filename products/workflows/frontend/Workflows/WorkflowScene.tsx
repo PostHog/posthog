@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconClock } from '@posthog/icons'
 import { SpinnerOverlay } from '@posthog/lemon-ui'

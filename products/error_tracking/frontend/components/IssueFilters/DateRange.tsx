@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dateMapping } from 'lib/utils'

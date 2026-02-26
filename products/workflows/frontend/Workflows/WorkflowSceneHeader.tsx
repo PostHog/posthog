@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconArchive, IconCopy, IconScreen } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'

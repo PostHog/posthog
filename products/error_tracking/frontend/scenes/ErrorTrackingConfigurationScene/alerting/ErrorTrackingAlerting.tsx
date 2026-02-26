@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useFeatureFlagVariantKey } from 'posthog-js/react'
+import type { JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 

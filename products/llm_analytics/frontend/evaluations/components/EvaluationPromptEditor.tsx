@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 

@@ -1,5 +1,5 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { Children, MouseEvent, ReactElement, isValidElement, useCallback } from 'react'
+import { Children, MouseEvent, ReactElement, isValidElement, useCallback, type JSX } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { LemonButton, LemonTable, LemonTableColumn, LemonTableProps } from '@posthog/lemon-ui'
