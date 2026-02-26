@@ -277,13 +277,38 @@ class HogQLQueryExecutor:
         self.direct_postgres_values = direct_context.values
         self.direct_postgres_source_id = next(iter(direct_source_ids))
 
+    def _should_use_direct_postgres(self) -> bool:
+        query_type = self.select_query.type
+        if query_type is None:
+            return False
+
+        direct_source_ids = self._extract_direct_postgres_sources_from_type(query_type)
+        if len(direct_source_ids) == 0:
+            return False
+
+        if len(direct_source_ids) > 1:
+            raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
+
+        all_table_types = Resolver(context=self.hogql_context or self.context)._extract_tables_from_query_type(
+            query_type
+        )
+        has_non_direct_tables = any(
+            isinstance(table_type, ast.TableType) and not isinstance(table_type.table, DirectPostgresTable)
+            for table_type in all_table_types
+        )
+
+        if has_non_direct_tables:
+            return False
+
+        return True
+
     def _execute_direct_postgres_query(self) -> None:
         assert self.direct_postgres_sql is not None
         assert self.direct_postgres_source_id is not None
 
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
-        source = ExternalDataSource.objects.get(team_id=self.team.pk, source_id=self.direct_postgres_source_id)
+        source = ExternalDataSource.objects.get(source_id=self.direct_postgres_source_id)
         source_config = source.job_inputs or {}
 
         with psycopg.connect(
@@ -441,18 +466,28 @@ class HogQLQueryExecutor:
         self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
-        self._maybe_prepare_direct_postgres_query()
-        if self.direct_postgres_sql is None:
-            with self.timings.measure("_generate_clickhouse_sql"):
-                self._generate_clickhouse_sql()
-            assert self.clickhouse_sql
-            return self.clickhouse_sql, self.clickhouse_context
-
-        return self.direct_postgres_sql, self.context
+        if self._should_use_direct_postgres():
+            self._maybe_prepare_direct_postgres_query()
+            return self.direct_postgres_sql, self.context
+        with self.timings.measure("_generate_clickhouse_sql"):
+            self._generate_clickhouse_sql()
+        assert self.clickhouse_sql
+        return self.clickhouse_sql, self.clickhouse_context
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
-        self.generate_clickhouse_sql()
+        self._parse_query()
+        self._process_variables()
+        self._process_placeholders()
+        self._apply_limit()
+        with self.timings.measure("_generate_hogql"):
+            self._generate_hogql()
+
+        if self._should_use_direct_postgres():
+            self._maybe_prepare_direct_postgres_query()
+        else:
+            with self.timings.measure("_generate_clickhouse_sql"):
+                self._generate_clickhouse_sql()
 
         if self.direct_postgres_sql is not None:
             self._execute_direct_postgres_query()
