@@ -170,9 +170,14 @@ export function hasMultipleVariantsActive(filters: FeatureFlagType['filters'] | 
 }
 
 // Normalize a value into a valid feature flag key: spaces to dashes, strip invalid chars.
-// Note that lowercase should not be enforced as users use camelCase as well
-export function slugifyFeatureFlagKey(value: string, { trimBothEnds = true }: { trimBothEnds?: boolean } = {}): string {
-    return slugify(value, { lowercase: false, trimBothEnds })
+// fromTitleInput: when auto-filling from a name field, downcase and trim both ends.
+// Direct key input preserves case and only trims the start (so users can can continue typing with spaces).
+// Note that lowercase should not be enforced as users do use camelCase or UPPERCASE
+export function slugifyFeatureFlagKey(
+    value: string,
+    { fromTitleInput = false }: { fromTitleInput?: boolean } = {}
+): string {
+    return slugify(value, { lowercase: fromTitleInput, trimBothEnds: fromTitleInput })
 }
 
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */

@@ -55,9 +55,10 @@ export function AboutStep(): JSX.Element {
                         setExperimentValue('name', value)
                         if (
                             !experiment.feature_flag_key ||
-                            experiment.feature_flag_key === slugifyFeatureFlagKey(experiment.name)
+                            experiment.feature_flag_key ===
+                                slugifyFeatureFlagKey(experiment.name, { fromTitleInput: true })
                         ) {
-                            const newKey = slugifyFeatureFlagKey(value)
+                            const newKey = slugifyFeatureFlagKey(value, { fromTitleInput: true })
                             setExperimentValue('feature_flag_key', newKey)
                             debouncedValidateFeatureFlagKey(newKey)
                         }
@@ -109,7 +110,7 @@ export function AboutStep(): JSX.Element {
                         placeholder="e.g., new-checkout-flow-test"
                         value={experiment.feature_flag_key ?? ''}
                         onChange={(value) => {
-                            const normalizedValue = slugifyFeatureFlagKey(value, { trimBothEnds: false })
+                            const normalizedValue = slugifyFeatureFlagKey(value)
                             setExperimentValue('feature_flag_key', normalizedValue)
                             debouncedValidateFeatureFlagKey(normalizedValue)
                         }}
