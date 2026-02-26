@@ -1387,7 +1387,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         toggleTileDescription: async ({ tileId }) => {
             const matchingTile = values.tiles.find((tile) => tile.id === tileId)
             const previousValue = matchingTile?.show_description
-            const newValue = !previousValue
+            const newValue = previousValue === false
             actions.setTileProperty(tileId, { show_description: newValue })
             try {
                 await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
