@@ -462,7 +462,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
 
             expect(logic.values.hasByokKeys).toBe(true)
             expect(logic.values.effectiveModelOptions).toEqual(
-                byokModels.map((m) => ({ ...m, providerKeyId: 'key-1' }))
+                byokModels.map((m) => ({ ...m, isRecommended: false, providerKeyId: 'key-1' }))
             )
         })
     })

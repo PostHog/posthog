@@ -46,7 +46,13 @@ class VideoSegment:
 
 @dataclass
 class FetchSegmentsResult:
-    segments: list[VideoSegmentMetadata]
+    """Result from fetch_segments_activity.
+
+    Segment data is stored in object storage to avoid exceeding Temporal's 2 MB payload limit.
+    """
+
+    storage_key: str
+    document_count: int
 
 
 @dataclass
@@ -104,7 +110,7 @@ class FetchSegmentsActivityInputs:
 @dataclass
 class ClusterSegmentsActivityInputs:
     team_id: int
-    document_ids: list[str]
+    storage_key: str
 
 
 @dataclass
@@ -118,7 +124,7 @@ class CreateNoiseClustersActivityInputs:
 class EmitSignalsActivityInputs:
     team_id: int
     clusters: list[Cluster]
-    segments: list[VideoSegmentMetadata]
+    storage_key: str
 
 
 @dataclass

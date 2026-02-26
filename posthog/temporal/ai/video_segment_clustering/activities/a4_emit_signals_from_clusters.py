@@ -19,7 +19,10 @@ from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
-from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
+from posthog.temporal.ai.video_segment_clustering.data import (
+    count_distinct_persons,
+    fetch_video_segment_metadata_by_document_ids,
+)
 from posthog.temporal.ai.video_segment_clustering.models import (
     ClusterContext,
     ClusterLabel,
@@ -32,6 +35,7 @@ from posthog.temporal.ai.video_segment_clustering.priority import (
     parse_datetime_as_utc,
     parse_timestamp_to_seconds,
 )
+from posthog.temporal.ai.video_segment_clustering.state import load_fetch_result
 
 from products.signals.backend.api import emit_signal
 
@@ -85,16 +89,57 @@ LABELING_USER_PROMPT_TEMPLATE = """Cluster analysis:
 Determine if this cluster is actionable and generate task details if so."""
 
 
+def _rows_to_segment_lookup(rows: list) -> dict[str, VideoSegmentMetadata]:
+    """Parse ClickHouse rows into segment lookup, matching a2_fetch_segments logic."""
+    lookup: dict[str, VideoSegmentMetadata] = {}
+    for row in rows:
+        document_id, content, metadata_str, _ = row
+        try:
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+        except (json.JSONDecodeError, TypeError):
+            continue
+        required = (
+            metadata.get("session_id"),
+            metadata.get("start_time"),
+            metadata.get("end_time"),
+            metadata.get("distinct_id"),
+            metadata.get("session_start_time"),
+            metadata.get("session_end_time"),
+            metadata.get("session_duration"),
+            metadata.get("session_active_seconds"),
+        )
+        if not all(required):
+            continue
+        seg = VideoSegmentMetadata(
+            document_id=document_id,
+            session_id=metadata["session_id"],
+            start_time=metadata["start_time"],
+            end_time=metadata["end_time"],
+            session_start_time=metadata["session_start_time"],
+            session_end_time=metadata["session_end_time"],
+            session_duration=metadata["session_duration"],
+            session_active_seconds=metadata["session_active_seconds"],
+            distinct_id=metadata["distinct_id"],
+            content=content,
+        )
+        lookup[document_id] = seg
+    return lookup
+
+
 @activity.defn
 async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs) -> EmitSignalsResult:
     """Label clusters via LLM, calculate weights, and emit each as a signal."""
     team = await Team.objects.aget(id=inputs.team_id)
-    segment_lookup = {s.document_id: s for s in inputs.segments}
-    genai_client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+    _, distinct_ids = await load_fetch_result(inputs.storage_key)
+    active_users_in_period = await sync_to_async(count_distinct_persons)(team, distinct_ids)
 
-    # Count total active users across all segments in the lookback window (for team-relative impact)
-    all_distinct_ids = list({s.distinct_id for s in inputs.segments if s.distinct_id})
-    active_users_in_period = await sync_to_async(count_distinct_persons)(team, all_distinct_ids)
+    cluster_segment_ids = [sid for c in inputs.clusters for sid in c.segment_ids]
+    if cluster_segment_ids:
+        rows = await fetch_video_segment_metadata_by_document_ids(team, cluster_segment_ids)
+        segment_lookup = _rows_to_segment_lookup(rows)
+    else:
+        segment_lookup = {}
+    genai_client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
 
     # 1. Label all clusters concurrently
     label_tasks = []

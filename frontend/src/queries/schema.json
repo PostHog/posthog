@@ -18696,7 +18696,8 @@
                 "vercel",
                 "azure-blob",
                 "firebase",
-                "jira"
+                "jira",
+                "pinterest-ads"
             ],
             "type": "string"
         },
