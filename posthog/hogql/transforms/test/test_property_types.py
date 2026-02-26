@@ -2,13 +2,14 @@ import re
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
 
 from django.test import override_settings
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import PropertyDefinition
@@ -207,8 +208,20 @@ class TestPropertyTypes(BaseTest):
         assert printed == self.snapshot
 
     def test_numeric_property_trims_whitespace_before_conversion(self):
-        printed = self._print_select("select properties.$screen_width from events where properties.$screen_width > 100")
-        assert "accurateCastOrNull(trim(" in printed
+        _create_event(
+            event="$pageview",
+            distinct_id="user1",
+            team=self.team,
+            properties={"$screen_width": "   179233"},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT properties.$screen_width FROM events WHERE properties.$screen_width > 100",
+            self.team,
+        )
+        assert len(response.results) == 1
+        assert response.results[0][0] == 179233.0
 
     def _print_select(self, select: str):
         expr = parse_select(select)
