@@ -318,6 +318,10 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TTL_SECONDS: number
     LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    REDIS_URL: string
+    REDIS_POOL_MIN_SIZE: number
+    REDIS_POOL_MAX_SIZE: number
+    KAFKA_CLIENT_RACK: string | undefined
 }
 
 export type SessionRecordingApiConfig = {

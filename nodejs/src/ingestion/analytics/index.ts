@@ -29,6 +29,6 @@ export {
     createJoinedIngestionPipeline,
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineDeps,
     JoinedIngestionPipelineInput,
-    PreprocessingHub,
 } from './joined-ingestion-pipeline'
