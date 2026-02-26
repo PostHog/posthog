@@ -29,8 +29,8 @@ export const AddonFeatureLossNotice = ({ product, targetProduct }: AddonFeatureL
     const currentPlatformPlan = platformAndSupportProduct?.plans?.find((plan) => plan.current_plan)
     const basePlatformFeatures = currentPlatformPlan?.features?.filter((f) => !f.entitlement_only) || []
 
-    const featuresToGet = targetProduct ? targetFeatures : basePlatformFeatures
-    const featuresToLose = currentFeatures.filter((feature) => !featuresToGet.some((f) => f.key === feature.key))
+    const featuresToKeep = targetProduct ? [...targetFeatures, ...basePlatformFeatures] : basePlatformFeatures
+    const featuresToLose = currentFeatures.filter((feature) => !featuresToKeep.some((f) => f.key === feature.key))
 
     if (!featuresToLose?.length) {
         return null
