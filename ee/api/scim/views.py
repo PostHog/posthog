@@ -1,3 +1,4 @@
+import dataclasses
 from typing import cast
 
 from django.db.models import Q, QuerySet
@@ -18,6 +19,7 @@ from scim2_filter_parser.transpilers.django_q_object import get_query
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
@@ -28,6 +30,42 @@ from ee.models.rbac.role import Role
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclasses.dataclass(frozen=True)
+class SCIMContext(ActivityContextBase):
+    identity_provider: str = ""
+    organization_domain: str = ""
+    scim_username: str = ""
+
+
+def _log_scim_activity(
+    *,
+    organization_domain: OrganizationDomain,
+    activity: str,
+    user_id: str,
+    user_email: str,
+    request: Request,
+) -> None:
+    idp = detect_identity_provider(request)
+    log_activity(
+        organization_id=organization_domain.organization_id,
+        team_id=None,
+        user=None,
+        was_impersonated=False,
+        item_id=user_id,
+        scope="User",
+        activity=activity,
+        detail=Detail(
+            name=user_email,
+            context=SCIMContext(
+                identity_provider=idp.value,
+                organization_domain=organization_domain.domain,
+                scim_username=request.data.get("userName", ""),
+            ),
+        ),
+    )
+
 
 SCIM_USER_ATTR_MAP = {
     ("emails", "value", None): "email",
@@ -189,6 +227,13 @@ class SCIMUsersView(SCIMBaseView):
         try:
             identity_provider = detect_identity_provider(request)
             scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain, identity_provider)
+            _log_scim_activity(
+                organization_domain=organization_domain,
+                activity="scim_provisioned",
+                user_id=scim_user.id,
+                user_email=scim_user.obj.email,
+                request=request,
+            )
             return Response(scim_user.to_dict(), status=status.HTTP_201_CREATED)
         except SCIMUserConflict:
             return Response(
@@ -237,8 +282,16 @@ class SCIMUserDetailView(SCIMBaseView):
 
     def put(self, request: Request, domain_id: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
+        organization_domain = cast(OrganizationDomain, request.auth)
         try:
             scim_user.put(request.data)
+            _log_scim_activity(
+                organization_domain=organization_domain,
+                activity="scim_replaced",
+                user_id=str(user_id),
+                user_email=scim_user.obj.email,
+                request=request,
+            )
             return Response(scim_user.to_dict())
         except ValueError as e:
             capture_exception(
@@ -258,10 +311,18 @@ class SCIMUserDetailView(SCIMBaseView):
 
     def patch(self, request: Request, domain_id: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
+        organization_domain = cast(OrganizationDomain, request.auth)
         try:
             operations = request.data.get("Operations", [])
             operations = normalize_scim_operations(operations)
             scim_user.handle_operations(operations)
+            _log_scim_activity(
+                organization_domain=organization_domain,
+                activity="scim_updated",
+                user_id=str(user_id),
+                user_email=scim_user.obj.email,
+                request=request,
+            )
             return Response(scim_user.to_dict())
         except Exception as e:
             capture_exception(
@@ -281,7 +342,16 @@ class SCIMUserDetailView(SCIMBaseView):
 
     def delete(self, request: Request, domain_id: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
+        user_email = scim_user.obj.email
         scim_user.delete()
+        organization_domain = cast(OrganizationDomain, request.auth)
+        _log_scim_activity(
+            organization_domain=organization_domain,
+            activity="scim_deprovisioned",
+            user_id=str(user_id),
+            user_email=user_email,
+            request=request,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

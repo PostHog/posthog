@@ -3,6 +3,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
@@ -360,3 +361,99 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
 
         user = User.objects.get(id=user_id)
         assert user.email == "valid@example.com"
+
+
+class TestSCIMAuditLogging(APILicensedTest):
+    """Verify that SCIM mutations create activity log entries."""
+
+    def setUp(self):
+        super().setUp()
+
+        if not self.organization.is_feature_available(AvailableFeature.SCIM):
+            features = self.organization.available_product_features or []
+            if not any(f.get("key") == AvailableFeature.SCIM for f in features):
+                features.append({"key": AvailableFeature.SCIM, "name": "SCIM"})
+            self.organization.available_product_features = features
+            self.organization.save()
+
+        self.domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="example.com",
+            verified_at="2024-01-01T00:00:00Z",
+        )
+
+        self.plain_token, hashed_token = generate_scim_token()
+        self.domain.scim_enabled = True
+        self.domain.scim_bearer_token = hashed_token
+        self.domain.save()
+
+        self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
+
+    def _scim_user_data(self, email: str, first_name: str = "Test", last_name: str = "User") -> dict:
+        return {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": email,
+            "name": {"givenName": first_name, "familyName": last_name},
+            "emails": [{"value": email, "primary": True}],
+            "active": True,
+        }
+
+    def _create_scim_user(self, email: str = "testuser@example.com") -> str:
+        self.client.credentials(**self.scim_headers)
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users",
+            self._scim_user_data(email),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return response.json()["id"]
+
+    @parameterized.expand(
+        [
+            ("post", "scim_provisioned"),
+            ("put", "scim_replaced"),
+            ("patch", "scim_updated"),
+            ("delete", "scim_deprovisioned"),
+        ]
+    )
+    def test_scim_mutation_creates_activity_log(self, method: str, expected_activity: str):
+        user_id = self._create_scim_user()
+        # Clear logs from creation so we can isolate the mutation under test
+        if method != "post":
+            ActivityLog.objects.filter(scope="User", activity="scim_provisioned").delete()
+
+        self.client.credentials(**self.scim_headers)
+
+        if method == "post":
+            # Already created above, just check the log
+            pass
+        elif method == "put":
+            self.client.put(
+                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                self._scim_user_data("testuser@example.com", "Updated", "Name"),
+                format="json",
+            )
+        elif method == "patch":
+            self.client.patch(
+                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                {
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [{"op": "replace", "path": "name", "value": {"givenName": "Patched"}}],
+                },
+                format="json",
+            )
+        elif method == "delete":
+            self.client.delete(f"/scim/v2/{self.domain.id}/Users/{user_id}")
+
+        log = ActivityLog.objects.filter(
+            scope="User",
+            activity=expected_activity,
+            item_id=str(user_id),
+        ).first()
+
+        assert log is not None, f"Expected activity log with activity='{expected_activity}'"
+        assert log.is_system is True
+        assert log.user is None
+        assert log.organization_id == self.organization.id
+        assert log.detail is not None
+        assert log.detail.get("context", {}).get("organization_domain") == "example.com"
