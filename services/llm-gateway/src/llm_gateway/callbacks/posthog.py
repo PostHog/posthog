@@ -9,10 +9,10 @@ import structlog
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.request_context import (
     get_auth_user,
+    get_posthog_flags,
+    get_posthog_properties,
     get_product,
     get_time_to_first_token,
-    get_wizard_flags,
-    get_wizard_metadata,
 )
 
 logger = structlog.get_logger(__name__)
@@ -80,6 +80,7 @@ class PostHogCallback(InstrumentedCallback):
         self._host = host
         posthoganalytics.api_key = api_key
         posthoganalytics.host = host
+        posthoganalytics.debug = True
 
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -122,14 +123,14 @@ class PostHogCallback(InstrumentedCallback):
             "ai_product": product,
         }
 
-        wizard_metadata = get_wizard_metadata() or {}
-        if isinstance(wizard_metadata, dict):
-            for key, value in wizard_metadata.items():
+        posthog_properties = get_posthog_properties() or {}
+        if isinstance(posthog_properties, dict):
+            for key, value in posthog_properties.items():
                 properties[key] = value
 
-        wizard_flags = get_wizard_flags() or {}
-        if isinstance(wizard_flags, dict):
-            for flag_key, variant in wizard_flags.items():
+        posthog_flags = get_posthog_flags() or {}
+        if isinstance(posthog_flags, dict):
+            for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
         if team_id:
@@ -201,14 +202,14 @@ class PostHogCallback(InstrumentedCallback):
             "ai_product": product,
         }
 
-        wizard_metadata = get_wizard_metadata() or {}
-        if isinstance(wizard_metadata, dict):
-            for key, value in wizard_metadata.items():
+        posthog_properties = get_posthog_properties() or {}
+        if isinstance(posthog_properties, dict):
+            for key, value in posthog_properties.items():
                 properties[key] = value
 
-        wizard_flags = get_wizard_flags() or {}
-        if isinstance(wizard_flags, dict):
-            for flag_key, variant in wizard_flags.items():
+        posthog_flags = get_posthog_flags() or {}
+        if isinstance(posthog_flags, dict):
+            for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
         if team_id:
