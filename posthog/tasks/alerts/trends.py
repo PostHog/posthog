@@ -189,7 +189,8 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             )
 
             if not calculation_result.result:
-                return AlertEvaluationResult(value=0, breaches=[])
+                breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, query.interval, "")
+                return AlertEvaluationResult(value=0, breaches=breaches)
 
             results_to_evaluate: list[TrendResult] = []
 
@@ -203,7 +204,8 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 results_to_evaluate.append(selected_series_result)
 
             if not results_to_evaluate:
-                return AlertEvaluationResult(value=0, breaches=[])
+                breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, query.interval, "")
+                return AlertEvaluationResult(value=0, breaches=breaches)
 
             # if we don't have breakdown, we'll have to evaluate just one result
             # and increase will be the evaluated value of that result
@@ -299,7 +301,8 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             )
 
             if not calculation_result.result:
-                return AlertEvaluationResult(value=0, breaches=[])
+                breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, query.interval, "")
+                return AlertEvaluationResult(value=0, breaches=breaches)
 
             results_to_evaluate = []
 

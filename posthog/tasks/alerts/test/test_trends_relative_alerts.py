@@ -7,6 +7,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 import pytz
 import dateutil
 import dateutil.relativedelta
+from parameterized import parameterized
 
 from posthog.schema import (
     AlertCalculationInterval,
@@ -2110,16 +2111,22 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
             mock_send_breaches.assert_called_once()
 
-    def _check_empty_results_does_not_fire(
-        self, condition_type: AlertConditionType, mock_send_breaches: MagicMock
-    ) -> None:
+    def _check_empty_results(
+        self,
+        condition_type: AlertConditionType,
+        mock_send_breaches: MagicMock,
+        *,
+        lower: Optional[float] = None,
+        upper: Optional[float] = None,
+    ) -> AlertCheck:
         insight = self.create_time_series_trend_insight(interval=IntervalType.WEEK)
         alert = self.create_alert(
             insight,
             series_index=0,
             condition_type=condition_type,
             threshold_type=InsightThresholdType.ABSOLUTE,
-            upper=1,
+            lower=lower,
+            upper=upper,
         )
 
         with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
@@ -2130,17 +2137,42 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             check_alert(alert["id"])
 
-        assert mock_send_breaches.call_count == 0
-        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
-        assert alert_check.state == AlertState.NOT_FIRING
+        return AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+
+    @parameterized.expand(
+        [
+            (
+                "relative_increase_within_bounds",
+                AlertConditionType.RELATIVE_INCREASE,
+                None,
+                1,
+                AlertState.NOT_FIRING,
+                0,
+            ),
+            (
+                "relative_decrease_within_bounds",
+                AlertConditionType.RELATIVE_DECREASE,
+                None,
+                1,
+                AlertState.NOT_FIRING,
+                0,
+            ),
+            ("relative_increase_below_threshold", AlertConditionType.RELATIVE_INCREASE, 1, None, AlertState.FIRING, 1),
+            ("relative_decrease_below_threshold", AlertConditionType.RELATIVE_DECREASE, 1, None, AlertState.FIRING, 1),
+        ]
+    )
+    def test_empty_results_threshold_check(
+        self,
+        _name: str,
+        condition_type: AlertConditionType,
+        lower: Optional[float],
+        upper: Optional[float],
+        expected_state: AlertState,
+        expected_breach_count: int,
+        mock_send_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        alert_check = self._check_empty_results(condition_type, mock_send_breaches, lower=lower, upper=upper)
+        assert mock_send_breaches.call_count == expected_breach_count
+        assert alert_check.state == expected_state
         assert alert_check.calculated_value == 0
-
-    def test_empty_results_does_not_fire_for_relative_increase(
-        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
-    ) -> None:
-        self._check_empty_results_does_not_fire(AlertConditionType.RELATIVE_INCREASE, mock_send_breaches)
-
-    def test_empty_results_does_not_fire_for_relative_decrease(
-        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
-    ) -> None:
-        self._check_empty_results_does_not_fire(AlertConditionType.RELATIVE_DECREASE, mock_send_breaches)
