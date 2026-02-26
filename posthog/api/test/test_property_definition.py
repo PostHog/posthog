@@ -333,6 +333,27 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("Search 'email a' matches via name substring", "type=person&search=email a", "email"),
+            ("Search 'email ad' matches via label alias", "type=person&search=email ad", "email"),
+            ("Search 'email address' matches via label alias", "type=person&search=email address", "email"),
+        ]
+    )
+    def test_person_property_search_matches_label_alias(
+        self, _name: str, query_params: str, expected_name: str
+    ) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query_params}")
+        assert response.status_code == status.HTTP_200_OK
+        assert any(prop["name"] == expected_name for prop in response.json()["results"])
+
+    @parameterized.expand(
+        [
             (
                 "Get all group1 properties",
                 "type=group&group_type_index=1",
