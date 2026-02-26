@@ -6090,6 +6090,7 @@ dependencies = [
  "metrics",
  "personhog-proto",
  "pin-project",
+ "rand 0.8.5",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",
