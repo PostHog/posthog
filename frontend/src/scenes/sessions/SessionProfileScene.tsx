@@ -8,12 +8,11 @@ import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityTab } from '~/types'
 
@@ -57,6 +56,7 @@ export function SessionProfileScene(): JSX.Element {
                 actions={
                     <LemonButton
                         type="secondary"
+                        size="small"
                         icon={<IconRefresh />}
                         onClick={() => loadSessionData()}
                         loading={sessionDataLoading || sessionEventsLoading}
@@ -65,7 +65,6 @@ export function SessionProfileScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <SceneDivider />
 
             <BindLogic logic={sessionProfileLogic} props={{ sessionId }}>
                 <div className="space-y-4">

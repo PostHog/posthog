@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
 import { CostModelSource } from './costs/cost-model-matching'
@@ -470,6 +470,8 @@ describe('processAiEvent()', () => {
             // Should not set model_cost_used when bypassing
             expect(result.properties!.$ai_model_cost_used).toBeUndefined()
             expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
+            // Should mark as passthrough so we know costs were not calculated by the pipeline
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
         })
 
         it('calculates total when input/output exist but total is missing', () => {
@@ -592,6 +594,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBe(9)
             expect(result.properties!.$ai_model_cost_used).toBeUndefined()
             expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
         })
 
         it('treats object cost values as unset and falls through to model calculation', () => {
@@ -944,6 +947,34 @@ describe('processAiEvent()', () => {
 
             // Total: 0.327679 + 0.0069 = 0.334579
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.334579, 5)
+        })
+
+        it('uses inclusive token accounting for Anthropic models via Vercel gateway', () => {
+            event.properties!.$ai_provider = 'gateway'
+            event.properties!.$ai_framework = 'vercel'
+            event.properties!.$ai_model = 'anthropic/claude-sonnet-4.5'
+            event.properties!.$ai_input_tokens = 14013
+            event.properties!.$ai_output_tokens = 165
+            event.properties!.$ai_cache_read_input_tokens = 13306
+            event.properties!.$ai_cache_creation_input_tokens = 701
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('anthropic/claude-sonnet-4')
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
+
+            // Input:
+            // Read: 13306 * 3e-7 = 0.0039918
+            // Write: 701 * 0.00000375 = 0.00262875
+            // Uncached: (14013 - 13306 - 701) * 0.000003 = 0.000018
+            // Total input: 0.00663855
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00663855, 8)
+
+            // Output: 165 * 0.000015 = 0.002475
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.002475, 6)
+
+            // Total: 0.00663855 + 0.002475 = 0.00911355
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00911355, 8)
         })
 
         it('handles OpenAI models through gateway provider', () => {

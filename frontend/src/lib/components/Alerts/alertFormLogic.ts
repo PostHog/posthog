@@ -15,6 +15,7 @@ import {
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import { AlertType, AlertTypeWrite } from './types'
 
@@ -141,10 +142,21 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
+                // Must use alert.id (not the server-returned ID) to look up the logic instance where pending notifications were queued.
+                // For new alerts alert.id is undefined, keying the logic as 'new' — using the server-returned ID would miss the queued state.
+                const notifLogic = alertNotificationLogic({ alertId: alert.id })
+
+                const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
+                    if (notifLogic.values.pendingNotifications.length > 0) {
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, alert.name)
+                    }
+                }
+
                 try {
                     if (alert.id === undefined) {
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
+                        await flushPendingNotifications(updatedAlert.id)
                         lemonToast.success(`Alert created.`)
                         upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
@@ -154,6 +166,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
+                    await flushPendingNotifications(updatedAlert.id)
                     lemonToast.success(`Alert saved.`)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)

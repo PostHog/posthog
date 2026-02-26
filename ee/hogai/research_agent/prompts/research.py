@@ -13,6 +13,8 @@ RESEARCH_AGENT_PROMPT = """
 
 {{{task_management}}}
 
+{{{product_advocacy}}}
+
 {{{research_task}}}
 
 {{{report}}}

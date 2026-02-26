@@ -12,11 +12,11 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
-import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 import {
     conversionGoalDescription,
     conversionGoalNamePlaceholder,
@@ -43,7 +43,7 @@ export function ConversionGoalsConfiguration({
 }): JSX.Element {
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { addOrUpdateConversionGoal, removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
-    const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState())
+    const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState)
     const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
 

@@ -117,7 +117,7 @@ export function Tooltip({
     return (
         <BaseTooltip.Root open={open} onOpenChange={handleOpenChange} disableHoverablePopup={!isInteractive}>
             <BaseTooltip.Trigger delay={delayMs} closeDelay={closeDelayMs} render={child} />
-            <BaseTooltip.Portal container={floatingContainer}>
+            <BaseTooltip.Portal container={floatingContainer ?? undefined}>
                 <BaseTooltip.Positioner
                     side={side}
                     align={align}

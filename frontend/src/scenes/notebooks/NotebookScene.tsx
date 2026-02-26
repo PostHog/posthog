@@ -9,6 +9,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -16,6 +17,7 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
+import { notebookLogic } from './Notebook/notebookLogic'
 import {
     NotebookExpandButton,
     NotebookKernelInfoButton,
@@ -23,11 +25,10 @@ import {
     NotebookTableOfContentsButton,
 } from './Notebook/NotebookMeta'
 import { NotebookShareModal } from './Notebook/NotebookShareModal'
-import { notebookLogic } from './Notebook/notebookLogic'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
-import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
+import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookTarget } from './types'
 
 interface NotebookSceneProps {
@@ -50,6 +51,7 @@ export function NotebookScene(): JSX.Element {
     )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     useEffect(() => {
         if (notebookId === 'new') {
@@ -157,14 +159,15 @@ export function NotebookScene(): JSX.Element {
                         }}
                         tooltip={
                             <>
-                                Opens the notebook in a side panel, that can be accessed from anywhere in the PostHog
-                                app. This is great for dragging and dropping elements like insights, recordings or even
-                                feature flags into your active notebook.
+                                Opens the notebook in a {isRemovingSidePanelFlag ? 'context panel' : 'side panel'}, that
+                                can be accessed from anywhere in the PostHog app. This is great for dragging and
+                                dropping elements like insights, recordings or even feature flags into your active
+                                notebook.
                             </>
                         }
                         sideIcon={<IconOpenSidebar />}
                     >
-                        Open in side panel
+                        {isRemovingSidePanelFlag ? 'Open in context panel' : 'Open in side panel'}
                     </LemonButton>
                 </div>
             </div>

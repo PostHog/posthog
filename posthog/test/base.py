@@ -134,7 +134,6 @@ from posthog.models.precalculated_events.sql import (
     PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
 )
 from posthog.models.project import Project
-from posthog.models.property_definition import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
 from posthog.models.raw_sessions.sessions_v2 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL,
@@ -172,20 +171,11 @@ from posthog.models.sessions.sql import (
 )
 from posthog.models.utils import generate_random_token_personal
 from posthog.models.web_preaggregated.sql import (
-    DROP_WEB_BOUNCES_DAILY_SQL,
-    DROP_WEB_BOUNCES_HOURLY_SQL,
     DROP_WEB_BOUNCES_SQL,
     DROP_WEB_BOUNCES_STAGING_SQL,
-    DROP_WEB_STATS_DAILY_SQL,
-    DROP_WEB_STATS_HOURLY_SQL,
     DROP_WEB_STATS_SQL,
     DROP_WEB_STATS_STAGING_SQL,
-    WEB_BOUNCES_DAILY_SQL,
-    WEB_BOUNCES_HOURLY_SQL,
     WEB_BOUNCES_SQL,
-    WEB_STATS_COMBINED_VIEW_SQL,
-    WEB_STATS_DAILY_SQL,
-    WEB_STATS_HOURLY_SQL,
     WEB_STATS_SQL,
 )
 from posthog.models.web_preaggregated.team_selection import (
@@ -203,6 +193,11 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
+
+from products.event_definitions.backend.models.property_definition import (
+    DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
+    PROPERTY_DEFINITIONS_TABLE_SQL,
+)
 
 # Make sure freezegun ignores our utils class that times functions
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
@@ -682,6 +677,19 @@ class PostHogTestCase(SimpleTestCase):
 
         if preheader:
             self.assertIn(preheader, html_message)
+
+    @staticmethod
+    def ensure_url_patterns_loaded():
+        """Force Django's lazy URL pattern loading with current (default) settings.
+
+        Call this before any @override_settings that changes values used at
+        class-definition time in view modules (e.g. E2E_TESTING). Otherwise,
+        the first HTTP request under the override will import those modules
+        with the wrong settings values baked into class attributes.
+        """
+        from django.urls import get_resolver
+
+        _ = get_resolver().url_patterns
 
     @contextmanager
     def is_cloud(self, value: bool):
@@ -1471,10 +1479,6 @@ def reset_clickhouse_database() -> None:
             DROP_SESSION_TABLE_SQL(),
             DROP_WEB_STATS_SQL(),
             DROP_WEB_BOUNCES_SQL(),
-            DROP_WEB_STATS_DAILY_SQL(),
-            DROP_WEB_BOUNCES_DAILY_SQL(),
-            DROP_WEB_STATS_HOURLY_SQL(),
-            DROP_WEB_BOUNCES_HOURLY_SQL(),
             DROP_WEB_STATS_STAGING_SQL(),
             DROP_WEB_BOUNCES_STAGING_SQL(),
             DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
@@ -1512,10 +1516,6 @@ def reset_clickhouse_database() -> None:
             SESSIONS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-            WEB_BOUNCES_DAILY_SQL(),
-            WEB_BOUNCES_HOURLY_SQL(),
-            WEB_STATS_DAILY_SQL(),
-            WEB_STATS_HOURLY_SQL(),
             WEB_STATS_SQL(),
             WEB_BOUNCES_SQL(),
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
@@ -1565,7 +1565,6 @@ def reset_clickhouse_database() -> None:
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
             CUSTOM_METRICS_VIEW(include_counters=True),
-            WEB_STATS_COMBINED_VIEW_SQL(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),

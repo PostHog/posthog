@@ -8,8 +8,8 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByTeamIdRequest, GetGroupsRequest,
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, GroupTypeMapping,
-    HashKeyOverride, HashKeyOverrideContext, HashKeyOverrideInput, Person, PersonWithDistinctIds,
-    ReadOptions, UpsertHashKeyOverridesRequest,
+    HashKeyOverride, HashKeyOverrideContext, Person, PersonWithDistinctIds, ReadOptions,
+    UpsertHashKeyOverridesRequest,
 };
 
 #[tokio::test]
@@ -261,21 +261,13 @@ async fn test_upsert_hash_key_overrides() {
     let response = client
         .upsert_hash_key_overrides(UpsertHashKeyOverridesRequest {
             team_id: 1,
-            overrides: vec![
-                HashKeyOverrideInput {
-                    person_id: 42,
-                    feature_flag_key: "flag-1".to_string(),
-                },
-                HashKeyOverrideInput {
-                    person_id: 42,
-                    feature_flag_key: "flag-2".to_string(),
-                },
-                HashKeyOverrideInput {
-                    person_id: 42,
-                    feature_flag_key: "flag-3".to_string(),
-                },
-            ],
+            distinct_ids: vec!["user@example.com".to_string()],
             hash_key: "consistent-hash".to_string(),
+            feature_flag_keys: vec![
+                "flag-1".to_string(),
+                "flag-2".to_string(),
+                "flag-3".to_string(),
+            ],
         })
         .await
         .unwrap();

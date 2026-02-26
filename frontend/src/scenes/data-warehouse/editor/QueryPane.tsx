@@ -13,7 +13,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryPaneProps {
     queryInput: string
@@ -26,14 +26,14 @@ interface QueryPaneProps {
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
-    const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
+    const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const {
         setSuggestedQueryInput,
         onAcceptSuggestedQueryInput,
         onRejectSuggestedQueryInput,
         reportAIQueryPromptOpen,
-    } = useActions(multitabEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton } = useValues(multitabEditorLogic)
+    } = useActions(sqlEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton } = useValues(sqlEditorLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (
@@ -43,6 +43,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     height: `${queryPaneHeight}px`,
+                    maxHeight: queryPaneDesiredSize === null ? '35%' : undefined,
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >

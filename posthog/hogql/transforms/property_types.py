@@ -206,13 +206,14 @@ class PropertySwapper(CloningVisitor):
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
             if self.setTimeZones and isinstance(node.type.resolve_database_field(self.context), DateTimeDatabaseField):
+                nullable = node.type.is_nullable(self.context)
                 return ast.Call(
                     name="toTimeZone",
                     args=[node, ast.Constant(value=self.timezone)],
                     type=ast.CallType(
                         name="toTimeZone",
-                        arg_types=[ast.DateTimeType()],
-                        return_type=ast.DateTimeType(),
+                        arg_types=[ast.DateTimeType(nullable=nullable)],
+                        return_type=ast.DateTimeType(nullable=nullable),
                     ),
                 )
 

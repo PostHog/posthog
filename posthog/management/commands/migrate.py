@@ -195,11 +195,19 @@ class Command(DjangoMigrateCommand):
             action="store_true",
             help="Skip checking for orphaned migrations before migrating.",
         )
+        parser.add_argument(
+            "--production",
+            action="store_true",
+            help="Production mode: skip orphan check and migration caching (local-dev features).",
+        )
 
     def handle(self, *args, **options):
         database = options.get("database", DEFAULT_DB_ALIAS)
         interactive = options.get("interactive", True)
-        skip_orphan_check = options.get("skip_orphan_check", False)
+        production_mode = options.get("production", False)
+        test_mode = settings.TEST
+        skip_caching = production_mode or test_mode
+        skip_orphan_check = options.get("skip_orphan_check", False) or skip_caching
 
         # Get connection for orphan check
         from django.db import connections
@@ -289,19 +297,21 @@ class Command(DjangoMigrateCommand):
                 # Don't block migrations if orphan check fails
                 self.stdout.write(self.style.WARNING(f"⚠️  Could not check for orphaned migrations: {e}"))
 
-        # Get migrations that will be applied (before running migrate)
-        recorder = MigrationRecorder(connection)
-        applied_before = set(recorder.applied_migrations())
+        # Track applied migrations for caching (skip in production and test mode)
+        if not skip_caching:
+            recorder = MigrationRecorder(connection)
+            applied_before = set(recorder.applied_migrations())
 
         # Run the actual migrate command
         super().handle(*args, **options)
 
-        # Cache any newly applied migrations
-        applied_after = set(recorder.applied_migrations())
-        newly_applied = applied_after - applied_before
-        managed_apps = get_managed_apps()
+        # Cache any newly applied migrations (skip in production and test mode)
+        if not skip_caching:
+            applied_after = set(recorder.applied_migrations())
+            newly_applied = applied_after - applied_before
+            managed_apps = get_managed_apps()
 
-        for app_label, migration_name in newly_applied:
-            if app_label in managed_apps:
-                if cache_migration(app_label, migration_name):
-                    self.stdout.write(self.style.SUCCESS(f"  Cached: {app_label}.{migration_name}"))
+            for app_label, migration_name in newly_applied:
+                if app_label in managed_apps:
+                    if cache_migration(app_label, migration_name):
+                        self.stdout.write(self.style.SUCCESS(f"  Cached: {app_label}.{migration_name}"))
