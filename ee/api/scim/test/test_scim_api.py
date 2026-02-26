@@ -457,3 +457,93 @@ class TestSCIMAuditLogging(APILicensedTest):
         assert log.organization_id == self.organization.id
         assert log.detail is not None
         assert log.detail.get("context", {}).get("organization_domain") == "example.com"
+
+
+class TestSCIMGroupAuditLogging(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+
+        if not self.organization.is_feature_available(AvailableFeature.SCIM):
+            features = self.organization.available_product_features or []
+            if not any(f.get("key") == AvailableFeature.SCIM for f in features):
+                features.append({"key": AvailableFeature.SCIM, "name": "SCIM"})
+            self.organization.available_product_features = features
+            self.organization.save()
+
+        self.domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="example.com",
+            verified_at="2024-01-01T00:00:00Z",
+        )
+
+        self.plain_token, hashed_token = generate_scim_token()
+        self.domain.scim_enabled = True
+        self.domain.scim_bearer_token = hashed_token
+        self.domain.save()
+
+        self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
+
+    def _scim_group_data(self, name: str = "Engineering") -> dict:
+        return {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": name,
+            "members": [],
+        }
+
+    def _create_scim_group(self, name: str = "Engineering") -> str:
+        self.client.credentials(**self.scim_headers)
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Groups",
+            self._scim_group_data(name),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return response.json()["id"]
+
+    @parameterized.expand(
+        [
+            ("post", "scim_provisioned"),
+            ("put", "scim_replaced"),
+            ("patch", "scim_updated"),
+            ("delete", "scim_deprovisioned"),
+        ]
+    )
+    def test_scim_group_mutation_creates_activity_log(self, method: str, expected_activity: str):
+        group_id = self._create_scim_group()
+        if method != "post":
+            ActivityLog.objects.filter(scope="Role", activity="scim_provisioned").delete()
+
+        self.client.credentials(**self.scim_headers)
+
+        if method == "post":
+            pass
+        elif method == "put":
+            self.client.put(
+                f"/scim/v2/{self.domain.id}/Groups/{group_id}",
+                self._scim_group_data("Updated Engineering"),
+                format="json",
+            )
+        elif method == "patch":
+            self.client.patch(
+                f"/scim/v2/{self.domain.id}/Groups/{group_id}",
+                {
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [{"op": "replace", "path": "displayName", "value": "Patched Engineering"}],
+                },
+                format="json",
+            )
+        elif method == "delete":
+            self.client.delete(f"/scim/v2/{self.domain.id}/Groups/{group_id}")
+
+        log = ActivityLog.objects.filter(
+            scope="Role",
+            activity=expected_activity,
+            item_id=str(group_id),
+        ).first()
+
+        assert log is not None, f"Expected activity log with activity='{expected_activity}'"
+        assert log.is_system is True
+        assert log.user is None
+        assert log.organization_id == self.organization.id
+        assert log.detail is not None
+        assert log.detail.get("context", {}).get("organization_domain") == "example.com"

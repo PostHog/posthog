@@ -67,6 +67,32 @@ def _log_scim_activity(
     )
 
 
+def _log_scim_group_activity(
+    *,
+    organization_domain: OrganizationDomain,
+    activity: str,
+    role: Role,
+    request: Request,
+) -> None:
+    idp = detect_identity_provider(request)
+    log_activity(
+        organization_id=organization_domain.organization_id,
+        team_id=None,
+        user=None,
+        was_impersonated=False,
+        item_id=str(role.id),
+        scope="Role",
+        activity=activity,
+        detail=Detail(
+            name=role.name,
+            context=SCIMContext(
+                identity_provider=idp.value,
+                organization_domain=organization_domain.domain,
+            ),
+        ),
+    )
+
+
 SCIM_USER_ATTR_MAP = {
     ("emails", "value", None): "email",
     ("name", "familyName", None): "last_name",
@@ -392,6 +418,12 @@ class SCIMGroupsView(SCIMBaseView):
         organization_domain = cast(OrganizationDomain, request.auth)
         try:
             scim_group = PostHogSCIMGroup.from_dict(request.data, organization_domain)
+            _log_scim_group_activity(
+                organization_domain=organization_domain,
+                activity="scim_provisioned",
+                role=scim_group.obj,
+                request=request,
+            )
             return Response(scim_group.to_dict(), status=status.HTTP_201_CREATED)
         except ValueError as e:
             capture_exception(
@@ -433,6 +465,12 @@ class SCIMGroupDetailView(SCIMBaseView):
         scim_group = self.get_object(group_id)
         try:
             scim_group.put(request.data)
+            _log_scim_group_activity(
+                organization_domain=cast(OrganizationDomain, request.auth),
+                activity="scim_replaced",
+                role=scim_group.obj,
+                request=request,
+            )
             return Response(scim_group.to_dict())
         except ValueError as e:
             capture_exception(
@@ -455,6 +493,12 @@ class SCIMGroupDetailView(SCIMBaseView):
         try:
             operations = request.data.get("Operations", [])
             scim_group.handle_operations(operations)
+            _log_scim_group_activity(
+                organization_domain=cast(OrganizationDomain, request.auth),
+                activity="scim_updated",
+                role=scim_group.obj,
+                request=request,
+            )
             return Response(scim_group.to_dict())
         except Exception as e:
             capture_exception(
@@ -474,6 +518,16 @@ class SCIMGroupDetailView(SCIMBaseView):
 
     def delete(self, request: Request, domain_id: str, group_id: str) -> Response:
         scim_group = self.get_object(group_id)
+        organization_domain = cast(OrganizationDomain, request.auth)
+        # Log before delete: Role.delete() runs inside a transaction, which causes
+        # log_activity to defer via on_commit. The outer test transaction never commits,
+        # but more importantly the role row is gone by the time on_commit fires in prod.
+        _log_scim_group_activity(
+            organization_domain=organization_domain,
+            activity="scim_deprovisioned",
+            role=scim_group.obj,
+            request=request,
+        )
         scim_group.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
