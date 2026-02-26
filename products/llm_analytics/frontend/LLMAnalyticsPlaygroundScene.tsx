@@ -2,7 +2,6 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import {
-    IconChevronDown,
     IconChevronRight,
     IconGear,
     IconMessage,
@@ -10,6 +9,7 @@ import {
     IconPlay,
     IconPlus,
     IconTrash,
+    IconWrench,
 } from '@posthog/icons'
 import {
     LemonBanner,
@@ -30,6 +30,7 @@ import {
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -39,8 +40,13 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ByokModelPicker } from './ByokModelPicker'
 import { JSONEditor } from './components/JSONEditor'
-import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
-import { ComparisonItem, Message, MessageRole } from './llmAnalyticsPlaygroundLogic'
+import {
+    ComparisonItem,
+    Message,
+    MessageRole,
+    PromptConfig,
+    llmAnalyticsPlaygroundLogic,
+} from './llmAnalyticsPlaygroundLogic'
 import { formatTokens } from './utils'
 
 const formatMs = (ms: number | null | undefined): string => {
@@ -53,6 +59,21 @@ const formatMs = (ms: number | null | undefined): string => {
     return `${(ms / 1000).toFixed(2)} s`
 }
 
+const INLINE_JSON_MAX_LINES = 20
+const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
+const TOOLS_MODAL_EDITOR_HEIGHT = 460
+
+function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element {
+    return (
+        <LemonButton
+            size="xsmall"
+            noPadding
+            className="h-5 w-5 [&_svg]:h-3.5 [&_svg]:w-3.5"
+            icon={<IconChevronRight className={`transition-transform ${collapsed ? 'rotate-0' : 'rotate-90'}`} />}
+        />
+    )
+}
+
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
     logic: llmAnalyticsPlaygroundLogic,
@@ -61,8 +82,8 @@ export const scene: SceneExport = {
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmAnalyticsPlaygroundLogic)
-    const { messages, submitting } = useValues(llmAnalyticsPlaygroundLogic)
-    const { submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
+    const { submitting, hasRunnablePrompts, activePromptId } = useValues(llmAnalyticsPlaygroundLogic)
+    const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
 
     return (
         <SceneContent>
@@ -71,29 +92,45 @@ export function LLMAnalyticsPlaygroundScene(): JSX.Element {
                 description="Test and experiment with LLM prompts in a sandbox environment."
                 resourceType={{ type: 'llm_playground' }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlay />}
-                        onClick={() => submitPrompt()}
-                        loading={submitting}
-                        tooltip="Run prompt (⌘↵)"
-                        disabledReason={
-                            submitting
-                                ? 'Generating...'
-                                : messages.length === 0
-                                  ? 'Add messages to start the conversation'
-                                  : undefined
-                        }
-                        size="small"
-                        data-attr="playground-run"
-                    >
-                        Run
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPlus />}
+                            onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                            disabledReason={submitting ? 'Generating...' : undefined}
+                        >
+                            Add prompt
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlay />}
+                            onClick={() => submitPrompt()}
+                            loading={submitting}
+                            tooltip="Run prompts (⌘↵)"
+                            disabledReason={
+                                submitting
+                                    ? 'Generating...'
+                                    : !hasRunnablePrompts
+                                      ? 'Add messages to at least one prompt'
+                                      : undefined
+                            }
+                            size="small"
+                            data-attr="playground-run"
+                        >
+                            Run
+                        </LemonButton>
+                    </div>
                 }
             />
             <PlaygroundLayout />
         </SceneContent>
     )
+}
+
+function usePromptConfig(promptId: string): PromptConfig | null {
+    const { promptConfigs } = useValues(llmAnalyticsPlaygroundLogic)
+    return promptConfigs.find((prompt) => prompt.id === promptId) ?? null
 }
 
 function RateLimitBanner(): JSX.Element | null {
@@ -136,14 +173,96 @@ function PlaygroundLayout(): JSX.Element {
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
-            <section className="border rounded overflow-hidden min-h-0 flex flex-col max-h-[55vh] lg:max-h-[60vh]">
-                <div className="p-4 space-y-4 min-h-0 overflow-y-auto">
-                    <ModelConfigBar />
-                    <MessagesSection />
+            <section className="rounded overflow-hidden min-h-0 flex flex-col max-h-[55vh] lg:max-h-[60vh]">
+                <div className="min-h-0 overflow-y-auto">
+                    <PromptConfigsSection />
                 </div>
             </section>
 
             <ResultsSection />
+        </div>
+    )
+}
+
+function PromptConfigsSection(): JSX.Element {
+    const { promptConfigs, activePromptId } = useValues(llmAnalyticsPlaygroundLogic)
+    const { removePromptConfig, setActivePromptId } = useActions(llmAnalyticsPlaygroundLogic)
+    const isSinglePrompt = promptConfigs.length === 1
+
+    return (
+        <div className="space-y-3">
+            <div className="overflow-x-auto pb-4">
+                <div className={`flex gap-3 ${isSinglePrompt ? 'w-full' : 'w-max min-w-full'}`}>
+                    {promptConfigs.map((prompt, index) => {
+                        const isActive = prompt.id === activePromptId
+                        return (
+                            <PromptCard
+                                key={prompt.id}
+                                prompt={prompt}
+                                index={index}
+                                isActive={isActive}
+                                canRemove={promptConfigs.length > 1}
+                                onActivate={() => setActivePromptId(prompt.id)}
+                                onRemove={() => removePromptConfig(prompt.id)}
+                                isSinglePrompt={isSinglePrompt}
+                            />
+                        )
+                    })}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function PromptCard({
+    prompt,
+    index,
+    isActive,
+    canRemove,
+    isSinglePrompt,
+    onActivate,
+    onRemove,
+}: {
+    prompt: PromptConfig
+    index: number
+    isActive: boolean
+    canRemove: boolean
+    isSinglePrompt: boolean
+    onActivate: () => void
+    onRemove: () => void
+}): JSX.Element {
+    const { submitting } = useValues(llmAnalyticsPlaygroundLogic)
+
+    return (
+        <div
+            className={`${isSinglePrompt ? 'w-full min-w-[500px]' : 'basis-0 grow min-w-[500px]'} border rounded p-3 bg-surface-primary transition-shadow ${
+                isActive ? 'ring-1 ring-primary/40 shadow-sm' : 'hover:shadow-sm'
+            }`}
+        >
+            <div className="flex items-center justify-between mb-3 gap-2">
+                <button type="button" className="flex items-center gap-2 min-w-0" onClick={onActivate}>
+                    <LemonTag type={isActive ? 'highlight' : 'default'} size="small">
+                        Prompt {index + 1}
+                    </LemonTag>
+                    <span className="text-xs text-muted truncate">{prompt.model || 'No model selected'}</span>
+                </button>
+
+                <LemonButton
+                    size="small"
+                    status="danger"
+                    icon={<IconTrash />}
+                    noPadding
+                    disabledReason={
+                        !canRemove ? 'At least one prompt is required' : submitting ? 'Generating...' : undefined
+                    }
+                    onClick={onRemove}
+                />
+            </div>
+
+            <div className="space-y-3">
+                <ModelConfigBar promptId={prompt.id} />
+                <MessagesSection promptId={prompt.id} />
+            </div>
         </div>
     )
 }
@@ -158,11 +277,10 @@ function getModelOptionsErrorMessage(errorStatus: number | null): string | null 
     return 'Failed to load models. Please refresh the page or try again later.'
 }
 
-function ModelPicker(): JSX.Element {
+function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
+    const prompt = usePromptConfig(promptId)
     const {
-        model,
         effectiveModelOptions,
-        selectedProviderKeyId,
         hasByokKeys,
         modelOptions,
         modelOptionsLoading,
@@ -171,17 +289,21 @@ function ModelPicker(): JSX.Element {
     } = useValues(llmAnalyticsPlaygroundLogic)
     const { setModel, loadModelOptions } = useActions(llmAnalyticsPlaygroundLogic)
 
+    if (!prompt) {
+        return <LemonSkeleton className="h-10" />
+    }
+
     if (hasByokKeys) {
         const options = Array.isArray(effectiveModelOptions) ? effectiveModelOptions : []
-        const selectedModel = options.find((m) => m.id === model)
+        const selectedModel = options.find((m) => m.id === prompt.model)
 
         return (
             <ByokModelPicker
-                model={model}
-                selectedProviderKeyId={selectedProviderKeyId}
-                onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId)}
+                model={prompt.model}
+                selectedProviderKeyId={prompt.selectedProviderKeyId}
+                onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId, promptId)}
                 selectedModelName={selectedModel?.name}
-                data-attr="playground-model-selector"
+                data-attr={`playground-model-selector-${promptId}`}
             />
         )
     }
@@ -197,8 +319,8 @@ function ModelPicker(): JSX.Element {
                 <LemonSearchableSelect
                     className="w-full"
                     placeholder="Select model"
-                    value={model}
-                    onChange={(value) => value && setModel(value)}
+                    value={prompt.model}
+                    onChange={(value) => value && setModel(value, undefined, promptId)}
                     options={groupedModelOptions}
                     searchPlaceholder="Search models..."
                     searchKeys={['label', 'value', 'tooltip']}
@@ -210,7 +332,7 @@ function ModelPicker(): JSX.Element {
                               ? 'No models available'
                               : undefined
                     }
-                    data-attr="playground-model-selector"
+                    data-attr={`playground-model-selector-${promptId}`}
                 />
             )}
             {options.length === 0 && !modelOptionsLoading && (
@@ -229,9 +351,13 @@ function ModelPicker(): JSX.Element {
     )
 }
 
-function SettingsDropdownOverlay(): JSX.Element {
-    const { maxTokens, thinking, reasoningLevel } = useValues(llmAnalyticsPlaygroundLogic)
+function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Element {
+    const prompt = usePromptConfig(promptId)
     const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmAnalyticsPlaygroundLogic)
+
+    if (!prompt) {
+        return <div className="p-3 text-xs text-muted">Prompt not found</div>
+    }
 
     return (
         <div className="space-y-3 p-3 w-[280px]">
@@ -239,8 +365,8 @@ function SettingsDropdownOverlay(): JSX.Element {
                 <label className="text-xs font-medium mb-1 block">Max tokens</label>
                 <LemonInput
                     type="number"
-                    value={maxTokens ?? undefined}
-                    onChange={(val) => setMaxTokens(val ?? null)}
+                    value={prompt.maxTokens ?? undefined}
+                    onChange={(val) => setMaxTokens(val ?? null, promptId)}
                     min={1}
                     max={16384}
                     step={64}
@@ -254,8 +380,8 @@ function SettingsDropdownOverlay(): JSX.Element {
                 <LemonSelect<'minimal' | 'low' | 'medium' | 'high' | null>
                     size="small"
                     placeholder="None"
-                    value={reasoningLevel}
-                    onChange={(value) => setReasoningLevel(value ?? null)}
+                    value={prompt.reasoningLevel}
+                    onChange={(value) => setReasoningLevel(value ?? null, promptId)}
                     options={[
                         { label: 'None', value: null },
                         { label: 'Minimal', value: 'minimal' },
@@ -270,8 +396,8 @@ function SettingsDropdownOverlay(): JSX.Element {
 
             <LemonSwitch
                 bordered
-                checked={thinking}
-                onChange={setThinking}
+                checked={prompt.thinking}
+                onChange={(checked) => setThinking(checked, promptId)}
                 label="Thinking"
                 size="small"
                 tooltip="Enable thinking/reasoning stream (if supported)"
@@ -280,18 +406,26 @@ function SettingsDropdownOverlay(): JSX.Element {
     )
 }
 
-function ModelConfigBar(): JSX.Element {
-    const { maxTokens, thinking, reasoningLevel } = useValues(llmAnalyticsPlaygroundLogic)
+function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
+    const prompt = usePromptConfig(promptId)
 
-    const hasNonDefaultSettings = maxTokens !== null || thinking || reasoningLevel !== 'medium'
+    if (!prompt) {
+        return <LemonSkeleton className="h-8" />
+    }
+
+    const hasNonDefaultSettings = prompt.maxTokens !== null || prompt.thinking || prompt.reasoningLevel !== 'medium'
 
     return (
         <div className="flex flex-wrap items-center gap-3">
             <div className="flex-1 min-w-[260px] max-w-lg">
-                <ModelPicker />
+                <ModelPicker promptId={promptId} />
             </div>
 
-            <LemonDropdown overlay={<SettingsDropdownOverlay />} closeOnClickInside={false} placement="bottom-end">
+            <LemonDropdown
+                overlay={<SettingsDropdownOverlay promptId={promptId} />}
+                closeOnClickInside={false}
+                placement="bottom-end"
+            >
                 <LemonButton
                     type="secondary"
                     size="small"
@@ -306,116 +440,75 @@ function ModelConfigBar(): JSX.Element {
     )
 }
 
-function MessagesSection(): JSX.Element {
-    const { messages, tools, submitting } = useValues(llmAnalyticsPlaygroundLogic)
-    const { addMessage, setTools } = useActions(llmAnalyticsPlaygroundLogic)
+function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
+    const prompt = usePromptConfig(promptId)
+    const { submitting } = useValues(llmAnalyticsPlaygroundLogic)
+    const { addMessage } = useActions(llmAnalyticsPlaygroundLogic)
+
+    if (!prompt) {
+        return <LemonSkeleton className="h-16" />
+    }
 
     return (
         <div className="space-y-3">
-            <SystemMessageDisplay />
-            {tools && <ToolsDisplay />}
-            {messages.map((message, index) => (
-                <MessageDisplay key={index} index={index} message={message} />
+            <SystemMessageDisplay promptId={promptId} />
+            {prompt.messages.map((message, index) => (
+                <MessageDisplay key={`${promptId}-${index}`} promptId={promptId} index={index} message={message} />
             ))}
             <div className="flex items-center gap-2">
                 <LemonButton
                     type="secondary"
                     size="small"
                     icon={<IconPlus />}
-                    onClick={() => addMessage()}
+                    onClick={() => addMessage(undefined, promptId)}
                     disabledReason={submitting ? 'Generating...' : undefined}
                 >
                     Message
                 </LemonButton>
-                {!tools && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconPlus />}
-                        onClick={() => setTools([])}
-                        disabledReason={submitting ? 'Generating...' : undefined}
-                    >
-                        Tools
-                    </LemonButton>
-                )}
+                <ToolsButton promptId={promptId} />
             </div>
         </div>
     )
 }
 
-function ToolsDisplay(): JSX.Element {
-    const { tools } = useValues(llmAnalyticsPlaygroundLogic)
-    const { setTools, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
+function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
+    const prompt = usePromptConfig(promptId)
+    const { submitting } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setTools } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
     const [localToolsJson, setLocalToolsJson] = useState<string | null>(null)
-    const [collapsed, setCollapsed] = useState(false)
 
-    if (!tools) {
-        return null
+    if (!prompt) {
+        return <LemonSkeleton className="h-7 w-20" />
     }
 
-    const toolsJsonString = localToolsJson ?? JSON.stringify(tools, null, 2)
-    const toolCount = Array.isArray(tools) ? tools.length : 0
+    const toolsJsonString = localToolsJson ?? JSON.stringify(prompt.tools ?? [], null, 2)
+    const toolCount = Array.isArray(prompt.tools) ? prompt.tools.length : 0
+    const hasTools = toolCount > 0
 
     const handleToolsChange = (value: string): void => {
         setLocalToolsJson(value)
         try {
             const parsedTools = JSON.parse(value)
-            setTools(parsedTools)
+            setTools(parsedTools, promptId)
         } catch {
-            // Not valid JSON yet, keep local state for display
+            // Keep local invalid JSON visible while editing.
         }
     }
 
     return (
         <>
-            <div className="border rounded p-3 relative group bg-surface-secondary border-l-4 border-l-[var(--color-orange-500)]">
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                    <LemonButton
-                        size="small"
-                        icon={<IconPencil />}
-                        tooltip="Edit tools in modal"
-                        noPadding
-                        onClick={() => setShowEditModal(true)}
-                    />
-                    <LemonButton
-                        size="small"
-                        status="danger"
-                        icon={<IconTrash />}
-                        tooltip="Remove tools block"
-                        noPadding
-                        onClick={() => setTools(null)}
-                    />
-                </div>
-
-                <div className="flex items-center gap-2 mb-2 cursor-pointer" onClick={() => setCollapsed(!collapsed)}>
-                    <LemonButton
-                        size="xsmall"
-                        icon={collapsed ? <IconChevronRight /> : <IconChevronDown />}
-                        noPadding
-                    />
-                    <LemonTag type="caution" size="small">
-                        Tools
-                    </LemonTag>
-                    {collapsed && (
-                        <span className="text-xs text-muted truncate flex-1">
-                            {toolCount > 0 ? `${toolCount} tool${toolCount === 1 ? '' : 's'} defined` : 'No tools'}
-                        </span>
-                    )}
-                </div>
-
-                <AnimatedCollapsible collapsed={collapsed}>
-                    <div className="border rounded">
-                        <JSONEditor
-                            value={toolsJsonString}
-                            onChange={handleToolsChange}
-                            defaultNumberOfLines={2}
-                            maxNumberOfLines={60}
-                            onPressCmdEnter={() => submitPrompt()}
-                        />
-                    </div>
-                </AnimatedCollapsible>
-            </div>
+            <LemonButton
+                type={hasTools ? 'primary' : 'secondary'}
+                size="small"
+                icon={<IconWrench />}
+                active={hasTools}
+                onClick={() => setShowEditModal(true)}
+                disabledReason={submitting ? 'Generating...' : undefined}
+                tooltip={hasTools ? `${toolCount} tool${toolCount === 1 ? '' : 's'} attached` : 'No tools attached'}
+            >
+                Tools
+            </LemonButton>
 
             <LemonModal
                 isOpen={showEditModal}
@@ -423,37 +516,71 @@ function ToolsDisplay(): JSX.Element {
                 title="Edit tools"
                 width="90vw"
                 maxWidth="1200px"
-            >
-                <div className="space-y-4">
-                    <div>
-                        <label className="font-semibold mb-1 block text-sm">Tools (JSON)</label>
-                        <div className="border rounded">
-                            <JSONEditor
-                                value={toolsJsonString}
-                                onChange={handleToolsChange}
-                                defaultNumberOfLines={12}
-                                maxNumberOfLines={40}
-                                autoFocus
-                            />
-                        </div>
-                        <div className="mt-2 text-xs text-muted">Paste or edit valid JSON tool definitions.</div>
-                    </div>
+                footer={
                     <div className="flex justify-end gap-2">
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            onClick={() => {
+                                setTools(null, promptId)
+                                setLocalToolsJson(null)
+                            }}
+                            disabledReason={!prompt.tools ? 'No tools to remove' : undefined}
+                        >
+                            Clear tools
+                        </LemonButton>
                         <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
                             Close
                         </LemonButton>
                     </div>
+                }
+            >
+                <div className="space-y-2">
+                    <label className="font-semibold block text-sm">Tools (JSON)</label>
+                    <CodeEditorResizeable
+                        className="border rounded"
+                        language="json"
+                        value={toolsJsonString}
+                        onChange={handleToolsChange}
+                        height={TOOLS_MODAL_EDITOR_HEIGHT}
+                        embedded
+                        allowManualResize={false}
+                        autoFocus
+                        options={{
+                            minimap: { enabled: false },
+                            scrollbar: { alwaysConsumeMouseWheel: false },
+                            padding: { bottom: 0, top: 10 },
+                            overviewRulerLanes: 0,
+                            hideCursorInOverviewRuler: true,
+                            overviewRulerBorder: false,
+                            glyphMargin: true,
+                            folding: false,
+                            lineNumbers: 'off',
+                            lineDecorationsWidth: 0,
+                            lineNumbersMinChars: 0,
+                            renderLineHighlight: 'none',
+                            cursorStyle: 'line',
+                            scrollBeyondLastLine: false,
+                            quickSuggestions: false,
+                            contextmenu: false,
+                        }}
+                    />
+                    <div className="text-xs text-muted">Paste or edit valid JSON tool definitions.</div>
                 </div>
             </LemonModal>
         </>
     )
 }
 
-function SystemMessageDisplay(): JSX.Element {
-    const { systemPrompt } = useValues(llmAnalyticsPlaygroundLogic)
+function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
+    const prompt = usePromptConfig(promptId)
     const { setSystemPrompt, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
     const [collapsed, setCollapsed] = useState(false)
+
+    if (!prompt) {
+        return <LemonSkeleton className="h-12" />
+    }
 
     return (
         <>
@@ -468,19 +595,18 @@ function SystemMessageDisplay(): JSX.Element {
                     />
                 </div>
 
-                <div className="flex items-center gap-2 mb-2 cursor-pointer" onClick={() => setCollapsed(!collapsed)}>
-                    <LemonButton
-                        size="xsmall"
-                        icon={collapsed ? <IconChevronRight /> : <IconChevronDown />}
-                        noPadding
-                    />
+                <div
+                    className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
+                    onClick={() => setCollapsed(!collapsed)}
+                >
+                    <CollapsibleChevron collapsed={collapsed} />
                     <LemonTag type="completion" size="small">
                         System
                     </LemonTag>
                     {collapsed && (
                         <span className="text-xs text-muted truncate flex-1">
-                            {systemPrompt
-                                ? systemPrompt.slice(0, 80) + (systemPrompt.length > 80 ? '…' : '')
+                            {prompt.systemPrompt
+                                ? prompt.systemPrompt.slice(0, 80) + (prompt.systemPrompt.length > 80 ? '…' : '')
                                 : 'No system prompt'}
                         </span>
                     )}
@@ -490,8 +616,8 @@ function SystemMessageDisplay(): JSX.Element {
                     <LemonTextArea
                         className="text-sm w-full"
                         placeholder="System instructions for the AI assistant..."
-                        value={systemPrompt}
-                        onChange={setSystemPrompt}
+                        value={prompt.systemPrompt}
+                        onChange={(value) => setSystemPrompt(value, promptId)}
                         minRows={2}
                         maxRows={undefined}
                         onPressCmdEnter={() => submitPrompt()}
@@ -508,12 +634,12 @@ function SystemMessageDisplay(): JSX.Element {
             >
                 <div className="space-y-4">
                     <div>
-                        <label className="font-semibold mb-1 block text-sm">System Instructions</label>
+                        <label className="font-semibold mb-1 block text-sm">System instructions</label>
                         <LemonTextArea
                             className="text-sm w-full"
                             placeholder="System instructions for the AI assistant..."
-                            value={systemPrompt}
-                            onChange={setSystemPrompt}
+                            value={prompt.systemPrompt}
+                            onChange={(value) => setSystemPrompt(value, promptId)}
                             minRows={8}
                         />
                     </div>
@@ -528,15 +654,24 @@ function SystemMessageDisplay(): JSX.Element {
     )
 }
 
-function MessageDisplay({ message, index }: { message: Message; index: number }): JSX.Element {
+function MessageDisplay({
+    promptId,
+    message,
+    index,
+}: {
+    promptId: string
+    message: Message
+    index: number
+}): JSX.Element {
     const { updateMessage, deleteMessage, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
+    const [collapsed, setCollapsed] = useState(false)
 
     const handleRoleChange = (newRole: MessageRole): void => {
-        updateMessage(index, { role: newRole })
+        updateMessage(index, { role: newRole }, promptId)
     }
 
     const handleContentChange = (newContent: string): void => {
-        updateMessage(index, { content: newContent })
+        updateMessage(index, { content: newContent }, promptId)
     }
 
     const roleOptions: { label: string; value: MessageRole }[] = [
@@ -571,12 +706,11 @@ function MessageDisplay({ message, index }: { message: Message; index: number })
         }
     }
 
+    const trimmedContent = message.content.trim()
+    const useJsonEditor = trimmedContent.startsWith('{') || trimmedContent.startsWith('[')
+
     return (
-        <div
-            className={`border rounded p-3 relative group hover:shadow-sm transition-shadow ${getRoleBorderClass(
-                message.role
-            )}`}
-        >
+        <div className={`border rounded p-3 relative group bg-surface-secondary ${getRoleBorderClass(message.role)}`}>
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <LemonButton
                     size="small"
@@ -584,30 +718,57 @@ function MessageDisplay({ message, index }: { message: Message; index: number })
                     icon={<IconTrash />}
                     tooltip="Delete message"
                     noPadding
-                    onClick={() => deleteMessage(index)}
+                    onClick={() => deleteMessage(index, promptId)}
                 />
             </div>
 
-            <div className="flex items-center gap-2 mb-2">
+            <div
+                className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
+                onClick={() => setCollapsed(!collapsed)}
+            >
+                <CollapsibleChevron collapsed={collapsed} />
                 <span className={`w-2 h-2 rounded-full shrink-0 ${getRoleDotClass(message.role)}`} />
-                <LemonSelect<MessageRole>
-                    size="small"
-                    options={roleOptions}
-                    value={message.role}
-                    onChange={handleRoleChange}
-                    dropdownMatchSelectWidth={false}
-                />
+                <div onClick={(e) => e.stopPropagation()}>
+                    <LemonSelect<MessageRole>
+                        size="small"
+                        options={roleOptions}
+                        value={message.role}
+                        onChange={handleRoleChange}
+                        dropdownMatchSelectWidth={false}
+                    />
+                </div>
+                {collapsed && (
+                    <span className="text-xs text-muted truncate flex-1">
+                        {message.content
+                            ? message.content.slice(0, 80) + (message.content.length > 80 ? '…' : '')
+                            : `Empty ${message.role} message`}
+                    </span>
+                )}
             </div>
 
-            <LemonTextArea
-                className="text-sm w-full"
-                placeholder={`Enter ${message.role} message here...`}
-                value={message.content}
-                onChange={handleContentChange}
-                minRows={2}
-                maxRows={undefined}
-                onPressCmdEnter={() => submitPrompt()}
-            />
+            <AnimatedCollapsible collapsed={collapsed}>
+                {useJsonEditor ? (
+                    <div className={`border rounded ${INLINE_JSON_MAX_HEIGHT_CLASS}`}>
+                        <JSONEditor
+                            value={message.content}
+                            onChange={handleContentChange}
+                            defaultNumberOfLines={2}
+                            maxNumberOfLines={INLINE_JSON_MAX_LINES}
+                            onPressCmdEnter={() => submitPrompt()}
+                        />
+                    </div>
+                ) : (
+                    <LemonTextArea
+                        className="text-sm w-full"
+                        placeholder={`Enter ${message.role} message here...`}
+                        value={message.content}
+                        onChange={handleContentChange}
+                        minRows={2}
+                        maxRows={undefined}
+                        onPressCmdEnter={() => submitPrompt()}
+                    />
+                )}
+            </AnimatedCollapsible>
         </div>
     )
 }
@@ -616,6 +777,12 @@ function ResultsSection(): JSX.Element {
     const { submitting, displayItems } = useValues(llmAnalyticsPlaygroundLogic)
 
     const columns: LemonTableColumns<ComparisonItem> = [
+        {
+            title: 'Prompt',
+            dataIndex: 'promptLabel',
+            render: (promptLabel) => <span className="text-xs">{promptLabel || '-'}</span>,
+            width: 120,
+        },
         {
             title: 'Model',
             dataIndex: 'model',
@@ -665,7 +832,7 @@ function ResultsSection(): JSX.Element {
             render: (ttftMs) => formatMs(ttftMs as number | null),
             sorter: (a, b) => (a.ttftMs ?? Infinity) - (b.ttftMs ?? Infinity),
             align: 'right',
-            tooltip: 'Time To First Token',
+            tooltip: 'Time to first token',
         },
         {
             title: 'Latency',
@@ -673,16 +840,16 @@ function ResultsSection(): JSX.Element {
             render: (latencyMs) => formatMs(latencyMs as number | null),
             sorter: (a, b) => (a.latencyMs ?? Infinity) - (b.latencyMs ?? Infinity),
             align: 'right',
-            tooltip: 'Total Request Latency',
+            tooltip: 'Total request latency',
         },
     ]
 
     if (displayItems.length === 0) {
         return (
-            <div className="border rounded p-4">
+            <div className="border rounded p-6">
                 <div className="flex flex-col items-center justify-center h-24 text-muted">
                     <IconMessage className="text-3xl mb-2 opacity-40" />
-                    <p>Run your prompt to see results</p>
+                    <p>Run your prompts to see results</p>
                     <p className="text-xs opacity-60">Press Cmd+Enter from any message</p>
                 </div>
             </div>

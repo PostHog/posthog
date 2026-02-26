@@ -13,7 +13,7 @@ const MOCK_MODEL_OPTIONS: ModelOption[] = [
     { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Anthropic', description: '' },
 ]
 
-const DEFAULT_MODEL = 'gpt-4.1'
+const DEFAULT_MODEL = 'gpt-5-mini'
 
 describe('llmAnalyticsPlaygroundLogic', () => {
     let logic: ReturnType<typeof llmAnalyticsPlaygroundLogic.build>
@@ -599,6 +599,20 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             expect(logic.values.messages[0].content).toContain('"text"')
             expect(logic.values.messages[0].content).toContain('"Complex content"')
             expect(logic.values.messages[1].content).toContain('["array","content"]')
+        })
+
+        it('should extract plain text from trace-style content arrays', () => {
+            const input = [
+                { role: 'user', content: [{ text: 'hi', type: 'text' }] },
+                { role: 'assistant', content: [{ text: 'PART 1/2: Let me check that.', type: 'text' }] },
+            ]
+
+            logic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(logic.values.messages).toEqual([
+                { role: 'user', content: 'hi' },
+                { role: 'assistant', content: 'PART 1/2: Let me check that.' },
+            ])
         })
 
         it('should reset to default system prompt when none provided', () => {
