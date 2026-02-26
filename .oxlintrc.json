@@ -258,6 +258,14 @@
             "rules": {
                 "react/forbid-elements": "off"
             }
+        },
+        {
+            "files": ["services/stripe-app/src/**/*.{ts,tsx}"],
+            "rules": {
+                "react/forbid-elements": "off",
+                "react/forbid-dom-props": "off",
+                "no-restricted-imports": "off"
+            }
         }
     ]
 }

@@ -284,7 +284,7 @@ export function SourceFormComponent({
                 </LemonField>
             )}
             <Group name="payload">
-                {availableSources[sourceConfig.name].fields.map((field) =>
+                {sourceConfig.fields.map((field) =>
                     sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)
                 )}
             </Group>

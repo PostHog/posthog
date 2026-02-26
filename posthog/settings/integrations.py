@@ -1,5 +1,8 @@
 from posthog.settings.utils import get_from_env, str_to_bool
 
+# -------
+# Client ID/Secrets for all the third-party apps we integrate with. These are used for both the OAuth flows and API calls.
+
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
 
@@ -54,9 +57,30 @@ CLICKUP_APP_CLIENT_SECRET = get_from_env("CLICKUP_APP_CLIENT_SECRET", "")
 ATLASSIAN_APP_CLIENT_ID = get_from_env("ATLASSIAN_APP_CLIENT_ID", "")
 ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 
+# For Stripe we have something slightly more complicated because we have
+# to first authenticate with Stripe but then also send Stripe a token from our own
+# internal OAuth system to allow the Stripe app to make API calls to our users' PostHog instances.
+
+# Stripe App OAuth credentials (from Stripe Apps dashboard)
+# The app's public client ID, used in the OAuth authorize redirect URL
+STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
+# Override the Stripe OAuth authorize URL, e.g. with a channel link URL for local testing.
+# When unset, falls back to the standard marketplace authorize endpoint.
+STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
+# Stripe API secret key, used for HTTP Basic auth during token exchange/refresh
+STRIPE_APP_SECRET_KEY = get_from_env("STRIPE_APP_SECRET_KEY", "")
+
+# The client_id of the PostHog OAuthApplication that the Stripe Dashboard app uses
+# to authenticate with PostHog APIs. This app must be pre-created in the PostHog admin.
+# During the Stripe OAuth callback, we generate access+refresh tokens for this app
+# and write them to Stripe's Secret Store.
+STRIPE_POSTHOG_OAUTH_CLIENT_ID = get_from_env("STRIPE_POSTHOG_OAUTH_CLIENT_ID", "")
+
+
 # WorkOS Radar (bot/fraud detection for auth flows)
 WORKOS_RADAR_API_KEY = get_from_env("WORKOS_RADAR_API_KEY", "")
 WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str_to_bool)
+
 # Recall.ai (for desktop recordings product)
 RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")
 RECALL_AI_API_URL = get_from_env("RECALL_AI_API_URL", "https://us-west-2.recall.ai")

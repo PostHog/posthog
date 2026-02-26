@@ -12,6 +12,7 @@ packages:
     - products/*
     - docs/onboarding
     - services/mcp
+    - services/stripe-app
     - rust/cyclotron-node
 
 catalog:

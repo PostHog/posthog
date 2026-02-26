@@ -603,6 +603,9 @@ tools:
         bin_script: start-mcp-server
         description: Start the MCP server
         hidden: true
+    start:stripe:app:
+        bin_script: start-stripe-app
+        description: Start the Stripe app dev server (requires Stripe CLI)
     posthog:hobby:
         bin_script: posthog-hobby
         description: 'TODO: add description for posthog-hobby'

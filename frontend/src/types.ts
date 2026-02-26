@@ -4831,6 +4831,7 @@ export const INTEGRATION_KINDS = [
     'databricks',
     'tiktok-ads',
     'bing-ads',
+    'stripe',
     'vercel',
     'azure-blob',
     'firebase',

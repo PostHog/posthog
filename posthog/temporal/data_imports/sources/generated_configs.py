@@ -717,8 +717,7 @@ class SquareSourceConfig(config.Config):
 
 @config.config
 class StripeSourceConfig(config.Config):
-    stripe_secret_key: str
-    stripe_account_id: str | None = None
+    stripe_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config

@@ -40,6 +40,7 @@ from posthog.models.integration import (
     LinkedInAdsIntegration,
     OauthIntegration,
     SlackIntegration,
+    StripeIntegration,
     TwilioIntegration,
 )
 
@@ -199,6 +200,13 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 )
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
+
+            # Custom handling for Stripe to write secrets to Stripe after creation
+            # to guarantee Stripe has access to our secrets too
+            if validated_data["kind"] == "stripe":
+                stripe_integration = StripeIntegration(instance)
+                stripe_integration.write_posthog_secrets(request.user)
+
             return instance
 
         raise ValidationError("Kind not supported")
@@ -224,6 +232,12 @@ class IntegrationViewSet(
         ):
             return queryset.filter(kind="github")
         return queryset
+
+    def perform_destroy(self, instance):
+        # Make sure we clear secrets from Stripe when deleting the integration
+        if instance.kind == "stripe":
+            StripeIntegration(instance).clear_posthog_secrets()
+        instance.delete()
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:

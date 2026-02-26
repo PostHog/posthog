@@ -7,6 +7,8 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -268,6 +270,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['dataWarehouseSources'],
             preflightLogic,
             ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             dataWarehouseTableLogic,
@@ -483,22 +487,47 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
         ],
         connectors: [
-            (s) => [s.dataWarehouseSources, s.availableSources],
-            (sources, availableSources: Record<string, SourceConfig>): SourceConfig[] => {
+            (s) => [s.dataWarehouseSources, s.availableSources, s.featureFlags],
+            (
+                sources,
+                availableSources: Record<string, SourceConfig>,
+                featureFlags: Record<string, boolean | string>
+            ): SourceConfig[] => {
                 if (!availableSources) {
                     return []
                 }
-                return Object.values(availableSources).map((connector) => ({
-                    ...connector,
-                    disabledReason:
-                        sources && sources.results.find((source) => source.source_type === connector.name)
-                            ? 'Already linked'
-                            : null,
-                    existingSource:
-                        sources && sources.results.find((source) => source.source_type === connector.name)
-                            ? true
-                            : false,
-                }))
+
+                return Object.values(availableSources).map(({ fields, caption, permissionsCaption, ...connector }) => {
+                    // When the Stripe OAuth flag is on, replace RAK fields with OAuth integration picker
+                    if (connector.name === 'Stripe' && featureFlags[FEATURE_FLAGS.STRIPE_OAUTH]) {
+                        fields = [
+                            {
+                                name: 'stripe_integration_id',
+                                label: 'Stripe account',
+                                type: 'oauth' as const,
+                                required: true,
+                                kind: 'stripe',
+                            },
+                        ]
+                        caption = 'Select an existing Stripe account to link to PostHog or create a new connection'
+                        permissionsCaption = undefined
+                    }
+
+                    return {
+                        ...connector,
+                        fields,
+                        caption,
+                        permissionsCaption,
+                        disabledReason:
+                            sources && sources.results.find((source) => source.source_type === connector.name)
+                                ? 'Already linked'
+                                : null,
+                        existingSource:
+                            sources && sources.results.find((source) => source.source_type === connector.name)
+                                ? true
+                                : false,
+                    }
+                })
             },
         ],
         manualConnectors: [
