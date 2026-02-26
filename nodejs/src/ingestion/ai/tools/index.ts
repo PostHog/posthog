@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { parseJSON } from '../../../utils/json-parse'
 import { aiToolCallExtractionCounter } from '../metrics'
