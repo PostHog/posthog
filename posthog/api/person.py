@@ -1,4 +1,3 @@
-import json
 import uuid
 import asyncio
 import builtins
@@ -24,7 +23,6 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from statshog.defaults.django import statsd
 from temporalio import common
 
 from posthog.schema import ProductKey

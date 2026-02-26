@@ -112,6 +112,7 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+                AND max(is_deleted) = 0
             """,
             {
                 "team_id": team.pk,
@@ -180,6 +181,7 @@ class SessionReplayEvents:
                     session_id
                 HAVING
                     expiry_time >= {now}
+                    AND max(is_deleted) = 0
             """,
             values={
                 "session_ids": session_ids,
@@ -268,6 +270,7 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+                AND max(is_deleted) = 0
             {optional_format_clause}
         """
         query = query.format(
@@ -306,6 +309,7 @@ class SessionReplayEvents:
                     session_id
                 HAVING
                     expiry_time >= %(python_now)s
+                    AND max(is_deleted) = 0
                 {optional_format_clause}
                 """
         query = query.format(
@@ -422,6 +426,7 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+                AND max(is_deleted) = 0
         """
         tag_queries(product=Product.REPLAY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
