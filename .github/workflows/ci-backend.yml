@@ -396,6 +396,21 @@ jobs:
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
 
+    check-operator-parity:
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
+        timeout-minutes: 2
+        name: Check operator parity across languages
+        runs-on: depot-ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version: 3.12.12
+            - name: Check operator parity
+              run: python .github/scripts/check-operator-parity.py
+
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
@@ -1485,6 +1500,7 @@ jobs:
                 turbo-tests,
                 handle-snapshots,
                 check-idor-coverage,
+                check-operator-parity,
             ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
@@ -1519,6 +1535,12 @@ jobs:
                   # Check IDOR coverage - must pass for Django Tests to be green
                   if [[ "${{ needs.check-idor-coverage.result }}" != "success" && "${{ needs.check-idor-coverage.result }}" != "skipped" ]]; then
                     echo "IDOR coverage check failed."
+                    exit 1
+                  fi
+
+                  # Check operator parity - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-operator-parity.result }}" != "success" && "${{ needs.check-operator-parity.result }}" != "skipped" ]]; then
+                    echo "Operator parity check failed."
                     exit 1
                   fi
 
