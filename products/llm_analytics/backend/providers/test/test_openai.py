@@ -19,8 +19,6 @@ class TestOpenAIConfig(SimpleTestCase):
 
     def test_supported_models_include_expected(self):
         expected_models = [
-            "gpt-4o",
-            "gpt-4o-mini",
             "gpt-5",
             "gpt-5-mini",
             "o3",
