@@ -16,6 +16,7 @@ use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters, FlagPropertyGroup,
 };
 use crate::flags::flag_operations::flags_require_db_preparation;
+use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_canonical_log};
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
@@ -1012,16 +1013,15 @@ impl FeatureFlagMatcher {
             .map(FlagSnapshot::from_flag)
             .collect();
 
-        // TODO: Canonical log counters (cohorts_evaluated, flags_device_id_bucketing,
-        // property_cache_hits/misses, hash_key_override_status) are silently lost on rayon
-        // threads because CANONICAL_LOG uses tokio::task_local!. Fix by adding a thread_local!
-        // fallback: install a fresh FlagsCanonicalLogLine per flag eval, take it after, send
-        // deltas back through the oneshot channel, and merge into the real canonical log here.
-        // See: https://github.com/PostHog/posthog/issues/47752
+        // Each rayon thread accumulates evaluation counters in a thread-local
+        // FlagsCanonicalLogLine. After evaluation, the per-flag deltas are
+        // returned alongside each flag result and merged into the request's
+        // tokio task-local canonical log.
         let work = move || {
             flags_to_evaluate
                 .into_par_iter()
                 .map(|flag| {
+                    let _guard = install_rayon_canonical_log();
                     let result = matcher.evaluate_single_flag(
                         &flag,
                         &precomputed_property_overrides,
@@ -1029,9 +1029,10 @@ impl FeatureFlagMatcher {
                         &hash_overrides,
                         &req_hash_override,
                     );
-                    (flag, result)
+                    let delta = take_rayon_canonical_log();
+                    (flag, result, delta)
                 })
-                .collect()
+                .collect::<Vec<_>>()
         };
 
         let result = match &self.rayon_dispatcher {
@@ -1049,10 +1050,23 @@ impl FeatureFlagMatcher {
             }
         };
 
-        result.unwrap_or_else(|| {
+        let results_with_deltas = result.unwrap_or_else(|| {
             error!("Rayon parallel evaluation task was dropped (likely panicked)");
             Self::build_panic_fallback(flag_snapshots, team_id)
-        })
+                .into_iter()
+                .map(|(flag, result)| (flag, result, None))
+                .collect()
+        });
+
+        results_with_deltas
+            .into_iter()
+            .map(|(flag, result, delta)| {
+                if let Some(delta) = delta {
+                    with_canonical_log(|log| log.merge_rayon_delta(&delta));
+                }
+                (flag, result)
+            })
+            .collect()
     }
 
     /// Constructs per-flag error results from lightweight snapshots when the
