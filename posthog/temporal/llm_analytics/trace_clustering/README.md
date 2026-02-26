@@ -210,7 +210,7 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
     # Clustering parameters used for this run (for debugging/analysis)
     "$ai_clustering_params": {
         "clustering_method": "hdbscan",
-        "clustering_method_params": {"min_cluster_size_fraction": 0.05, "min_samples": 5},
+        "clustering_method_params": {"min_cluster_size_fraction": 0.02, "min_samples": 5},
         "embedding_normalization": "l2",
         "dimensionality_reduction_method": "umap",
         "dimensionality_reduction_ndims": 100,
@@ -346,7 +346,7 @@ Key constants in `constants.py`:
 | `LABELING_AGENT_RECURSION_LIMIT`    | 150                               | LangGraph recursion limit                     |
 | `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run timeout (seconds)              |
 | `DEFAULT_HDBSCAN_MIN_SAMPLES`       | 5                                 | Min samples for HDBSCAN core points           |
-| `DEFAULT_MIN_CLUSTER_SIZE_FRACTION` | 0.01                              | Min cluster size as fraction of total samples |
+| `DEFAULT_MIN_CLUSTER_SIZE_FRACTION` | 0.02                              | Min cluster size as fraction of total samples |
 | `DEFAULT_UMAP_N_COMPONENTS`         | 100                               | UMAP dimensions for clustering                |
 | `DEFAULT_UMAP_N_NEIGHBORS`          | 15                                | UMAP neighborhood size                        |
 | `DEFAULT_UMAP_MIN_DIST`             | 0.0                               | UMAP min distance (tighter for clustering)    |

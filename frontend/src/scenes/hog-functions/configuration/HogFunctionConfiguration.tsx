@@ -49,7 +49,6 @@ export function HogFunctionConfiguration({
     const logicProps = { templateId, subTemplateId, id, logicKey }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
-        configuration,
         loading,
         loaded,
         hogFunction,
@@ -155,11 +154,7 @@ export function HogFunctionConfiguration({
                                             disabled={loading}
                                             bordered
                                             fullWidth
-                                            label={
-                                                <span className="flex flex-1">
-                                                    {configuration.enabled ? 'Enabled' : 'Disabled'}
-                                                </span>
-                                            }
+                                            label="Enable destination"
                                             tooltip={
                                                 <>
                                                     {value
