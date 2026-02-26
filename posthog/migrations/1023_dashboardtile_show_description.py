@@ -4,7 +4,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+<<<<<<<< HEAD:posthog/migrations/1023_dashboardtile_show_description.py
     dependencies = [("posthog", "1022_survey_translations_alter_survey_questions")]
+========
+    dependencies = [("posthog", "1019_alter_integration_kind_pinterest_ads")]
+>>>>>>>> 3490d37ece4 (fix(dashboards): renumber migration to resolve conflict with master):posthog/migrations/1020_dashboardtile_show_description.py
 
     operations = [
         migrations.AddField(
