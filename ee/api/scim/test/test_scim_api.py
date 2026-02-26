@@ -216,8 +216,8 @@ class TestSCIMAPI(APILicensedTest):
         assert Role.objects.filter(id=other_role.id).exists()
 
 
-class TestSCIMEmailDomainValidation(APILicensedTest):
-    """Security tests: SCIM must not adopt users from other orgs or bypass email domain verification."""
+class TestSCIMCrossTenantProtection(APILicensedTest):
+    """Security tests: SCIM must not adopt users from other orgs. Email changes allowed for own org's users."""
 
     def setUp(self):
         super().setUp()
@@ -251,116 +251,142 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
             "active": True,
         }
 
+    def _create_scim_user(self, email: str = "testuser@example.com") -> str:
+        self.client.credentials(**self.scim_headers)
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users",
+            self._scim_user_data(email),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return response.json()["id"]
+
+    # ---- from_dict: cross-tenant adoption ----
+
     def test_from_dict_rejects_adopting_user_from_different_org(self):
         other_org = Organization.objects.create(name="OtherCorp")
         other_user = User.objects.create(email="alice@othercorp.com", first_name="Alice")
         OrganizationMembership.objects.create(user=other_user, organization=other_org)
 
-        with self.assertRaises(ValueError, msg="does not match organization domain"):
-            PostHogSCIMUser.from_dict(
-                self._scim_user_data("alice@othercorp.com"),
-                self.domain,
-            )
+        with self.assertRaises(ValueError, msg="belongs to another organization"):
+            PostHogSCIMUser.from_dict(self._scim_user_data("alice@othercorp.com"), self.domain)
 
         assert not OrganizationMembership.objects.filter(user=other_user, organization=self.organization).exists()
 
-    def test_from_dict_allows_adopting_user_with_matching_domain(self):
-        other_org = Organization.objects.create(name="OtherCorp")
-        existing_user = User.objects.create(email="bob@example.com", first_name="Bob")
-        OrganizationMembership.objects.create(user=existing_user, organization=other_org)
+    def test_from_dict_allows_provisioning_existing_member(self):
+        existing_user = User.objects.create(email="bob@partner.com", first_name="Bob")
+        OrganizationMembership.objects.create(user=existing_user, organization=self.organization)
 
-        scim_user = PostHogSCIMUser.from_dict(
-            self._scim_user_data("bob@example.com"),
-            self.domain,
-        )
+        scim_user = PostHogSCIMUser.from_dict(self._scim_user_data("bob@partner.com"), self.domain)
 
-        assert scim_user.obj.email == "bob@example.com"
-        assert OrganizationMembership.objects.filter(user=existing_user, organization=self.organization).exists()
+        assert scim_user.obj.email == "bob@partner.com"
 
-    def test_from_dict_allows_creating_new_user_with_matching_domain(self):
-        scim_user = PostHogSCIMUser.from_dict(
-            self._scim_user_data("newuser@example.com"),
-            self.domain,
-        )
-        assert scim_user.obj.email == "newuser@example.com"
+    def test_from_dict_allows_creating_new_user_any_domain(self):
+        scim_user = PostHogSCIMUser.from_dict(self._scim_user_data("newuser@ibm.com"), self.domain)
+        assert scim_user.obj.email == "newuser@ibm.com"
 
-    def test_from_dict_rejects_creating_new_user_with_non_matching_domain(self):
-        with self.assertRaises(ValueError, msg="does not match organization domain"):
-            PostHogSCIMUser.from_dict(
-                self._scim_user_data("newuser@evil.com"),
-                self.domain,
-            )
-        assert not User.objects.filter(email="newuser@evil.com").exists()
+    def test_from_dict_allows_provisioning_user_with_no_org(self):
+        orphan_user = User.objects.create(email="orphan@anywhere.com", first_name="Orphan")
 
-    def test_put_rejects_email_change_to_non_matching_domain(self):
-        self.client.credentials(**self.scim_headers)
+        scim_user = PostHogSCIMUser.from_dict(self._scim_user_data("orphan@anywhere.com"), self.domain)
 
-        # Create a valid SCIM user first
-        response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
-            self._scim_user_data("valid@example.com"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        user_id = response.json()["id"]
+        assert scim_user.obj.email == "orphan@anywhere.com"
+        assert OrganizationMembership.objects.filter(user=orphan_user, organization=self.organization).exists()
+
+    # ---- put: email changes for own org's users ----
+
+    def test_put_allows_email_change_for_own_user(self):
+        user_id = self._create_scim_user("valid@example.com")
 
         response = self.client.put(
             f"/scim/v2/{self.domain.id}/Users/{user_id}",
+            self._scim_user_data("newemail@partner.com", "Updated", "Name"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        user = User.objects.get(id=user_id)
+        assert user.email == "newemail@partner.com"
+        assert user.first_name == "Updated"
+
+    def test_put_rejects_email_change_to_taken_email(self):
+        User.objects.create(email="taken@example.com")
+        user_id = self._create_scim_user("valid@example.com")
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{user_id}",
+            self._scim_user_data("taken@example.com"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        user = User.objects.get(id=user_id)
+        assert user.email == "valid@example.com"
+
+    def test_put_returns_404_for_user_in_other_org(self):
+        other_org = Organization.objects.create(name="OtherCorp")
+        other_user = User.objects.create(email="other@othercorp.com", first_name="Other")
+        OrganizationMembership.objects.create(user=other_user, organization=other_org)
+
+        self.client.credentials(**self.scim_headers)
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{other_user.id}",
             self._scim_user_data("hijacked@evil.com"),
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
-        user = User.objects.get(id=user_id)
-        assert user.email == "valid@example.com"
+        other_user.refresh_from_db()
+        assert other_user.email == "other@othercorp.com"
 
-    def test_handle_replace_rejects_email_change_to_non_matching_domain(self):
-        self.client.credentials(**self.scim_headers)
+    # ---- patch (handle_replace / handle_add): email changes for own org's users ----
 
-        response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
-            self._scim_user_data("valid@example.com"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        user_id = response.json()["id"]
-
-        response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Users/{user_id}",
-            {
-                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-                "Operations": [{"op": "replace", "path": "emails", "value": [{"value": "hijacked@evil.com"}]}],
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        user = User.objects.get(id=user_id)
-        assert user.email == "valid@example.com"
-
-    def test_handle_add_rejects_email_change_to_non_matching_domain(self):
-        self.client.credentials(**self.scim_headers)
-
-        response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
-            self._scim_user_data("valid@example.com"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        user_id = response.json()["id"]
+    @parameterized.expand(
+        [
+            ("replace",),
+            ("add",),
+        ]
+    )
+    def test_patch_allows_email_change_for_own_user(self, op: str):
+        user_id = self._create_scim_user("valid@example.com")
 
         response = self.client.patch(
             f"/scim/v2/{self.domain.id}/Users/{user_id}",
             {
                 "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-                "Operations": [{"op": "add", "path": "emails", "value": [{"value": "hijacked@evil.com"}]}],
+                "Operations": [{"op": op, "path": "emails", "value": [{"value": "newemail@partner.com"}]}],
             },
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_200_OK
 
         user = User.objects.get(id=user_id)
-        assert user.email == "valid@example.com"
+        assert user.email == "newemail@partner.com"
+
+    @parameterized.expand(
+        [
+            ("replace",),
+            ("add",),
+        ]
+    )
+    def test_patch_returns_404_for_user_in_other_org(self, op: str):
+        other_org = Organization.objects.create(name="OtherCorp")
+        other_user = User.objects.create(email="other@othercorp.com", first_name="Other")
+        OrganizationMembership.objects.create(user=other_user, organization=other_org)
+
+        self.client.credentials(**self.scim_headers)
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{other_user.id}",
+            {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{"op": op, "path": "emails", "value": [{"value": "hijacked@evil.com"}]}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        other_user.refresh_from_db()
+        assert other_user.email == "other@othercorp.com"
 
 
 class TestSCIMAuditLogging(APILicensedTest):
