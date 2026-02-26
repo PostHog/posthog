@@ -14,13 +14,11 @@ import { Experiment, FeatureFlagType } from '~/types'
 
 type ExperimentTabContentProps = {
     featureFlag: FeatureFlagType
-    emptyStateBannerMessage: string
     multipleExperimentsBannerMessage: React.ReactNode
 }
 
 export const ExperimentTabContent = ({
     featureFlag,
-    emptyStateBannerMessage,
     multipleExperimentsBannerMessage,
 }: ExperimentTabContentProps): JSX.Element => {
     const { experiments } = useValues(experimentsLogic)
@@ -33,7 +31,7 @@ export const ExperimentTabContent = ({
             <div className="flex flex-col items-center pt-5">
                 <div className="w-full max-w-5xl">
                     <LemonBanner type="info" className="mb-6">
-                        {emptyStateBannerMessage}
+                        No experiments are using this feature flag yet. Create one to start testing variants.
                     </LemonBanner>
                     <div className="border rounded p-6 bg-bg-light flex flex-col items-center gap-4">
                         <div className="text-muted text-center">
