@@ -792,7 +792,7 @@ def verify_team_flag_definitions(
                 diffs.append(diff)
 
     # Also compare cohorts and group_type_mapping
-    if cached_data and db_data:
+    if cached_data is not None and db_data is not None:
         if cached_data.get("cohorts") != db_data.get("cohorts"):
             diffs.append({"type": "COHORTS_MISMATCH", "flag_key": "cohorts"})
         if cached_data.get("group_type_mapping") != db_data.get("group_type_mapping"):
@@ -805,6 +805,8 @@ def verify_team_flag_definitions(
     missing_count = sum(1 for d in diffs if d.get("type") == "MISSING_IN_CACHE")
     stale_count = sum(1 for d in diffs if d.get("type") == "STALE_IN_CACHE")
     mismatch_count = sum(1 for d in diffs if d.get("type") == "FIELD_MISMATCH")
+    cohorts_mismatch = any(d.get("type") == "COHORTS_MISMATCH" for d in diffs)
+    gtm_mismatch = any(d.get("type") == "GROUP_TYPE_MAPPING_MISMATCH" for d in diffs)
 
     summary_parts = []
     if missing_count > 0:
@@ -814,10 +816,19 @@ def verify_team_flag_definitions(
     if mismatch_count > 0:
         summary_parts.append(f"{mismatch_count} mismatched")
 
+    flag_summary = f"{', '.join(summary_parts)} flags" if summary_parts else ""
+    extra_parts = []
+    if cohorts_mismatch:
+        extra_parts.append("cohorts mismatch")
+    if gtm_mismatch:
+        extra_parts.append("group_type_mapping mismatch")
+
+    details = "; ".join(filter(None, [flag_summary, ", ".join(extra_parts)]))
+
     result: dict = {
         "status": "mismatch",
         "issue": "DATA_MISMATCH",
-        "details": f"{', '.join(summary_parts)} flags" if summary_parts else "unknown differences",
+        "details": details or "unknown differences",
     }
 
     if verbose:

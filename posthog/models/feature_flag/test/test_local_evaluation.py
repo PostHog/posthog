@@ -1259,6 +1259,7 @@ class TestVerifyFlagDefinitions(BaseTest):
 
         assert result["status"] == "mismatch"
         assert result["issue"] == "DATA_MISMATCH"
+        assert "cohorts mismatch" in result["details"]
         assert "diffs" in result
         cohorts_diff = [d for d in result["diffs"] if d.get("type") == "COHORTS_MISMATCH"]
         assert len(cohorts_diff) == 1
@@ -1291,6 +1292,7 @@ class TestVerifyFlagDefinitions(BaseTest):
 
         assert result["status"] == "mismatch"
         assert result["issue"] == "DATA_MISMATCH"
+        assert "group_type_mapping mismatch" in result["details"]
         assert "diffs" in result
         mapping_diff = [d for d in result["diffs"] if d.get("type") == "GROUP_TYPE_MAPPING_MISMATCH"]
         assert len(mapping_diff) == 1
