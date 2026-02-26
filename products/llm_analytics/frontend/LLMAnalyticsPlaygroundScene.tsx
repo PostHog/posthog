@@ -504,7 +504,10 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     const toolCount = Array.isArray(prompt.tools) ? prompt.tools.length : 0
     const hasTools = toolCount > 0
 
-    const handleToolsChange = (value: string): void => {
+    const handleToolsChange = (value?: string): void => {
+        if (value === undefined) {
+            return
+        }
         setLocalToolsJson(value, promptId)
         try {
             const parsedTools = JSON.parse(value)
@@ -727,8 +730,8 @@ function MessageDisplay({
         updateMessage(index, { role: newRole }, promptId)
     }
 
-    const handleContentChange = (newContent: string): void => {
-        updateMessage(index, { content: newContent }, promptId)
+    const handleContentChange = (newContent: string | undefined): void => {
+        updateMessage(index, { content: newContent ?? '' }, promptId)
     }
 
     const roleOptions: { label: string; value: MessageRole }[] = [
@@ -825,7 +828,6 @@ function MessageDisplay({
                                 onChange={handleContentChange}
                                 defaultNumberOfLines={2}
                                 maxNumberOfLines={INLINE_JSON_MAX_LINES}
-                                onPressCmdEnter={() => submitPrompt()}
                             />
                         </div>
                     ) : (
