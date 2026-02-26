@@ -13,6 +13,7 @@ import {
     SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
+    checkUrlIsAuthorized,
     filterNotAuthorizedUrls,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
@@ -219,6 +220,15 @@ describe('the authorized urls list logic', () => {
             ])
         })
 
+        it('filters wildcard domains with trailing slashes', () => {
+            expect(filterNotAuthorizedUrls(testUrls, ['https://*.wildcard.com/'])).toEqual([
+                { url: 'https://a.single.io', count: 1 },
+                { url: 'https://a.sub.b.multi-wildcard.com', count: 1 },
+                { url: 'https://a.not.b.multi-wildcard.com', count: 1 },
+                { url: 'https://not.valid.io', count: 1 },
+            ])
+        })
+
         it('filters out invalid URLs like paths without domains', () => {
             const urlsWithInvalidPaths: SuggestedDomain[] = [
                 { url: '/', count: 10 },
@@ -230,6 +240,24 @@ describe('the authorized urls list logic', () => {
             expect(filterNotAuthorizedUrls(urlsWithInvalidPaths, [])).toEqual([
                 { url: 'https://valid.example.com', count: 2 },
             ])
+        })
+    })
+
+    describe('checkUrlIsAuthorized', () => {
+        const testCases: { url: string; authorizedUrls: string[]; expected: boolean }[] = [
+            { url: 'https://app.example.com', authorizedUrls: ['https://app.example.com'], expected: true },
+            { url: 'https://app.example.com', authorizedUrls: ['https://*.example.com'], expected: true },
+            { url: 'https://app.example.com', authorizedUrls: ['https://*.example.com/'], expected: true },
+            { url: 'https://app.example.com/', authorizedUrls: ['https://*.example.com'], expected: true },
+            { url: 'https://app.example.com/', authorizedUrls: ['https://*.example.com/'], expected: true },
+            { url: 'https://other.example.com', authorizedUrls: ['https://app.example.com'], expected: false },
+            { url: 'https://app.example.com', authorizedUrls: ['https://*.other.com'], expected: false },
+        ]
+
+        testCases.forEach(({ url, authorizedUrls, expected }) => {
+            it(`${url} against ${JSON.stringify(authorizedUrls)} is ${expected ? 'authorized' : 'not authorized'}`, () => {
+                expect(checkUrlIsAuthorized(url, authorizedUrls)).toBe(expected)
+            })
         })
     })
 })
