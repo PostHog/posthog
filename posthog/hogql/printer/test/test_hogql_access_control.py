@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_guard, get_blocked_resource_ids
 
@@ -15,26 +16,17 @@ class TestAccessControlSystemTables(BaseTest):
 
     def test_org_admin_gets_all_system_tables(self):
         """Org admins should have access to all system tables."""
-        # Make user an org admin
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         membership.level = OrganizationMembership.Level.ADMIN
         membership.save()
 
         database = Database.create_for(team=self.team, user=self.user)
 
-        # Check that system tables are available
         system_node = database.tables.children.get("system")
         assert system_node is not None
-        assert hasattr(system_node, "children")
-        # All scoped system tables should be present for admin
-        assert "dashboards" in system_node.children
-        assert "insights" in system_node.children
-        assert "experiments" in system_node.children
-        assert "feature_flags" in system_node.children
-        assert "surveys" in system_node.children
-        assert "actions" in system_node.children
-        assert "notebooks" in system_node.children
-        assert "error_tracking_issues" in system_node.children
+        fresh_system = SystemTables()
+        for table_name in fresh_system.children:
+            assert table_name in system_node.children, f"{table_name} missing for admin"
 
     def test_regular_user_with_full_access_gets_all_tables(self):
         """Regular users with default full access should see all tables."""
@@ -378,19 +370,15 @@ class TestAccessControlIntegration(BaseTest):
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
     def test_database_without_user_keeps_all_tables_when_flag_off(self):
-        """When the feature flag is off, all tables remain accessible even without user."""
+        """When the feature flag is off, no tables are denied even without user."""
         database = Database.create_for(team=self.team, user=None)
+        assert len(database._denied_tables) == 0
+        # Verify against a fresh SystemTables instance to avoid shared-state issues
+        fresh_system = SystemTables()
         system_node = database.tables.children.get("system")
         assert system_node is not None
-        assert "dashboards" in system_node.children
-        assert "insights" in system_node.children
-        assert "experiments" in system_node.children
-        assert "feature_flags" in system_node.children
-        assert "surveys" in system_node.children
-        assert "actions" in system_node.children
-        assert "notebooks" in system_node.children
-        assert "error_tracking_issues" in system_node.children
-        assert len(database._denied_tables) == 0
+        for table_name in fresh_system.children:
+            assert table_name in system_node.children, f"{table_name} missing from system tables when flag is off"
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_query_without_user_works_for_unscoped_tables(self):
