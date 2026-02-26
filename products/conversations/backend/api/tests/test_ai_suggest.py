@@ -327,8 +327,9 @@ class TestSuggestReplyAPI(APIBaseTest):
         self._create_message("Help me with this issue")
 
         mock_client = MagicMock()
-        # Create proper APITimeoutError (just needs message)
-        timeout_error = APITimeoutError("Request timed out")
+        # Mock APITimeoutError with a proper request object
+        mock_request = MagicMock()
+        timeout_error = APITimeoutError(request=mock_request)
 
         # First call fails twice, third succeeds
         mock_client.beta.chat.completions.parse.side_effect = [
@@ -355,8 +356,9 @@ class TestSuggestReplyAPI(APIBaseTest):
         self._create_message("Help me")
 
         mock_client = MagicMock()
-        # All calls fail with timeout
-        mock_client.beta.chat.completions.parse.side_effect = APITimeoutError("Request timed out")
+        # Mock APITimeoutError with a proper request object
+        mock_request = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = APITimeoutError(request=mock_request)
         mock_get_client.return_value = mock_client
 
         response = self.client.post(self.url)

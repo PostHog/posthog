@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
@@ -128,7 +127,7 @@ def _fetch_session_events(team: Team, session_id: str, ticket_created_at: str | 
         created_at = parse_datetime(ticket_created_at)
         if not created_at:
             # Fallback to manual parsing if parse_datetime fails
-            created_at = timezone.datetime.fromisoformat(ticket_created_at.replace("Z", "+00:00"))
+            created_at = datetime.fromisoformat(ticket_created_at.replace("Z", "+00:00"))
         after = (created_at - timedelta(minutes=5)).isoformat()
         before = (created_at + timedelta(minutes=5)).isoformat()
     else:
@@ -164,7 +163,7 @@ def _fetch_session_exceptions(team: Team, session_id: str, ticket_created_at: st
         created_at = parse_datetime(ticket_created_at)
         if not created_at:
             # Fallback to manual parsing if parse_datetime fails
-            created_at = timezone.datetime.fromisoformat(ticket_created_at.replace("Z", "+00:00"))
+            created_at = datetime.fromisoformat(ticket_created_at.replace("Z", "+00:00"))
         after = (created_at - timedelta(minutes=5)).isoformat()
         before = (created_at + timedelta(minutes=5)).isoformat()
     else:
@@ -257,6 +256,7 @@ def _classify_conversation(client, conversation_text: str, user_distinct_id: str
             else:
                 # Final attempt failed, re-raise
                 raise
+    raise RuntimeError("Unreachable code")
 
 
 def suggest_reply(
@@ -307,6 +307,7 @@ def suggest_reply(
             system_prompt = SUGGEST_REPLY_WITH_CONTEXT_SYSTEM_PROMPT
 
     # Step 3: Generate the reply with retry logic
+    reply_text: str | None = None
     for attempt in range(MAX_RETRIES + 1):
         try:
             completion = client.beta.chat.completions.parse(
@@ -341,16 +342,7 @@ def suggest_reply(
                     },
                 )
 
-            # Step 4: Save as private AI comment
-            Comment.objects.create(
-                team_id=team.id,
-                scope="conversations_ticket",
-                item_id=str(ticket.id),
-                content=reply_text,
-                item_context={"author_type": "AI", "is_private": True},
-            )
-
-            return reply_text
+            break
 
         except (APITimeoutError, Exception) as e:
             if attempt < MAX_RETRIES:
@@ -369,3 +361,17 @@ def suggest_reply(
             else:
                 # Final attempt failed, re-raise
                 raise
+
+    if reply_text is None:
+        raise RuntimeError("Reply generation failed without exception")
+
+    # Step 4: Save as private AI comment (outside retry loop to avoid duplicates)
+    Comment.objects.create(
+        team_id=team.id,
+        scope="conversations_ticket",
+        item_id=str(ticket.id),
+        content=reply_text,
+        item_context={"author_type": "AI", "is_private": True},
+    )
+
+    return reply_text
