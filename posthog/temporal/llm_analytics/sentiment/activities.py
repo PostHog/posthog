@@ -76,7 +76,15 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
 
     to_cache = {f"{CACHE_KEY_PREFIX}:{input.team_id}:{tid}": result for tid, result in output.items()}
     if to_cache:
-        cache.set_many(to_cache, timeout=CACHE_TTL)
+        try:
+            cache.set_many(to_cache, timeout=CACHE_TTL)
+        except Exception:
+            logger.warning(
+                "Failed to cache sentiment results",
+                team_id=input.team_id,
+                trace_count=len(to_cache),
+                exc_info=True,
+            )
 
     logger.info(
         "Sentiment activity completed",
