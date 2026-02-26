@@ -691,15 +691,16 @@ describe('Hogflow Executor', () => {
                     filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                 }
                 hogFlow.conversion = {
-                    window_minutes: 10,
                     filters: [
                         {
-                            key: 'apple',
+                            key: '$browser',
                             type: 'person',
-                            value: ['green'],
+                            value: ['Chrome'],
                             operator: 'exact',
                         },
                     ],
+                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                    window_minutes: null,
                 }
 
                 // Person does not match conversion filters yet
@@ -709,13 +710,12 @@ describe('Hogflow Executor', () => {
                         event: {
                             ...createHogExecutionGlobals().event,
                             event: '$not-a-pageview',
-                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                            properties: { $current_url: 'https://posthog.com' },
                         },
                     },
                     {
                         properties: {
-                            name: 'John Doe',
-                            apple: 'red',
+                            $browser: 'Firefox',
                         },
                     }
                 )
@@ -740,8 +740,7 @@ describe('Hogflow Executor', () => {
                     },
                     {
                         properties: {
-                            name: 'John Doe',
-                            apple: 'green',
+                            $browser: 'Chrome',
                         },
                     }
                 )
