@@ -68,7 +68,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
+from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id
 
 logger = structlog.get_logger(__name__)
@@ -1061,6 +1061,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 workflow_input = RecordingsWithPersonInput(
                     distinct_ids=person.distinct_ids,
                     team_id=self.team_id,
+                    config=DeletionConfig(deleted_by=cast(User, self.request.user).email, reason="person deletion"),
                 )
                 workflow_id = f"delete-recordings-{self.team_id}-person-{person.uuid}-{uuid.uuid4()}"
                 tasks.append(
