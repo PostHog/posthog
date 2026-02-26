@@ -153,13 +153,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
     selectors({
         querySource: [
-            (s) => [s.query],
-            (query) => {
-                if (!isNodeWithSource(query) || !isInsightQueryNode(query.source)) {
+            (s) => [s.query, s.insightQuery],
+            (query, insightQuery) => {
+                // Prefer insightQuery from dataNodeLogic as it always reflects the current props
+                // (query comes from insightDataLogic which may hold stale props for ad-hoc queries)
+                const source =
+                    insightQuery && isInsightQueryNode(insightQuery)
+                        ? insightQuery
+                        : isNodeWithSource(query) && isInsightQueryNode(query.source)
+                          ? query.source
+                          : null
+
+                if (!source) {
                     return null
                 }
-
-                const source = query.source
 
                 // Clean up Web Analytics queries by removing invalid fields that might have been saved
                 if (isWebStatsTableQuery(source) || isWebOverviewQuery(source)) {
