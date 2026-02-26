@@ -26,8 +26,21 @@ export function useScrollSync(enabled: boolean = true): {
         let rafId: number | undefined
         let lastScrollY = -1
 
-        const onFrame = (): void => {
-            const scrollY = posthogInstance?.scrollManager?.scrollY() ?? window.scrollY
+        const getScrollY = (): number => {
+            // Try posthog scroll manager first — it handles pages with custom scroll containers
+            try {
+                const managed = posthogInstance?.scrollManager?.scrollY()
+                if (typeof managed === 'number' && !isNaN(managed)) {
+                    return managed
+                }
+            } catch {
+                // scrollManager unavailable or errored
+            }
+            return document.scrollingElement?.scrollTop ?? window.scrollY ?? 0
+        }
+
+        const applyScroll = (): void => {
+            const scrollY = getScrollY()
             if (scrollY !== lastScrollY) {
                 lastScrollY = scrollY
                 scrollYRef.current = scrollY
@@ -36,15 +49,25 @@ export function useScrollSync(enabled: boolean = true): {
                     inner.style.transform = `translateY(${-scrollY}px)`
                 }
             }
+        }
+
+        const onFrame = (): void => {
+            applyScroll()
             rafId = requestAnimationFrame(onFrame)
         }
 
         rafId = requestAnimationFrame(onFrame)
 
+        // Also listen for scroll events for immediate response.
+        // Capture phase catches events from nested scrollable containers too.
+        const onScroll = (): void => applyScroll()
+        document.addEventListener('scroll', onScroll, true)
+
         return () => {
             if (rafId !== undefined) {
                 cancelAnimationFrame(rafId)
             }
+            document.removeEventListener('scroll', onScroll, true)
         }
     }, [enabled])
 

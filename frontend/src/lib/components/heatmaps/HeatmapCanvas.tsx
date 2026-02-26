@@ -207,6 +207,11 @@ export function HeatmapCanvas({
     }
 
     if (heatmapFilters.type === 'scrolldepth') {
+        // In toolbar mode, ScrollDepth component in Elements.tsx handles scroll depth rendering
+        // with proper toolbar-specific mouse info and scroll sync
+        if (isToolbar) {
+            return null
+        }
         return (
             <ScrollDepthCanvas
                 key={`scrolldepth-${heatmapFilters.type}-${exportToken ? 'export' : `${widthOverride ?? windowWidth}x${windowHeight}`}`}
