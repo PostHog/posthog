@@ -15,15 +15,14 @@ describe('InternalFetchService', () => {
         })
         const mockedInternalFetch = jest.mocked(internalFetch)
 
-        mockedInternalFetch.mockResolvedValueOnce({
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-            // eslint-disable-next-line @typescript-eslint/require-await
-            json: async () => ({ success: true }),
-            // eslint-disable-next-line @typescript-eslint/require-await
-            text: async () => JSON.stringify({ success: true }),
-
-            dump: async () => {},
+        mockedInternalFetch.mockImplementationOnce((_url, _fetchParams) => {
+            return Promise.resolve({
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+                json: async () => Promise.resolve({ success: true }),
+                text: async () => Promise.resolve(JSON.stringify({ success: true })),
+                dump: async () => {},
+            })
         })
 
         await internalFetchService.fetch({
@@ -32,14 +31,12 @@ describe('InternalFetchService', () => {
         })
 
         expect(mockedInternalFetch).toHaveBeenCalledTimes(1)
-        expect(mockedInternalFetch.mock.calls[0][0]).toMatchObject({
-            url: 'https://internal.example.com/health',
-            fetchParams: {
-                method: 'POST',
-                headers: {
-                    'X-Test': 'abc',
-                    [INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()]: 'secret-123',
-                },
+        expect(mockedInternalFetch.mock.calls[0][0]).toEqual('https://internal.example.com/health')
+        expect(mockedInternalFetch.mock.calls[0][1]).toMatchObject({
+            method: 'POST',
+            headers: {
+                'X-Test': 'abc',
+                [INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()]: 'secret-123',
             },
         })
     })
