@@ -41,7 +41,7 @@ impl RayonDispatcher {
     /// 1. Acquires a semaphore permit (suspends if the pool is saturated).
     /// 2. Sends the closure to Rayon via `rayon::spawn`.
     /// 3. Returns the result through a `tokio::sync::oneshot` channel.
-    /// 4. Releases the permit **before** signalling completion, so that
+    /// 4. Releases the permit **before** signaling completion by sending the result,
     ///    `handle.await` is a reliable synchronisation point for permit
     ///    availability.
     ///
