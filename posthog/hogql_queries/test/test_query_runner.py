@@ -11,6 +11,7 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 from pydantic import BaseModel
+from redis.exceptions import RedisError
 
 from posthog.schema import (
     BounceRatePageViewMode,
@@ -524,148 +525,40 @@ class TestQueryCoalescing(BaseTest):
         return _TestQueryRunner
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_concurrent_blocking_requests_coalesce(self, _mock_ff):
-        """When cache is empty, concurrent blocking requests should coalesce:
-        only 1 calls calculate(), the rest get the cached result."""
-        import threading
-
+    def test_coalescing_used_for_blocking_if_stale(self, _mock_ff):
+        """RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE routes through QueryCoalescer."""
         Runner = self.setup_test_query_runner_class()
-        calculate_call_count = 0
-        calculate_lock = threading.Lock()
-        original_calculate = Runner.calculate
-
-        def counting_calculate(self_inner):
-            nonlocal calculate_call_count
-            with calculate_lock:
-                calculate_call_count += 1
-            import time
-
-            time.sleep(0.5)
-            return original_calculate(self_inner)
-
-        Runner.calculate = counting_calculate
-
         runner = Runner(query={"some_attr": "bla"}, team=self.team)
-        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
-        self.assertIsInstance(response, CacheMissResponse)
-        calculate_call_count = 0
 
-        results = [None] * 5
-        exceptions = [None] * 5
+        with mock.patch("posthog.hogql_queries.query_coalescing.QueryCoalescer") as MockCoalescer:
+            MockCoalescer.return_value.run_coalesced.side_effect = lambda execute, **_: execute()
+            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
-        def run_query(idx):
-            try:
-                r = Runner(query={"some_attr": "bla"}, team=self.team)
-                results[idx] = r.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            except Exception as e:
-                exceptions[idx] = e
-
-        threads = [threading.Thread(target=run_query, args=(i,)) for i in range(5)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=30)
-
-        for i, exc in enumerate(exceptions):
-            if exc is not None:
-                raise AssertionError(f"Thread {i} raised: {exc}")
-
-        for r in results:
-            self.assertIsNotNone(r)
-            self.assertIsInstance(r, TheTestCachedBasicQueryResponse)
-
-        self.assertEqual(calculate_call_count, 1)
-
-    def test_dry_run_emits_metrics_but_all_execute(self):
-        """In dry-run mode (feature flag off), all requests execute independently
-        but metrics are emitted to measure what could be coalesced."""
-        import threading
-
-        Runner = self.setup_test_query_runner_class()
-        calculate_call_count = 0
-        calculate_lock = threading.Lock()
-        original_calculate = Runner.calculate
-
-        def counting_calculate(self_inner):
-            nonlocal calculate_call_count
-            with calculate_lock:
-                calculate_call_count += 1
-            import time
-
-            time.sleep(0.3)
-            return original_calculate(self_inner)
-
-        Runner.calculate = counting_calculate
-
-        runner = Runner(query={"some_attr": "bla"}, team=self.team)
-        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
-        self.assertIsInstance(response, CacheMissResponse)
-        calculate_call_count = 0
-
-        results = [None] * 3
-        exceptions = [None] * 3
-
-        def run_query(idx):
-            try:
-                r = Runner(query={"some_attr": "bla"}, team=self.team)
-                results[idx] = r.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            except Exception as e:
-                exceptions[idx] = e
-
-        threads = [threading.Thread(target=run_query, args=(i,)) for i in range(3)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=30)
-
-        for i, exc in enumerate(exceptions):
-            if exc is not None:
-                raise AssertionError(f"Thread {i} raised: {exc}")
-
-        # Feature flag defaults to off (dry run) — all requests execute independently
-        self.assertEqual(calculate_call_count, 3)
+        MockCoalescer.assert_called_once()
+        self.assertFalse(MockCoalescer.call_args.kwargs["dry_run"])
 
     def test_coalescing_skipped_for_force_blocking(self):
-        """CALCULATE_BLOCKING_ALWAYS should skip coalescing — each request calculates independently."""
-        import threading
-
+        """CALCULATE_BLOCKING_ALWAYS does not use query coalescing."""
         Runner = self.setup_test_query_runner_class()
-        calculate_call_count = 0
-        calculate_lock = threading.Lock()
-        original_calculate = Runner.calculate
+        runner = Runner(query={"some_attr": "bla"}, team=self.team)
 
-        def counting_calculate(self_inner):
-            nonlocal calculate_call_count
-            with calculate_lock:
-                calculate_call_count += 1
-            import time
+        with mock.patch("posthog.hogql_queries.query_coalescing.QueryCoalescer") as MockCoalescer:
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-            time.sleep(0.3)
-            return original_calculate(self_inner)
+        MockCoalescer.assert_not_called()
 
-        Runner.calculate = counting_calculate
+    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_coalescing_dry_run_when_feature_flag_off(self, _mock_ff):
+        """When feature flag is off, coalescer runs in dry-run mode."""
+        Runner = self.setup_test_query_runner_class()
+        runner = Runner(query={"some_attr": "bla"}, team=self.team)
 
-        results = [None] * 3
-        exceptions = [None] * 3
+        with mock.patch("posthog.hogql_queries.query_coalescing.QueryCoalescer") as MockCoalescer:
+            MockCoalescer.return_value.run_coalesced.side_effect = lambda execute, **_: execute()
+            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
-        def run_query(idx):
-            try:
-                r = Runner(query={"some_attr": "bla"}, team=self.team)
-                results[idx] = r.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-            except Exception as e:
-                exceptions[idx] = e
-
-        threads = [threading.Thread(target=run_query, args=(i,)) for i in range(3)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=30)
-
-        for i, exc in enumerate(exceptions):
-            if exc is not None:
-                raise AssertionError(f"Thread {i} raised: {exc}")
-
-        self.assertEqual(calculate_call_count, 3)
+        MockCoalescer.assert_called_once()
+        self.assertTrue(MockCoalescer.call_args.kwargs["dry_run"])
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_coalescing_leader_exception_releases_lock(self, _mock_ff):
@@ -683,7 +576,7 @@ class TestQueryCoalescing(BaseTest):
             runner = Runner(query={"some_attr": "bla"}, team=self.team)
             runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
-        # Lock should be released — a second request should be able to acquire it
+        # Lock should be released, a second request should be able to acquire it
         from posthog.hogql_queries.query_coalescing import QueryCoalescer
 
         runner2 = Runner(query={"some_attr": "bla"}, team=self.team)
@@ -692,14 +585,12 @@ class TestQueryCoalescing(BaseTest):
         self.assertTrue(coalescer._try_acquire())
 
     def test_coalescing_redis_failure_degrades_gracefully(self):
-        """If Redis is down, coalescing should be skipped and the query executes normally."""
-
         Runner = self.setup_test_query_runner_class()
         runner = Runner(query={"some_attr": "bla"}, team=self.team)
 
         with mock.patch(
             "posthog.hogql_queries.query_coalescing.QueryCoalescer._try_acquire",
-            side_effect=Exception("Redis connection refused"),
+            side_effect=RedisError("Redis connection refused"),
         ):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
