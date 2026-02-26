@@ -147,6 +147,16 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
 
+    # Installations are user-scoped (safely_get_queryset filters by user), so
+    # write actions like install/uninstall don't need project admin access.
+    # Return project:read so AccessControlPermission requires "member" not "admin".
+    _USER_SCOPED_ACTIONS = {"destroy", "install_custom", "oauth_callback"}
+
+    def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
+        if self.action in self._USER_SCOPED_ACTIONS:
+            return ["project:read"]
+        return None
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
             queryset.filter(team_id=self.team_id, user=self.request.user)
