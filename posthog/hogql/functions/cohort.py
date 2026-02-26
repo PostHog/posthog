@@ -19,7 +19,9 @@ INLINE_COHORT_THRESHOLD_SECONDS = 10
 def _is_inline_flag_enabled(context: HogQLContext) -> bool:
     from posthog.models import Team
 
-    team = context.team or Team.objects.get(id=context.team_id)
+    if not context.team:
+        context.team = Team.objects.get(id=context.team_id)
+    team = context.team
     return bool(
         posthoganalytics.feature_enabled(
             "inline-cohort-calculation",
@@ -70,7 +72,7 @@ def inline_cohort_query(
     context: HogQLContext,
 ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-    from posthog.models import Cohort, Team
+    from posthog.models import Cohort
 
     if is_static:
         return None
@@ -86,14 +88,13 @@ def inline_cohort_query(
             return None
 
     cohort = Cohort.objects.get(id=cohort_id, team__project_id=context.project_id)
-    if not cohort.properties.flat:
-        return None
 
-    team = context.team
-    if team is None:
-        team = Team.objects.get(id=context.team_id)
+    if not context.team:
+        from posthog.models import Team
 
-    return HogQLCohortQuery(cohort=cohort, team=team).get_query()
+        context.team = Team.objects.get(id=context.team_id)
+
+    return HogQLCohortQuery(cohort=cohort, team=context.team).get_query()
 
 
 def cohort_subquery(cohort_id, is_static, version: Optional[int] = None) -> ast.Expr:
