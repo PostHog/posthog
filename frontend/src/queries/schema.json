@@ -18712,6 +18712,12 @@
                 "totalLatency": {
                     "type": "number"
                 },
+                "tools": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "traceName": {
                     "type": "string"
                 }

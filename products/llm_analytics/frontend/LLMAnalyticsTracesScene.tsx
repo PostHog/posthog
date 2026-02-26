@@ -88,6 +88,10 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             },
             person: llmAnalyticsColumnRenderers.person,
             sentiment: llmAnalyticsColumnRenderers.sentiment,
+            tools: {
+                title: 'Tools',
+                render: ToolsColumn,
+            },
             errors: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
@@ -191,6 +195,23 @@ const CostColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 CostColumn.displayName = 'CostColumn'
+
+const ToolsColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    if (!row.tools || row.tools.length === 0) {
+        return <>–</>
+    }
+    return (
+        <div className="flex flex-wrap gap-1">
+            {row.tools.map((tool) => (
+                <LemonTag key={tool} type="muted">
+                    {tool}
+                </LemonTag>
+            ))}
+        </div>
+    )
+}
+ToolsColumn.displayName = 'ToolsColumn'
 
 const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
