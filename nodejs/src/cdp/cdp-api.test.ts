@@ -818,7 +818,7 @@ describe('CDP API', () => {
                 .send({ clickhouse_event: clickhouseEvent })
 
             expect(res.status).toEqual(404)
-            expect(res.body.error).toEqual('Team not found')
+            expect(res.body.errors[0]).toContain(nonExistentTeamId)
         })
 
         it('errors if missing hog function', async () => {
@@ -830,30 +830,19 @@ describe('CDP API', () => {
                 .send({ clickhouse_event: clickhouseEvent })
 
             expect(res.status).toEqual(404)
-            expect(res.body.error).toEqual('Hog function not found')
+            expect(res.body.errors[0]).toContain(nonExistentHogFunctionId)
         })
 
-        it('errors if hog function belongs to a different team', async () => {
+        it('errors if missing batch export', async () => {
+            const nonExistentBatchExportId = new UUIDT().toString()
             const res = await supertest(app)
                 .post(
-                    `/api/projects/${new UUIDT().toString()}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
+                    `/api/projects/${team.id}/batch_exports/${nonExistentBatchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
                 )
                 .send({ clickhouse_event: clickhouseEvent })
 
             expect(res.status).toEqual(404)
-            expect(res.body.error).toEqual('Team not found')
-        })
-
-        it('errors if hog function belongs to a different batch export', async () => {
-            const differentBatchExportId = new UUIDT().toString()
-            const res = await supertest(app)
-                .post(
-                    `/api/projects/${team.id}/batch_exports/${differentBatchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
-                )
-                .send({ clickhouse_event: clickhouseEvent })
-
-            expect(res.status).toEqual(404)
-            expect(res.body.error).toEqual('Hog function not found')
+            expect(res.body.errors[0]).toContain(batchExportHogFunction.id)
         })
 
         it('errors if missing event', async () => {
@@ -863,8 +852,8 @@ describe('CDP API', () => {
                 )
                 .send({})
 
-            expect(res.status).toEqual(400)
-            expect(res.body.error).toEqual('Missing event')
+            expect(res.status).toEqual(404)
+            expect(res.body.errors[0]).toEqual('Empty event')
         })
 
         it('errors if invocation_id is not a valid UUID', async () => {
@@ -875,7 +864,7 @@ describe('CDP API', () => {
                 .send({ clickhouse_event: clickhouseEvent, invocation_id: 'not-a-uuid' })
 
             expect(res.status).toEqual(400)
-            expect(res.body.error).toEqual('Invalid invocation ID')
+            expect(res.body.errors[0]).toEqual('Invalid UUID: not-a-uuid')
         })
 
         it('can invoke a batch export mocked hog function via the API', async () => {

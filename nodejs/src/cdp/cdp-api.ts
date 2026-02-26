@@ -23,6 +23,7 @@ import {
     HogTransformerServiceDeps,
     createHogTransformerService,
 } from './hog-transformations/hog-transformer.service'
+import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -41,7 +42,6 @@ import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
-import { createInvocation } from './utils/invocation-utils'
 
 /**
  * Hub type for CdpApi.
@@ -81,6 +81,7 @@ export class CdpApi {
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
     private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
+    private batchExportHogFunctionService: BatchExportHogFunctionService
 
     constructor(private hub: CdpApiHub) {
         const services = createCdpCoreServices(hub, 'cdp-api-redis')
@@ -106,6 +107,11 @@ export class CdpApi {
             this.hogFunctionManager,
             this.hogFlowManager,
             this.hogFunctionMonitoringService
+        )
+        this.batchExportHogFunctionService = new BatchExportHogFunctionService(
+            hub.teamManager,
+            this.hogFunctionManager,
+            this.hogExecutor
         )
     }
 
@@ -723,45 +729,16 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
-                const { team_id, id, hog_function_id } = req.params
-                const { clickhouse_event, invocation_id } = req.body
-                logger.info('⚡️', 'Received batch export invocation', { team_id, batch_export_id: id })
-
-                const invocationID = invocation_id ?? new UUIDT().toString()
-                const isValidUUID = (() => {
-                    try {
-                        return UUID.validateString(invocationID)
-                    } catch {
-                        return false
-                    }
-                })()
-                if (!isValidUUID) {
-                    return res.status(400).json({ error: 'Invalid invocation ID' })
-                }
-
-                const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
-                if (!team) {
-                    return res.status(404).json({ error: 'Team not found' })
-                }
-
-                if (!clickhouse_event) {
-                    return res.status(400).json({ error: 'Missing event' })
-                }
-                const globals = convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.hub.SITE_URL)
-                if (!globals.event) {
-                    return res.status(400).json({ error: 'Missing event' })
-                }
-
-                const hogFunction = await this.hogFunctionManager.fetchHogFunction(hog_function_id).catch(() => null)
-                if (!hogFunction || hogFunction.team_id !== team.id || hogFunction.batch_export_id !== id) {
-                    return res.status(404).json({ error: 'Hog function not found' })
-                }
-
-                const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
-                const invocation = createInvocation(globalsWithInputs, hogFunction)
-                invocation.id = invocationID
-
-                const result = await this.hogExecutor.executeWithAsyncFunctions(invocation)
+                const request = await this.batchExportHogFunctionService.parseRequest(
+                    {
+                        batch_export_id: req.params.id,
+                        team_id: req.params.team_id,
+                        hog_function_id: req.params.hog_function_id,
+                    },
+                    req.body,
+                    this.hub.SITE_URL
+                )
+                const result = await this.batchExportHogFunctionService.handleRequest(request)
 
                 return res.json({
                     status: result.error ? 'error' : 'success',
@@ -769,9 +746,14 @@ export class CdpApi {
                     logs: result.logs,
                 })
             } catch (e) {
-                return res.status(500).json({ errors: [e.message] })
-            } finally {
-                await this.hogFunctionMonitoringService.flush()
+                if (e instanceof NotFoundError) {
+                    return res.status(404).json({ errors: [e.message] })
+                } else if (e instanceof ParseError) {
+                    return res.status(400).json({ errors: [e.message] })
+                } else {
+                    console.error(e)
+                    return res.status(500).json({ errors: [e.message] })
+                }
             }
         }
 }
