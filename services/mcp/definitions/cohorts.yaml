@@ -68,8 +68,8 @@ tools:
         enrich_url: '{id}'
         title: Get cohort
         description: >
-            Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count
-            of matching users, and calculation status.
+            Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of
+            matching users, and calculation status.
         mcp_version: 1
     cohorts-update:
         operation: cohorts_update
@@ -118,7 +118,7 @@ tools:
             idempotent: false
         enrich_url: '{id}'
         title: Add persons to static cohort
-        description: >
+        description: |
             Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
         mcp_version: 1
     cohorts-calculation-history-retrieve:

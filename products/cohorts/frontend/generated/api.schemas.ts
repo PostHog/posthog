@@ -7,9 +7,9 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export type Type150EnumApi = (typeof Type150EnumApi)[keyof typeof Type150EnumApi]
+export type PropertyTypeApi = (typeof PropertyTypeApi)[keyof typeof PropertyTypeApi]
 
-export const Type150EnumApi = {
+export const PropertyTypeApi = {
     And: 'AND',
     Or: 'OR',
 } as const
@@ -134,7 +134,7 @@ export interface PersonFilterApi {
  * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
  */
 export interface CohortFilterGroupApi {
-    type: Type150EnumApi
+    type: PropertyTypeApi
     values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | CohortFilterGroupApi)[]
 }
 
