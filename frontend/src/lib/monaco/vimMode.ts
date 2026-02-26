@@ -58,6 +58,60 @@ function patchAddOverlay(cmAdapter: any): () => void {
     }
 }
 
+// monaco-vim's statusbar passes `closeInput` as the `close` callback to
+// onKeyDown/onKeyUp. But keymap_vim.ts calls `close(value)` with a string
+// to mean "update the input" (the CodeMirror dialog convention), while
+// closeInput() ignores arguments and always destroys the input. This breaks
+// command/search history navigation with Up/Down arrows.
+function patchCloseInput(statusBar: any): () => void {
+    const originalCloseInput = statusBar.closeInput
+
+    statusBar.closeInput = (newVal?: string): void => {
+        if (typeof newVal === 'string') {
+            if (statusBar.input?.node) {
+                statusBar.input.node.value = newVal
+            }
+            return
+        }
+        originalCloseInput()
+    }
+
+    return () => {
+        statusBar.closeInput = originalCloseInput
+    }
+}
+
+// monaco-vim's monacoToCmKey expects Monaco-style key names ("UpArrow",
+// "DownArrow") but the statusbar's input element fires native browser
+// KeyboardEvents with e.key = "ArrowUp", "ArrowDown", etc. The
+// endsWith("Arrow") check in monacoToCmKey fails for "ArrowUp", so
+// onPromptKeyDown never sees "Up"/"Down" and history navigation breaks.
+// Normalizing e.key on the status bar element in capture phase fixes this
+// before the statusbar's inputKeyDown/inputKeyUp handlers read it.
+const BROWSER_TO_MONACO_KEYS: Record<string, string> = {
+    ArrowUp: 'UpArrow',
+    ArrowDown: 'DownArrow',
+    ArrowLeft: 'LeftArrow',
+    ArrowRight: 'RightArrow',
+}
+
+function patchStatusBarArrowKeys(statusBarEl: HTMLElement): () => void {
+    const normalizeKey = (e: KeyboardEvent): void => {
+        const mapped = BROWSER_TO_MONACO_KEYS[e.key]
+        if (mapped) {
+            Object.defineProperty(e, 'key', { value: mapped, configurable: true })
+        }
+    }
+
+    statusBarEl.addEventListener('keydown', normalizeKey, true)
+    statusBarEl.addEventListener('keyup', normalizeKey, true)
+
+    return () => {
+        statusBarEl.removeEventListener('keydown', normalizeKey, true)
+        statusBarEl.removeEventListener('keyup', normalizeKey, true)
+    }
+}
+
 function patchSubstituteHighlight(cmAdapter: any, statusBar: any): () => void {
     const originalSetSec = statusBar.setSec.bind(statusBar)
     const substituteRegex = /s([^\w\s])(.*)/
@@ -148,6 +202,8 @@ export function setupVimMode(editor: monacoEditor.IStandaloneCodeEditor, statusB
     const cmAdapter = vimMode as any
 
     const restoreAddOverlay = patchAddOverlay(cmAdapter)
+    const restoreCloseInput = patchCloseInput(cmAdapter.statusBar)
+    const restoreArrowKeys = patchStatusBarArrowKeys(statusBarEl)
     const restoreSetSec = patchSubstituteHighlight(cmAdapter, cmAdapter.statusBar)
     const cleanupClipboard = setupClipboardSync(editor, statusBarEl)
 
@@ -156,6 +212,8 @@ export function setupVimMode(editor: monacoEditor.IStandaloneCodeEditor, statusB
         dispose: () => {
             cleanupClipboard()
             restoreSetSec()
+            restoreArrowKeys()
+            restoreCloseInput()
             restoreAddOverlay()
             vimMode.dispose()
         },
