@@ -215,7 +215,10 @@ class PipelineV3(Generic[ResumableData]):
 
             await self._finalize(row_count=row_count)
 
-            return {"should_trigger_cdp_producer": await self._cdp_producer.should_produce_table()}
+            return {
+                "should_trigger_cdp_producer": await self._cdp_producer.should_produce_table(),
+                "consumer_manages_job_status": len(self._batch_results) > 0,
+            }
         finally:
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
