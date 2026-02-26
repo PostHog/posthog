@@ -100,11 +100,11 @@ function optionalNumber(value: unknown, field: string): number | undefined {
     return value == null ? undefined : requireNumber(value, field)
 }
 
-function requireObject(value: unknown, field: string): Record<string, any> {
+function requireObject(value: unknown, field: string): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         throw new Error(`expected object for ${field}, got ${Array.isArray(value) ? 'array' : typeof value}`)
     }
-    return value as Record<string, any>
+    return value as Record<string, unknown>
 }
 
 function optionalObject(value: unknown, field: string): Record<string, any> | undefined {
