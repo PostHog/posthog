@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     IconChevronDown,
@@ -34,9 +34,10 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { ByokModelPicker } from './ByokModelPicker'
 import { JSONEditor } from './components/JSONEditor'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
-import { ComparisonItem, Message, MessageRole, ModelOption } from './llmAnalyticsPlaygroundLogic'
+import { ComparisonItem, Message, MessageRole } from './llmAnalyticsPlaygroundLogic'
 import { formatTokens } from './utils'
 
 const formatMs = (ms: number | null | undefined): string => {
@@ -196,91 +197,89 @@ function getModelOptionsErrorMessage(errorStatus: number | null): string | null 
     return 'Failed to load models. Please refresh the page or try again later.'
 }
 
-function ModelConfigBar(): JSX.Element {
+function ModelPicker(): JSX.Element {
     const {
         model,
-        maxTokens,
-        thinking,
-        reasoningLevel,
+        effectiveModelOptions,
+        selectedProviderKeyId,
+        hasByokKeys,
         modelOptions,
         modelOptionsLoading,
         modelOptionsErrorStatus,
-        tools,
+        groupedModelOptions,
     } = useValues(llmAnalyticsPlaygroundLogic)
-    const { setModel, setMaxTokens, setThinking, setReasoningLevel, loadModelOptions, setTools } =
-        useActions(llmAnalyticsPlaygroundLogic)
-    const [showSettings, setShowSettings] = useState(false)
+    const { setModel, loadModelOptions } = useActions(llmAnalyticsPlaygroundLogic)
+
+    if (hasByokKeys) {
+        const options = Array.isArray(effectiveModelOptions) ? effectiveModelOptions : []
+        const selectedModel = options.find((m) => m.id === model)
+
+        return (
+            <ByokModelPicker
+                model={model}
+                selectedProviderKeyId={selectedProviderKeyId}
+                onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId)}
+                selectedModelName={selectedModel?.name}
+                data-attr="playground-model-selector"
+            />
+        )
+    }
 
     const options = Array.isArray(modelOptions) ? modelOptions : []
     const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
-    const hasNonDefaultSettings = maxTokens !== null || thinking || reasoningLevel !== null
-    const groupedModelOptions = useMemo(() => {
-        const modelsByProvider = options.reduce(
-            (acc, option) => {
-                const provider = option.provider || 'Unknown'
-                if (!acc[provider]) {
-                    acc[provider] = []
-                }
-                acc[provider].push(option)
-                return acc
-            },
-            {} as Record<string, ModelOption[]>
-        )
 
-        return Object.entries(modelsByProvider)
-            .sort(([providerA], [providerB]) => providerA.localeCompare(providerB))
-            .map(([provider, providerModels]) => ({
-                title: provider,
-                options: providerModels
-                    .slice()
-                    .sort((a, b) => b.name.localeCompare(a.name))
-                    .map((option) => ({
-                        label: option.name,
-                        value: option.id,
-                        provider: option.provider,
-                        tooltip: option.description || `Provider: ${option.provider}`,
-                    })),
-            }))
-    }, [options])
+    return (
+        <>
+            {modelOptionsLoading && !options.length ? (
+                <LemonSkeleton className="h-10" />
+            ) : (
+                <LemonSearchableSelect
+                    className="w-full"
+                    placeholder="Select model"
+                    value={model}
+                    onChange={(value) => value && setModel(value)}
+                    options={groupedModelOptions}
+                    searchPlaceholder="Search models..."
+                    searchKeys={['label', 'value', 'tooltip']}
+                    loading={modelOptionsLoading}
+                    disabledReason={
+                        modelOptionsLoading
+                            ? 'Loading models...'
+                            : options.length === 0
+                              ? 'No models available'
+                              : undefined
+                    }
+                    data-attr="playground-model-selector"
+                />
+            )}
+            {options.length === 0 && !modelOptionsLoading && (
+                <div className="mt-1">
+                    <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
+                    <button
+                        type="button"
+                        className="text-xs text-link mt-1 underline"
+                        onClick={() => loadModelOptions()}
+                    >
+                        Retry
+                    </button>
+                </div>
+            )}
+        </>
+    )
+}
+
+function ModelConfigBar(): JSX.Element {
+    const { maxTokens, thinking, reasoningLevel, tools } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setMaxTokens, setThinking, setReasoningLevel, setTools } = useActions(llmAnalyticsPlaygroundLogic)
+    const [showSettings, setShowSettings] = useState(false)
+
+    const hasNonDefaultSettings = maxTokens !== null || thinking || reasoningLevel !== null
 
     return (
         <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3">
                 <div className="flex-1 min-w-[260px] max-w-lg">
-                    {modelOptionsLoading && !options.length ? (
-                        <LemonSkeleton className="h-10" />
-                    ) : (
-                        <LemonSearchableSelect
-                            className="w-full"
-                            placeholder="Select model"
-                            value={model}
-                            onChange={(value) => setModel(value)}
-                            options={groupedModelOptions}
-                            searchPlaceholder="Search models..."
-                            searchKeys={['label', 'value', 'provider']}
-                            loading={modelOptionsLoading}
-                            disabledReason={
-                                modelOptionsLoading
-                                    ? 'Loading models...'
-                                    : options.length === 0
-                                      ? 'No models available'
-                                      : undefined
-                            }
-                            data-attr="playground-model-selector"
-                        />
-                    )}
-                    {options.length === 0 && !modelOptionsLoading && (
-                        <div className="mt-1">
-                            <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
-                            <button
-                                type="button"
-                                className="text-xs text-link mt-1 underline"
-                                onClick={() => loadModelOptions()}
-                            >
-                                Retry
-                            </button>
-                        </div>
-                    )}
+                    <ModelPicker />
                 </div>
 
                 <LemonButton
@@ -498,9 +497,7 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
                                 autoFocus
                             />
                         </div>
-                        <div className="mt-2 text-xs text-muted">
-                            Paste or edit valid JSON tool definitions.
-                        </div>
+                        <div className="mt-2 text-xs text-muted">Paste or edit valid JSON tool definitions.</div>
                     </div>
                     <div className="flex justify-end gap-2">
                         <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
