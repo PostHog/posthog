@@ -219,20 +219,20 @@ class TestObjectLevelAccessControl(BaseTest):
         blocked = get_blocked_resource_ids("dashboard", self.context)
         assert "42" not in blocked
 
-    def test_object_default_editor_with_member_none_still_allows(self):
-        """Object default 'editor' + member 'none' can't happen in app, but if it does, highest wins."""
+    def test_object_default_editor_with_member_none_blocks(self):
+        """Explicit member 'none' override takes priority over object default 'editor'."""
         from ee.models import AccessControl
 
         self._setup_permissions()
 
-        # Team-wide default: editor access
+        # Object default: editor access
         AccessControl.objects.create(
             team=self.team,
             resource="dashboard",
             resource_id="42",
             access_level="editor",
         )
-        # Member-specific override: none (shouldn't happen in app, but test anyway)
+        # Member-specific override: none
         AccessControl.objects.create(
             team=self.team,
             resource="dashboard",
@@ -242,7 +242,7 @@ class TestObjectLevelAccessControl(BaseTest):
         )
 
         blocked = get_blocked_resource_ids("dashboard", self.context)
-        assert "42" not in blocked
+        assert "42" in blocked
 
     def test_multiple_objects_mixed_access(self):
         """Multiple objects: some blocked, some allowed."""

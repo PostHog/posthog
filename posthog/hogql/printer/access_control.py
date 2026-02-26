@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 def get_blocked_resource_ids(resource: "APIScopeObject", context: "HogQLContext") -> set[str]:
     """
     Get the set of resource IDs that should be blocked for this user.
-    Highest access level from object default, role, or member entries applies.
+    Matches filter_queryset_by_access_level in rbac
     """
     from posthog.models import OrganizationMembership
     from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
@@ -31,15 +31,25 @@ def get_blocked_resource_ids(resource: "APIScopeObject", context: "HogQLContext"
     filters = uac.access_controls_filters_for_queryset(resource)
     access_controls = uac.get_access_controls(filters)
 
-    # Block resource_ids where the highest access is "none"
-    access_by_id: dict[str, list[str]] = {}
-    for ac in access_controls:
-        if ac.resource_id:
-            access_by_id.setdefault(ac.resource_id, []).append(ac.access_level)
+    access_controls_by_resource_id: dict[str, list] = {}
+    for access_control in access_controls:
+        if access_control.resource_id:
+            access_controls_by_resource_id.setdefault(access_control.resource_id, []).append(access_control)
 
-    return {
-        resource_id for resource_id, levels in access_by_id.items() if all(level == NO_ACCESS_LEVEL for level in levels)
-    }
+    blocked_resource_ids: set[str] = set()
+    for resource_id, resource_access_controls in access_controls_by_resource_id.items():
+        explicit_access_controls = [
+            ac for ac in resource_access_controls if ac.role is not None or ac.organization_member is not None
+        ]
+
+        if explicit_access_controls and all(ac.access_level == NO_ACCESS_LEVEL for ac in explicit_access_controls):
+            blocked_resource_ids.add(resource_id)
+        elif not explicit_access_controls and all(
+            ac.access_level == NO_ACCESS_LEVEL for ac in resource_access_controls
+        ):
+            blocked_resource_ids.add(resource_id)
+
+    return blocked_resource_ids
 
 
 def build_access_control_guard(
