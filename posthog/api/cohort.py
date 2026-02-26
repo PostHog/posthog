@@ -5,6 +5,7 @@ import hashlib
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
+from enum import Enum
 from typing import Annotated, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
@@ -266,10 +267,15 @@ PropertyFilter = Annotated[
 FilterOrGroup = Annotated[Union[PropertyFilter, "CohortFilterGroup"], Field(discriminator="type")]
 
 
+class CohortFilterGroupType(str, Enum):
+    AND = "AND"
+    OR = "OR"
+
+
 class CohortFilterGroup(BaseModel, extra="forbid"):
     """AND/OR group containing cohort filters. Named to avoid collision with analytics Group model."""
 
-    type: Literal["AND", "OR"]
+    type: CohortFilterGroupType
     values: list[FilterOrGroup]
 
 
