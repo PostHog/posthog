@@ -1401,30 +1401,29 @@ def send_error_tracking_weekly_digest() -> None:
 
     logger.info("Starting Error Tracking weekly digest task")
 
-    allowed_team_ids = settings.ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS
-    if not allowed_team_ids:
-        logger.info(
-            "No teams configured for Error Tracking weekly digest (ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS empty)"
-        )
+    allowed_org_ids = settings.ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS
+    if not allowed_org_ids:
+        logger.info("No orgs configured for Error Tracking weekly digest (ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS empty)")
         return
 
-    if "*" in allowed_team_ids:
-        team_ids = None
-    else:
-        team_ids = [int(tid) for tid in allowed_team_ids]
+    all_org_ids = get_org_ids_with_exceptions()
 
-    org_ids = get_org_ids_with_exceptions(team_ids)
+    if "*" in allowed_org_ids:
+        org_ids = all_org_ids
+    else:
+        allowed_set = {int(oid) for oid in allowed_org_ids}
+        org_ids = [oid for oid in all_org_ids if oid in allowed_set]
 
     logger.info(f"Found {len(org_ids)} orgs with exceptions, fanning out digest emails")
 
     for org_id in org_ids:
-        send_error_tracking_weekly_digest_for_org.delay(str(org_id), team_ids)
+        send_error_tracking_weekly_digest_for_org.delay(str(org_id))
 
     logger.info("Completed Error Tracking weekly digest fan-out")
 
 
 @shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
-def send_error_tracking_weekly_digest_for_org(org_id: str, team_ids_filter: list[int] | None = None) -> None:
+def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     """Send one combined weekly error tracking digest email per user in an org"""
     from posthog.models.organization import Organization
 
@@ -1448,7 +1447,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str, team_ids_filter: list
         logger.warning(f"Organization {org_id} not found for Error Tracking weekly digest")
         return
 
-    team_exception_counts = get_exception_counts_for_org(org.id, team_ids_filter)
+    team_exception_counts = get_exception_counts_for_org(org.id)
     if not team_exception_counts:
         return
 
