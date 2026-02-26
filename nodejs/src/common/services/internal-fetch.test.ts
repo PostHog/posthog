@@ -44,7 +44,7 @@ describe('InternalFetchService', () => {
         })
     })
 
-    it('rethrows exceptions from internalFetch', async () => {
+    it('returns exceptions from internalFetch', async () => {
         const internalFetchService = new InternalFetchService({
             INTERNAL_API_SECRET: 'secret-123',
             INTERNAL_API_BASE_URL: 'https://internal.example.com',
@@ -58,6 +58,6 @@ describe('InternalFetchService', () => {
                 urlPath: '/boom' as const,
                 fetchParams: { method: 'GET' } as any,
             })
-        ).rejects.toThrow('boom')
+        ).resolves.toEqual({ fetchError: new Error('boom'), fetchResponse: null })
     })
 })
