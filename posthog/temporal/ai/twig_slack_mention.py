@@ -199,6 +199,21 @@ def resolve_twig_slack_user_activity(
     return user_context.user.id if user_context else None
 
 
+_MSG_NO_DEFAULT_REPO = (
+    "You don't have a default repository set. "
+    "Use `@Twig default repo set org/repo`, "
+    "or include `org/repo` directly in a single task request."
+)
+_MSG_NO_CONNECTED_REPOS = "I couldn't find any connected GitHub repositories for this project."
+_MSG_REPO_NOT_CONNECTED = (
+    "That repository is not connected to this project. Use `@Twig default repo show` to inspect current setting."
+)
+_MSG_PICKER_GUIDANCE = (
+    "Pick a default repository for future generic requests. "
+    "You can still override by explicitly writing `org/repo` in a task request."
+)
+
+
 @activity.defn
 def handle_twig_default_repo_command_activity(
     inputs: TwigSlackMentionWorkflowInputs,
@@ -208,14 +223,12 @@ def handle_twig_default_repo_command_activity(
     user_id: int,
 ) -> bool:
     from posthog.models.integration import Integration, SlackIntegration
-    from posthog.models.user_repo_preference import UserRepoPreference
 
-    from products.slack_app.backend.api import (
-        _extract_explicit_repo,
-        _get_full_repo_names,
-        _parse_default_repo_command,
-        _post_repo_picker_message,
-    )
+    from products.slack_app.backend.api import _parse_default_repo_command
+
+    default_repo_command = _parse_default_repo_command(inputs.event.get("text", ""))
+    if not default_repo_command:
+        return False
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -224,93 +237,96 @@ def handle_twig_default_repo_command_activity(
     )
     slack = SlackIntegration(integration)
 
-    default_repo_command = _parse_default_repo_command(inputs.event.get("text", ""))
-    if not default_repo_command:
-        return False
-
     if default_repo_command.action == "show":
-        default_repo = UserRepoPreference.get_default(
-            integration.team_id,
-            user_id,
-            UserRepoPreference.ScopeType.SLACK_CHANNEL,
+        _handle_default_repo_show(slack, integration, channel, thread_ts, user_id)
+    elif default_repo_command.action == "clear":
+        _handle_default_repo_clear(slack, integration, channel, thread_ts, user_id)
+    elif default_repo_command.action == "set":
+        _handle_default_repo_set(
+            slack,
+            integration,
             channel,
+            thread_ts,
+            slack_user_id,
+            user_id,
+            default_repo_command.repository or "",
+            inputs.event,
         )
-        if default_repo:
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text=f"Your default repository in this channel is `{default_repo}`.",
-            )
-        else:
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text=(
-                    "You don't have a default repository set. "
-                    "Use `@Twig default repo set org/repo`, "
-                    "or include `org/repo` directly in a single task request."
-                ),
-            )
-        return True
 
-    if default_repo_command.action == "clear":
-        cleared = UserRepoPreference.clear_default(
-            integration.team_id,
-            user_id,
-            UserRepoPreference.ScopeType.SLACK_CHANNEL,
-            channel,
-        )
-        text = (
-            "Cleared your default repository for this channel."
-            if cleared
-            else "You don't have a default repository set for this channel."
-        )
-        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
-        return True
+    return True
+
+
+def _handle_default_repo_show(slack: Any, integration: Any, channel: str, thread_ts: str, user_id: int) -> None:
+    """Reply with the user's current default repo for this channel."""
+    from posthog.models.user_repo_preference import UserRepoPreference
+
+    default_repo = UserRepoPreference.get_default(
+        integration.team_id,
+        user_id,
+        UserRepoPreference.ScopeType.SLACK_CHANNEL,
+        channel,
+    )
+    text = f"Your default repository in this channel is `{default_repo}`." if default_repo else _MSG_NO_DEFAULT_REPO
+    slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+
+
+def _handle_default_repo_clear(slack: Any, integration: Any, channel: str, thread_ts: str, user_id: int) -> None:
+    """Clear the user's default repo for this channel and confirm."""
+    from posthog.models.user_repo_preference import UserRepoPreference
+
+    cleared = UserRepoPreference.clear_default(
+        integration.team_id,
+        user_id,
+        UserRepoPreference.ScopeType.SLACK_CHANNEL,
+        channel,
+    )
+    text = (
+        "Cleared your default repository for this channel."
+        if cleared
+        else "You don't have a default repository set for this channel."
+    )
+    slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+
+
+def _handle_default_repo_set(
+    slack: Any,
+    integration: Any,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    user_id: int,
+    command_repo: str,
+    event: dict[str, Any],
+) -> None:
+    """Set or prompt for the user's default repo for this channel."""
+    from posthog.models.user_repo_preference import UserRepoPreference
+
+    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names, _post_repo_picker_message
 
     all_repos = _get_full_repo_names(integration)
-    command_repo = default_repo_command.repository or ""
-    if default_repo_command.action == "set" and not command_repo:
-        if not all_repos:
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text="I couldn't find any connected GitHub repositories for this project.",
-            )
-            return True
 
+    if not all_repos:
+        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=_MSG_NO_CONNECTED_REPOS)
+        return
+
+    if not command_repo:
         _post_repo_picker_message(
             slack=slack,
             integration=integration,
             channel=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
-            event_text=inputs.event.get("text", ""),
-            user_message_ts=inputs.event.get("ts"),
-            guidance=(
-                "Pick a default repository for future generic requests. "
-                "You can still override by explicitly writing `org/repo` in a task request."
-            ),
+            event_text=event.get("text", ""),
+            user_message_ts=event.get("ts"),
+            guidance=_MSG_PICKER_GUIDANCE,
             action_id="twig_default_repo_select",
         )
-        return True
-
-    if not all_repos:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="I couldn't find any connected GitHub repositories for this project.",
-        )
-        return True
+        return
 
     explicit_repo = _extract_explicit_repo(command_repo, all_repos)
     if not explicit_repo:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="That repository is not connected to this project. Use `@Twig default repo show` to inspect current setting.",
-        )
-        return True
+        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=_MSG_REPO_NOT_CONNECTED)
+        return
 
     UserRepoPreference.set_default(
         integration.team_id,
@@ -324,7 +340,6 @@ def handle_twig_default_repo_command_activity(
         thread_ts=thread_ts,
         text=f"Set your default repository for this channel to `{explicit_repo}`.",
     )
-    return True
 
 
 @activity.defn

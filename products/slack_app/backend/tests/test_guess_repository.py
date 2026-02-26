@@ -9,7 +9,13 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_repo_preference import UserRepoPreference
 
-from products.slack_app.backend.api import _extract_explicit_repo, guess_repository, select_repository
+from products.slack_app.backend.api import (
+    DefaultRepoCommand,
+    _extract_explicit_repo,
+    _parse_default_repo_command,
+    guess_repository,
+    select_repository,
+)
 
 
 def _make_llm_response(content: str) -> MagicMock:
@@ -259,3 +265,146 @@ class TestSelectRepository:
         assert decision.repository is None
         assert decision.reason == "no_repos"
         assert decision.llm_called is False
+
+
+class TestParseDefaultRepoCommand:
+    @parameterized.expand(
+        [
+            ("show", "default repo show", DefaultRepoCommand(action="show")),
+            ("clear", "default repo clear", DefaultRepoCommand(action="clear")),
+            ("set_bare", "default repo set", DefaultRepoCommand(action="set")),
+            ("set_with_repo", "default repo set org/repo", DefaultRepoCommand(action="set", repository="org/repo")),
+            ("case_insensitive", "Default Repo Show", DefaultRepoCommand(action="show")),
+            ("extra_whitespace", "default  repo   show", DefaultRepoCommand(action="show")),
+            ("bot_mention", "<@U123BOT> default repo clear", DefaultRepoCommand(action="clear")),
+            (
+                "dots_hyphens_in_repo",
+                "default repo set my-org/my.repo-name",
+                DefaultRepoCommand(action="set", repository="my-org/my.repo-name"),
+            ),
+        ]
+    )
+    def test_parses_command(self, _name, text, expected):
+        assert _parse_default_repo_command(text) == expected
+
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("just_mention", "<@U123BOT>"),
+            ("random_text", "fix the bug in posthog-js"),
+            ("partial_command", "default repo"),
+            ("unknown_action", "default repo delete"),
+            ("repo_without_action", "default repo org/repo"),
+        ]
+    )
+    def test_returns_none_for_non_commands(self, _name, text):
+        assert _parse_default_repo_command(text) is None
+
+
+class TestHandleDefaultRepoCommandActivity:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="test@example.com", distinct_id="user-1")
+
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack-twig",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+        self.channel = "C001"
+        self.thread_ts = "1234567890.123456"
+        self.slack_user_id = "U_SLACK"
+
+    def _make_inputs(self, text: str):
+        from posthog.temporal.ai.twig_slack_mention import TwigSlackMentionWorkflowInputs
+
+        return TwigSlackMentionWorkflowInputs(
+            event={"text": text, "channel": self.channel, "thread_ts": self.thread_ts, "user": self.slack_user_id},
+            integration_id=self.integration.id,
+            slack_team_id="T12345",
+        )
+
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_show_returns_current_default(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        UserRepoPreference.set_default(
+            self.team.id,
+            self.user.id,
+            UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            self.channel,
+            repository="posthog/posthog",
+        )
+
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_default_repo_command_activity
+
+        result = handle_twig_default_repo_command_activity(
+            self._make_inputs("<@U123> default repo show"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result is True
+        mock_slack.client.chat_postMessage.assert_called_once()
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert "posthog/posthog" in msg.kwargs["text"]
+
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_clear_returns_cleared_message(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        UserRepoPreference.set_default(
+            self.team.id,
+            self.user.id,
+            UserRepoPreference.ScopeType.SLACK_CHANNEL,
+            self.channel,
+            repository="posthog/posthog",
+        )
+
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_default_repo_command_activity
+
+        result = handle_twig_default_repo_command_activity(
+            self._make_inputs("<@U123> default repo clear"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result is True
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert "Cleared" in msg.kwargs["text"]
+        assert (
+            UserRepoPreference.get_default(
+                self.team.id, self.user.id, UserRepoPreference.ScopeType.SLACK_CHANNEL, self.channel
+            )
+            is None
+        )
+
+    @patch("products.slack_app.backend.api._post_repo_picker_message")
+    @patch("products.slack_app.backend.api._get_full_repo_names", return_value=["posthog/posthog"])
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_set_without_repo_posts_picker(self, mock_slack_cls, _mock_repos, mock_picker):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_default_repo_command_activity
+
+        result = handle_twig_default_repo_command_activity(
+            self._make_inputs("<@U123> default repo set"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result is True
+        mock_picker.assert_called_once()
