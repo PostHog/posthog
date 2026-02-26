@@ -71,7 +71,7 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                     transition={Slide}
                     closeOnClick={false}
                     draggable={false}
-                    position="top-center"
+                    position="bottom-center"
                 />
             </root.div>
         </>
