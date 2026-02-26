@@ -550,6 +550,10 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     })
 
     const availableItemsInSidebar = useMemo(() => {
+        const isPromptManagementEnabled =
+            !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ||
+            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+
         return [
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
@@ -576,7 +580,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     evaluations
                 </Link>
             ) : null,
-            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ? (
+            isPromptManagementEnabled ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
                     onClick={() => toggleProduct('Prompts', true)}

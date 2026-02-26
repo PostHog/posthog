@@ -47,6 +47,24 @@ const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 export const PAGINATION_LIMIT = 100
 
+const isProductEnabledForFeatureFlags = (
+    featureFlags: Record<string, string | boolean>,
+    flag?: string
+): boolean => {
+    if (!flag) {
+        return true
+    }
+
+    if (flag === FEATURE_FLAGS.PROMPT_MANAGEMENT) {
+        return !!(
+            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        )
+    }
+
+    return !!featureFlags[flag]
+}
+
 type DeleteFolderDialogContentProps = {
     folderName: string
     folderPath: string
@@ -980,7 +998,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     convertFileSystemEntryToTreeDataItem({
                         root: protocol,
                         imports: imports
-                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                            .filter((f) =>
+                                isProductEnabledForFeatureFlags(featureFlags as Record<string, string | boolean>, f.flag)
+                            )
                             .map((i) => ({
                                 ...i,
                                 protocol,
@@ -1063,7 +1083,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         convertFileSystemEntryToTreeDataItem({
                             root: protocol,
                             imports: imports
-                                .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                                .filter((f) =>
+                                    isProductEnabledForFeatureFlags(
+                                        featureFlags as Record<string, string | boolean>,
+                                        f.flag
+                                    )
+                                )
                                 .map((i) => ({
                                     ...i,
                                     protocol,

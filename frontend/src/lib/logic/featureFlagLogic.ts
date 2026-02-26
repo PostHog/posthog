@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+import { FeatureFlagKey } from 'lib/constants'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { AppContext } from '~/types'
@@ -30,31 +30,16 @@ function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppCon
         })
     )
 
-    return withPromptManagementForEarlyAdopters(flags)
-}
-
-function withPromptManagementForEarlyAdopters(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
-    if (
-        featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
-        return {
-            ...featureFlags,
-            [FEATURE_FLAGS.PROMPT_MANAGEMENT]: true,
-        }
-    }
-
-    return featureFlags
+    return flags
 }
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const appContext = getAppContext()
     const persistedFlags = getPersistedFeatureFlags(appContext)
-    const availableFlags = withPromptManagementForEarlyAdopters(
+    const availableFlags =
         appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
-    )
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(

@@ -714,29 +714,22 @@ class PostHogFeatureFlagPermission(BasePermission):
         else:
             config = flag
 
-        matching_flags = [
-            required_flag for required_flag, actions in config.items() if "*" in actions or view.action in actions
-        ]
+        for required_flag, actions in config.items():
+            if "*" in actions or view.action in actions:
+                org_id = str(organization.id)
 
-        if not matching_flags:
-            return True
+                enabled = posthoganalytics.feature_enabled(
+                    required_flag,
+                    user.distinct_id,
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
 
-        org_id = str(organization.id)
+                return enabled or False
 
-        for required_flag in matching_flags:
-            enabled = posthoganalytics.feature_enabled(
-                required_flag,
-                user.distinct_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-
-            if enabled:
-                return True
-
-        return False
+        return True
 
 
 class ProjectSecretAPITokenPermission(BasePermission):

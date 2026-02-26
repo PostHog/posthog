@@ -5,6 +5,7 @@ import { IconClock, IconDownload } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
@@ -51,6 +52,24 @@ export interface SearchLogicProps {
 
 export const RECENTS_LIMIT = 5
 const SEARCH_LIMIT = 5
+
+const isProductEnabledForFeatureFlags = (
+    featureFlags: Record<string, string | boolean>,
+    flag?: string
+): boolean => {
+    if (!flag) {
+        return true
+    }
+
+    if (flag === FEATURE_FLAGS.PROMPT_MANAGEMENT) {
+        return !!(
+            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        )
+    }
+
+    return !!featureFlags[flag]
+}
 
 export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
@@ -307,7 +326,12 @@ export const searchLogic = kea<searchLogicType>([
                     if (!isDev && product.category === 'Unreleased') {
                         return false
                     }
-                    if (product.flag && !(featureFlags as Record<string, boolean>)[product.flag]) {
+                    if (
+                        !isProductEnabledForFeatureFlags(
+                            featureFlags as Record<string, string | boolean>,
+                            product.flag
+                        )
+                    ) {
                         return false
                     }
                     return true
@@ -373,7 +397,12 @@ export const searchLogic = kea<searchLogicType>([
                     if (!isDev && item.category === 'Unreleased') {
                         return false
                     }
-                    if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
+                    if (
+                        !isProductEnabledForFeatureFlags(
+                            featureFlags as Record<string, string | boolean>,
+                            item.flag
+                        )
+                    ) {
                         return false
                     }
                     return true
@@ -424,7 +453,12 @@ export const searchLogic = kea<searchLogicType>([
                     if (!isDev && item.category === 'Unreleased') {
                         return false
                     }
-                    if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
+                    if (
+                        !isProductEnabledForFeatureFlags(
+                            featureFlags as Record<string, string | boolean>,
+                            item.flag
+                        )
+                    ) {
                         return false
                     }
                     return true

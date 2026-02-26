@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -13,6 +14,21 @@ import { UserShortcutPosition } from '~/types'
 
 import { getCategoryOrder } from '../ProjectTree/utils'
 import type { editCustomProductsModalLogicType } from './editCustomProductsModalLogicType'
+
+const isProductEnabledForFeatureFlags = (featureFlags: Record<string, boolean>, flag?: string): boolean => {
+    if (!flag) {
+        return true
+    }
+
+    if (flag === FEATURE_FLAGS.PROMPT_MANAGEMENT) {
+        return !!(
+            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        )
+    }
+
+    return !!featureFlags[flag]
+}
 
 export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType>([
     path(['layout', 'panel-layout', 'PinnedFolder', 'editCustomProductsModalLogic']),
@@ -117,7 +133,7 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         filteredProducts: [
             (s) => [s.allProducts, s.featureFlags],
             (allProducts: FileSystemImport[], featureFlags: Record<string, boolean>): FileSystemImport[] => {
-                return allProducts.filter((f) => !f.flag || featureFlags[f.flag])
+                return allProducts.filter((f) => isProductEnabledForFeatureFlags(featureFlags, f.flag))
             },
         ],
         productsByCategory: [

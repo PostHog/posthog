@@ -10,6 +10,7 @@ import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -33,6 +34,24 @@ import { CATEGORY_ORDER } from '../ProjectTree/utils'
 
 const menuItemStyles =
     'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover outline-none data-[highlighted]:bg-fill-button-tertiary-hover'
+
+const isProductEnabledForFeatureFlags = (
+    featureFlags: Record<string, string | boolean>,
+    flag?: string
+): boolean => {
+    if (!flag) {
+        return true
+    }
+
+    if (flag === FEATURE_FLAGS.PROMPT_MANAGEMENT) {
+        return !!(
+            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        )
+    }
+
+    return !!featureFlags[flag]
+}
 
 interface ProductGroup {
     value: string
@@ -102,7 +121,9 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
 
     const productGroups = useMemo(() => {
         const allProducts = getTreeItemsProducts()
-        const filteredProducts = allProducts.filter((p) => !p.flag || (featureFlags as Record<string, boolean>)[p.flag])
+        const filteredProducts = allProducts.filter((p) =>
+            isProductEnabledForFeatureFlags(featureFlags as Record<string, string | boolean>, p.flag)
+        )
 
         const grouped: Record<string, FileSystemImport[]> = {}
         for (const product of filteredProducts) {

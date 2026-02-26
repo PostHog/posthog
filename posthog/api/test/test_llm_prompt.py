@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.models.llm_prompt import LLMPrompt
 
 
-@patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+@patch("posthog.api.llm_prompt.posthoganalytics.feature_enabled", return_value=True)
 class TestLLMPromptAPI(APIBaseTest):
     @parameterized.expand(
         [
