@@ -877,9 +877,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     )
                                 }
                                 saveOnBlur
-                                onNameChange={(newKey) => {
-                                    submitFeatureFlagWithValidation({ ...featureFlag, key: newKey })
-                                }}
                                 onDescriptionChange={(newName) => {
                                     submitFeatureFlagWithValidation({ ...featureFlag, name: newName })
                                 }}
