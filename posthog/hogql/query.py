@@ -321,7 +321,7 @@ class HogQLQueryExecutor:
 
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
-        source = ExternalDataSource.objects.get(source_id=self.direct_postgres_source_id)
+        source = ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
         source_config = source.job_inputs or {}
 
         with psycopg.connect(
