@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 
@@ -23,12 +23,31 @@ export function EditableOverviewSection({
     className,
     disabledReason,
 }: EditableOverviewSectionProps): JSX.Element {
-    const { featureFlag, editingSection, featureFlagLoading } = useValues(featureFlagLogic)
+    const { featureFlag, editingSection, sectionDraft, featureFlagLoading } = useValues(featureFlagLogic)
     const { setSectionEditing, cancelSectionEdit, saveSectionEdit } = useActions(featureFlagLogic)
 
     const isEditing = editingSection === section
     const anotherSectionEditing = editingSection !== null && editingSection !== section
     const canShowEditButton = !featureFlag.deleted && !anotherSectionEditing
+
+    const handleCancel = (): void => {
+        if (sectionDraft) {
+            LemonDialog.open({
+                title: 'Discard changes?',
+                description: 'You have unsaved changes that will be lost.',
+                primaryButton: {
+                    children: 'Discard',
+                    status: 'danger',
+                    onClick: cancelSectionEdit,
+                },
+                secondaryButton: {
+                    children: 'Keep editing',
+                },
+            })
+        } else {
+            cancelSectionEdit()
+        }
+    }
 
     return (
         <div
@@ -60,12 +79,7 @@ export function EditableOverviewSection({
 
             {isEditing && (
                 <div className="flex justify-end gap-2 mt-3 pt-3 border-t border-border-light">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        disabled={featureFlagLoading}
-                        onClick={cancelSectionEdit}
-                    >
+                    <LemonButton type="secondary" size="small" disabled={featureFlagLoading} onClick={handleCancel}>
                         Cancel
                     </LemonButton>
                     <LemonButton

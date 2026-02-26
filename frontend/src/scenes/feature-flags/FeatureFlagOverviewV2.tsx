@@ -404,6 +404,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     <label className="text-sm font-semibold">Payload</label>
                                     {isEditing ? (
                                         <JSONEditorInput
+                                            placeholder='Examples: "string value", true, {"key": "value"}'
                                             value={
                                                 sectionDraft?.filters?.payloads?.['true'] ??
                                                 featureFlag.filters?.payloads?.['true'] ??

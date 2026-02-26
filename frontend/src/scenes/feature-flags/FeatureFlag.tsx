@@ -146,7 +146,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         setActiveTab,
         updateFlag,
         saveFeatureFlag,
-        submitFeatureFlagWithValidation,
+        saveDescriptionInline,
     } = useActions(featureFlagLogic)
 
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
@@ -876,7 +876,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 }
                                 saveOnBlur
                                 onDescriptionChange={(newName) => {
-                                    submitFeatureFlagWithValidation({ ...featureFlag, name: newName })
+                                    saveDescriptionInline(newName)
                                 }}
                                 actions={
                                     <AccessControlAction

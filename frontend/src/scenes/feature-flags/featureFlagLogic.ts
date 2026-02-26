@@ -431,6 +431,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         addDraftVariant: true,
         removeDraftVariant: (index: number) => ({ index }),
         distributeDraftVariantsEqually: true,
+        saveDescriptionInline: (name: string) => ({ name }),
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
@@ -1622,9 +1623,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
             }
         },
+        saveDescriptionInline: async ({ name }) => {
+            const flag = values.featureFlag
+            if (!flag.id || name === flag.name) {
+                return
+            }
+            try {
+                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
+                    name,
+                })
+                actions.setFeatureFlag({ ...flag, name: savedFlag.name })
+                actions.updateFlag({ ...flag, name: savedFlag.name })
+                lemonToast.success('Description saved')
+            } catch {
+                lemonToast.error('Failed to save description')
+            }
+        },
         saveSectionEdit: () => {
             const draft = values.sectionDraft
             if (!draft) {
+                actions.cancelSectionEdit()
                 return
             }
             const flag = values.featureFlag
