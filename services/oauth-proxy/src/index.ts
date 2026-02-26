@@ -17,61 +17,74 @@ export interface Env {
     AUTH_KV: KVNamespace
 }
 
+type Handler = (request: Request, kv: KVNamespace) => Response | Promise<Response>
+
+interface Route {
+    paths: string[]
+    method?: string
+    handler: Handler
+}
+
+function normalizePath(path: string): string {
+    return path.endsWith('/') ? path.slice(0, -1) : path
+}
+
+const routes: Route[] = [
+    {
+        paths: ['/.well-known/oauth-authorization-server'],
+        handler: (req) => handleMetadata(req),
+    },
+    {
+        paths: ['/.well-known/jwks.json'],
+        handler: (req) => handleJwks(req),
+    },
+    {
+        paths: ['/oauth/register', '/register'],
+        method: 'POST',
+        handler: (req, kv) => handleRegister(req, kv),
+    },
+    {
+        paths: ['/oauth/authorize', '/authorize'],
+        handler: (req, kv) => handleAuthorize(req, kv),
+    },
+    {
+        paths: ['/oauth/token', '/token'],
+        method: 'POST',
+        handler: (req, kv) => handleToken(req, kv),
+    },
+    {
+        paths: ['/oauth/revoke'],
+        method: 'POST',
+        handler: (req, kv) => handleRevoke(req, kv),
+    },
+    {
+        paths: ['/oauth/introspect'],
+        method: 'POST',
+        handler: (req) => handleIntrospect(req),
+    },
+    {
+        paths: ['/oauth/userinfo'],
+        handler: (req) => handleUserInfo(req),
+    },
+]
+
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url)
-        const path = url.pathname
+        const normalized = normalizePath(url.pathname)
 
         try {
-            // Auth server metadata (RFC 8414)
-            if (path === '/.well-known/oauth-authorization-server') {
-                return handleMetadata(request)
+            for (const route of routes) {
+                if (route.method && request.method !== route.method) {
+                    continue
+                }
+                if (route.paths.some((p) => normalizePath(p) === normalized)) {
+                    return route.handler(request, env.AUTH_KV)
+                }
             }
 
-            // JWKS for token verification
-            if (path === '/.well-known/jwks.json') {
-                return handleJwks(request)
-            }
-
-            // Dynamic Client Registration (RFC 7591)
-            if (
-                (path === '/oauth/register/' || path === '/oauth/register' || path === '/register') &&
-                request.method === 'POST'
-            ) {
-                return handleRegister(request, env.AUTH_KV)
-            }
-
-            // Authorization (shows region picker, then redirects)
-            if (path === '/oauth/authorize/' || path === '/oauth/authorize' || path === '/authorize') {
-                return handleAuthorize(request, env.AUTH_KV)
-            }
-
-            // Token exchange (proxy to correct region)
-            if (
-                (path === '/oauth/token/' || path === '/oauth/token' || path === '/token') &&
-                request.method === 'POST'
-            ) {
-                return handleToken(request, env.AUTH_KV)
-            }
-
-            // Token revocation
-            if ((path === '/oauth/revoke/' || path === '/oauth/revoke') && request.method === 'POST') {
-                return handleRevoke(request, env.AUTH_KV)
-            }
-
-            // Token introspection
-            if ((path === '/oauth/introspect/' || path === '/oauth/introspect') && request.method === 'POST') {
-                return handleIntrospect(request)
-            }
-
-            // UserInfo
-            if (path === '/oauth/userinfo/' || path === '/oauth/userinfo') {
-                return handleUserInfo(request)
-            }
-
-            // Landing page
-            if (path === '/') {
-                return new Response('PostHog Auth Proxy — https://posthog.com/docs/model-context-protocol', {
+            if (normalized === '') {
+                return new Response('PostHog OAuth Proxy — https://posthog.com/docs/model-context-protocol', {
                     headers: { 'Content-Type': 'text/plain' },
                 })
             }

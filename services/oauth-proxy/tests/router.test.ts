@@ -27,6 +27,6 @@ describe('router', () => {
         const request = new Request('https://oauth.posthog.com/')
         const response = await worker.fetch(request, mockEnv)
         const text = await response.text()
-        expect(text).toContain('PostHog Auth Proxy')
+        expect(text).toContain('PostHog OAuth Proxy')
     })
 })

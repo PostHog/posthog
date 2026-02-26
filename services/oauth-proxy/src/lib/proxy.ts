@@ -52,6 +52,7 @@ export async function proxyPostWithClientId(
 
     const headers = new Headers(request.headers)
     headers.delete('host')
+    // Body was rewritten so the original content-length is wrong
     headers.delete('content-length')
 
     return fetch(url.toString(), {
@@ -90,5 +91,15 @@ export async function tryBothRegions(request: Request, path: string): Promise<{ 
         body,
     })
 
-    return { response: euResponse, region: 'eu' }
+    if (euResponse.ok) {
+        return { response: euResponse, region: 'eu' }
+    }
+
+    return {
+        response: new Response(
+            JSON.stringify({ error: 'invalid_request', error_description: 'Unable to determine region' }),
+            { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        ),
+        region: 'us',
+    }
 }
