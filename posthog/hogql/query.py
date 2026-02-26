@@ -321,9 +321,10 @@ class HogQLQueryExecutor:
                 self.metadata = get_hogql_metadata(
                     HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True),
                     self.team,
-                    self.select_query,
-                    self.clickhouse_prepared_ast,
-                    self.clickhouse_sql,
+                    user=self.user,
+                    hogql_ast=self.select_query,
+                    clickhouse_prepared_ast=self.clickhouse_prepared_ast,
+                    clickhouse_sql=self.clickhouse_sql,
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
