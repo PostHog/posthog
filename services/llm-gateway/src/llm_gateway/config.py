@@ -5,12 +5,12 @@ from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
 
 
-class ProductCostLimit(BaseModel):
+class ProductCostLimit(BaseModel, frozen=True):
     limit_usd: float
     window_seconds: int
 
 
-class UserCostLimit(BaseModel):
+class UserCostLimit(BaseModel, frozen=True):
     burst_limit_usd: float
     burst_window_seconds: int
     sustained_limit_usd: float
