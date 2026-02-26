@@ -2525,3 +2525,19 @@ PROPERTY_NAME_ALIASES = {
     for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
     if "label" in value and "deprecated" not in value["label"]
 }
+
+_PROP_TYPE_TO_TAXONOMY_GROUP = {
+    "event": "event_properties",
+    "person": "person_properties",
+    "group": "groups",
+    "session": "session_properties",
+}
+
+PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
+    prop_type: {
+        key: value["label"]
+        for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group_name, {}).items()
+        if "label" in value and "deprecated" not in value["label"]
+    }
+    for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
+}
