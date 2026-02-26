@@ -348,7 +348,7 @@ class InCohortResolver(TraversingVisitor):
         compare: ast.CompareOperation,
         negative: bool,
     ):
-        from posthog.hogql.functions.cohort import get_cohort_subquery_or_inline
+        from posthog.hogql.functions.cohort import inline_cohort_query
         from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
         from posthog.hogql.transforms.property_types import PropertySwapper
 
@@ -366,7 +366,7 @@ class InCohortResolver(TraversingVisitor):
                 break
 
         if must_add_join:
-            inline_ast = get_cohort_subquery_or_inline(cohort_id, is_static, version, self.context)
+            inline_ast = inline_cohort_query(cohort_id, is_static, version, self.context)
             subquery: ast.Expr
             if inline_ast is not None:
                 subquery = parse_select(

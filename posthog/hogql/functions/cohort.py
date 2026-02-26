@@ -16,26 +16,12 @@ from posthog.hogql.parser import parse_expr
 INLINE_COHORT_THRESHOLD_SECONDS = 10
 
 
-def get_cohort_subquery_or_inline(
-    cohort_id: int,
-    is_static: bool,
-    version: Optional[int],
-    context: HogQLContext,
-) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
-    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-    from posthog.models import Cohort, Team
-    from posthog.models.cohort.calculation_history import CohortCalculationHistory
+def _is_inline_flag_enabled(context: HogQLContext) -> bool:
+    from posthog.models import Team
 
-    if is_static:
-        return None
-
-    mode = context.modifiers.inlineCohortCalculation
-    if mode == InlineCohortCalculation.OFF:
-        return None
-
-    if mode is None or mode == InlineCohortCalculation.AUTO:
-        team = context.team or Team.objects.get(id=context.team_id)
-        flag_enabled = posthoganalytics.feature_enabled(
+    team = context.team or Team.objects.get(id=context.team_id)
+    return bool(
+        posthoganalytics.feature_enabled(
             "inline-cohort-calculation",
             str(team.uuid),
             groups={
@@ -49,31 +35,55 @@ def get_cohort_subquery_or_inline(
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        if not flag_enabled:
-            return None
+    )
 
-        seven_days_ago = timezone.now() - datetime.timedelta(days=7)
-        recent_calcs = list(
-            CohortCalculationHistory.objects.filter(
-                cohort_id=cohort_id,
-                finished_at__isnull=False,
-                started_at__gte=seven_days_ago,
-            )
-            .order_by("-started_at")
-            .values_list("error", "started_at", "finished_at")
+
+def _is_cohort_fast_enough_to_inline(cohort_id: int) -> bool:
+    from posthog.models.cohort.calculation_history import CohortCalculationHistory
+
+    seven_days_ago = timezone.now() - datetime.timedelta(days=7)
+    recent_calcs = list(
+        CohortCalculationHistory.objects.filter(
+            cohort_id=cohort_id,
+            finished_at__isnull=False,
+            started_at__gte=seven_days_ago,
         )
-        if not recent_calcs:
-            pass
-        elif recent_calcs[0][0] is not None:
+        .order_by("-started_at")
+        .values_list("error", "started_at", "finished_at")
+    )
+    if not recent_calcs:
+        return True
+
+    if recent_calcs[0][0] is not None:
+        return False
+
+    durations = sorted(
+        (finished_at - started_at).total_seconds() for error, started_at, finished_at in recent_calcs if error is None
+    )
+    return not durations or durations[len(durations) // 2] < INLINE_COHORT_THRESHOLD_SECONDS
+
+
+def inline_cohort_query(
+    cohort_id: int,
+    is_static: bool,
+    version: Optional[int],
+    context: HogQLContext,
+) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+    from posthog.models import Cohort, Team
+
+    if is_static:
+        return None
+
+    mode = context.modifiers.inlineCohortCalculation
+    if mode == InlineCohortCalculation.OFF:
+        return None
+
+    if mode is None or mode == InlineCohortCalculation.AUTO:
+        if not _is_inline_flag_enabled(context):
             return None
-        else:
-            durations = sorted(
-                (finished_at - started_at).total_seconds()
-                for error, started_at, finished_at in recent_calcs
-                if error is None
-            )
-            if durations and durations[len(durations) // 2] >= INLINE_COHORT_THRESHOLD_SECONDS:
-                return None
+        if not _is_cohort_fast_enough_to_inline(cohort_id):
+            return None
 
     cohort = Cohort.objects.get(id=cohort_id, team__project_id=context.project_id)
     if not cohort.properties.flat:
@@ -120,7 +130,7 @@ def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.E
                 message=f"Cohort #{cohorts1[0][0]} can also be specified as {escape_clickhouse_string(cohorts1[0][3])}",
                 fix=escape_clickhouse_string(cohorts1[0][3]),
             )
-            inline_ast = get_cohort_subquery_or_inline(cohorts1[0][0], cohorts1[0][1], cohorts1[0][2], context)
+            inline_ast = inline_cohort_query(cohorts1[0][0], cohorts1[0][1], cohorts1[0][2], context)
             if inline_ast is not None:
                 return inline_ast
             return cohort_subquery(cohorts1[0][0], cohorts1[0][1], cohorts1[0][2])
@@ -137,7 +147,7 @@ def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.E
                 message=f"Searching for cohort by name. Replace with numeric ID {cohorts2[0][0]} to protect against renaming.",
                 fix=str(cohorts2[0][0]),
             )
-            inline_ast = get_cohort_subquery_or_inline(cohorts2[0][0], cohorts2[0][1], cohorts2[0][2], context)
+            inline_ast = inline_cohort_query(cohorts2[0][0], cohorts2[0][1], cohorts2[0][2], context)
             if inline_ast is not None:
                 return inline_ast
             return cohort_subquery(cohorts2[0][0], cohorts2[0][1], cohorts2[0][2])
