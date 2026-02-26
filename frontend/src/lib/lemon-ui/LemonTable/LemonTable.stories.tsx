@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 
@@ -508,5 +509,190 @@ export const WithRowActions = (): JSX.Element => {
                 ] as MockPerson[]
             }
         />
+    )
+}
+
+// --- Virtualized stories ---
+
+interface MockLogEntry {
+    id: number
+    timestamp: string
+    level: 'info' | 'warn' | 'error' | 'debug'
+    service: string
+    message: string
+}
+
+const SERVICES = ['api-gateway', 'auth-service', 'billing', 'events-pipeline', 'plugin-server', 'web-app', 'worker']
+const LEVELS: MockLogEntry['level'][] = ['info', 'warn', 'error', 'debug']
+const MESSAGES = [
+    'Request processed successfully',
+    'Connection pool exhausted, waiting for available connection',
+    'Failed to parse JSON payload',
+    'Rate limit exceeded for client',
+    'Cache miss, fetching from database',
+    'Health check passed',
+    'Timeout waiting for downstream service',
+    'Successfully exported batch of events',
+    'Retrying failed operation (attempt 3/5)',
+    'Memory usage above 80% threshold',
+    'Certificate renewal scheduled',
+    'Database migration completed',
+    'Kafka consumer lag detected',
+    'Query execution time exceeded 5s',
+    'Feature flag evaluated',
+]
+
+function generateLogEntries(count: number): MockLogEntry[] {
+    const entries: MockLogEntry[] = []
+    const baseTime = new Date('2026-02-24T18:00:00Z').getTime()
+    for (let i = 0; i < count; i++) {
+        entries.push({
+            id: i,
+            timestamp: new Date(baseTime - i * 1234).toISOString().replace('T', ' ').slice(0, 23),
+            level: LEVELS[i % LEVELS.length],
+            service: SERVICES[i % SERVICES.length],
+            message: `${MESSAGES[i % MESSAGES.length]} [req_${(i * 7919).toString(16)}]`,
+        })
+    }
+    return entries
+}
+
+function DomRowCounter({ tableSelector }: { tableSelector: string }): JSX.Element {
+    const [count, setCount] = useState(0)
+    const rafRef = useRef(0)
+
+    const measure = useCallback(() => {
+        const tbody = document.querySelector(`${tableSelector} tbody`)
+        if (tbody) {
+            setCount(tbody.querySelectorAll('tr:not([aria-hidden])').length)
+        }
+        rafRef.current = requestAnimationFrame(measure)
+    }, [tableSelector])
+
+    useEffect(() => {
+        rafRef.current = requestAnimationFrame(measure)
+        return () => cancelAnimationFrame(rafRef.current)
+    }, [measure])
+
+    return (
+        <div className="sticky top-0 z-10 bg-warning-highlight border border-warning rounded px-3 py-1.5 text-sm font-mono mb-2">
+            DOM rows: <strong>{count}</strong>
+        </div>
+    )
+}
+
+const LEVEL_COLORS: Record<MockLogEntry['level'], string> = {
+    error: 'var(--danger)',
+    warn: 'var(--warning)',
+    info: 'var(--success)',
+    debug: 'var(--muted)',
+}
+
+export const Virtualized = (): JSX.Element => {
+    const data = useMemo(() => generateLogEntries(10_000), [])
+
+    return (
+        <div id="virtualized-story">
+            <DomRowCounter tableSelector="#virtualized-story" />
+            <p className="text-muted text-xs mb-2">
+                10,000 rows — scroll to verify smooth performance. The DOM counter above should stay roughly constant.
+            </p>
+            <LemonTable<MockLogEntry>
+                virtualized={{ estimatedRowHeight: 36 }}
+                dataSource={data}
+                rowKey="id"
+                size="small"
+                rowRibbonColor={(record) => LEVEL_COLORS[record.level]}
+                columns={[
+                    { title: '#', key: 'id', render: (_, r) => r.id, width: 60 },
+                    { title: 'Timestamp', dataIndex: 'timestamp', width: 200 },
+                    {
+                        title: 'Level',
+                        dataIndex: 'level',
+                        width: 70,
+                        render: (level) => (
+                            <span
+                                className="font-mono font-bold uppercase"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ color: LEVEL_COLORS[level as MockLogEntry['level']] }}
+                            >
+                                {level as string}
+                            </span>
+                        ),
+                    },
+                    { title: 'Service', dataIndex: 'service', width: 150 },
+                    { title: 'Message', dataIndex: 'message' },
+                ]}
+            />
+        </div>
+    )
+}
+
+export const VirtualizedWithExpandableRows = (): JSX.Element => {
+    const data = useMemo(() => generateLogEntries(10_000), [])
+
+    return (
+        <div id="virtualized-expandable-story">
+            <DomRowCounter tableSelector="#virtualized-expandable-story" />
+            <p className="text-muted text-xs mb-2">
+                10,000 expandable rows — click a row's expand button to verify dynamic content works with
+                virtualization.
+            </p>
+            <LemonTable<MockLogEntry>
+                virtualized={{ estimatedRowHeight: 36 }}
+                dataSource={data}
+                rowKey="id"
+                size="small"
+                expandable={{
+                    expandedRowRender: (record) => (
+                        <div className="p-4 font-mono text-xs space-y-1">
+                            <div>
+                                <strong>ID:</strong> {record.id}
+                            </div>
+                            <div>
+                                <strong>Timestamp:</strong> {record.timestamp}
+                            </div>
+                            <div>
+                                <strong>Level:</strong> {record.level}
+                            </div>
+                            <div>
+                                <strong>Service:</strong> {record.service}
+                            </div>
+                            <div>
+                                <strong>Message:</strong> {record.message}
+                            </div>
+                            <div>
+                                <strong>Stack trace:</strong>
+                            </div>
+                            <pre className="bg-bg-primary p-2 rounded text-xs">
+                                {`at ${record.service}.handleRequest (${record.service}.ts:${record.id % 500}:12)\n` +
+                                    `at Router.dispatch (router.ts:${(record.id * 3) % 200}:5)\n` +
+                                    `at Server.listen (server.ts:42:8)`}
+                            </pre>
+                        </div>
+                    ),
+                }}
+                columns={[
+                    { title: '#', key: 'id', render: (_, r) => r.id, width: 60 },
+                    { title: 'Timestamp', dataIndex: 'timestamp', width: 200 },
+                    {
+                        title: 'Level',
+                        dataIndex: 'level',
+                        width: 70,
+                        render: (level) => (
+                            <span
+                                className="font-mono font-bold uppercase"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ color: LEVEL_COLORS[level as MockLogEntry['level']] }}
+                            >
+                                {level as string}
+                            </span>
+                        ),
+                    },
+                    { title: 'Service', dataIndex: 'service', width: 150 },
+                    { title: 'Message', dataIndex: 'message' },
+                ]}
+            />
+        </div>
     )
 }
