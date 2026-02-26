@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { byokModelPickerLogic } from './byokModelPickerLogic'
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
-import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from './settings/llmProviderKeysLogic'
+import { LLMProvider, LLMProviderKey, llmProviderKeysLogic, providerSortIndex } from './settings/llmProviderKeysLogic'
 import { normalizeRole } from './utils'
 
 export interface ModelOption {
@@ -105,7 +105,7 @@ export interface ComparisonItem {
     latencyMs?: number | null
 }
 
-const DEFAULT_MODEL = 'gpt-4.1'
+const DEFAULT_MODEL = 'gpt-5-mini'
 
 function pickByPrefix(query: string, idList: string[]): string | null {
     let best = null
@@ -128,7 +128,10 @@ function matchClosestModel(targetModel: string, availableModels: ModelOption[]):
     if (match) {
         return match
     }
-    return DEFAULT_MODEL
+    if (ids.includes(DEFAULT_MODEL)) {
+        return DEFAULT_MODEL
+    }
+    return ids[0] ?? DEFAULT_MODEL
 }
 
 export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
@@ -378,10 +381,10 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             if (byokModels.length > 0) {
                 const targetModel = values.pendingTargetModel ?? values.model
                 const closestMatch = matchClosestModel(targetModel, byokModels)
-                if (values.model !== closestMatch) {
-                    const matchedModel = byokModels.find((m) => m.id === closestMatch)
-                    actions.setModel(closestMatch, matchedModel?.providerKeyId)
-                }
+                const matchedModel = byokModels.find((m) => m.id === closestMatch)
+                // Always call setModel to bind the providerKeyId, even when the
+                // model string hasn't changed (e.g. trial "gpt-4.1" → BYOK "gpt-4.1").
+                actions.setModel(closestMatch, matchedModel?.providerKeyId)
             }
         },
         finalizeAssistantMessage: () => {
@@ -664,7 +667,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     byProvider[provider].push(option)
                 }
                 return Object.entries(byProvider)
-                    .sort(([a], [b]) => a.localeCompare(b))
+                    .sort(([a], [b]) => providerSortIndex(a) - providerSortIndex(b))
                     .map(([provider, providerModels]) => ({
                         title: provider,
                         options: providerModels.map((option) => ({
