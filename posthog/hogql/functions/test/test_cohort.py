@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -232,8 +234,8 @@ class TestInlineCohortSubquery(BaseTest):
             team=self.team,
             cohort=cohort,
             filters={},
-            started_at=now - timezone.timedelta(hours=2),
-            finished_at=now - timezone.timedelta(hours=2),
+            started_at=now - datetime.timedelta(hours=2),
+            finished_at=now - datetime.timedelta(hours=2),
         )
         CohortCalculationHistory.objects.create(
             team=self.team,
