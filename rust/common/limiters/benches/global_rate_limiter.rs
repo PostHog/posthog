@@ -72,14 +72,12 @@ fn bench_config() -> GlobalRateLimiterConfig {
     GlobalRateLimiterConfig {
         global_threshold: 100_000,
         window_interval: Duration::from_secs(60),
-        bucket_interval: Duration::from_secs(10),
+        sync_interval: Duration::from_secs(15),
+        tick_interval: Duration::from_secs(1),
         redis_key_prefix: "bench:grl".to_string(),
         global_cache_ttl: Duration::from_secs(300),
-        local_cache_ttl: Duration::from_secs(1200), // 20 minutes for hot cache simulation
+        local_cache_ttl: Duration::from_secs(1200),
         local_cache_max_entries: 100_000,
-        batch_interval: Duration::from_millis(100),
-        batch_max_update_count: 10000,
-        batch_max_key_cardinality: 1000,
         channel_capacity: 100_000,
         custom_keys: HashMap::new(),
         global_read_timeout: Duration::from_millis(50),
@@ -119,46 +117,29 @@ fn create_limiter(
 ///
 /// Primes buckets covering several minutes into the future to handle timing drift
 /// during benchmark execution. The limiter uses Utc::now() at eval time and reads
-/// buckets from (current_bucket - bucket_interval) going back for window_interval.
-/// As time advances during benchmarks, we need buckets primed ahead of time.
-async fn prime_redis_buckets(
+/// Prime two epoch keys (current + previous) for a given entity key.
+async fn prime_redis_epochs(
     redis: &common_redis::RedisClient,
     config: &GlobalRateLimiterConfig,
     key: &str,
-    count_per_bucket: i64,
+    count_per_epoch: i64,
 ) {
-    let bucket_secs = config.bucket_interval.as_secs() as i64;
     let window_secs = config.window_interval.as_secs() as i64;
-    let num_buckets = (window_secs / bucket_secs) as usize;
-
-    // Use a long TTL so primed data survives the entire benchmark suite
-    let ttl_secs = 1800; // 30 minutes
-
-    // Current bucket boundary
     let now_ts = Utc::now().timestamp();
-    let current_bucket = now_ts - (now_ts % bucket_secs);
+    let current_epoch = now_ts - (now_ts % window_secs);
+    let previous_epoch = current_epoch - window_secs;
+    let ttl_secs = (window_secs * 2) as usize;
 
-    // Prime buckets covering:
-    // - Past: num_buckets back (the window the limiter reads)
-    // - Future: 20 minutes ahead to handle benchmark timing drift
-    // The MGET reads buckets (current - 1*bucket) to (current - num_buckets*bucket),
-    // so as time advances we need those future buckets ready.
-    let extra_future_buckets = 120; // 1200s = 20 minutes with 10s buckets
-    let bucket_ids: Vec<i64> = (-(extra_future_buckets as i64)..=(num_buckets as i64))
-        .map(|i| current_bucket - (i * bucket_secs))
-        .collect();
-
-    // Batch the priming for efficiency
-    let items: Vec<(String, i64)> = bucket_ids
-        .iter()
-        .map(|bucket_id| {
-            let bucket_key = format!("{}:{}:{}", config.redis_key_prefix, key, bucket_id);
-            (bucket_key, count_per_bucket)
+    let items: Vec<(String, i64)> = vec![current_epoch, previous_epoch]
+        .into_iter()
+        .map(|epoch| {
+            let epoch_key = format!("{}:{}:{}", config.redis_key_prefix, key, epoch);
+            (epoch_key, count_per_epoch)
         })
         .collect();
 
     if let Err(e) = redis.batch_incr_by_expire(items, ttl_secs).await {
-        eprintln!("Failed to prime Redis buckets for key {key}: {e}");
+        eprintln!("Failed to prime Redis epochs for key {key}: {e}");
     }
 }
 
@@ -174,7 +155,7 @@ fn bench_local_cache_hit(c: &mut Criterion) {
 
     // Pre-prime Redis so the cache warmup reads real data
     rt.block_on(async {
-        prime_redis_buckets(&redis, &config, "cache_hit_key", 100).await;
+        prime_redis_epochs(&redis, &config, "cache_hit_key", 100).await;
     });
 
     let limiter = create_limiter(&rt, config, redis);
@@ -214,7 +195,7 @@ fn bench_redis_cache_miss(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..PRIMED_KEY_COUNT {
             let key = format!("primed_miss_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
@@ -286,7 +267,7 @@ fn bench_high_cardinality(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..MAX_KEYS {
             let key = format!("hc_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
@@ -327,7 +308,7 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..100 {
             let key = format!("e2e_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
@@ -360,7 +341,7 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..COLD_KEY_COUNT {
             let key = format!("e2e_cold_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
@@ -405,7 +386,7 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..100 {
             let key = format!("registered_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
@@ -555,7 +536,7 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
             let batch_end = (batch_start + 1000).min(KEYS_CARDINALITY);
             for i in batch_start..batch_end {
                 let key = format!("sim_key_{i}");
-                prime_redis_buckets(&redis, &config, &key, 100).await;
+                prime_redis_epochs(&redis, &config, &key, 100).await;
             }
             if batch_start % 10000 == 0 {
                 eprintln!("  Primed {batch_start}/{KEYS_CARDINALITY} keys...");
