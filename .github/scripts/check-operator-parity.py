@@ -43,7 +43,11 @@ RUST_ONLY_ALLOWLIST: dict[str, str] = {}
 
 
 def pascal_to_snake(name: str) -> str:
-    """Convert PascalCase to snake_case, matching serde's rename_all = "snake_case"."""
+    """Convert PascalCase to snake_case, matching serde's rename_all = "snake_case".
+
+    Assumes no consecutive-uppercase acronyms (e.g. "URL" or "HTTP") — all current
+    OperatorType variants use single-capital word boundaries like IsNotSet, SemverGt.
+    """
     s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
     return s.lower()
 
@@ -63,6 +67,9 @@ def get_python_operators() -> set[str]:
     return set(values)
 
 
+MIN_EXPECTED_RUST_VARIANTS = 20
+
+
 def get_rust_operators() -> set[str]:
     """Parse OperatorType variants from the Rust source file."""
     content = RUST_OPERATOR_PATH.read_text()
@@ -75,10 +82,25 @@ def get_rust_operators() -> set[str]:
 
     enum_body = enum_match.group(1)
 
+    # Strip lines that are comments or attributes so they don't interfere
+    # with variant extraction (e.g. /// doc comments, #[serde(...)] attributes)
+    cleaned_lines = []
+    for line in enum_body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("//") or stripped.startswith("#["):
+            continue
+        cleaned_lines.append(line)
+    cleaned_body = "\n".join(cleaned_lines)
+
     # Extract variant names (PascalCase identifiers on their own lines)
-    variants = re.findall(r"^\s*(\w+)\s*,?\s*$", enum_body, re.MULTILINE)
+    variants = re.findall(r"^\s*(\w+)\s*,?\s*$", cleaned_body, re.MULTILINE)
     if not variants:
-        print(f"ERROR: Could not parse variants from OperatorType enum")
+        print("ERROR: Could not parse variants from OperatorType enum")
+        sys.exit(1)
+
+    if len(variants) < MIN_EXPECTED_RUST_VARIANTS:
+        print(f"ERROR: Only parsed {len(variants)} Rust variants (expected >= {MIN_EXPECTED_RUST_VARIANTS}).")
+        print("The enum parser may be broken — check for unexpected formatting in OperatorType.")
         sys.exit(1)
 
     return {pascal_to_snake(v) for v in variants}

@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, PropertyOperator, RetentionEntity
+from posthog.schema import (
+    EmptyPropertyFilter,
+    FlagPropertyFilter,
+    HogQLPropertyFilter,
+    PropertyOperator,
+    RetentionEntity,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -1429,7 +1435,7 @@ class TestProperty(BaseTest):
         PropertyOperator.NOT_ICONTAINS_MULTI: ["a", "b"],
     }
 
-    # FLAG_EVALUATES_TO is dispatched via FlagPropertyFilter before reaching _expr_to_compare_op
+    # FLAG_EVALUATES_TO is dispatched via FlagPropertyFilter, not _expr_to_compare_op
     @parameterized.expand([(op.value,) for op in PropertyOperator if op not in {PropertyOperator.FLAG_EVALUATES_TO}])
     def test_operator_coverage(self, operator_value: str):
         value = self.OPERATOR_TEST_VALUES.get(PropertyOperator(operator_value), "test_value")
@@ -1437,6 +1443,11 @@ class TestProperty(BaseTest):
             {"type": "event", "key": "test_prop", "value": value, "operator": operator_value}
         )
         self.assertIsInstance(result, ast.Expr)
+
+    def test_flag_evaluates_to_produces_neutral_expr(self):
+        prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
+        result = property_to_expr([prop], self.team)
+        self.assertEqual(result, ast.Constant(value=1))
 
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):

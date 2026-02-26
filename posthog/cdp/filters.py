@@ -160,6 +160,9 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         context = HogQLContext(team_id=team.id)
         filters["bytecode"] = create_bytecode(expr, context=context).bytecode
 
+        # context.errors here only contains "function not implemented" errors from the
+        # bytecode compiler (the resolver doesn't run during create_bytecode). These are
+        # genuinely fatal — the bytecode would reference a non-existent function at runtime.
         if context.errors:
             error_messages = "; ".join(e.message for e in context.errors if e.message)
             raise Exception(f"Filter compilation errors: {error_messages}")
