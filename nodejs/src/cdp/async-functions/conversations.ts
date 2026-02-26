@@ -13,14 +13,14 @@ registerAsyncFunction('postHogGetTicket', {
             throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
         }
 
-        const team = await context.hub.teamManager.getTeam(context.invocation.teamId)
+        const team = await context.teamManager.getTeam(context.invocation.teamId)
         if (!team) {
             throw new Error(`Team ${context.invocation.teamId} not found`)
         }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
-            url: `${context.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
+            url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}`,
             method: 'GET',
             headers: { Authorization: `Bearer ${team.api_token}` },
         })
@@ -66,14 +66,14 @@ registerAsyncFunction('postHogUpdateTicket', {
             throw new Error("[HogFunction] - postHogUpdateTicket call missing 'ticket_id' property")
         }
 
-        const updateTeam = await context.hub.teamManager.getTeam(context.invocation.teamId)
+        const updateTeam = await context.teamManager.getTeam(context.invocation.teamId)
         if (!updateTeam) {
             throw new Error(`Team ${context.invocation.teamId} not found`)
         }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
-            url: `${context.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
+            url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}`,
             method: 'PATCH',
             body: JSON.stringify(updates),
             headers: {

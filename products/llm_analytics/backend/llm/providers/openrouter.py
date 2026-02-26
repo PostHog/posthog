@@ -84,6 +84,10 @@ class OpenRouterAdapter(OpenAIAdapter):
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
+    def recommended_models() -> set[str]:
+        return set()
+
+    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
         """List available OpenRouter models. Returns empty list without a key (BYOKEY-only)."""
         if not api_key:
@@ -96,9 +100,9 @@ class OpenRouterAdapter(OpenAIAdapter):
                 timeout=OpenAIConfig.TIMEOUT,
                 default_headers=OPENROUTER_HEADERS,
             )
-            return sorted(m.id for m in client.models.list())
-        except Exception as e:
-            logger.exception(f"Error listing OpenRouter models: {e}")
+            return [m.id for m in sorted(client.models.list(), key=lambda m: m.created, reverse=True)]
+        except Exception:
+            logger.exception("Error listing OpenRouter models")
             return []
 
     @staticmethod

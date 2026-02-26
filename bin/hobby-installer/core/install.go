@@ -124,7 +124,7 @@ func GetInstallSteps() []InstallStep {
 		{
 			Name: "Copy Docker Compose files",
 			Run: func(cfg InstallConfig) InstallResult {
-				if err := CopyComposeFiles(cfg.Version); err != nil {
+				if err := CopyComposeFiles(); err != nil {
 					return InstallResult{Err: err}
 				}
 				return InstallResult{Detail: "copied"}

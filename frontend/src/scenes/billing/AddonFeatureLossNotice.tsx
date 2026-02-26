@@ -11,34 +11,26 @@ import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
 import { billingLogic } from './billingLogic'
-import { billingProductLogic } from './billingProductLogic'
 
 interface AddonFeatureLossNoticeProps {
     product: BillingProductV2Type | BillingProductV2AddonType
+    targetProduct?: BillingProductV2Type | BillingProductV2AddonType
 }
 
-export const AddonFeatureLossNotice = ({ product }: AddonFeatureLossNoticeProps): JSX.Element | null => {
+export const AddonFeatureLossNotice = ({ product, targetProduct }: AddonFeatureLossNoticeProps): JSX.Element | null => {
     const [isExpanded, setIsExpanded] = useState(false)
     const { billing } = useValues(billingLogic)
 
-    const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
-    const addonFeatures = (
-        currentAndUpgradePlans?.upgradePlan?.features ||
-        currentAndUpgradePlans?.currentPlan?.features ||
-        product.features ||
-        []
-    ).filter((f) => !f.entitlement_only)
+    const currentFeatures = product.features.filter((f) => !f.entitlement_only)
+    const targetFeatures = (targetProduct?.features || []).filter((f) => !f.entitlement_only)
 
-    // Current base platform and support plan and features
+    // Fall back to base platform plan features if no target product
     const platformAndSupportProduct = billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT)
     const currentPlatformPlan = platformAndSupportProduct?.plans?.find((plan) => plan.current_plan)
-    // TODO: instead of assuming they are moving to paid, support the move from one addon to another (e.g. from scale to boost)
-    const currentPlanFeatures = currentPlatformPlan?.features?.filter((feature) => !feature.entitlement_only) || []
+    const basePlatformFeatures = currentPlatformPlan?.features?.filter((f) => !f.entitlement_only) || []
 
-    // Difference between addon plan and the plan they are moving to
-    const featuresToLose = addonFeatures.filter(
-        (addonFeature) => !currentPlanFeatures.some((planFeature) => planFeature.key === addonFeature.key)
-    )
+    const featuresToKeep = targetProduct ? [...targetFeatures, ...basePlatformFeatures] : basePlatformFeatures
+    const featuresToLose = currentFeatures.filter((feature) => !featuresToKeep.some((f) => f.key === feature.key))
 
     if (!featuresToLose?.length) {
         return null

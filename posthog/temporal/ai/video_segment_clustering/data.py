@@ -66,6 +66,40 @@ def fetch_video_segment_metadata_rows(team: Team, lookback_hours: int):
 
 
 @sync_to_async
+def fetch_video_segment_metadata_by_document_ids(team: Team, document_ids: list[str]):
+    """Fetch segment metadata (no embeddings) for specific document_ids."""
+    if not document_ids:
+        return []
+    with tags_context(product=Product.SESSION_SUMMARY):
+        result = execute_hogql_query(
+            query_type="VideoSegmentMetadataByDocumentIds",
+            query=parse_select(
+                """
+                SELECT
+                    document_id,
+                    content,
+                    metadata,
+                    timestamp
+                FROM raw_document_embeddings
+                WHERE document_id IN {doc_ids}
+                    AND product = {product}
+                    AND document_type = {document_type}
+                    AND rendering = {rendering}
+                LIMIT {max_segments_returned}"""
+            ),
+            placeholders={
+                "doc_ids": ast.Constant(value=document_ids),
+                "product": ast.Constant(value="session-replay"),
+                "document_type": ast.Constant(value="video-segment"),
+                "rendering": ast.Constant(value="video-analysis"),
+                "max_segments_returned": ast.Constant(value=MAX_SEGMENTS_RETURNED),
+            },
+            team=team,
+        )
+    return result.results or []
+
+
+@sync_to_async
 def fetch_video_segment_embedding_rows(team: Team, document_ids: list[str]):
     """Fetch video segment embeddings from ClickHouse - specific segments, with embedding vectors included."""
     with tags_context(product=Product.SESSION_SUMMARY):

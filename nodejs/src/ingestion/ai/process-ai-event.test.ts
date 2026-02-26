@@ -470,6 +470,8 @@ describe('processAiEvent()', () => {
             // Should not set model_cost_used when bypassing
             expect(result.properties!.$ai_model_cost_used).toBeUndefined()
             expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
+            // Should mark as passthrough so we know costs were not calculated by the pipeline
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
         })
 
         it('calculates total when input/output exist but total is missing', () => {
@@ -592,6 +594,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBe(9)
             expect(result.properties!.$ai_model_cost_used).toBeUndefined()
             expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
         })
 
         it('treats object cost values as unset and falls through to model calculation', () => {

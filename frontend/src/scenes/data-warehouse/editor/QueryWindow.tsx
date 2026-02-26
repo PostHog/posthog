@@ -9,21 +9,23 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
+import { FixErrorButton } from './components/FixErrorButton'
+import { editorSizingLogic } from './editorSizingLogic'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
-import { FixErrorButton } from './components/FixErrorButton'
-import { editorSizingLogic } from './editorSizingLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryWindowProps {
@@ -39,6 +41,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
 
     const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading } = useActions(sqlEditorLogic)
 
+    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
@@ -73,6 +76,30 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
                             data-attr="sql-editor-vim-toggle"
                         />
                     )}
+                    <SceneTitlePanelButton
+                        buttonClassName="size-[26px]"
+                        maxToolProps={{
+                            identifier: 'execute_sql',
+                            context: {
+                                current_query: queryInput,
+                            },
+                            contextDescription: {
+                                text: 'Current query',
+                                icon: iconForType('sql_editor'),
+                            },
+                            callback: (toolOutput: string) => {
+                                setSuggestedQueryInput(toolOutput, 'max_ai')
+                            },
+                            suggestions: [],
+                            onMaxOpen: () => {
+                                reportAIQueryPromptOpen()
+                            },
+                            introOverride: {
+                                headline: 'What data do you want to analyze?',
+                                description: 'Let me help you quickly write SQL, and tweak it.',
+                            },
+                        }}
+                    />
                 </div>
             </div>
 

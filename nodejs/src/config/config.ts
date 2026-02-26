@@ -64,11 +64,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
-        CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_PORT: 8123,
-        CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : isDevEnv() ? 'default' : '',
-        CLICKHOUSE_USERNAME: 'default',
-        CLICKHOUSE_PASSWORD: '',
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
@@ -146,7 +141,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
-        PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
@@ -163,7 +157,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         OTEL_SERVICE_NAME: null,
         OTEL_SERVICE_ENVIRONMENT: null,
         // Internal API authentication
-        INTERNAL_API_SECRET: '',
+        INTERNAL_API_BASE_URL: isProdEnv()
+            ? 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            : 'http://localhost:8000',
+        INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
@@ -260,8 +257,11 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
         CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
         CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
-        CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 0.01,
         CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
+        CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 500,
+        CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 10,
+        CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 50,
+        CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: '',
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
@@ -324,9 +324,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             60,
         COOKIELESS_REDIS_HOST: '',
         COOKIELESS_REDIS_PORT: 6379,
-
-        // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
-        TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: isDevEnv() || isTestEnv() ? 1.0 : 0.0,
 
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
         PERSON_BATCH_WRITING_USE_BATCH_UPDATES: true,

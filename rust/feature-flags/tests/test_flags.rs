@@ -5597,3 +5597,89 @@ async fn test_initial_property_population_respects_db_values(
 
     Ok(())
 }
+
+#[rstest]
+#[case(true)]
+#[case(false)]
+#[tokio::test]
+async fn test_skip_writes_suppresses_billing_redis_counter(
+    #[case] skip_writes: bool,
+) -> Result<()> {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::get_team_request_key;
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.skip_writes = FlexBool(skip_writes);
+
+    let distinct_id = format!("billing_test_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "billable-flag",
+        "name": "Billable Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [],
+                "rollout_percentage": 100
+            }],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    // Clean billing key before request
+    let billing_key = get_team_request_key(team.id, FlagRequestType::Decide);
+    client.del(billing_key.clone()).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Compute the same time bucket used by increment_request_count
+    let time_bucket = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        / 120; // CACHE_BUCKET_SIZE = 60 * 2
+
+    let counter = client.hget(billing_key, time_bucket.to_string()).await;
+
+    if skip_writes {
+        assert!(
+            counter.is_err(),
+            "billing counter should NOT be incremented when skip_writes=true"
+        );
+    } else {
+        assert_eq!(
+            counter.unwrap(),
+            "1",
+            "billing counter should be incremented when skip_writes=false"
+        );
+    }
+
+    Ok(())
+}
