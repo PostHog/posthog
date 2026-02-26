@@ -139,6 +139,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000, // 10 seconds
         EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
+        OUTBOUND_PROXY_URL: '',
+        OUTBOUND_PROXY_ENABLED: false,
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
@@ -157,6 +159,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         OTEL_SERVICE_NAME: null,
         OTEL_SERVICE_ENVIRONMENT: null,
         // Internal API authentication
+        INTERNAL_API_BASE_URL: isProdEnv()
+            ? 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            : 'http://localhost:8000',
         INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',

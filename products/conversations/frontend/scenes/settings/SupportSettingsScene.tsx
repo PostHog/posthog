@@ -15,9 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -127,13 +125,7 @@ function AuthorizedDomains(): JSX.Element {
     )
 }
 
-function SlackSection(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SLACK]) {
-        return null
-    }
-
+function SlackSection(): JSX.Element {
     return (
         <SceneSection
             title="SupportHog Slack bot"

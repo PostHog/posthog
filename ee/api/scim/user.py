@@ -17,6 +17,15 @@ class SCIMUserConflict(Exception):
     """User is already SCIM-provisioned for this organization domain."""
 
 
+def _validate_email_domain_matches(email: str, organization_domain: OrganizationDomain) -> None:
+    """Ensure email domain matches the organization domain. Prevents cross-tenant user adoption."""
+    email_domain = email.split("@")[1].lower()
+    if organization_domain.domain.lower() != email_domain:
+        raise ValueError(
+            f"Email domain '{email_domain}' does not match organization domain '{organization_domain.domain}'"
+        )
+
+
 class PostHogSCIMUser(SCIMUser):
     """
     Adapter to map SCIM User schema to PostHog User model.
@@ -166,12 +175,19 @@ class PostHogSCIMUser(SCIMUser):
                 raise SCIMUserConflict()
 
             if user:
+                is_member = OrganizationMembership.objects.filter(
+                    user=user, organization=organization_domain.organization
+                ).exists()
+                if not is_member:
+                    _validate_email_domain_matches(email, organization_domain)
+
                 if first_name:
                     user.first_name = first_name
                 if last_name:
                     user.last_name = last_name
                 user.save()
             else:
+                _validate_email_domain_matches(email, organization_domain)
                 # Create new user with no password (they'll use SAML)
                 user = User.objects.create_user(
                     email=email, password=None, first_name=first_name, last_name=last_name, is_email_verified=True
@@ -221,6 +237,8 @@ class PostHogSCIMUser(SCIMUser):
             existing_user_with_email = User.objects.filter(email__iexact=email).exclude(id=self.obj.id).first()
             if existing_user_with_email:
                 raise ValueError("Email belongs to another user")
+
+            _validate_email_domain_matches(email, self._organization_domain)
 
             self.obj.first_name = name_data.get("givenName", "")
             self.obj.last_name = name_data.get("familyName", "")
@@ -325,6 +343,7 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
+                    _validate_email_domain_matches(email, self._organization_domain)
                     self.obj.email = email
 
             elif attr_name == "userName" and isinstance(value, str):
@@ -386,6 +405,7 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
+                    _validate_email_domain_matches(email, self._organization_domain)
                     self.obj.email = email
                     self.obj.save()
 

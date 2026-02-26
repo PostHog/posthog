@@ -2262,6 +2262,7 @@ class IntegrationKind(StrEnum):
     AZURE_BLOB = "azure-blob"
     FIREBASE = "firebase"
     JIRA = "jira"
+    PINTEREST_ADS = "pinterest-ads"
 
 
 class IntervalType(StrEnum):
@@ -2374,6 +2375,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     REPORTED_CONVERSION = "Reported Conversion"
     REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
     REPORTED_ROAS = "Reported ROAS"
+    COST_PER_REPORTED_CONVERSION = "Cost per Reported Conversion"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
