@@ -23,6 +23,7 @@ from posthog.schema import (
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
+from posthog.models import PropertyDefinition
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
@@ -529,6 +530,78 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 8)
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
+
+    def test_query_runner_with_whitespace_padded_numeric_exposure_filter_value(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
+        )
+        experiment.stats_config = {"method": "frequentist"}
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="registration_ts",
+            defaults={"property_type": "Numeric"},
+        )
+
+        for variant, count in [("control", 6), ("test", 8)]:
+            for i in range(count):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "registration_ts": "1771606800",
+                    },
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: variant},
+                )
+
+        flush_persons_and_events()
+
+        exposure_config = ExperimentEventExposureConfig(
+            event="$pageview",
+            properties=[
+                EventPropertyFilter(
+                    key="registration_ts", operator=PropertyOperator.GT, value="   1700000000", type="event"
+                ),
+            ],
+        )
+        experiment.exposure_criteria = {
+            "exposure_config": exposure_config.model_dump(mode="json"),
+        }
+        experiment.save()
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=ExperimentMeanMetric(
+                source=EventsNode(event="purchase"),
+            ),
+        )
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        assert result.variant_results is not None
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
+
+        self.assertEqual(control_variant.number_of_samples, 6)
+        self.assertEqual(test_variant.number_of_samples, 8)
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_custom_exposure_without_properties(self):

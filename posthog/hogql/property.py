@@ -218,6 +218,14 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
+def _strip_value(value: ValueT) -> ValueT:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return [v.strip() if isinstance(v, str) else v for v in value]
+    return value
+
+
 def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
     if value is True:
         value = "true"
@@ -413,32 +421,46 @@ def _expr_to_compare_op(
             left=expr,
             right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
-    elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
-        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
-        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.BETWEEN:
-        _validate_between_values(value, operator)
-        assert isinstance(value, list)
-        return ast.And(
-            exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value[1])),
-            ]
-        )
-    elif operator == PropertyOperator.NOT_BETWEEN:
-        _validate_between_values(value, operator)
-        assert isinstance(value, list)
-        return ast.Or(
-            exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
-            ]
-        )
+    elif operator in (
+        PropertyOperator.LT,
+        PropertyOperator.GT,
+        PropertyOperator.LTE,
+        PropertyOperator.GTE,
+        PropertyOperator.IS_DATE_BEFORE,
+        PropertyOperator.IS_DATE_AFTER,
+        PropertyOperator.MIN,
+        PropertyOperator.MAX,
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+    ):
+        value = _strip_value(value)
+
+        if operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
+            return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
+        elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
+            return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
+        elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
+            return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
+        elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
+            return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+        elif operator == PropertyOperator.BETWEEN:
+            _validate_between_values(value, operator)
+            assert isinstance(value, list)
+            return ast.And(
+                exprs=[
+                    ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
+                    ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value[1])),
+                ]
+            )
+        else:  # NOT_BETWEEN
+            _validate_between_values(value, operator)
+            assert isinstance(value, list)
+            return ast.Or(
+                exprs=[
+                    ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
+                    ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
+                ]
+            )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
