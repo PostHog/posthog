@@ -1,7 +1,7 @@
 import './LemonTag.scss'
 
 import clsx from 'clsx'
-import { HTMLProps, forwardRef } from 'react'
+import { HTMLProps } from 'react'
 
 import { IconEllipsis, IconX } from '@posthog/icons'
 
@@ -39,25 +39,23 @@ export interface LemonTagProps {
     closeOnClick?: boolean
 }
 
-export const LemonTag: React.FunctionComponent<
-    LemonTagProps & React.RefAttributes<HTMLDivElement> & Omit<HTMLProps<HTMLDivElement>, keyof LemonTagProps>
-> = forwardRef(function LemonTag(
-    {
-        type = 'default',
-        children,
-        className,
-        size = 'medium',
-        weight,
-        icon,
-        closable,
-        onClose,
-        popover,
-        disabledReason,
-        closeOnClick,
-        ...props
-    },
-    ref
-): JSX.Element {
+export function LemonTag({
+    ref,
+    type = 'default',
+    children,
+    className,
+    size = 'medium',
+    weight,
+    icon,
+    closable,
+    onClose,
+    popover,
+    disabledReason,
+    closeOnClick,
+    ...props
+}: LemonTagProps &
+    React.RefAttributes<HTMLDivElement> &
+    Omit<HTMLProps<HTMLDivElement>, keyof LemonTagProps>): JSX.Element {
     return (
         <div
             ref={ref}
@@ -122,4 +120,4 @@ export const LemonTag: React.FunctionComponent<
             )}
         </div>
     )
-})
+}

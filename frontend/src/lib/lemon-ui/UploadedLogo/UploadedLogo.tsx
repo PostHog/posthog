@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { forwardRef, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonSkeleton } from '../LemonSkeleton'
 import { Lettermark } from '../Lettermark'
@@ -17,12 +17,17 @@ export interface UploadedLogoProps {
     size?: 'xsmall' | 'small' | 'medium' | 'xlarge'
     /** Use the outlined lettermark for signifying projects, to differentiate them from organizations. */
     outlinedLettermark?: boolean
+    ref?: React.RefObject<HTMLDivElement>
 }
 
-export const UploadedLogo = forwardRef<HTMLDivElement, UploadedLogoProps>(function UploadedLogo(
-    { name, mediaId, entityId, size = 'medium', outlinedLettermark },
-    ref
-) {
+export function UploadedLogo({
+    ref,
+    name,
+    mediaId,
+    entityId,
+    size = 'medium',
+    outlinedLettermark,
+}: UploadedLogoProps): JSX.Element {
     const [isLoadingImage, setIsLoadingImage] = useState(true)
 
     if (!mediaId) {
@@ -58,4 +63,4 @@ export const UploadedLogo = forwardRef<HTMLDivElement, UploadedLogoProps>(functi
             />
         </div>
     )
-})
+}

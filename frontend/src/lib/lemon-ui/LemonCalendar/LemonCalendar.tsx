@@ -2,7 +2,7 @@ import './LemonCalendar.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { Ref, forwardRef, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
@@ -31,6 +31,7 @@ export interface LemonCalendarProps {
     granularity?: 'day' | 'hour' | 'minute'
     /** Use 24-hour format instead of 12-hour with AM/PM */
     use24HourFormat?: boolean
+    ref?: React.Ref<HTMLDivElement>
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -46,10 +47,12 @@ export interface GetLemonButtonTimePropsOpts {
 
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 
-export const LemonCalendar = forwardRef(function LemonCalendar(
-    { granularity = 'day', use24HourFormat = false, ...props }: LemonCalendarProps,
-    ref: Ref<HTMLDivElement>
-): JSX.Element {
+export function LemonCalendar({
+    ref,
+    granularity = 'day',
+    use24HourFormat = false,
+    ...props
+}: LemonCalendarProps): JSX.Element {
     const { weekStartDay: teamWeekStartDay } = useValues(teamLogic)
 
     const months = Math.max(props.months ?? 1, 1)
@@ -223,4 +226,4 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
             )}
         </div>
     )
-})
+}

@@ -118,203 +118,197 @@ export type PostHogComDocsURL = `https://${'www.' | ''}posthog.com/docs/${string
  * as well deciding when a given "to" link should be opened as a standard navigation (i.e. a standard href)
  * or whether to be routed internally via kea-router
  */
-export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = React.forwardRef(
-    (
-        {
-            to,
-            target,
-            subtle,
-            disableClientSideRouting,
-            disableDocsPanel = false,
-            preventClick = false,
-            onClick: onClickRaw,
-            onAuxClick,
-            className,
-            children,
-            disabled,
-            disabledReason,
-            targetBlankIcon = typeof children === 'string',
-            buttonProps,
-            tooltip,
-            tooltipDocLink,
-            tooltipPlacement,
-            tooltipCloseDelayMs,
-            role,
-            tabIndex,
-            skipContext,
-            extraContextMenuItems,
-            ...props
-        },
-        ref
-    ) => {
-        const externalLink = isExternalLink(to)
-        const { elementProps: draggableProps } = useNotebookDrag({
-            href: typeof to === 'string' ? to : undefined,
-        })
+export const Link = ({
+    ref,
+    to,
+    target,
+    subtle,
+    disableClientSideRouting,
+    disableDocsPanel = false,
+    preventClick = false,
+    onClick: onClickRaw,
+    onAuxClick,
+    className,
+    children,
+    disabled,
+    disabledReason,
+    targetBlankIcon = typeof children === 'string',
+    buttonProps,
+    tooltip,
+    tooltipDocLink,
+    tooltipPlacement,
+    tooltipCloseDelayMs,
+    role,
+    tabIndex,
+    skipContext,
+    extraContextMenuItems,
+    ...props
+}: LinkProps & React.RefAttributes<HTMLElement>): JSX.Element => {
+    const externalLink = isExternalLink(to)
+    const { elementProps: draggableProps } = useNotebookDrag({
+        href: typeof to === 'string' ? to : undefined,
+    })
 
-        const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
+    const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
 
-        const onClick = (event: React.MouseEvent<HTMLElement>): void => {
-            if (event.metaKey || event.ctrlKey) {
-                event.stopPropagation()
-                return
+    const onClick = (event: React.MouseEvent<HTMLElement>): void => {
+        if (event.metaKey || event.ctrlKey) {
+            event.stopPropagation()
+            return
+        }
+
+        onClickRaw?.(event)
+
+        if (event.isDefaultPrevented()) {
+            event.preventDefault()
+            return
+        }
+
+        const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
+        const mountedFeatureFlagLogic = featureFlagLogic.findMounted()
+        const { featureFlags } = mountedFeatureFlagLogic?.values || {}
+
+        const isRemovingSidePanelFlag = featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
+
+        if (shouldOpenInDocsPanel && mountedSidePanelLogic && !isRemovingSidePanelFlag) {
+            // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
+            const { sidePanelOpen } = mountedSidePanelLogic.values
+            const { openSidePanel } = mountedSidePanelLogic.actions
+
+            event.preventDefault()
+
+            const target = event.currentTarget
+            const container = document.getElementsByTagName('main')[0]
+            const topBar = document.getElementsByClassName('TopBar3000')[0]
+            if (!sidePanelOpen && container.contains(target)) {
+                setTimeout(() => {
+                    // Little delay to allow the rendering of the side panel
+                    const y = container.scrollTop + target.getBoundingClientRect().top - topBar.clientHeight
+                    container.scrollTo({ top: y })
+                }, 50)
             }
 
-            onClickRaw?.(event)
+            openSidePanel(SidePanelTab.Docs, to)
+            return
+        }
 
-            if (event.isDefaultPrevented()) {
-                event.preventDefault()
-                return
-            }
-
-            const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
-            const mountedFeatureFlagLogic = featureFlagLogic.findMounted()
-            const { featureFlags } = mountedFeatureFlagLogic?.values || {}
-
-            const isRemovingSidePanelFlag = featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
-
-            if (shouldOpenInDocsPanel && mountedSidePanelLogic && !isRemovingSidePanelFlag) {
-                // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
-                const { sidePanelOpen } = mountedSidePanelLogic.values
-                const { openSidePanel } = mountedSidePanelLogic.actions
-
-                event.preventDefault()
-
-                const target = event.currentTarget
-                const container = document.getElementsByTagName('main')[0]
-                const topBar = document.getElementsByClassName('TopBar3000')[0]
-                if (!sidePanelOpen && container.contains(target)) {
-                    setTimeout(() => {
-                        // Little delay to allow the rendering of the side panel
-                        const y = container.scrollTop + target.getBoundingClientRect().top - topBar.clientHeight
-                        container.scrollTo({ top: y })
-                    }, 50)
+        if (!target && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
+            event.preventDefault()
+            if (to && to !== '#' && !preventClick) {
+                if (Array.isArray(to)) {
+                    router.actions.push(...to)
+                } else {
+                    router.actions.push(to)
                 }
-
-                openSidePanel(SidePanelTab.Docs, to)
-                return
             }
-
-            if (!target && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
-                event.preventDefault()
-                if (to && to !== '#' && !preventClick) {
-                    if (Array.isArray(to)) {
-                        router.actions.push(...to)
-                    } else {
-                        router.actions.push(to)
-                    }
-                }
-            } else if (target === '_blank' && !externalLink && to && typeof to === 'string') {
-                // For internal links, open in new PostHog tab
-                event.preventDefault()
-                event.stopPropagation()
-                newInternalTab(to)
-            }
+        } else if (target === '_blank' && !externalLink && to && typeof to === 'string') {
+            // For internal links, open in new PostHog tab
+            event.preventDefault()
+            event.stopPropagation()
+            newInternalTab(to)
         }
-
-        const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
-        const href = to
-            ? typeof to === 'string'
-                ? isDirectLink(to) || disableClientSideRouting
-                    ? to
-                    : addProjectIdIfMissing(to)
-                : '#'
-            : undefined
-
-        const resource = href && href.startsWith('/') ? urlToResource(removeProjectIdIfPresent(href)) : null
-
-        const elementClasses = buttonProps
-            ? buttonPrimitiveVariants(buttonProps)
-            : `Link ${subtle ? 'Link--subtle' : ''}`
-
-        let element = (
-            // eslint-disable-next-line react/forbid-elements
-            <a
-                ref={ref as any}
-                className={cn(elementClasses, className)}
-                onClick={onClick}
-                onAuxClick={onAuxClick}
-                href={href}
-                target={target}
-                rel={target === '_blank' ? rel : undefined}
-                role={role}
-                tabIndex={tabIndex}
-                {...props}
-                {...draggableProps}
-                {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
-            >
-                {children}
-                {targetBlankIcon &&
-                    (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
-                        <IconOpenSidebar />
-                    ) : href?.startsWith('mailto:') ? (
-                        <IconSend />
-                    ) : target === '_blank' ? (
-                        <IconExternal className={buttonProps ? 'size-3' : ''} />
-                    ) : null)}
-            </a>
-        )
-
-        // Wrap with tooltip first (before context menu) so trigger props can be applied to the <a> element
-        if ((tooltip && to) || tooltipDocLink) {
-            element = (
-                <Tooltip
-                    title={tooltip}
-                    docLink={tooltipDocLink}
-                    placement={tooltipPlacement}
-                    closeDelayMs={tooltipCloseDelayMs}
-                >
-                    {element}
-                </Tooltip>
-            )
-        }
-
-        if (href && !externalLink && !skipContext) {
-            element = (
-                <ContextMenu key={props.key}>
-                    <ContextMenuTrigger asChild>
-                        {/* Span so we can have both tooltip and context menu, without it the tooltip doesn't work with context menu */}
-                        <span className="contents">{element}</span>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="max-w-[300px]">
-                        <ContextMenuGroup>
-                            <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
-                            {extraContextMenuItems && (
-                                <>
-                                    <MenuSeparator />
-                                    {extraContextMenuItems}
-                                </>
-                            )}
-                        </ContextMenuGroup>
-                    </ContextMenuContent>
-                </ContextMenu>
-            )
-        }
-
-        if (!to) {
-            element = (
-                <Tooltip
-                    title={disabledReason ? <span className="italic">{disabledReason}</span> : tooltip || undefined}
-                    placement={tooltipPlacement}
-                    closeDelayMs={tooltipCloseDelayMs}
-                >
-                    <span>
-                        <button
-                            ref={ref as any}
-                            className={cn(elementClasses, className)}
-                            onClick={onClick}
-                            type="button"
-                            disabled={disabled || !!disabledReason}
-                            {...props}
-                        >
-                            {children}
-                        </button>
-                    </span>
-                </Tooltip>
-            )
-        }
-
-        return element
     }
-)
+
+    const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
+    const href = to
+        ? typeof to === 'string'
+            ? isDirectLink(to) || disableClientSideRouting
+                ? to
+                : addProjectIdIfMissing(to)
+            : '#'
+        : undefined
+
+    const resource = href && href.startsWith('/') ? urlToResource(removeProjectIdIfPresent(href)) : null
+
+    const elementClasses = buttonProps ? buttonPrimitiveVariants(buttonProps) : `Link ${subtle ? 'Link--subtle' : ''}`
+
+    let element = (
+        // eslint-disable-next-line react/forbid-elements
+        <a
+            ref={ref as any}
+            className={cn(elementClasses, className)}
+            onClick={onClick}
+            onAuxClick={onAuxClick}
+            href={href}
+            target={target}
+            rel={target === '_blank' ? rel : undefined}
+            role={role}
+            tabIndex={tabIndex}
+            {...props}
+            {...draggableProps}
+            {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
+        >
+            {children}
+            {targetBlankIcon &&
+                (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
+                    <IconOpenSidebar />
+                ) : href?.startsWith('mailto:') ? (
+                    <IconSend />
+                ) : target === '_blank' ? (
+                    <IconExternal className={buttonProps ? 'size-3' : ''} />
+                ) : null)}
+        </a>
+    )
+
+    // Wrap with tooltip first (before context menu) so trigger props can be applied to the <a> element
+    if ((tooltip && to) || tooltipDocLink) {
+        element = (
+            <Tooltip
+                title={tooltip}
+                docLink={tooltipDocLink}
+                placement={tooltipPlacement}
+                closeDelayMs={tooltipCloseDelayMs}
+            >
+                {element}
+            </Tooltip>
+        )
+    }
+
+    if (href && !externalLink && !skipContext) {
+        element = (
+            <ContextMenu key={props.key}>
+                <ContextMenuTrigger asChild>
+                    {/* Span so we can have both tooltip and context menu, without it the tooltip doesn't work with context menu */}
+                    <span className="contents">{element}</span>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="max-w-[300px]">
+                    <ContextMenuGroup>
+                        <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
+                        {extraContextMenuItems && (
+                            <>
+                                <MenuSeparator />
+                                {extraContextMenuItems}
+                            </>
+                        )}
+                    </ContextMenuGroup>
+                </ContextMenuContent>
+            </ContextMenu>
+        )
+    }
+
+    if (!to) {
+        element = (
+            <Tooltip
+                title={disabledReason ? <span className="italic">{disabledReason}</span> : tooltip || undefined}
+                placement={tooltipPlacement}
+                closeDelayMs={tooltipCloseDelayMs}
+            >
+                <span>
+                    <button
+                        ref={ref as any}
+                        className={cn(elementClasses, className)}
+                        onClick={onClick}
+                        type="button"
+                        disabled={disabled || !!disabledReason}
+                        {...props}
+                    >
+                        {children}
+                    </button>
+                </span>
+            </Tooltip>
+        )
+    }
+
+    return element
+}
 Link.displayName = 'Link'

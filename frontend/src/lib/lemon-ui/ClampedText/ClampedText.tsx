@@ -1,15 +1,16 @@
-import { forwardRef, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Link } from '../Link'
 
 export interface ClampedTextProps {
     lines: number
     text: string
+    ref?: React.RefObject<HTMLDivElement>
 }
 
 const isCssEllipsisApplied = (elem: HTMLDivElement): boolean => elem.scrollHeight > elem.clientHeight
 
-export const ClampedText = forwardRef<HTMLDivElement, ClampedTextProps>(function ClampedText({ lines, text }, ref) {
+export function ClampedText({ ref, lines, text }: ClampedTextProps): JSX.Element {
     const [localLines, setLocalLines] = useState<number | undefined>(lines)
     const [isExpanded, setIsExpanded] = useState<boolean>(false)
     const [showMore, setShowMore] = useState<boolean>(false)
@@ -48,12 +49,15 @@ export const ClampedText = forwardRef<HTMLDivElement, ClampedTextProps>(function
             </div>
         </div>
     )
-})
+}
 
-const TruncatedElement = forwardRef<HTMLDivElement, { lines?: number; text: string }>(function TruncatedElement(
-    { text, lines },
-    ref
-) {
+interface TruncatedElement {
+    text: string
+    lines?: number
+    ref?: React.Ref<HTMLDivElement>
+}
+
+function TruncatedElement({ ref, text, lines }: TruncatedElement): JSX.Element {
     return (
         <span
             // eslint-disable-next-line react/forbid-dom-props
@@ -72,4 +76,4 @@ const TruncatedElement = forwardRef<HTMLDivElement, { lines?: number; text: stri
             {text}
         </span>
     )
-})
+}

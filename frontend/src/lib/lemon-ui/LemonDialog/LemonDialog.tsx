@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { ReactNode, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { ReactNode, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -33,6 +33,7 @@ export type LemonDialogProps = Pick<
     closeOnNavigate?: boolean
     shouldAwaitSubmit?: boolean
     isLoadingCallback?: (isLoading: boolean) => void
+    ref?: React.RefObject<LemonDialogRef>
 }
 
 type LemonDialogRef = {
@@ -44,23 +45,21 @@ type LemonDialogMethods = {
     openForm: (props: LemonFormDialogProps) => void
 }
 
-const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(function LemonDialog(
-    {
-        onAfterClose,
-        onClose,
-        primaryButton,
-        tertiaryButton,
-        secondaryButton,
-        content,
-        initialFormValues,
-        closeOnNavigate = true,
-        shouldAwaitSubmit = false,
-        footer,
-        isLoadingCallback,
-        ...props
-    }: LemonDialogProps,
-    ref
-): JSX.Element {
+const LemonDialogComponent = function LemonDialog({
+    ref,
+    onAfterClose,
+    onClose,
+    primaryButton,
+    tertiaryButton,
+    secondaryButton,
+    content,
+    initialFormValues,
+    closeOnNavigate = true,
+    shouldAwaitSubmit = false,
+    footer,
+    isLoadingCallback,
+    ...props
+}: LemonDialogProps): JSX.Element {
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
     const [isOpen, setIsOpen] = useState(true)
@@ -159,7 +158,7 @@ const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(functi
             {resolvedContent}
         </LemonModal>
     )
-})
+}
 
 export const LemonFormDialog = ({
     initialValues = {},

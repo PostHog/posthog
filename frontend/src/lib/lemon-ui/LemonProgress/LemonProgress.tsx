@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { forwardRef } from 'react'
 
 export type LemonProgressProps = React.HTMLAttributes<HTMLDivElement> & {
     size?: 'medium' | 'large'
@@ -16,45 +15,42 @@ export type LemonProgressProps = React.HTMLAttributes<HTMLDivElement> & {
     className?: string
 }
 
-export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.RefAttributes<HTMLDivElement>> =
-    forwardRef(function LemonProgress(
-        {
-            size = 'medium',
-            percent,
-            smoothing = true,
-            bgColor = 'var(--color-bg-primary)',
-            strokeColor = 'var(--brand-blue)',
-            children,
-            className,
-            ...rest
-        },
-        ref
-    ): JSX.Element {
-        const width = isNaN(percent) ? 0 : Math.max(Math.min(percent, 100), 0)
+export function LemonProgress({
+    ref,
+    size = 'medium',
+    percent,
+    smoothing = true,
+    bgColor = 'var(--color-bg-primary)',
+    strokeColor = 'var(--brand-blue)',
+    children,
+    className,
+    ...rest
+}: LemonProgressProps & React.RefAttributes<HTMLDivElement>): JSX.Element {
+    const width = isNaN(percent) ? 0 : Math.max(Math.min(percent, 100), 0)
 
-        return (
-            <div
-                ref={ref}
-                {...rest}
+    return (
+        <div
+            ref={ref}
+            {...rest}
+            className={clsx(
+                'LemonProgress rounded-full w-full inline-block',
+                size === 'large' ? 'h-5' : 'h-1.5',
+                className
+            )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ backgroundColor: bgColor }}
+        >
+            <span
                 className={clsx(
-                    'LemonProgress rounded-full w-full inline-block',
-                    size === 'large' ? 'h-5' : 'h-1.5',
-                    className
+                    'LemonProgress__track block h-full rounded-full',
+                    width > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-1.5') : null,
+                    smoothing && 'transition-all'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ backgroundColor: bgColor }}
+                style={{ width: `${width}%`, backgroundColor: strokeColor }}
             >
-                <span
-                    className={clsx(
-                        'LemonProgress__track block h-full rounded-full',
-                        width > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-1.5') : null,
-                        smoothing && 'transition-all'
-                    )}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: `${width}%`, backgroundColor: strokeColor }}
-                >
-                    {children}
-                </span>
-            </div>
-        )
-    })
+                {children}
+            </span>
+        </div>
+    )
+}

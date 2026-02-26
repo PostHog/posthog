@@ -36,32 +36,31 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements> extend
 
 export interface LemonRowProps<T extends keyof JSX.IntrinsicElements = 'div'> extends LemonRowPropsBase<T> {
     sideIcon?: React.ReactElement | false | null
+    ref?: React.RefObject<HTMLElement>
 }
 
 /** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a standard row of content.
  *
  * Do NOT use for general layout if you simply need flexbox though. In that case `<div className="flex">` is much lighter.
  */
-export const LemonRow = React.forwardRef(function LemonRowInternal<T extends keyof JSX.IntrinsicElements = 'div'>(
-    {
-        children,
-        icon,
-        className,
-        tag,
-        status = 'default',
-        extendedContent,
-        tooltip,
-        sideIcon,
-        size = 'medium',
-        loading = false,
-        fullWidth = false,
-        center = false,
-        outlined = false,
-        disabled = false,
-        ...props
-    }: LemonRowProps<T>,
-    ref: React.Ref<HTMLElement>
-): JSX.Element {
+export function LemonRowInternal<T extends keyof JSX.IntrinsicElements = 'div'>({
+    ref,
+    children,
+    icon,
+    className,
+    tag,
+    status = 'default',
+    extendedContent,
+    tooltip,
+    sideIcon,
+    size = 'medium',
+    loading = false,
+    fullWidth = false,
+    center = false,
+    outlined = false,
+    disabled = false,
+    ...props
+}: LemonRowProps<T>): JSX.Element {
     const symbolic = children === null || children === undefined || children === false
     if (loading) {
         icon = <Spinner />
@@ -96,4 +95,4 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
         </>
     )
     return tooltip ? <Tooltip title={tooltip}>{element}</Tooltip> : element
-})
+}

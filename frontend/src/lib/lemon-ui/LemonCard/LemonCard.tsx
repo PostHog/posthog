@@ -1,7 +1,5 @@
 import './LemonCard.scss'
 
-import { forwardRef } from 'react'
-
 import { IconX } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
@@ -17,12 +15,20 @@ export interface LemonCardProps {
     'data-attr'?: string
     closeable?: boolean
     onClose?: () => void
+    ref?: React.RefObject<HTMLDivElement>
 }
 
-export const LemonCard = forwardRef<HTMLDivElement, LemonCardProps>(function LemonCard(
-    { hoverEffect = true, className, children, onClick, focused, closeable, onClose, ...props },
-    ref
-): JSX.Element {
+export function LemonCard({
+    ref,
+    hoverEffect = true,
+    className,
+    children,
+    onClick,
+    focused,
+    closeable,
+    onClose,
+    ...props
+}: LemonCardProps): JSX.Element {
     return (
         <div
             ref={ref}
@@ -55,4 +61,4 @@ export const LemonCard = forwardRef<HTMLDivElement, LemonCardProps>(function Lem
             {children}
         </div>
     )
-})
+}

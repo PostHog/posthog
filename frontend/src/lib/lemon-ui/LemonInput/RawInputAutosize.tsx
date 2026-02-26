@@ -1,15 +1,13 @@
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
-import { forwardRef, HTMLProps, useLayoutEffect, useRef, useState } from 'react'
+import { HTMLProps, useLayoutEffect, useRef, useState } from 'react'
 
 interface RawInputAutosizeProps extends HTMLProps<HTMLInputElement> {
     wrapperClassName?: string
+    ref?: React.RefObject<HTMLInputElement>
 }
 
-export const RawInputAutosize = forwardRef<HTMLInputElement, RawInputAutosizeProps>(function RawInputAutosize(
-    { wrapperClassName, ...inputProps },
-    ref
-) {
+export function RawInputAutosize({ ref, wrapperClassName, ...inputProps }: RawInputAutosizeProps): JSX.Element {
     const [inputWidth, setInputWidth] = useState<number | string>(1)
     const [inputStyles, setInputStyles] = useState<CSSStyleDeclaration>()
     const sizerRef = useRef<HTMLDivElement>(null)
@@ -73,7 +71,7 @@ export const RawInputAutosize = forwardRef<HTMLInputElement, RawInputAutosizePro
             </div>
         </div>
     )
-})
+}
 
 function copyStyles(styles: CSSStyleDeclaration, node: HTMLDivElement): void {
     node.style.fontSize = styles.fontSize

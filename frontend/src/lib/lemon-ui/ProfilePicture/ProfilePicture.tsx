@@ -3,7 +3,7 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
@@ -27,12 +27,20 @@ export interface ProfilePictureProps {
     title?: string
     index?: number
     type?: 'person' | 'bot' | 'system'
+    ref?: React.RefObject<HTMLSpanElement>
 }
 
-export const ProfilePicture = forwardRef<HTMLSpanElement, ProfilePictureProps>(function ProfilePicture(
-    { user, name, size = 'lg', showName, className, index, title, type = 'person' },
-    ref
-) {
+export function ProfilePicture({
+    ref,
+    user,
+    name,
+    size = 'lg',
+    showName,
+    className,
+    index,
+    title,
+    type = 'person',
+}: ProfilePictureProps): JSX.Element {
     const { user: currentUser } = useValues(userLogic)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
     const imgRef = useRef<HTMLImageElement>(null)
@@ -125,4 +133,4 @@ export const ProfilePicture = forwardRef<HTMLSpanElement, ProfilePictureProps>(f
             </span>
         </div>
     )
-})
+}
