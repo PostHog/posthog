@@ -791,6 +791,15 @@ describe('experimentLogic', () => {
                 expected: { key: 'ended_but_multiple_variants_rolled_out' },
             },
             {
+                desc: 'ended experiment with flag active but zero group rollout',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: '2020-02-01',
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                },
+                expected: null,
+            },
+            {
                 desc: 'ended experiment with flag disabled',
                 overrides: {
                     start_date: '2020-01-01',
@@ -826,6 +835,15 @@ describe('experimentLogic', () => {
                     feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
                 },
                 expected: { key: 'not_started_but_multiple_variants_rolled_out' },
+            },
+            {
+                desc: 'draft experiment with flag active but zero group rollout',
+                overrides: {
+                    start_date: undefined,
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                },
+                expected: null,
             },
             {
                 desc: 'draft experiment with flag disabled',

@@ -2607,12 +2607,17 @@ export const experimentLogic = kea<experimentLogicType>([
                         return { key: 'running_but_no_rollout' }
                     }
                 } else if (hasEnded(experiment)) {
-                    if (isFlagActive && hasMultipleVariantsActive(filters) && !singleVariantShipped) {
+                    if (
+                        isFlagActive &&
+                        hasMultipleVariantsActive(filters) &&
+                        !hasZeroRollout(filters) &&
+                        !singleVariantShipped
+                    ) {
                         return { key: 'ended_but_multiple_variants_rolled_out' }
                     }
                 } else if (isExperimentDraft) {
                     // The draft state is also reached again when resetting experiment measurements
-                    if (isFlagActive && hasMultipleVariantsActive(filters)) {
+                    if (isFlagActive && hasMultipleVariantsActive(filters) && !hasZeroRollout(filters)) {
                         return { key: 'not_started_but_multiple_variants_rolled_out' }
                     }
                 }
