@@ -49,10 +49,7 @@ impl GlobalRateLimiter {
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
-        let redis_prefix = format!(
-            "@posthog/capture/global_rate_limiter/{}",
-            config.capture_mode.as_tag()
-        );
+        let redis_prefix = format!("@posthog/capture/grl/{}", config.capture_mode.as_tag());
 
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: config.global_rate_limit_threshold,
@@ -60,6 +57,7 @@ impl GlobalRateLimiter {
             bucket_interval: Duration::from_secs(config.global_rate_limit_bucket_interval_secs),
             redis_key_prefix: redis_prefix,
             custom_keys: Self::format_custom_keys(config.global_rate_limit_overrides_csv.as_ref()),
+            local_cache_max_entries: config.global_rate_limit_local_cache_max_entries,
             ..Default::default()
         };
 
