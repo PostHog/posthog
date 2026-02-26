@@ -155,6 +155,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 "name_length": 8,
                 "deleted": False,
             },
+            team=ANY,
             request=ANY,
         )
 
@@ -198,6 +199,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 "deleted": False,
                 "updated_by_creator": True,
             },
+            team=ANY,
             request=ANY,
         )
 

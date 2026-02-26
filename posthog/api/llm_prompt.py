@@ -172,7 +172,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
                 "prompt_id": str(instance.id),
                 "prompt_name": instance.name,
             },
-            self.team,
+            team=self.team,
             request=self.request,
         )
 
@@ -189,7 +189,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
                     "prompt_id": str(instance.id),
                     "prompt_name": instance.name,
                 },
-                self.team,
+                team=self.team,
                 request=self.request,
             )
         else:
@@ -204,7 +204,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
                         "prompt_name": instance.name,
                         "changed_fields": changed_fields,
                     },
-                    self.team,
+                    team=self.team,
                     request=self.request,
                 )
 

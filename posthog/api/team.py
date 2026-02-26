@@ -1266,6 +1266,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                         cast(User, request.user),
                         "default evaluation tag added",
                         {"team_id": team.id, "tag_name": tag_name},
+                        team=team,
                         request=request,
                     )
 
@@ -1289,6 +1290,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                             cast(User, request.user),
                             "default evaluation tag removed",
                             {"team_id": team.id, "tag_name": tag_name},
+                            team=team,
                             request=request,
                         )
 

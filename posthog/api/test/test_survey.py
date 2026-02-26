@@ -2408,7 +2408,7 @@ class TestSurvey(APIBaseTest):
                 "start_date": start_date,
                 "end_date": None,
             },
-            self.team,
+            team=self.team,
             request=ANY,
         )
         mock_report_user_action.reset_mock()
@@ -2428,7 +2428,7 @@ class TestSurvey(APIBaseTest):
                 "start_date": start_date,
                 "end_date": end_date,
             },
-            self.team,
+            team=self.team,
             request=ANY,
         )
         mock_report_user_action.reset_mock()
@@ -2448,7 +2448,7 @@ class TestSurvey(APIBaseTest):
                 "start_date": start_date,
                 "end_date": None,
             },
-            self.team,
+            team=self.team,
             request=ANY,
         )
 

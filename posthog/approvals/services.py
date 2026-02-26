@@ -115,6 +115,7 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
                     "action_key": change_request.action_key,
                     "change_request_id": str(change_request.id),
                 },
+                team=change_request.team,
                 request=request,
             )
 
@@ -211,6 +212,7 @@ class ChangeRequestService:
                     "action_key": change_request.action_key,
                     "decision": ApprovalDecision.APPROVED,
                 },
+                team=change_request.team,
                 request=self._request,
             )
 
@@ -307,6 +309,7 @@ class ChangeRequestService:
                     "action_key": change_request.action_key,
                     "decision": ApprovalDecision.REJECTED,
                 },
+                team=change_request.team,
                 request=self._request,
             )
 
@@ -351,6 +354,7 @@ class ChangeRequestService:
                     "action_key": change_request.action_key,
                     "reason": reason,
                 },
+                team=change_request.team,
                 request=self._request,
             )
 

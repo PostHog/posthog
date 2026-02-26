@@ -87,6 +87,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "pinned_at": None,
                 "creation_context": None,
             },
+            team=ANY,
             request=ANY,
         )
 
@@ -228,6 +229,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "pinned": True,
                 "pinned_at": "2021-12-12T00:00:00+00:00",
             },
+            team=ANY,
             request=ANY,
         )
 

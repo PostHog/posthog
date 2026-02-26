@@ -1162,7 +1162,9 @@ class FeatureFlagSerializer(
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
-        report_user_action(request.user, "feature flag created", analytics_metadata, request=request)
+        report_user_action(
+            request.user, "feature flag created", analytics_metadata, team=instance.team, request=request
+        )
 
         return instance
 
@@ -1329,6 +1331,7 @@ class FeatureFlagSerializer(
             request.user,
             "feature flag updated",
             instance.get_analytics_metadata(),
+            team=instance.team,
             request=request,
         )
 

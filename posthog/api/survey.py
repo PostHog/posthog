@@ -898,7 +898,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 user,
                 "survey launched",
                 properties,
-                team,
+                team=team,
                 request=self.context["request"],
             )
         elif before_update.end_date is None and instance.end_date is not None:
@@ -906,7 +906,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 user,
                 "survey stopped",
                 properties,
-                team,
+                team=team,
                 request=self.context["request"],
             )
         elif before_update.start_date is not None and before_update.end_date is not None and instance.end_date is None:
@@ -914,7 +914,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 user,
                 "survey resumed",
                 properties,
-                team,
+                team=team,
                 request=self.context["request"],
             )
 
