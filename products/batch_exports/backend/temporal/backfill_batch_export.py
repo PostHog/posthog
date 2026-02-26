@@ -408,8 +408,6 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
         #   Then take min() of results, excluding any 1970 dates (no data indicator).
         logger.info(
             "Backfill info not yet implemented for model, skipping estimation",
-            team_id=inputs.team_id,
-            batch_export_id=inputs.batch_export_id,
             model=model,
         )
         return GetBackfillInfoOutputs(
