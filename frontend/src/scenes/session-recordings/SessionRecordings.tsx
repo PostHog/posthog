@@ -77,7 +77,7 @@ function Header(): JSX.Element {
                     <ScenePanel>
                         <ScenePanelActionsSection>
                             <Link
-                                to={urls.replaySettings()}
+                                to={urls.replayFilePlayback()}
                                 buttonProps={{
                                     menuItem: true,
                                 }}
