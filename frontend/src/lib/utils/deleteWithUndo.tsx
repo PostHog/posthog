@@ -54,7 +54,6 @@ export async function deleteInsightWithUndo({
     object: QueryBasedInsightModel
     idField?: keyof QueryBasedInsightModel
     callback?: (undo: boolean, object: QueryBasedInsightModel) => void
-    onError?: () => void
 }): Promise<void> {
     try {
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
@@ -85,7 +84,7 @@ export async function deleteInsightWithUndo({
             }
         )
     } catch (error: any) {
-        props.onError?.()
+        // Show error toast with the error message from the API
         const errorMessage = error.detail || error.message || 'Failed to delete'
         lemonToast.error(errorMessage)
     }
