@@ -2578,7 +2578,8 @@
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
-         "posthog_survey"."form_content"
+         "posthog_survey"."form_content",
+         "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -2621,7 +2622,8 @@
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
-         "posthog_survey"."form_content"
+         "posthog_survey"."form_content",
+         "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -2895,7 +2897,8 @@
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
-         "posthog_survey"."form_content"
+         "posthog_survey"."form_content",
+         "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."linked_flag_id" = 99999
   '''

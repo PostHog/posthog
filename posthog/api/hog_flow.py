@@ -286,6 +286,24 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         )
         data["billable_action_types"] = billable_action_types
 
+        conversion = data.get("conversion")
+        if conversion is not None:
+            filters = conversion.get("filters")
+            if filters:
+                serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
+                if self.context.get("is_draft"):
+                    if serializer.is_valid():
+                        compiled_filters = serializer.validated_data
+                        data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                        data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    compiled_filters = serializer.validated_data
+                    data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                    data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
+            if "bytecode" not in data["conversion"]:
+                data["conversion"]["bytecode"] = []
+
         return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:

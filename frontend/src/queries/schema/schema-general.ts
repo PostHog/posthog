@@ -4683,6 +4683,7 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedConversion = 'Reported Conversion',
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
+    CostPerReportedConversion = 'Cost per Reported Conversion',
 }
 
 export enum MarketingAnalyticsConstants {

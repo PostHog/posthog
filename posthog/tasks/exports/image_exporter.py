@@ -72,6 +72,9 @@ def get_driver() -> webdriver.Chrome:
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
 
+    if settings.OUTBOUND_PROXY_ENABLED and settings.OUTBOUND_PROXY_URL:
+        options.add_argument(f"--proxy-server={settings.OUTBOUND_PROXY_URL}")
+
     # Create a unique prefix for the temporary directory
     pid = os.getpid()
     timestamp = int(time.time() * 1000)
