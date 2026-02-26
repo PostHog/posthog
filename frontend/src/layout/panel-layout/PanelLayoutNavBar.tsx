@@ -484,7 +484,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
                                     tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
                                     tooltipPlacement="right"
-                                    data-attr="navbar-settings-button"
+                                    data-attr="navbar-settings"
                                 >
                                     <IconGear />
                                     {!isLayoutNavCollapsed && 'Settings'}
