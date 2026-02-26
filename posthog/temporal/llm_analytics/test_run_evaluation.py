@@ -173,6 +173,7 @@ class TestRunEvaluationWorkflow:
                 call_kwargs = mock_create.call_args[1]
                 assert call_kwargs["event"] == "$ai_evaluation"
                 assert call_kwargs["properties"]["$ai_evaluation_result"] is True
+                assert call_kwargs["properties"]["$ai_evaluation_type"] == "online"
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""

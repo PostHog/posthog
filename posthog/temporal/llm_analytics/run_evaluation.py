@@ -545,6 +545,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             ).get("$ai_trace_id"),
             "$ai_evaluation_key_type": "byok" if result.get("is_byok") else "posthog",
             "$ai_evaluation_key_id": result.get("key_id"),
+            "$ai_evaluation_type": "online",
         }
 
         # Handle result based on allows_na config
