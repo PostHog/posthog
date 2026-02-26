@@ -78,3 +78,21 @@
         opacity: 0;
     }
 }
+
+@utility animate-fade-in-subtle {
+    animation: var(--animate-fade-in-subtle);
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+        opacity: 0.3;
+    }
+}
+
+@utility animate-fade-out-subtle {
+    animation: var(--animate-fade-out-subtle);
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+        opacity: 0;
+    }
+}
