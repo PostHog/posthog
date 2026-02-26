@@ -78,7 +78,7 @@ export function isConnectionLevelError(error: any): boolean {
     )
 }
 
-export const CONNECTION_RETRY_LIMIT = 2
+export const CONNECTION_RETRY_LIMIT = 1
 
 export async function cdpTrackedFetch({
     url,
