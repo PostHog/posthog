@@ -13,6 +13,7 @@ packages:
     - docs/onboarding
     - services/oauth-proxy
     - services/mcp
+    - services/survey-worker
     - rust/cyclotron-node
 
 catalog:

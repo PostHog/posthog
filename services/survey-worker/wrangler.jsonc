@@ -1,0 +1,25 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "cf-survey-worker",
+    "main": "src/index.ts",
+    "compatibility_date": "2025-03-10",
+    "compatibility_flags": ["nodejs_compat"],
+    "observability": {
+        "enabled": true,
+        "logs": {
+            "enabled": true,
+            "head_sampling_rate": 1.0,
+            "persist": true
+        }
+    },
+    "env": {
+        "us": {
+            "name": "cf-survey-worker-us",
+            "vars": { "POSTHOG_REGION": "us" }
+        },
+        "eu": {
+            "name": "cf-survey-worker-eu",
+            "vars": { "POSTHOG_REGION": "eu" }
+        }
+    }
+}

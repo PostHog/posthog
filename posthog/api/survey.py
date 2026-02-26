@@ -62,6 +62,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from products.surveys.backend.models import SurveyDomain
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 
 from ee.surveys.summaries.headline_summary import generate_survey_headline
@@ -2245,6 +2246,16 @@ def surveys(request: Request):
     return cors_response(request, JsonResponse(response))
 
 
+def _resolve_survey_domain(domain: str) -> SurveyDomain | None:
+    try:
+        return SurveyDomain.objects.select_related("proxy_record").get(
+            domain=domain,
+            proxy_record__status="valid",
+        )
+    except SurveyDomain.DoesNotExist:
+        return None
+
+
 @csrf_exempt
 @axes_dispatch
 def public_survey_page(request, survey_id: str):
@@ -2295,6 +2306,21 @@ def public_survey_page(request, survey_id: str):
             },
             status=503,
         )
+
+    # verify ownership when from cf worker proxy requests
+    domain = request.GET.get("domain")
+    if domain:
+        survey_domain = _resolve_survey_domain(domain)
+        if survey_domain is None or survey_domain.team_id != survey.team_id:
+            return render(
+                request,
+                "surveys/error.html",
+                {
+                    "error_title": "Survey not available",
+                    "error_message": "The requested survey is not available.",
+                },
+                status=404,
+            )
 
     survey_is_running = (
         survey.start_date is not None and survey.start_date <= datetime.now(UTC) and survey.end_date is None

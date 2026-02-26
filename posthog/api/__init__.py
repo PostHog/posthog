@@ -76,6 +76,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
+from products.surveys.backend.api.survey_domain import SurveyDomainViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
@@ -281,6 +282,7 @@ projects_router.register(
 )
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
+projects_router.register(r"survey_domain", SurveyDomainViewSet, "project_survey_domain", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
