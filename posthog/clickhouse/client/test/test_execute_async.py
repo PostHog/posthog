@@ -487,10 +487,6 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_stale_mapping_from_completed_task_does_not_block_reenqueue(
         self, _name, task_errored, execute_process_query_mock
     ):
-        """
-        A cache_key mapping left over from a completed task (whether it failed or succeeded
-        without cleaning up its mapping) must not prevent a fresh task from being enqueued.
-        """
         query = build_query("SELECT 1")
         cache_key = "stale_mapping_cache_key"
         old_query_id = "old_completed_query_id"
@@ -508,17 +504,13 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         # A new task was enqueued — not the old completed one returned
         execute_process_query_mock.assert_called_once()
-        self.assertNotEqual(new_status.id, old_query_id)
-        self.assertFalse(new_status.complete)
+        assert new_status.id != old_query_id
+        assert not new_status.complete
         # The new task registered its own mapping, replacing the stale one
-        self.assertEqual(old_manager.get_running_query_by_cache_key(cache_key), new_status.id)
+        assert old_manager.get_running_query_by_cache_key(cache_key) == new_status.id
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_in_progress_mapping_still_deduplicates(self, execute_process_query_mock):
-        """
-        A cache_key mapping from a task that has NOT yet completed must still prevent
-        a duplicate task from being enqueued.
-        """
         query = build_query("SELECT 1")
         cache_key = "in_progress_cache_key"
         in_progress_query_id = "in_progress_query_id"
@@ -535,4 +527,25 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         # No new task should be enqueued
         execute_process_query_mock.assert_not_called()
-        self.assertEqual(second_status.id, in_progress_query_id)
+        assert second_status.id == in_progress_query_id
+
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_expired_query_status_with_stale_mapping_cleans_up_and_reenqueues(self, execute_process_query_mock):
+        query = build_query("SELECT 1")
+        cache_key = "expired_status_cache_key"
+        expired_query_id = "expired_query_id"
+
+        # Register a mapping for a query whose status has already expired in Redis (no store_query_status call)
+        expired_manager = QueryStatusManager(expired_query_id, self.team.id)
+        expired_manager.register_cache_key_mapping(cache_key)
+
+        new_status = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, _test_only_bypass_celery=True
+        )
+
+        # A new task was enqueued
+        execute_process_query_mock.assert_called_once()
+        assert new_status.id != expired_query_id
+        assert not new_status.complete
+        # Stale mapping was replaced with the new query's mapping
+        assert expired_manager.get_running_query_by_cache_key(cache_key) == new_status.id

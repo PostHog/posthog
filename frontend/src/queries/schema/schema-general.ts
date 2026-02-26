@@ -5608,7 +5608,7 @@ export enum PropertyType {
 }
 
 export interface PropertyValueItem {
-    name: any
+    name: string | number | boolean | null
     count?: integer
 }
 

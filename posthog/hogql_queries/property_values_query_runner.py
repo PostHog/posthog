@@ -38,6 +38,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def to_query(self) -> ast.SelectQuery:
         if self.query.property_type == PropertyType.EVENT:
             return self._event_query()
+        # Person queries use raw SQL for speed (4s vs 30s) — move here when HogQL persons table gets faster
         raise NotImplementedError("Person property values use raw SQL via _calculate_person()")
 
     def _calculate(self) -> PropertyValuesQueryResponse:
@@ -89,7 +90,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         chain: list[str | int] = [key] if self.query.is_column else ["properties", key]
 
         date_from = relative_date_parse("-7d", self.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-        date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+        date_to = timezone.now().astimezone(self.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
 
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
@@ -121,11 +122,12 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
 
         if self.query.search_value:
+            escaped = self.query.search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
                     left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{self.query.search_value}%"),
+                    right=ast.Constant(value=f"%{escaped}%"),
                 )
             )
 

@@ -23238,7 +23238,9 @@
                 "count": {
                     "$ref": "#/definitions/integer"
                 },
-                "name": {}
+                "name": {
+                    "type": ["string", "number", "boolean", "null"]
+                }
             },
             "required": ["name"],
             "type": "object"

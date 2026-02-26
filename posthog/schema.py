@@ -5830,7 +5830,7 @@ class PropertyValueItem(BaseModel):
         extra="forbid",
     )
     count: int | None = None
-    name: Any
+    name: str | float | bool | None = None
 
 
 class QueryResponseAlternative9(BaseModel):

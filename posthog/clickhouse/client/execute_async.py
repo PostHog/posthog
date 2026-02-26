@@ -310,6 +310,10 @@ def enqueue_process_query_task(
                     return query_status
                 # The previous task finished (or failed) — clean up the stale mapping and enqueue a new one
                 manager.unregister_cache_key_mapping(cache_key)
+    except QueryNotFoundError:
+        # The status for the mapped query_id expired before we could check it — clean up and re-enqueue
+        if cache_key:
+            manager.unregister_cache_key_mapping(cache_key)
     except Exception as e:
         capture_exception(e, {"cache_key": cache_key})
 
