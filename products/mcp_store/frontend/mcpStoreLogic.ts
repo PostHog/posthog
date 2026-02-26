@@ -45,7 +45,7 @@ const CUSTOM_SERVER_FORM_DEFAULTS: CustomServerFormValues = {
     name: '',
     url: '',
     description: '',
-    auth_type: 'api_key',
+    auth_type: 'oauth',
     api_key: '',
 }
 
