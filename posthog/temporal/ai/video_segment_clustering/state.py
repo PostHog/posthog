@@ -77,7 +77,13 @@ async def load_fetch_result(
     data = json.loads(gzip.decompress(raw).decode("utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"Object storage key {key} contains invalid data type: {type(data)}")
-    if "segments" not in data or "distinct_ids" not in data:
-        raise ValueError(f"Object storage key {key} missing required keys")
-    segments = [VideoSegmentMetadata(**s) for s in data["segments"]]
+    if "segments" in data:
+        segments = [VideoSegmentMetadata(**s) for s in data["segments"]]
+    elif "document_ids" in data:
+        # Handle old format - log warning and handle gracefully
+        raise ValueError(f"Old storage format detected for key {key}. Please re-run workflow.")
+    else:
+        raise ValueError(f"Object storage key {key} missing required segments")
+    if "distinct_ids" not in data:
+        raise ValueError(f"Object storage key {key} missing required distinct_ids")
     return segments, data["distinct_ids"]
