@@ -852,7 +852,8 @@ class DashboardsViewSet(
             "- If nothing significant changed, say so.\n"
             "- Group related findings.\n"
             "- Use concise bullet points.\n"
-            "- Be direct and quantify changes when possible (e.g., '+15%', 'dropped by 30%').\n\n"
+            "- Be direct and quantify changes when possible (e.g., '+15%', 'dropped by 30%').\n"
+            "- Do NOT use markdown formatting (no bold, italics, etc). Use plain text.\n\n"
             f"Changes:\n{json.dumps(changes, default=str)}"
         )
 

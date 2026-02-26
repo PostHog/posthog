@@ -22,13 +22,11 @@ export const LastRefreshText = (): JSX.Element => {
     const { effectiveLastRefresh } = useValues(dashboardLogic)
     return (
         <div className="flex items-center gap-1">
-            {effectiveLastRefresh && dayjs().diff(dayjs(effectiveLastRefresh), 'hour') < 24 ? (
+            {effectiveLastRefresh && dayjs().diff(dayjs(effectiveLastRefresh), 'hour') < 24 && (
                 <div className="flex items-center gap-1">
                     <span>Last refreshed</span>
                     <TZLabel time={effectiveLastRefresh} />
                 </div>
-            ) : (
-                'Refresh'
             )}
         </div>
     )
