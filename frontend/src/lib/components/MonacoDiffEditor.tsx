@@ -1,6 +1,6 @@
 // adapted from https://github.com/react-monaco-editor/react-monaco-editor/blob/d2fd2521e0557c880dec93acaab9a087f025426c/src/diff.tsx
 import * as monaco from 'monaco-editor'
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -17,6 +17,7 @@ interface MonacoDiffEditorProps {
     className?: string | null
     originalUri?: (m: typeof monaco) => monaco.Uri
     modifiedUri?: (m: typeof monaco) => monaco.Uri
+    ref?: React.RefObject<{ editor: monaco.editor.IStandaloneDiffEditor | null }>
 }
 
 const LINE_HEIGHT = 18
@@ -28,23 +29,21 @@ function processSize(size: number | string): string {
     return !/^\d+$/.test(size as string) ? (size as string) : `${size}px`
 }
 
-function MonacoDiffEditor(
-    {
-        width = '100%',
-        height = '100%',
-        value = '',
-        original = '',
-        modified = '',
-        language = 'javascript',
-        theme = null,
-        options = {},
-        onChange = () => {},
-        className = null,
-        originalUri,
-        modifiedUri,
-    }: MonacoDiffEditorProps,
-    ref: React.ForwardedRef<{ editor: monaco.editor.IStandaloneDiffEditor | null }>
-): JSX.Element {
+export default function MonacoDiffEditor({
+    ref,
+    width = '100%',
+    height = '100%',
+    value = '',
+    original = '',
+    modified = '',
+    language = 'javascript',
+    theme = null,
+    options = {},
+    onChange = () => {},
+    className = null,
+    originalUri,
+    modifiedUri,
+}: MonacoDiffEditorProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
     const subscriptionRef = useRef<monaco.IDisposable | null>(null)
@@ -196,5 +195,3 @@ function MonacoDiffEditor(
         />
     )
 }
-
-export default forwardRef(MonacoDiffEditor)

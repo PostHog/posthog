@@ -98,48 +98,47 @@ export interface InsightCardProps extends Resizeable {
     tile?: DashboardTile<QueryBasedInsightModel>
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
+    ref?: React.Ref<HTMLDivElement>
 }
 
-function InsightCardInternal(
-    {
-        tile,
-        insight,
-        dashboardId,
-        ribbonColor,
-        loadingQueued,
-        loading,
-        apiError,
-        apiErrored,
-        timedOut,
-        highlighted,
-        showResizeHandles,
-        canResizeWidth,
-        showEditingControls,
-        showDetailsControls,
-        updateColor,
-        removeFromDashboard,
-        deleteWithUndo,
-        refresh,
-        refreshEnabled,
-        rename,
-        duplicate,
-        setOverride,
-        moveToDashboard,
-        className,
-        moreButtons,
-        placement,
-        loadPriority,
-        doNotLoad,
-        filtersOverride,
-        variablesOverride,
-        children,
-        breakdownColorOverride: _breakdownColorOverride,
-        dataColorThemeId: _dataColorThemeId,
-        surveyOpportunity,
-        ...divProps
-    }: InsightCardProps,
-    ref: React.Ref<HTMLDivElement>
-): JSX.Element | null {
+export function InsightCard({
+    ref,
+    tile,
+    insight,
+    dashboardId,
+    ribbonColor,
+    loadingQueued,
+    loading,
+    apiError,
+    apiErrored,
+    timedOut,
+    highlighted,
+    showResizeHandles,
+    canResizeWidth,
+    showEditingControls,
+    showDetailsControls,
+    updateColor,
+    removeFromDashboard,
+    deleteWithUndo,
+    refresh,
+    refreshEnabled,
+    rename,
+    duplicate,
+    setOverride,
+    moveToDashboard,
+    className,
+    moreButtons,
+    placement,
+    loadPriority,
+    doNotLoad,
+    filtersOverride,
+    variablesOverride,
+    children,
+    breakdownColorOverride: _breakdownColorOverride,
+    dataColorThemeId: _dataColorThemeId,
+    surveyOpportunity,
+    ...divProps
+}: InsightCardProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { ref: inViewRef, inView } = useInView()
     const { isVisible: isPageVisible } = usePageVisibility()
@@ -299,5 +298,3 @@ function InsightCardInternal(
         </div>
     )
 }
-
-export const InsightCard = React.forwardRef(InsightCardInternal) as typeof InsightCardInternal

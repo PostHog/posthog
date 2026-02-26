@@ -4,7 +4,7 @@ import { HTMLProps, useLayoutEffect, useRef, useState } from 'react'
 
 interface RawInputAutosizeProps extends HTMLProps<HTMLInputElement> {
     wrapperClassName?: string
-    ref?: React.RefObject<HTMLInputElement>
+    ref?: React.Ref<HTMLInputElement>
 }
 
 export function RawInputAutosize({ ref, wrapperClassName, ...inputProps }: RawInputAutosizeProps): JSX.Element {

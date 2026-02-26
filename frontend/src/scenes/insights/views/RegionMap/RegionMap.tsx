@@ -135,108 +135,105 @@ interface RegionMapContentProps extends ChartParams {
     onDataPointClick?: QueryContext['onDataPointClick']
     querySource: ReturnType<typeof regionMapLogic>['values']['querySource']
     backgroundColor: string
+    ref?: React.Ref<HTMLDivElement>
 }
 
 const RegionMapContent = React.memo(
-    React.forwardRef<HTMLDivElement, RegionMapContentProps>(
-        (
-            {
-                showPersonsModal,
-                subdivisionCodeToSeries,
-                maxAggregatedValue,
-                showTooltip,
-                hideTooltip,
-                updateTooltipCoordinates,
-                onDataPointClick,
-                querySource,
-                backgroundColor,
-            },
-            ref
-        ) => {
-            return (
-                <div ref={ref} className="RegionMap">
-                    <ComposableMap
-                        projectionConfig={{
-                            scale: 170,
-                            center: [0, 0],
-                        }}
-                        viewBox="0 50 800 450"
-                    >
-                        <Geographies geography={REGION_MAP_TOPOJSON_URL}>
-                            {({ geographies }) =>
-                                geographies
-                                    .map((geo) => ({
-                                        geo,
-                                        properties: getRegionProperties(geo.properties as Record<string, unknown>),
-                                    }))
-                                    .filter(({ properties }) => properties.countryCode !== 'AQ')
-                                    .map(({ geo, properties }) => {
-                                        const subdivisionCode = properties.subdivisionCode
-                                        const subdivisionName = properties.subdivisionName
-                                        const countryCode = properties.countryCode
-                                        const regionSeries = subdivisionCodeToSeries[subdivisionCode]
-                                        const aggregatedValue = getSeriesValue(regionSeries)
-                                        const hasValue = aggregatedValue > 0
-                                        const normalizedValue =
-                                            maxAggregatedValue > 0 ? aggregatedValue / maxAggregatedValue : 0
-                                        const fill = hasValue
-                                            ? gradateColor(backgroundColor, normalizedValue, SATURATION_FLOOR)
-                                            : 'var(--color-border-primary)'
+    ({
+        ref,
+        showPersonsModal,
+        subdivisionCodeToSeries,
+        maxAggregatedValue,
+        showTooltip,
+        hideTooltip,
+        updateTooltipCoordinates,
+        onDataPointClick,
+        querySource,
+        backgroundColor,
+    }: RegionMapContentProps) => {
+        return (
+            <div ref={ref} className="RegionMap">
+                <ComposableMap
+                    projectionConfig={{
+                        scale: 170,
+                        center: [0, 0],
+                    }}
+                    viewBox="0 50 800 450"
+                >
+                    <Geographies geography={REGION_MAP_TOPOJSON_URL}>
+                        {({ geographies }) =>
+                            geographies
+                                .map((geo) => ({
+                                    geo,
+                                    properties: getRegionProperties(geo.properties as Record<string, unknown>),
+                                }))
+                                .filter(({ properties }) => properties.countryCode !== 'AQ')
+                                .map(({ geo, properties }) => {
+                                    const subdivisionCode = properties.subdivisionCode
+                                    const subdivisionName = properties.subdivisionName
+                                    const countryCode = properties.countryCode
+                                    const regionSeries = subdivisionCodeToSeries[subdivisionCode]
+                                    const aggregatedValue = getSeriesValue(regionSeries)
+                                    const hasValue = aggregatedValue > 0
+                                    const normalizedValue =
+                                        maxAggregatedValue > 0 ? aggregatedValue / maxAggregatedValue : 0
+                                    const fill = hasValue
+                                        ? gradateColor(backgroundColor, normalizedValue, SATURATION_FLOOR)
+                                        : 'var(--color-border-primary)'
 
-                                        const onClick: React.MouseEventHandler<SVGPathElement> | undefined =
-                                            onDataPointClick
-                                                ? () => {
-                                                      onDataPointClick(
-                                                          { breakdown: subdivisionCode.replace('-', '::') },
-                                                          regionSeries
-                                                      )
-                                                      hideTooltip()
-                                                  }
-                                                : showPersonsModal && regionSeries
-                                                  ? () => {
-                                                        openPersonsModal({
-                                                            title: regionSeries.label,
-                                                            query: {
-                                                                kind: NodeKind.InsightActorsQuery,
-                                                                source: querySource!,
-                                                                includeRecordings: true,
-                                                            },
-                                                            additionalSelect: {
-                                                                value_at_data_point: 'event_count',
-                                                                matched_recordings: 'matched_recordings',
-                                                            },
-                                                            orderBy: ['event_count DESC, actor_id DESC'],
-                                                        })
-                                                    }
-                                                  : undefined
-
-                                        return (
-                                            <Geography
-                                                key={geo.rsmKey}
-                                                geography={geo}
-                                                fill={fill}
-                                                className="RegionMap__geography"
-                                                onMouseEnter={() =>
-                                                    showTooltip(
-                                                        subdivisionCode,
-                                                        subdivisionName,
-                                                        countryCode,
-                                                        regionSeries ?? null
-                                                    )
+                                    const onClick: React.MouseEventHandler<SVGPathElement> | undefined =
+                                        onDataPointClick
+                                            ? () => {
+                                                  onDataPointClick(
+                                                      { breakdown: subdivisionCode.replace('-', '::') },
+                                                      regionSeries
+                                                  )
+                                                  hideTooltip()
+                                              }
+                                            : showPersonsModal && regionSeries
+                                              ? () => {
+                                                    openPersonsModal({
+                                                        title: regionSeries.label,
+                                                        query: {
+                                                            kind: NodeKind.InsightActorsQuery,
+                                                            source: querySource!,
+                                                            includeRecordings: true,
+                                                        },
+                                                        additionalSelect: {
+                                                            value_at_data_point: 'event_count',
+                                                            matched_recordings: 'matched_recordings',
+                                                        },
+                                                        orderBy: ['event_count DESC, actor_id DESC'],
+                                                    })
                                                 }
-                                                onMouseLeave={hideTooltip}
-                                                onMouseMove={(e) => updateTooltipCoordinates(e.clientX, e.clientY)}
-                                                onClick={onClick}
-                                            />
-                                        )
-                                    })
-                            }
-                        </Geographies>
-                    </ComposableMap>
-                </div>
-            )
-        }
-    )
+                                              : undefined
+
+                                    return (
+                                        <Geography
+                                            key={geo.rsmKey}
+                                            geography={geo}
+                                            fill={fill}
+                                            className="RegionMap__geography"
+                                            onMouseEnter={() =>
+                                                showTooltip(
+                                                    subdivisionCode,
+                                                    subdivisionName,
+                                                    countryCode,
+                                                    regionSeries ?? null
+                                                )
+                                            }
+                                            onMouseLeave={hideTooltip}
+                                            onMouseMove={(e) => updateTooltipCoordinates(e.clientX, e.clientY)}
+                                            onClick={onClick}
+                                        />
+                                    )
+                                })
+                        }
+                    </Geographies>
+                </ComposableMap>
+            </div>
+        )
+    }
 )
 
 export function RegionMap({ showPersonsModal = true, context }: ChartParams): JSX.Element {

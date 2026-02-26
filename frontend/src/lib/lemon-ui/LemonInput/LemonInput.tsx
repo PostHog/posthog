@@ -33,6 +33,7 @@ interface LemonInputPropsBase extends Pick<
     | 'inputMode'
     | 'pattern'
 > {
+    ref?: React.Ref<HTMLDivElement>
     inputRef?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
@@ -90,33 +91,31 @@ export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 // interact with it.
 export const INTERACTIVE_CLOSE_DELAY_MS = 750
 
-export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function LemonInput(
-    {
-        className,
-        onChange,
-        onFocus,
-        onBlur,
-        onPressEnter,
-        status = 'default',
-        allowClear, // Default handled inside the component
-        fullWidth,
-        autoWidth,
-        prefix,
-        suffix,
-        type,
-        value,
-        transparentBackground = false,
-        size = 'medium',
-        stopPropagation = false,
-        inputRef,
-        disabled,
-        disabledReason,
-        disabledReasonInteractive,
-        badgeText,
-        ...props
-    },
-    ref
-): JSX.Element {
+export function LemonInput({
+    ref,
+    className,
+    onChange,
+    onFocus,
+    onBlur,
+    onPressEnter,
+    status = 'default',
+    allowClear, // Default handled inside the component
+    fullWidth,
+    autoWidth,
+    prefix,
+    suffix,
+    type,
+    value,
+    transparentBackground = false,
+    size = 'medium',
+    stopPropagation = false,
+    inputRef,
+    disabled,
+    disabledReason,
+    disabledReasonInteractive,
+    badgeText,
+    ...props
+}: LemonInputProps): JSX.Element {
     const internalInputRef = useRef<HTMLInputElement>(null)
     const mergedInputRef = useMergeRefs([inputRef, internalInputRef])
 
@@ -268,4 +267,4 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
             </span>
         </Tooltip>
     )
-})
+}

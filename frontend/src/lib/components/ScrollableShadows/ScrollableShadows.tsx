@@ -26,23 +26,22 @@ export type ScrollableShadowsProps = {
     hideShadows?: boolean
     /** Whether to hide the scrollbars. */
     hideScrollbars?: boolean
+    ref?: React.Ref<HTMLDivElement>
 }
 
-export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShadowsProps>(function ScrollableShadows(
-    {
-        children,
-        direction,
-        className,
-        innerClassName,
-        scrollRef,
-        styledScrollbars = false,
-        disableScroll = false,
-        hideShadows = false,
-        hideScrollbars = false,
-        ...props
-    },
-    ref
-) {
+export function ScrollableShadows({
+    ref,
+    children,
+    direction,
+    className,
+    innerClassName,
+    scrollRef,
+    styledScrollbars = false,
+    disableScroll = false,
+    hideShadows = false,
+    hideScrollbars = false,
+    ...props
+}: ScrollableShadowsProps): JSX.Element {
     const {
         ref: scrollRefScrollable,
         isScrollableLeft,
@@ -84,4 +83,4 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
             </div>
         </div>
     )
-})
+}

@@ -7,7 +7,7 @@ interface MessageTemplateProps {
     className?: string
     boxClassName?: string
     wrapperClassName?: string
-    ref?: React.RefObject<HTMLDivElement>
+    ref?: React.Ref<HTMLDivElement>
     children?: React.ReactNode
     header?: React.ReactNode
 }

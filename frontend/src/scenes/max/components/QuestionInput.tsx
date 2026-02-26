@@ -36,6 +36,7 @@ interface QuestionInputProps {
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     onSubmit?: () => void
+    ref?: React.Ref<HTMLDivElement>
 }
 
 function QueuedMessageItem({
@@ -127,20 +128,18 @@ function QueuedMessageItem({
     )
 }
 
-export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
-    {
-        isSticky,
-        placeholder,
-        children,
-        contextDisplaySize,
-        isThreadVisible,
-        topActions,
-        textAreaRef,
-        containerClassName,
-        onSubmit,
-    },
-    ref
-) {
+export function QuestionInput({
+    ref,
+    isSticky,
+    placeholder,
+    children,
+    contextDisplaySize,
+    isThreadVisible,
+    topActions,
+    textAreaRef,
+    containerClassName,
+    onSubmit,
+}: QuestionInputProps): JSX.Element {
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
@@ -451,4 +450,4 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
             </p>
         </div>
     )
-})
+}

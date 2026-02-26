@@ -765,74 +765,70 @@ export interface ChildItemProps<Item extends VDNDChildItem> {
     updateChildItem(item: Item): void
 }
 
-export const ChildItem = React.memo(
-    React.forwardRef<HTMLLIElement, ChildItemProps<any>>(function ChildItem_(
-        {
-            color,
-            dragOverlay,
-            isDragging,
-            disabled,
-            fadeIn,
-            handleProps,
-            height,
-            index,
-            listeners,
-            onRemove,
-            sorting,
-            style,
-            transition,
-            transform,
-            childItemId,
-            wrapperStyle,
-            renderChildItem,
-            updateChildItem,
-            item,
-            ...props
-        },
-        ref
-    ): JSX.Element {
-        const handle = true
-        useEffect(() => {
-            if (!dragOverlay) {
-                return
-            }
+export const ChildItem = React.memo(function ChildItem_({
+    ref,
+    color,
+    dragOverlay,
+    isDragging,
+    disabled,
+    fadeIn,
+    handleProps,
+    height,
+    index,
+    listeners,
+    onRemove,
+    sorting,
+    style,
+    transition,
+    transform,
+    childItemId,
+    wrapperStyle,
+    renderChildItem,
+    updateChildItem,
+    item,
+    ...props
+}: ChildItemProps<any> & { ref?: React.Ref<HTMLLIElement> }): JSX.Element {
+    const handle = true
+    useEffect(() => {
+        if (!dragOverlay) {
+            return
+        }
 
-            document.body.style.cursor = 'grabbing'
+        document.body.style.cursor = 'grabbing'
 
-            return () => {
-                document.body.style.cursor = ''
-            }
-        }, [dragOverlay])
+        return () => {
+            document.body.style.cursor = ''
+        }
+    }, [dragOverlay])
 
-        return (
-            <li
-                ref={ref}
-                className={`flex p-[calc(0.5rem-1px)] bg-surface-primary border rounded overflow-hidden ${
-                    isDragging ? 'opacity-40' : ''
-                }`}
+    return (
+        <li
+            ref={ref}
+            className={`flex p-[calc(0.5rem-1px)] bg-surface-primary border rounded overflow-hidden ${
+                isDragging ? 'opacity-40' : ''
+            }`}
+        >
+            <div
+                {...(!handle ? listeners : undefined)}
+                {...props}
+                tabIndex={!handle ? 0 : undefined}
+                className="flex flex-row justify-between w-full deprecated-space-x-2 items-start"
             >
-                <div
-                    {...(!handle ? listeners : undefined)}
-                    {...props}
-                    tabIndex={!handle ? 0 : undefined}
-                    className="flex flex-row justify-between w-full deprecated-space-x-2 items-start"
-                >
-                    <Handle_ {...handleProps} {...listeners} />
-                    <div className="flex-1 self-stretch">
-                        {renderChildItem ? (
-                            renderChildItem(item, { updateChildItem })
-                        ) : (
-                            <div className="h-full flex flex-row items-center">
-                                <span>Item {childItemId}</span>
-                            </div>
-                        )}
-                    </div>
-                    <Remove onClick={() => onRemove(item.id)} />
+                <Handle_ {...handleProps} {...listeners} />
+                <div className="flex-1 self-stretch">
+                    {renderChildItem ? (
+                        renderChildItem(item, { updateChildItem })
+                    ) : (
+                        <div className="h-full flex flex-row items-center">
+                            <span>Item {childItemId}</span>
+                        </div>
+                    )}
                 </div>
-            </li>
-        )
-    })
-)
+                <Remove onClick={() => onRemove(item.id)} />
+            </div>
+        </li>
+    )
+})
 
 export function Remove(props: LemonButtonProps): JSX.Element {
     return (

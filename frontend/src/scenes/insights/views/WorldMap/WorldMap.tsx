@@ -115,97 +115,94 @@ interface WorldMapSVGProps extends ChartParams {
     onDataPointClick?: QueryContext['onDataPointClick']
     querySource: InsightQueryNode | null
     backgroundColor: string
+    ref?: React.Ref<SVGSVGElement>
 }
 
 const WorldMapSVG = React.memo(
-    React.forwardRef<SVGSVGElement, WorldMapSVGProps>(
-        (
-            {
-                showPersonsModal,
-                countryCodeToSeries,
-                maxAggregatedValue,
-                showTooltip,
-                hideTooltip,
-                updateTooltipCoordinates,
-                onDataPointClick,
-                querySource,
-                backgroundColor,
-            },
-            ref
-        ) => {
-            return (
-                <svg
-                    className="WorldMap"
-                    xmlns="http://www.w3.org/2000/svg"
-                    version="1.1"
-                    viewBox="0 0 2754 1200"
-                    width="100%"
-                    height="100%"
-                    id="svg"
-                    ref={ref}
-                >
-                    {Object.entries(countryVectors).map(([countryCode, countryElement]) => {
-                        if (countryCode.length !== 2) {
-                            return null // Avoid this issue: https://github.com/storybookjs/storybook/issues/9832
-                        }
-                        const countrySeries: TrendResult | undefined = countryCodeToSeries[countryCode]
-                        const aggregatedValue = countrySeries?.aggregated_value || 0
-                        const fill = aggregatedValue
-                            ? gradateColor(backgroundColor, aggregatedValue / maxAggregatedValue, SATURATION_FLOOR)
-                            : undefined
+    ({
+        ref,
+        showPersonsModal,
+        countryCodeToSeries,
+        maxAggregatedValue,
+        showTooltip,
+        hideTooltip,
+        updateTooltipCoordinates,
+        onDataPointClick,
+        querySource,
+        backgroundColor,
+    }: WorldMapSVGProps) => {
+        return (
+            <svg
+                className="WorldMap"
+                xmlns="http://www.w3.org/2000/svg"
+                version="1.1"
+                viewBox="0 0 2754 1200"
+                width="100%"
+                height="100%"
+                id="svg"
+                ref={ref}
+            >
+                {Object.entries(countryVectors).map(([countryCode, countryElement]) => {
+                    if (countryCode.length !== 2) {
+                        return null // Avoid this issue: https://github.com/storybookjs/storybook/issues/9832
+                    }
+                    const countrySeries: TrendResult | undefined = countryCodeToSeries[countryCode]
+                    const aggregatedValue = countrySeries?.aggregated_value || 0
+                    const fill = aggregatedValue
+                        ? gradateColor(backgroundColor, aggregatedValue / maxAggregatedValue, SATURATION_FLOOR)
+                        : undefined
 
-                        let onClick: React.MouseEventHandler<SVGPathElement> | undefined
-                        if (onDataPointClick) {
-                            onClick = () => {
-                                onDataPointClick(
-                                    {
-                                        breakdown: countryCode,
+                    let onClick: React.MouseEventHandler<SVGPathElement> | undefined
+                    if (onDataPointClick) {
+                        onClick = () => {
+                            onDataPointClick(
+                                {
+                                    breakdown: countryCode,
+                                },
+                                countrySeries
+                            )
+                            hideTooltip()
+                        }
+                    } else if (showPersonsModal && countrySeries) {
+                        onClick = () => {
+                            if (showPersonsModal && countrySeries) {
+                                openPersonsModal({
+                                    title: countrySeries.label,
+                                    query: {
+                                        kind: NodeKind.InsightActorsQuery,
+                                        source: querySource!,
+                                        includeRecordings: true,
                                     },
-                                    countrySeries
-                                )
-                                hideTooltip()
-                            }
-                        } else if (showPersonsModal && countrySeries) {
-                            onClick = () => {
-                                if (showPersonsModal && countrySeries) {
-                                    openPersonsModal({
-                                        title: countrySeries.label,
-                                        query: {
-                                            kind: NodeKind.InsightActorsQuery,
-                                            source: querySource!,
-                                            includeRecordings: true,
-                                        },
-                                        additionalSelect: {
-                                            value_at_data_point: 'event_count',
-                                            matched_recordings: 'matched_recordings',
-                                        },
-                                        orderBy: ['event_count DESC, actor_id DESC'],
-                                    })
-                                }
+                                    additionalSelect: {
+                                        value_at_data_point: 'event_count',
+                                        matched_recordings: 'matched_recordings',
+                                    },
+                                    orderBy: ['event_count DESC, actor_id DESC'],
+                                })
                             }
                         }
+                    }
 
-                        return React.cloneElement(countryElement, {
-                            key: countryCode,
-                            style: {
-                                color: fill,
-                                '--world-map-hover': backgroundColor,
-                                cursor: onClick ? 'pointer' : undefined,
-                                ...style,
-                            },
-                            onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
-                            onMouseLeave: () => hideTooltip(),
-                            onMouseMove: (e: MouseEvent) => {
-                                updateTooltipCoordinates(e.clientX, e.clientY)
-                            },
-                            onClick,
-                            ...props,
-                        })
-                    })}
-                </svg>
-            )
-        }
-    )
+                    return React.cloneElement(countryElement, {
+                        key: countryCode,
+                        style: {
+                            color: fill,
+                            '--world-map-hover': backgroundColor,
+                            cursor: onClick ? 'pointer' : undefined,
+                            ...style,
+                        },
+                        onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
+                        onMouseLeave: () => hideTooltip(),
+                        onMouseMove: (e: MouseEvent) => {
+                            updateTooltipCoordinates(e.clientX, e.clientY)
+                        },
+                        onClick,
+                        ...props,
+                    })
+                })}
+            </svg>
+        )
+    }
 )
 
 export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX.Element {

@@ -36,6 +36,7 @@ import { LemonTableLoader } from '../LemonTable/LemonTableLoader'
 
 export interface PopoverProps {
     ref?: React.MutableRefObject<HTMLDivElement | null> | React.Ref<HTMLDivElement> | null
+    contentRef?: React.Ref<HTMLDivElement>
     visible: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
@@ -94,35 +95,33 @@ let nestedPopoverReceivedClick = false
  *
  * Often used with buttons for various menu. If this is your intention, use `LemonButtonWithDropdown`.
  */
-export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function PopoverInternal(
-    {
-        children,
-        referenceElement,
-        overlay,
-        loadingBar,
-        visible,
-        onClickOutside,
-        onClickInside,
-        onMouseEnterInside,
-        onMouseLeaveInside,
-        placement = 'bottom-start',
-        fallbackPlacements = ['top-start', 'top-end', 'bottom-start', 'bottom-end'],
-        className,
-        padded = true,
-        middleware,
-        matchWidth = false,
-        maxContentWidth = false,
-        additionalRefs = [],
-        closeParentPopoverOnClickInside = false,
-        referenceRef: extraReferenceRef,
-        floatingRef: extraFloatingRef,
-        style,
-        showArrow = false,
-        overflowHidden = false,
-        delayMs = 50,
-    },
-    contentRef
-): JSX.Element {
+export function Popover({
+    contentRef,
+    children,
+    referenceElement,
+    overlay,
+    loadingBar,
+    visible,
+    onClickOutside,
+    onClickInside,
+    onMouseEnterInside,
+    onMouseLeaveInside,
+    placement = 'bottom-start',
+    fallbackPlacements = ['top-start', 'top-end', 'bottom-start', 'bottom-end'],
+    className,
+    padded = true,
+    middleware,
+    matchWidth = false,
+    maxContentWidth = false,
+    additionalRefs = [],
+    closeParentPopoverOnClickInside = false,
+    referenceRef: extraReferenceRef,
+    floatingRef: extraFloatingRef,
+    style,
+    showArrow = false,
+    overflowHidden = false,
+    delayMs = 50,
+}: PopoverProps): JSX.Element {
     const [parentPopoverVisible, parentPopoverLevel] = useContext(PopoverOverlayContext)
     const currentPopoverLevel = parentPopoverLevel + 1
 
@@ -371,4 +370,4 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             )}
         </>
     )
-})
+}

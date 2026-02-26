@@ -15,6 +15,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     placement: DashboardPlacement
     children?: JSX.Element
     moreButtonOverlay?: MoreProps['overlay']
+    ref?: React.Ref<HTMLDivElement>
 }
 
 interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
@@ -30,19 +31,17 @@ export function TextContent({ text, closeDetails, className }: TextCardBodyProps
     )
 }
 
-export function TextCardInternal(
-    {
-        textTile,
-        showResizeHandles,
-        canResizeWidth,
-        children,
-        className,
-        moreButtonOverlay,
-        placement,
-        ...divProps
-    }: TextCardProps,
-    ref: React.Ref<HTMLDivElement>
-): JSX.Element {
+export function TextCard({
+    ref,
+    textTile,
+    showResizeHandles,
+    canResizeWidth,
+    children,
+    className,
+    moreButtonOverlay,
+    placement,
+    ...divProps
+}: TextCardProps): JSX.Element {
     const { text } = textTile
 
     if (!text) {
@@ -83,5 +82,3 @@ export function TextCardInternal(
         </div>
     )
 }
-
-export const TextCard = React.forwardRef(TextCardInternal) as typeof TextCardInternal

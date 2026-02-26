@@ -661,12 +661,10 @@ interface TextAnswerProps {
     interactable?: boolean
     isFinalGroup?: boolean
     withActions?: boolean
+    ref?: React.Ref<HTMLDivElement>
 }
 
-const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, interactable, isFinalGroup, withActions = true },
-    ref
-) {
+function TextAnswer({ ref, message, interactable, isFinalGroup, withActions = true }: TextAnswerProps): JSX.Element {
     const retriable = !!(interactable && isFinalGroup)
 
     const action = withActions
@@ -718,7 +716,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             )}
         </MessageTemplate>
     )
-})
+}
 
 interface AssistantMessageFormProps {
     form: AssistantForm
