@@ -70,6 +70,32 @@ SUBAGENT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
 }
 
 
+def get_plan_mode_registry(team: Team, user: User) -> dict[AgentMode, AgentModeDefinition]:
+    registry = dict(DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY)
+    if has_error_tracking_mode_feature_flag(team, user):
+        registry[AgentMode.ERROR_TRACKING] = chat_agent_plan_error_tracking_agent
+    if has_flags_mode_feature_flag(team, user):
+        registry[AgentMode.FLAGS] = chat_agent_plan_flags_agent
+    if has_survey_mode_feature_flag(team, user):
+        registry[AgentMode.SURVEY] = survey_agent
+    return registry
+
+
+def get_execution_mode_registry(team: Team, user: User) -> dict[AgentMode, AgentModeDefinition]:
+    """Build the mode registry for execution mode (non-plan, non-subagent).
+
+    This is the registry that will be available after transitioning out of plan mode.
+    """
+    registry = dict(DEFAULT_CHAT_AGENT_MODE_REGISTRY)
+    if has_error_tracking_mode_feature_flag(team, user):
+        registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
+    if has_survey_mode_feature_flag(team, user):
+        registry[AgentMode.SURVEY] = survey_agent
+    if has_flags_mode_feature_flag(team, user):
+        registry[AgentMode.FLAGS] = flags_agent
+    return registry
+
+
 class ChatAgentModeManager(AgentModeManager):
     def __init__(
         self,
@@ -105,23 +131,11 @@ class ChatAgentModeManager(AgentModeManager):
             return self._subagent_mode_registry
 
         if self._supermode == AgentMode.PLAN:
-            registry = dict(DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY)
-        else:
-            registry = dict(DEFAULT_CHAT_AGENT_MODE_REGISTRY)
-            if has_plan_mode_feature_flag(self._team, self._user):
-                registry[AgentMode.PLAN] = plan_agent
-        if has_error_tracking_mode_feature_flag(self._team, self._user):
-            if self._supermode == AgentMode.PLAN:
-                registry[AgentMode.ERROR_TRACKING] = chat_agent_plan_error_tracking_agent
-            else:
-                registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
-        if has_survey_mode_feature_flag(self._team, self._user):
-            registry[AgentMode.SURVEY] = survey_agent
-        if has_flags_mode_feature_flag(self._team, self._user):
-            if self._supermode == AgentMode.PLAN:
-                registry[AgentMode.FLAGS] = chat_agent_plan_flags_agent
-            else:
-                registry[AgentMode.FLAGS] = flags_agent
+            return get_plan_mode_registry(self._team, self._user)
+
+        registry = get_execution_mode_registry(self._team, self._user)
+        if has_plan_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.PLAN] = plan_agent
         if self._mode == AgentMode.ONBOARDING:
             registry[AgentMode.ONBOARDING] = onboarding_agent
         return registry

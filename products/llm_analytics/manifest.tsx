@@ -134,6 +134,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
         '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
+        '/llm-analytics/tools': ['LLMAnalytics', 'llmAnalyticsTools'],
         '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
         '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
@@ -188,6 +189,7 @@ export const manifest: ProductManifest = {
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsErrors: (): string => '/llm-analytics/errors',
+        llmAnalyticsTools: (): string => '/llm-analytics/tools',
         llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
         llmAnalyticsSession: (
             id: string,
@@ -225,7 +227,7 @@ export const manifest: ProductManifest = {
                 ProductKey.LLM_PROMPTS,
                 ProductKey.LLM_CLUSTERS,
             ],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             visualOrder: 1,
             type: 'llm_analytics',
             iconType: 'llm_analytics' as FileSystemIconType,
@@ -236,7 +238,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Clusters',
             intents: [ProductKey.LLM_CLUSTERS],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             type: 'llm_clusters',
             iconType: 'llm_clusters' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
@@ -248,7 +250,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Datasets',
             intents: [ProductKey.LLM_DATASETS],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             type: 'llm_datasets',
             iconType: 'llm_datasets' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-datasets-light)'] as FileSystemIconColor,
@@ -260,7 +262,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Evaluations',
             intents: [ProductKey.LLM_EVALUATIONS],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             type: 'llm_evaluations',
             iconType: 'llm_evaluations' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
@@ -272,7 +274,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Prompts',
             intents: [ProductKey.LLM_PROMPTS],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             type: 'llm_prompts',
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,

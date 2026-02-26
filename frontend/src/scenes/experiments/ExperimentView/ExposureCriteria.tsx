@@ -9,22 +9,33 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
-import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from '../Metrics/Selectors'
-import { modalsLogic } from '../modalsLogic'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
-export function ExposureCriteriaModal(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
-    const { restoreUnmodifiedExperiment, setExposureCriteria, updateExposureCriteria } = useActions(experimentLogic)
-    const { closeExposureCriteriaModal } = useActions(modalsLogic)
-    const { isExposureCriteriaModalOpen } = useValues(modalsLogic)
+type ExposureCriteriaModalProps = {
+    onSave: (exposureCriteria: ExperimentExposureCriteria) => void
+}
+
+export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): JSX.Element | null {
+    const { isExposureCriteriaModalOpen, exposureCriteria } = useValues(exposureCriteriaModalLogic)
+    const { closeExposureCriteriaModal, setExposureCriteria } = useActions(exposureCriteriaModalLogic)
+
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+
+    /**
+     * exposureCriteria is null only when the modal is not open.
+     * Otherwise, it's always a valid object.
+     */
+    if (!exposureCriteria) {
+        return null
+    }
+
     return (
         <LemonModal
             isOpen={isExposureCriteriaModalOpen}
@@ -38,7 +49,6 @@ export function ExposureCriteriaModal(): JSX.Element {
                         form="edit-experiment-exposure-form"
                         type="secondary"
                         onClick={() => {
-                            restoreUnmodifiedExperiment()
                             closeExposureCriteriaModal()
                         }}
                     >
@@ -47,7 +57,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                     <LemonButton
                         form="edit-experiment-exposure-form"
                         onClick={() => {
-                            updateExposureCriteria()
+                            onSave(exposureCriteria)
                             closeExposureCriteriaModal()
                         }}
                         type="primary"
@@ -70,9 +80,10 @@ export function ExposureCriteriaModal(): JSX.Element {
                             <strong>exposed</strong> to the experiment and included in the analysis.
                         </>
                     }
-                    selected={!experiment.exposure_criteria?.exposure_config}
+                    selected={!exposureCriteria?.exposure_config}
                     onClick={() => {
                         setExposureCriteria({
+                            ...exposureCriteria,
                             exposure_config: undefined,
                         })
                     }}
@@ -86,9 +97,10 @@ export function ExposureCriteriaModal(): JSX.Element {
                             You can also filter out users you would like to exclude from the analysis.
                         </>
                     }
-                    selected={!!experiment.exposure_criteria?.exposure_config}
+                    selected={!!exposureCriteria?.exposure_config}
                     onClick={() => {
                         setExposureCriteria({
+                            ...exposureCriteria,
                             exposure_config: {
                                 kind: NodeKind.ExperimentEventExposureConfig,
                                 event: '$feature_flag_called',
@@ -98,11 +110,11 @@ export function ExposureCriteriaModal(): JSX.Element {
                     }}
                 />
             </div>
-            {experiment.exposure_criteria?.exposure_config && (
+            {exposureCriteria?.exposure_config && (
                 <div className="mb-4">
                     <ActionFilter
                         bordered
-                        filters={exposureConfigToFilter(experiment.exposure_criteria.exposure_config)}
+                        filters={exposureConfigToFilter(exposureCriteria.exposure_config)}
                         setFilters={({ events, actions }: Partial<FilterType>): void => {
                             const entity = events?.[0] || actions?.[0]
                             if (entity) {
@@ -127,9 +139,10 @@ export function ExposureCriteriaModal(): JSX.Element {
                 <div className="mb-4">
                     <label className="block text-sm font-medium text-default mb-2">Multiple variant handling</label>
                     <LemonSelect
-                        value={experiment.exposure_criteria?.multiple_variant_handling || 'exclude'}
+                        value={exposureCriteria?.multiple_variant_handling || 'exclude'}
                         onChange={(value) => {
                             setExposureCriteria({
+                                ...exposureCriteria,
                                 multiple_variant_handling: value as 'exclude' | 'first_seen',
                             })
                         }}
@@ -149,20 +162,21 @@ export function ExposureCriteriaModal(): JSX.Element {
                         fullWidth
                     />
                     <div className="text-xs text-muted mt-1">
-                        {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
+                        {exposureCriteria?.multiple_variant_handling === 'first_seen' &&
                             'Users exposed to multiple variants will be analyzed using their first seen variant.'}
-                        {(!experiment.exposure_criteria?.multiple_variant_handling ||
-                            experiment.exposure_criteria?.multiple_variant_handling === 'exclude') &&
+                        {(!exposureCriteria?.multiple_variant_handling ||
+                            exposureCriteria?.multiple_variant_handling === 'exclude') &&
                             'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
                     </div>
                 </div>
                 <TestAccountFilterSwitch
                     checked={(() => {
-                        const val = experiment.exposure_criteria?.filterTestAccounts
+                        const val = exposureCriteria?.filterTestAccounts
                         return hasFilters ? !!val : false
                     })()}
                     onChange={(checked: boolean) => {
                         setExposureCriteria({
+                            ...exposureCriteria,
                             filterTestAccounts: checked,
                         })
                     }}

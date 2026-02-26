@@ -2,42 +2,25 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
-import { HealthCheckResult, Hub, LogsIngestionConsumerConfig, PluginServerService, TimestampFormat } from '../types'
+import { HealthCheckResult, LogsIngestionConsumerConfig, PluginServerService, TimestampFormat } from '../types'
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
+import { TeamManager } from '../utils/team-manager'
 import { castTimestampOrNow } from '../utils/utils'
 import { processLogMessageBuffer } from './log-record-avro'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
 
-/**
- * Narrowed Hub type for LogsIngestionConsumer.
- * This includes all fields needed by LogsIngestionConsumer and its dependencies:
- * - LogsRateLimiterService
- * - Redis (logs kind)
- * - KafkaProducerWrapper
- * - TeamManager
- * - QuotaLimiting (for billing quota enforcement)
- */
-export type LogsIngestionConsumerHub = LogsIngestionConsumerConfig &
-    Pick<
-        Hub,
-        // Redis config (common fields not in LogsIngestionConsumerConfig)
-        | 'REDIS_URL'
-        | 'REDIS_POOL_MIN_SIZE'
-        | 'REDIS_POOL_MAX_SIZE'
-        // KafkaProducerWrapper.create
-        | 'KAFKA_CLIENT_RACK'
-        // TeamManager
-        | 'teamManager'
-        // QuotaLimiting (billing quota enforcement)
-        | 'quotaLimiting'
-    >
+export interface LogsIngestionConsumerDeps {
+    teamManager: TeamManager
+    quotaLimiting: QuotaLimiting
+}
 
 export type UsageStats = {
     bytesReceived: number
@@ -118,35 +101,36 @@ export class LogsIngestionConsumer {
     protected dlqTopic?: string
 
     constructor(
-        private hub: LogsIngestionConsumerHub,
+        private config: LogsIngestionConsumerConfig,
+        private deps: LogsIngestionConsumerDeps,
         overrides: Partial<LogsIngestionConsumerConfig> = {}
     ) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
-        this.groupId = overrides.LOGS_INGESTION_CONSUMER_GROUP_ID ?? hub.LOGS_INGESTION_CONSUMER_GROUP_ID
-        this.topic = overrides.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC ?? hub.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC
+        this.groupId = overrides.LOGS_INGESTION_CONSUMER_GROUP_ID ?? config.LOGS_INGESTION_CONSUMER_GROUP_ID
+        this.topic = overrides.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC ?? config.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC
         this.clickhouseTopic =
-            overrides.LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC ?? hub.LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC
+            overrides.LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC ?? config.LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC
         this.overflowTopic =
-            overrides.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC ?? hub.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? hub.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
+            overrides.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC ?? config.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC
+        this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? config.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support
         this.redis = createRedisV2PoolFromConfig({
-            connection: hub.LOGS_REDIS_HOST
+            connection: config.LOGS_REDIS_HOST
                 ? {
-                      url: hub.LOGS_REDIS_HOST,
+                      url: config.LOGS_REDIS_HOST,
                       options: {
-                          port: hub.LOGS_REDIS_PORT,
-                          tls: hub.LOGS_REDIS_TLS ? {} : undefined,
+                          port: config.LOGS_REDIS_PORT,
+                          tls: config.LOGS_REDIS_TLS ? {} : undefined,
                       },
                       name: 'logs-redis',
                   }
-                : { url: hub.REDIS_URL, name: 'logs-redis-fallback' },
-            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                : { url: config.REDIS_URL, name: 'logs-redis-fallback' },
+            poolMinSize: config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
-        this.rateLimiter = new LogsRateLimiterService(hub, this.redis)
+        this.rateLimiter = new LogsRateLimiterService(config, this.redis)
     }
 
     public get service(): PluginServerService {
@@ -253,7 +237,9 @@ export class LogsIngestionConsumer {
             (
                 await Promise.all(
                     uniqueTokens.map(async (token) =>
-                        (await this.hub.quotaLimiting.isTeamTokenQuotaLimited(token, 'logs_mb_ingested')) ? token : null
+                        (await this.deps.quotaLimiting.isTeamTokenQuotaLimited(token, 'logs_mb_ingested'))
+                            ? token
+                            : null
                     )
                 )
             ).filter((token): token is string => token !== null)
@@ -298,7 +284,7 @@ export class LogsIngestionConsumer {
             messages.map(async (message) => {
                 try {
                     // Fetch team to get logs_settings
-                    const team = await this.hub.teamManager.getTeam(message.teamId)
+                    const team = await this.deps.teamManager.getTeam(message.teamId)
                     const logsSettings = team?.logs_settings || {}
 
                     // Extract settings with defaults
@@ -442,10 +428,10 @@ export class LogsIngestionConsumer {
 
                     let team
                     try {
-                        team = await this.hub.teamManager.getTeamByToken(token)
+                        team = await this.deps.teamManager.getTeamByToken(token)
                         if (isDevEnv() && token === 'phc_local') {
                             // phc_local is a special token used in dev to refer to team 1
-                            team = await this.hub.teamManager.getTeam(1)
+                            team = await this.deps.teamManager.getTeam(1)
                         }
                     } catch (e) {
                         logger.error('team_lookup_error', { error: e })
@@ -492,11 +478,11 @@ export class LogsIngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             // Warpstream producer for logs data (uses KAFKA_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK).then((producer) => {
+            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
             // Metrics producer for app_metrics (uses KAFKA_METRICS_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK, 'METRICS_PRODUCER').then((producer) => {
+            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'METRICS_PRODUCER').then((producer) => {
                 this.mskProducer = producer
             }),
         ])

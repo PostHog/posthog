@@ -14,6 +14,7 @@ def register_all_admin():
         DashboardTemplateAdmin,
         DataColorThemeAdmin,
         DataWarehouseTableAdmin,
+        DuckgresServerAdmin,
         DuckLakeCatalogAdmin,
         EventIngestionRestrictionConfigAdmin,
         ExperimentAdmin,
@@ -52,6 +53,7 @@ def register_all_admin():
         DashboardTemplate,
         DataColorTheme,
         DataWarehouseTable,
+        DuckgresServer,
         DuckLakeCatalog,
         EventIngestionRestrictionConfig,
         Experiment,
@@ -126,6 +128,7 @@ def register_all_admin():
 
     admin.site.register(ExternalDataSchema, ExternalDataSchemaAdmin)
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
+    admin.site.register(DuckgresServer, DuckgresServerAdmin)
     admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)

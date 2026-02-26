@@ -866,7 +866,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
-        return_value=True,
+        return_value=[],
     )
     def test_delete_session_recording(self, _mock_delete_via_recording_api):
         self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
@@ -1115,10 +1115,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
-    def test_bulk_delete_session_recordings(self, _mock_bulk_delete_via_recording_api):
+    def test_bulk_delete_session_recordings(self, _mock_delete_via_recording_api):
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1", "user2"],
@@ -1184,10 +1184,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.json()["detail"] == expected_error_message
 
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
-    def test_bulk_delete_skips_already_deleted_recordings(self, _mock_bulk_delete_via_recording_api):
+    def test_bulk_delete_skips_already_deleted_recordings(self, _mock_delete_via_recording_api):
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -1238,10 +1238,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 2
 
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
-    def test_bulk_delete_mixed_existing_and_nonexistent(self, _mock_bulk_delete_via_recording_api):
+    def test_bulk_delete_mixed_existing_and_nonexistent(self, _mock_delete_via_recording_api):
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -1268,12 +1268,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 2
 
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
-    def test_bulk_delete_creates_postgres_records_for_clickhouse_only_recordings(
-        self, _mock_bulk_delete_via_recording_api
-    ):
+    def test_bulk_delete_creates_postgres_records_for_clickhouse_only_recordings(self, _mock_delete_via_recording_api):
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -1306,11 +1304,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert recording.distinct_id == "user1"
 
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
     @patch("posthog.session_recordings.session_recording_api.logger")
-    def test_bulk_delete_logging(self, mock_logger, _mock_bulk_delete_via_recording_api):
+    def test_bulk_delete_logging(self, mock_logger, _mock_delete_via_recording_api):
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -1610,7 +1608,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
     def test_bulk_delete_recordings_older_than_7_days(
@@ -1619,7 +1617,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         retention_period: str,
         days_old: int,
         _description: str,
-        _mock_bulk_delete_via_recording_api,
+        _mock_delete_via_recording_api,
     ):
         Person.objects.create(
             team=self.team,
@@ -1669,10 +1667,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert recent_recording.distinct_id == "user1"
 
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
-    def test_bulk_delete_with_date_from_parameter(self, _mock_bulk_delete_via_recording_api):
+    def test_bulk_delete_with_date_from_parameter(self, _mock_delete_via_recording_api):
         Person.objects.create(team=self.team, distinct_ids=["user1"], properties={"email": "bla"})
 
         # Set team retention to 90 days
@@ -2014,7 +2012,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
-        return_value=True,
+        return_value=[],
     )
     def test_delete_session_recording_with_recording_api_enabled(self, mock_delete_via_recording_api):
         session_id = "delete_via_api_test"
@@ -2023,12 +2021,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{session_id}")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        mock_delete_via_recording_api.assert_called_once_with(session_id)
+        mock_delete_via_recording_api.assert_called_once()
+        called_ids = mock_delete_via_recording_api.call_args[0][0]
+        assert called_ids == [session_id]
         assert SessionRecording.objects.filter(team=self.team, session_id=session_id, deleted=True).exists()
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
-        return_value=False,
+        return_value=["delete_api_failure_test"],
     )
     def test_delete_recording_still_succeeds_when_recording_api_fails(self, mock_delete_via_recording_api):
         session_id = "delete_api_failure_test"
@@ -2037,11 +2037,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{session_id}")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        mock_delete_via_recording_api.assert_called_once_with(session_id)
+        mock_delete_via_recording_api.assert_called_once()
+        called_ids = mock_delete_via_recording_api.call_args[0][0]
+        assert called_ids == [session_id]
         assert SessionRecording.objects.filter(team=self.team, session_id=session_id, deleted=True).exists()
 
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
     def test_bulk_delete_with_recording_api_enabled(self, mock_bulk_delete):
@@ -2077,7 +2079,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthog.session_recordings.session_recording_api.logger")
     @patch(
-        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._bulk_delete_via_recording_api",
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=["bulk_partial_3"],
     )
     def test_bulk_delete_with_recording_api_partial_failure_logs_warning(self, mock_bulk_delete, mock_logger):

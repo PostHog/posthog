@@ -5,11 +5,8 @@ import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic
 import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
 import { LoadingExceptionList } from 'lib/components/Errors/ExceptionList/LoadingExceptionList'
 import { RawExceptionList } from 'lib/components/Errors/ExceptionList/RawExceptionList'
-import posthog from 'lib/posthog-typed'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
-
-import { useCallbackOnce } from 'products/error_tracking/frontend/hooks/use-callback-once'
 
 import { ExceptionAttributesPreview } from '../../../ExceptionAttributesPreview'
 import { ReleasePreviewPill } from '../../../ReleasesPreview/ReleasePreviewPill'
@@ -43,19 +40,19 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
 }
 
 function StacktraceIssueDisplay({ className }: { className?: string }): JSX.Element | null {
-    const { showAsText, loading, showAllFrames, issueId } = useValues(exceptionCardLogic)
-    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    const { showAsText, loading, showAllFrames, expandedFrameRawIds } = useValues(exceptionCardLogic)
+    const { setShowAllFrames, setFrameExpanded } = useActions(exceptionCardLogic)
     const commonProps = { showAllFrames, setShowAllFrames, className }
-
-    const handleFirstFrameOpen = useCallbackOnce(() => {
-        posthog.capture('error_tracking_stacktrace_explored', { issue_id: issueId })
-    }, [issueId])
 
     return match([loading, showAsText])
         .with([true, P.any], () => <LoadingExceptionList {...commonProps} />)
         .with([false, true], () => <RawExceptionList {...commonProps} />)
         .with([false, false], () => (
-            <CollapsibleExceptionList {...commonProps} onFrameOpenChange={handleFirstFrameOpen} />
+            <CollapsibleExceptionList
+                {...commonProps}
+                expandedFrameRawIds={expandedFrameRawIds}
+                onFrameExpandedChange={setFrameExpanded}
+            />
         ))
         .otherwise(() => null)
 }

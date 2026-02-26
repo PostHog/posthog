@@ -53,7 +53,6 @@ import structlog
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team.team import Team
-from posthog.redis import get_client
 from posthog.storage.cache_expiry_manager import (
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches as get_teams_generic,
@@ -394,23 +393,6 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
         kinds: Optional list of cache types to clear (["redis", "s3"])
     """
     team_metadata_hypercache.clear_cache(team, kinds=kinds)
-
-    # Remove from expiry tracking sorted set
-    try:
-        redis_client = get_client(team_metadata_hypercache.redis_url)
-
-        # Derive identifier using HyperCache's centralized logic
-        if isinstance(team, Team):
-            identifier = team_metadata_hypercache.get_cache_identifier(team)
-        elif isinstance(team, str):
-            identifier = team  # Already have the token
-        else:
-            # If team ID, skip sorted set cleanup (rare case)
-            return
-
-        redis_client.zrem(TEAM_CACHE_EXPIRY_SORTED_SET, identifier)
-    except Exception as e:
-        logger.warning("Failed to remove from expiry tracking", error=str(e), error_type=type(e).__name__)
 
 
 # ===================================================================

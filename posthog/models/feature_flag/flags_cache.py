@@ -50,7 +50,6 @@ from posthog.models.feature_flag.feature_flag import (
 )
 from posthog.models.tag import Tag
 from posthog.models.team import Team
-from posthog.redis import get_client
 from posthog.storage.cache_expiry_manager import (
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches,
@@ -453,17 +452,6 @@ def clear_flags_cache(team: Team | int, kinds: list[str] | None = None) -> None:
         return
 
     flags_hypercache.clear_cache(team, kinds=kinds)
-
-    # Remove from expiry tracking sorted set
-    # Note: When team is an int, we use it directly as the identifier. This works
-    # because flags_hypercache is ID-based (token_based=False). For token-based
-    # caches, callers must pass a Team object to derive the correct identifier.
-    try:
-        redis_client = get_client(flags_hypercache.redis_url)
-        identifier = flags_hypercache.get_cache_identifier(team) if isinstance(team, Team) else team
-        redis_client.zrem(FLAGS_CACHE_EXPIRY_SORTED_SET, str(identifier))
-    except Exception as e:
-        logger.warning("Failed to remove from expiry tracking", error=str(e), error_type=type(e).__name__)
 
 
 def get_teams_with_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> list[Team]:
