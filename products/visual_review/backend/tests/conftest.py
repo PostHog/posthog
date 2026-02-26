@@ -249,7 +249,7 @@ def vr_project_with_github(team, mock_github_integration):
     """Create a visual review repo configured for GitHub."""
     return Repo.objects.create(
         team=team,
-        name="test-repo",
+        repo_external_id=12345,
         repo_full_name="test-org/test-repo",
         baseline_file_paths={"storybook": ".snapshots.yml"},
     )

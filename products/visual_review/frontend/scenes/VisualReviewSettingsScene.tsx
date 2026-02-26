@@ -11,6 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { RepoApi } from '../generated/api.schemas'
+import type { GitHubRepo } from './visualReviewSettingsSceneLogic'
 import { visualReviewSettingsSceneLogic } from './visualReviewSettingsSceneLogic'
 
 export const scene: SceneExport = {
@@ -136,17 +137,9 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
             <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                        <IconGear className="text-muted shrink-0" />
-                        <span className="font-medium truncate">{repo.name}</span>
+                        <IconGithub className="text-muted shrink-0" />
+                        <span className="font-medium truncate">{repo.repo_full_name}</span>
                     </div>
-                    {repo.repo_full_name ? (
-                        <div className="flex items-center gap-1.5 text-sm text-muted mb-2">
-                            <IconGithub className="shrink-0" />
-                            <span className="truncate">{repo.repo_full_name}</span>
-                        </div>
-                    ) : (
-                        <p className="text-sm text-muted-alt mb-2">No GitHub repository configured</p>
-                    )}
                     {pathEntries.length > 0 ? (
                         <div className="space-y-0.5">
                             {pathEntries.map(([runType, filePath]) => (
@@ -168,44 +161,11 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
 }
 
 function RepoEditForm(): JSX.Element {
-    const { formValues, saving, hasChanges, editingRepoId, availableRepos } = useValues(visualReviewSettingsSceneLogic)
+    const { formValues, saving, hasChanges } = useValues(visualReviewSettingsSceneLogic)
     const { setFormField, saveRepo, cancelEdit } = useActions(visualReviewSettingsSceneLogic)
-    const { githubRepositoriesLoading } = useValues(integrationsLogic)
-
-    const isNew = editingRepoId === 'new'
 
     return (
         <div className="border-2 border-primary rounded-lg p-4 space-y-4">
-            <div>
-                <label className="block text-sm font-medium mb-1">Name</label>
-                <LemonInput
-                    value={formValues.name}
-                    onChange={(value) => setFormField('name', value)}
-                    placeholder="e.g. posthog/posthog"
-                />
-            </div>
-
-            <div>
-                <label className="block text-sm font-medium mb-1">GitHub repository</label>
-                <p className="text-muted text-xs mb-1.5">Where baselines are committed on approval.</p>
-                {githubRepositoriesLoading && availableRepos.length === 0 ? (
-                    <div className="flex items-center gap-2 text-muted text-sm">
-                        <Spinner /> Loading repositories...
-                    </div>
-                ) : (
-                    <LemonSelect
-                        value={formValues.repo_full_name}
-                        onChange={(value) => setFormField('repo_full_name', value || '')}
-                        options={availableRepos.map((repo: string) => ({
-                            value: repo,
-                            label: repo,
-                        }))}
-                        placeholder="Select a repository..."
-                        className="w-full"
-                    />
-                )}
-            </div>
-
             <div>
                 <label className="block text-sm font-medium mb-1">Baseline file paths</label>
                 <p className="text-muted text-xs mb-1.5">Where baseline hashes are stored for each run type.</p>
@@ -221,11 +181,9 @@ function RepoEditForm(): JSX.Element {
                     size="small"
                     onClick={saveRepo}
                     loading={saving}
-                    disabledReason={
-                        isNew && !formValues.name.trim() ? 'Name is required' : !hasChanges ? 'No changes' : undefined
-                    }
+                    disabledReason={!hasChanges ? 'No changes' : undefined}
                 >
-                    {isNew ? 'Create' : 'Save'}
+                    Save
                 </LemonButton>
                 <LemonButton type="secondary" size="small" onClick={cancelEdit}>
                     Cancel
@@ -235,12 +193,47 @@ function RepoEditForm(): JSX.Element {
     )
 }
 
+function AddRepoDropdown(): JSX.Element {
+    const { availableRepos, existingRepoNames, saving } = useValues(visualReviewSettingsSceneLogic)
+    const { addRepo } = useActions(visualReviewSettingsSceneLogic)
+    const { githubRepositoriesLoading } = useValues(integrationsLogic)
+
+    const unaddedRepos = availableRepos.filter((r: GitHubRepo) => !existingRepoNames.has(r.full_name))
+
+    if (githubRepositoriesLoading && availableRepos.length === 0) {
+        return (
+            <div className="flex items-center gap-2 text-muted text-sm">
+                <Spinner /> Loading repositories...
+            </div>
+        )
+    }
+
+    return (
+        <LemonSelect
+            placeholder="Add a repository..."
+            loading={saving}
+            options={unaddedRepos.map((repo: GitHubRepo) => ({
+                value: repo.full_name,
+                label: repo.full_name,
+            }))}
+            onChange={(fullName) => {
+                const repo = availableRepos.find((r: GitHubRepo) => r.full_name === fullName)
+                if (repo) {
+                    addRepo(repo)
+                }
+            }}
+            value={null}
+            size="small"
+        />
+    )
+}
+
 export function VisualReviewSettingsScene(): JSX.Element {
-    const { repos, reposLoading, editingRepoId } = useValues(visualReviewSettingsSceneLogic)
-    const { newRepo } = useActions(visualReviewSettingsSceneLogic)
+    const { repos, reposLoading } = useValues(visualReviewSettingsSceneLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
 
     const githubIntegrations = integrations?.filter((i: { kind: string }) => i.kind === 'github') || []
+    const hasGitHub = githubIntegrations.length > 0
 
     if (reposLoading) {
         return (
@@ -259,35 +252,24 @@ export function VisualReviewSettingsScene(): JSX.Element {
             <SceneTitleSection
                 name="Visual review settings"
                 resourceType={{ type: 'visual_review' }}
-                actions={
-                    <LemonButton
-                        icon={<IconPlus />}
-                        type="secondary"
-                        onClick={newRepo}
-                        disabledReason={editingRepoId ? 'Finish editing first' : undefined}
-                    >
-                        Add repo
-                    </LemonButton>
-                }
+                actions={hasGitHub ? <AddRepoDropdown /> : undefined}
             />
 
             <div className="space-y-4 max-w-2xl">
-                {/* GitHub integration check */}
                 {integrationsLoading ? (
                     <div className="flex items-center gap-2 text-muted">
                         <Spinner /> Loading integrations...
                     </div>
-                ) : githubIntegrations.length === 0 ? (
+                ) : !hasGitHub ? (
                     <GitHubConnectPrompt />
                 ) : null}
 
-                {/* New repo form */}
-                {editingRepoId === 'new' && <RepoEditForm />}
-
-                {/* Existing repos */}
-                {repos.length === 0 && !editingRepoId ? (
+                {repos.length === 0 && hasGitHub ? (
                     <div className="border rounded-lg p-6 text-center text-muted">
-                        <p>No repos configured yet. Add one to get started.</p>
+                        <div className="space-y-2">
+                            <IconGear className="text-2xl mx-auto" />
+                            <p>No repos configured yet. Select a repository above to get started.</p>
+                        </div>
                     </div>
                 ) : (
                     repos.map((repo) => <RepoCard key={repo.id} repo={repo} />)

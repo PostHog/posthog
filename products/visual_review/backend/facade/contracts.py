@@ -41,9 +41,10 @@ class CreateRunInput:
 
 @dataclass(frozen=True)
 class CreateRepoInput:
-    """Input for creating a repo."""
+    """Input for creating a repo. Requires GitHub repo identity."""
 
-    name: str
+    repo_external_id: int
+    repo_full_name: str
 
 
 @dataclass(frozen=True)
@@ -160,8 +161,6 @@ class Run:
 class UpdateRepoRequestInput:
     """Request body for updating a repo. repo_id comes from URL."""
 
-    name: str | None = None
-    repo_full_name: str | None = None
     baseline_file_paths: dict[str, str] | None = None
 
 
@@ -170,8 +169,6 @@ class UpdateRepoInput:
     """Full input for updating a repo (internal use)."""
 
     repo_id: UUID
-    name: str | None = None
-    repo_full_name: str | None = None
     baseline_file_paths: dict[str, str] | None = None
 
 
@@ -192,7 +189,7 @@ class Repo:
 
     id: UUID
     team_id: int
-    name: str
+    repo_external_id: int
     repo_full_name: str
     baseline_file_paths: dict[str, str]
     created_at: datetime

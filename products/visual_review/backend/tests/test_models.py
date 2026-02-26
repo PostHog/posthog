@@ -11,11 +11,11 @@ from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapsh
 @pytest.mark.django_db
 class TestProject:
     def test_str_returns_name(self, team):
-        repo = Repo.objects.create(team=team, name="My Repo")
-        assert str(repo) == "My Repo"
+        repo = Repo.objects.create(team=team, repo_external_id=111, repo_full_name="org/my-repo")
+        assert str(repo) == "org/my-repo"
 
     def test_id_is_uuid(self, team):
-        repo = Repo.objects.create(team=team, name="Test")
+        repo = Repo.objects.create(team=team, repo_external_id=222, repo_full_name="org/test")
         assert isinstance(repo.id, uuid.UUID)
 
 
@@ -23,7 +23,7 @@ class TestProject:
 class TestArtifact:
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, name="Test")
+        return Repo.objects.create(team=team, repo_external_id=222, repo_full_name="org/test")
 
     def test_str_shows_truncated_hash(self, repo):
         artifact = Artifact.objects.create(repo=repo, content_hash="abcdef123456789", storage_path="visual_review/abc")
@@ -40,7 +40,7 @@ class TestArtifact:
 class TestRun:
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, name="Test")
+        return Repo.objects.create(team=team, repo_external_id=222, repo_full_name="org/test")
 
     def test_str_shows_id_and_status(self, repo):
         run = Run.objects.create(repo=repo, commit_sha="abc123", branch="main")
@@ -63,7 +63,7 @@ class TestRun:
 class TestRunSnapshot:
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, name="Test")
+        return Repo.objects.create(team=team, repo_external_id=222, repo_full_name="org/test")
 
     @pytest.fixture
     def run(self, repo):

@@ -15,32 +15,34 @@ class TestRepoViewSet(APIBaseTest):
     def test_create_repo(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/repos/",
-            {"name": "My Repo"},
+            {"repo_external_id": 12345, "repo_full_name": "org/my-repo"},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        self.assertEqual(data["name"], "My Repo")
+        self.assertEqual(data["repo_full_name"], "org/my-repo")
+        self.assertEqual(data["repo_external_id"], 12345)
         self.assertIn("id", data)
 
     def test_list_repos(self):
-        api.create_repo(team_id=self.team.id, name="First")
-        api.create_repo(team_id=self.team.id, name="Second")
+        existing_count = len(self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/").json())
+        api.create_repo(team_id=self.team.id, repo_external_id=111, repo_full_name="org/first")
+        api.create_repo(team_id=self.team.id, repo_external_id=222, repo_full_name="org/second")
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(len(data), 2)
+        self.assertEqual(len(data) - existing_count, 2)
 
     def test_retrieve_project(self):
-        repo = api.create_repo(team_id=self.team.id, name="Test")
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=333, repo_full_name="org/test")
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "Test")
+        self.assertEqual(response.json()["repo_full_name"], "org/test")
 
     def test_retrieve_project_not_found(self):
         import uuid
@@ -53,7 +55,7 @@ class TestRepoViewSet(APIBaseTest):
 class TestRunViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.vr_project = api.create_repo(team_id=self.team.id, name="Test")
+        self.vr_project = api.create_repo(team_id=self.team.id, repo_external_id=99999, repo_full_name="org/test")
 
     @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
     def test_create_run(self, mock_presigned):

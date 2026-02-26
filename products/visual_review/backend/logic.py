@@ -79,21 +79,19 @@ def list_repos_for_team(team_id: int) -> list[Repo]:
     return list(Repo.objects.filter(team_id=team_id).order_by("-created_at"))
 
 
-def create_repo(team_id: int, name: str) -> Repo:
-    return Repo.objects.create(team_id=team_id, name=name)
+def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> Repo:
+    return Repo.objects.create(
+        team_id=team_id,
+        repo_external_id=repo_external_id,
+        repo_full_name=repo_full_name,
+    )
 
 
 def update_repo(
     repo_id: UUID,
-    name: str | None = None,
-    repo_full_name: str | None = None,
     baseline_file_paths: dict[str, str] | None = None,
 ) -> Repo:
     repo = get_repo(repo_id)
-    if name is not None:
-        repo.name = name
-    if repo_full_name is not None:
-        repo.repo_full_name = repo_full_name
     if baseline_file_paths is not None:
         repo.baseline_file_paths = baseline_file_paths
     repo.save()
@@ -250,20 +248,14 @@ def create_run(
     """
     repo = get_repo(repo_id)
 
-    run = Run.objects.create(
-        repo=repo,
-        run_type=run_type,
-        commit_sha=commit_sha,
-        branch=branch,
-        pr_number=pr_number,
-        total_snapshots=len(snapshots),
-        metadata=metadata or {},
-    )
-
-    # Supersede older runs that are still actionable (awaiting review or in progress).
-    # Approved runs and clean completed runs are historical records — superseding them
-    # would just dump them into the stale tab for no reason.
-    Run.objects.filter(
+    # Supersede old runs before inserting the new one. The unique constraint
+    # on (repo, branch, run_type) WHERE superseded_by IS NULL fires per-
+    # statement, so the slot must be free before the insert.
+    #
+    # We don't have the new run's ID yet, so we use a self-referencing
+    # sentinel: each superseded run points to itself temporarily.
+    # After the new run is inserted, we fix up the pointers.
+    supersede_filter = Run.objects.filter(
         repo_id=repo_id,
         branch=branch,
         run_type=run_type,
@@ -275,7 +267,27 @@ def create_run(
         changed_count=0,
         new_count=0,
         removed_count=0,
-    ).exclude(id=run.id).update(superseded_by=run)
+    )
+    # Collect IDs before mutating, then self-reference to clear the slot
+    superseded_ids = list(supersede_filter.values_list("id", flat=True))
+    if superseded_ids:
+        from django.db.models import F
+
+        Run.objects.filter(id__in=superseded_ids).update(superseded_by=F("id"))
+
+    run = Run.objects.create(
+        repo=repo,
+        run_type=run_type,
+        commit_sha=commit_sha,
+        branch=branch,
+        pr_number=pr_number,
+        total_snapshots=len(snapshots),
+        metadata=metadata or {},
+    )
+
+    # Fix up the sentinel pointers to reference the actual new run
+    if superseded_ids:
+        Run.objects.filter(id__in=superseded_ids).update(superseded_by=run)
 
     all_hashes: set[str] = set()
     # Store width/height from manifest for later artifact creation
@@ -490,6 +502,79 @@ def get_github_integration_for_repo(repo: Repo):
         raise GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
     return GitHubIntegration(integration)
+
+
+def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
+    """
+    Look up the current full_name of a repo by its numeric GitHub ID.
+
+    Used to detect renames: GET /repositories/{id} always returns the
+    latest full_name even if the repo was renamed or transferred.
+    Returns None if the repo is inaccessible.
+    """
+    import requests
+
+    access_token = github.integration.sensitive_config["access_token"]
+    response = requests.get(
+        f"https://api.github.com/repositories/{repo_external_id}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {access_token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        timeout=10,
+    )
+    if response.status_code == 200:
+        return response.json().get("full_name")
+    return None
+
+
+def _github_api_request(
+    method: str,
+    repo: Repo,
+    path: str,
+    **kwargs,
+):
+    """
+    Make a GitHub API request, auto-resolving renamed repos on 404.
+
+    If the request returns 404 and the repo has an external ID, looks up
+    the current full_name via /repositories/{id}. If it changed, updates
+    the stored repo_full_name and retries once.
+    """
+    import requests
+
+    github = get_github_integration_for_repo(repo)
+    if github.access_token_expired():
+        github.refresh_access_token()
+
+    access_token = github.integration.sensitive_config["access_token"]
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {access_token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        **(kwargs.pop("headers", {})),
+    }
+
+    url = f"https://api.github.com/repos/{repo.repo_full_name}/{path}"
+    response = requests.request(method, url, headers=headers, **kwargs)
+
+    if response.status_code == 404 and repo.repo_external_id:
+        new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
+        if new_full_name and new_full_name != repo.repo_full_name:
+            logger.info(
+                "visual_review.repo_renamed",
+                repo_id=str(repo.id),
+                old_name=repo.repo_full_name,
+                new_name=new_full_name,
+            )
+            repo.repo_full_name = new_full_name
+            repo.save(update_fields=["repo_full_name"])
+
+            url = f"https://api.github.com/repos/{new_full_name}/{path}"
+            response = requests.request(method, url, headers=headers, **kwargs)
+
+    return response
 
 
 def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
@@ -714,8 +799,20 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     # Build lookup of identifier -> new_hash
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
 
-    # TODO: Validate identifiers exist in run (currently unknown identifiers are silently ignored)
-    # TODO: Enforce new_hash == snapshot.current_hash (prevents corrupting baseline YAML)
+    # Validate all identifiers exist in this run
+    run_identifiers = set(run.snapshots.values_list("identifier", flat=True))
+    unknown = set(approvals.keys()) - run_identifiers
+    if unknown:
+        raise ValueError(f"Unknown snapshot identifiers: {', '.join(sorted(unknown))}")
+
+    # Validate approved hashes match snapshot current_hash (prevents baseline corruption)
+    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
+        expected_hash = approvals[snapshot.identifier]
+        if expected_hash != snapshot.current_hash:
+            raise ValueError(
+                f"Hash mismatch for {snapshot.identifier}: "
+                f"approved {expected_hash[:12]} but current is {snapshot.current_hash[:12]}"
+            )
 
     # Validate all artifacts exist before making any changes
     for identifier, new_hash in approvals.items():
@@ -787,7 +884,14 @@ def update_snapshot_diff(
     diff_percentage: float,
     diff_pixel_count: int,
 ) -> RunSnapshot:
-    snapshot = RunSnapshot.objects.get(id=snapshot_id)
+    snapshot = RunSnapshot.objects.select_related("run").get(id=snapshot_id)
+    if diff_artifact.repo_id != snapshot.run.repo_id:
+        raise ValueError(
+            f"Cross-repo artifact reference: artifact repo {diff_artifact.repo_id} "
+            f"!= snapshot repo {snapshot.run.repo_id}"
+        )
+    if snapshot.result != SnapshotResult.CHANGED:
+        raise ValueError(f"Cannot attach diff to snapshot with result={snapshot.result}, expected 'changed'")
     snapshot.diff_artifact = diff_artifact
     snapshot.diff_percentage = diff_percentage
     snapshot.diff_pixel_count = diff_pixel_count

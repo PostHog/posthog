@@ -70,7 +70,12 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: ValidatedRequest, **kwargs) -> Response:
         """Create a new repo."""
-        repo = api.create_repo(team_id=self.team_id, name=request.validated_data.name)
+        data = request.validated_data
+        repo = api.create_repo(
+            team_id=self.team_id,
+            repo_external_id=data.repo_external_id,
+            repo_full_name=data.repo_full_name,
+        )
         return Response(RepoSerializer(instance=repo).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: RepoSerializer})
@@ -91,8 +96,6 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         body = request.validated_data
         input_dto = UpdateRepoInput(
             repo_id=UUID(pk),
-            name=body.name,
-            repo_full_name=body.repo_full_name,
             baseline_file_paths=body.baseline_file_paths,
         )
 

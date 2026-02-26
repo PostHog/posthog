@@ -96,7 +96,7 @@ def _to_repo(repo) -> contracts.Repo:
     return contracts.Repo(
         id=repo.id,
         team_id=repo.team_id,
-        name=repo.name,
+        repo_external_id=repo.repo_external_id,
         repo_full_name=repo.repo_full_name,
         baseline_file_paths=repo.baseline_file_paths,
         created_at=repo.created_at,
@@ -116,16 +116,14 @@ def list_repos(team_id: int) -> list[contracts.Repo]:
     return [_to_repo(p) for p in projects]
 
 
-def create_repo(team_id: int, name: str) -> contracts.Repo:
-    repo = logic.create_repo(team_id=team_id, name=name)
+def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> contracts.Repo:
+    repo = logic.create_repo(team_id=team_id, repo_external_id=repo_external_id, repo_full_name=repo_full_name)
     return _to_repo(repo)
 
 
 def update_repo(input: contracts.UpdateRepoInput) -> contracts.Repo:
     repo = logic.update_repo(
         repo_id=input.repo_id,
-        name=input.name,
-        repo_full_name=input.repo_full_name,
         baseline_file_paths=input.baseline_file_paths,
     )
     return _to_repo(repo)

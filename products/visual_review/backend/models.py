@@ -12,17 +12,18 @@ from .facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
 
 class Repo(models.Model):
     """
-    A visual review repo, typically representing a repository or test suite.
+    A visual review repo tied to a GitHub repository.
 
-    Each Team can have multiple projects.
+    Identity is the GitHub numeric repo ID (survives renames and org transfers).
+    repo_full_name is kept for API calls and display, auto-updated on rename detection.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
-    name = models.CharField(max_length=255)
 
-    # GitHub repository (e.g., "posthog/posthog")
-    repo_full_name = models.CharField(max_length=255, blank=True)
+    # GitHub identity: numeric ID is stable, full_name is for API calls + display
+    repo_external_id = models.BigIntegerField()
+    repo_full_name = models.CharField(max_length=255)
 
     # Baseline file paths per run type
     # e.g., {"storybook": ".storybook/snapshots.yml", "playwright": "playwright/snapshots.yml"}
@@ -31,8 +32,13 @@ class Repo(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "repo_external_id"], name="unique_repo_per_team"),
+        ]
+
     def __str__(self) -> str:
-        return self.name
+        return self.repo_full_name
 
 
 class Artifact(models.Model):
@@ -109,6 +115,18 @@ class Run(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["repo", "branch", "run_type", "superseded_by"], name="run_branch_type_current"),
+            models.Index(fields=["repo", "pr_number"], name="run_repo_pr"),
+            models.Index(fields=["commit_sha"], name="run_commit_sha"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["repo", "branch", "run_type"],
+                condition=models.Q(superseded_by__isnull=True),
+                name="unique_latest_run_per_group",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Run {self.id} ({self.status})"
@@ -175,9 +193,19 @@ class RunSnapshot(models.Model):
     # e.g., {"browser": "chrome", "viewport": "desktop", "is_flaky": true, "is_critical": true, "page_group": "Checkout"}
     metadata = models.JSONField(default=dict, blank=True)
 
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["run", "identifier"], name="unique_snapshot_identifier_per_run"),
+        ]
+        indexes = [
+            models.Index(fields=["run", "result"], name="snapshot_run_result"),
+            models.Index(fields=["run", "review_state"], name="snapshot_run_review_state"),
+            models.Index(fields=["identifier"], name="snapshot_identifier"),
+            models.Index(fields=["current_hash"], name="snapshot_current_hash"),
+            models.Index(fields=["baseline_hash"], name="snapshot_baseline_hash"),
         ]
 
     def __str__(self) -> str:

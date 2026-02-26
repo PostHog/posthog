@@ -10,18 +10,19 @@ from products.visual_review.backend.models import Repo
 @pytest.mark.django_db
 class TestProjectOperations:
     def test_create_repo(self, team):
-        repo = logic.create_repo(team_id=team.id, name="My Repo")
+        repo = logic.create_repo(team_id=team.id, repo_external_id=12345, repo_full_name="org/my-repo")
 
         assert repo.team_id == team.id
-        assert repo.name == "My Repo"
+        assert repo.repo_external_id == 12345
+        assert repo.repo_full_name == "org/my-repo"
 
     def test_get_repo(self, team):
-        repo = logic.create_repo(team_id=team.id, name="Test")
+        repo = logic.create_repo(team_id=team.id, repo_external_id=11111, repo_full_name="org/test")
 
         retrieved = logic.get_repo(repo.id)
 
         assert retrieved.id == repo.id
-        assert retrieved.name == "Test"
+        assert retrieved.repo_full_name == "org/test"
 
     def test_get_repo_not_found(self):
         import uuid
@@ -30,21 +31,21 @@ class TestProjectOperations:
             logic.get_repo(uuid.uuid4())
 
     def test_list_repos_for_team(self, team):
-        logic.create_repo(team_id=team.id, name="First")
-        logic.create_repo(team_id=team.id, name="Second")
+        logic.create_repo(team_id=team.id, repo_external_id=111, repo_full_name="org/first")
+        logic.create_repo(team_id=team.id, repo_external_id=222, repo_full_name="org/second")
 
         projects = logic.list_repos_for_team(team.id)
 
         assert len(projects) == 2
-        names = {p.name for p in projects}
-        assert names == {"First", "Second"}
+        names = {p.repo_full_name for p in projects}
+        assert names == {"org/first", "org/second"}
 
 
 @pytest.mark.django_db
 class TestArtifactOperations:
     @pytest.fixture
     def repo(self, team):
-        return logic.create_repo(team_id=team.id, name="Test")
+        return logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
     def test_get_or_create_artifact_creates_new(self, repo):
         artifact, created = logic.get_or_create_artifact(
@@ -116,7 +117,7 @@ class TestArtifactOperations:
 class TestRunOperations:
     @pytest.fixture
     def repo(self, team):
-        return logic.create_repo(team_id=team.id, name="Test")
+        return logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
     def test_create_run_basic(self, repo):
         run, uploads = logic.create_run(
@@ -289,7 +290,7 @@ class TestRunOperations:
 class TestApproveRun:
     @pytest.fixture
     def repo(self, team):
-        return logic.create_repo(team_id=team.id, name="Test")
+        return logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
     def test_approve_run(self, repo, user):
         current_artifact, _ = logic.get_or_create_artifact(
@@ -328,7 +329,7 @@ class TestApproveRun:
 class TestGetRunSnapshots:
     @pytest.fixture
     def repo(self, team):
-        return logic.create_repo(team_id=team.id, name="Test")
+        return logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
     def test_get_run_snapshots(self, repo):
         run, _ = logic.create_run(
@@ -352,7 +353,7 @@ class TestGetRunSnapshots:
         assert [s.identifier for s in snapshots] == ["A-component", "B-component", "C-component"]
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestCommitStatusChecks:
     """Test that GitHub commit status checks are posted at state transitions."""
 
@@ -360,7 +361,7 @@ class TestCommitStatusChecks:
     def github_repo(self, team, mock_github_integration):
         return Repo.objects.create(
             team=team,
-            name="test-repo",
+            repo_external_id=55555,
             repo_full_name="test-org/test-repo",
             baseline_file_paths={"storybook": ".snapshots.yml"},
         )
@@ -462,7 +463,7 @@ class TestCommitStatusChecks:
 
     def test_no_status_without_github_integration(self, team):
         """Status checks are silently skipped when no GitHub integration exists."""
-        repo = logic.create_repo(team_id=team.id, name="No GitHub")
+        repo = logic.create_repo(team_id=team.id, repo_external_id=77777, repo_full_name="org/no-github")
 
         # No mock_github_api/mock_github_integration — should not raise
         run, _ = logic.create_run(
@@ -481,7 +482,7 @@ class TestCommitStatusChecks:
         """Status checks are silently skipped when repo has no repo_full_name."""
         repo = Repo.objects.create(
             team=team,
-            name="no-github",
+            repo_external_id=88888,
             repo_full_name="",
         )
 
@@ -506,7 +507,7 @@ class TestRunSupersession:
 
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, name="test-repo")
+        return Repo.objects.create(team=team, repo_external_id=66666, repo_full_name="org/test-repo")
 
     def _create_run(self, repo, *, branch="feat/x", run_type=RunType.STORYBOOK, commit_sha="abc"):
         run, _ = logic.create_run(
@@ -518,6 +519,8 @@ class TestRunSupersession:
             snapshots=[{"identifier": "snap", "content_hash": commit_sha}],
             baseline_hashes={},
         )
+        logic.mark_run_completed(run.id)
+        run.refresh_from_db()
         return run
 
     def test_single_run_not_superseded(self, repo):

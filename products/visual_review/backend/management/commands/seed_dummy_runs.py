@@ -59,7 +59,7 @@ class Command(BaseCommand):
         # Get or create repo
         repo, created = Repo.objects.get_or_create(
             team=team,
-            name="Visual Review Demo",
+            repo_external_id=0,
             defaults={
                 "repo_full_name": repo_name,
                 "baseline_file_paths": {
@@ -69,9 +69,9 @@ class Command(BaseCommand):
             },
         )
         if created:
-            self.stdout.write(f"Created repo: {repo.name}")
+            self.stdout.write(f"Created repo: {repo.repo_full_name}")
         else:
-            self.stdout.write(f"Using existing repo: {repo.name}")
+            self.stdout.write(f"Using existing repo: {repo.repo_full_name}")
 
         # Collect snapshot files
         repo_root = Path(__file__).resolve().parents[5]  # Go up to repo root
@@ -113,7 +113,7 @@ class Command(BaseCommand):
                     f"changed={run.changed_count} new={run.new_count}"
                 )
 
-        self.stdout.write(self.style.SUCCESS(f"\nCreated {runs_created} runs for repo '{repo.name}'"))
+        self.stdout.write(self.style.SUCCESS(f"\nCreated {runs_created} runs for repo '{repo.repo_full_name}'"))
 
     def _get_merged_prs(self, limit: int) -> list[dict]:
         """Fetch recent merged PRs from GitHub."""

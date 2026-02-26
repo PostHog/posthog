@@ -12,7 +12,7 @@ export type RepoApiBaselineFilePaths = { [key: string]: string }
 export interface RepoApi {
     id: string
     team_id: number
-    name: string
+    repo_external_id: number
     repo_full_name: string
     baseline_file_paths: RepoApiBaselineFilePaths
     created_at: string
@@ -28,7 +28,8 @@ export interface PaginatedRepoListApi {
 }
 
 export interface CreateRepoInputApi {
-    name: string
+    repo_external_id: number
+    repo_full_name: string
 }
 
 /**
@@ -37,10 +38,6 @@ export interface CreateRepoInputApi {
 export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]: string } | null | null
 
 export interface PatchedUpdateRepoRequestInputApi {
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    repo_full_name?: string | null
     /** @nullable */
     baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
 }

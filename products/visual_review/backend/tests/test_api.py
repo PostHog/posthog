@@ -20,19 +20,20 @@ from products.visual_review.backend.facade.enums import RunType, SnapshotResult
 @pytest.mark.django_db
 class TestProjectAPI:
     def test_create_repo_returns_dto(self, team):
-        result = api.create_repo(team_id=team.id, name="My Repo")
+        result = api.create_repo(team_id=team.id, repo_external_id=12345, repo_full_name="org/my-repo")
 
         assert isinstance(result.id, UUID)
         assert result.team_id == team.id
-        assert result.name == "My Repo"
+        assert result.repo_external_id == 12345
+        assert result.repo_full_name == "org/my-repo"
 
     def test_get_repo_returns_dto(self, team):
-        created = api.create_repo(team_id=team.id, name="Test")
+        created = api.create_repo(team_id=team.id, repo_external_id=11111, repo_full_name="org/test")
 
         result = api.get_repo(created.id)
 
         assert result.id == created.id
-        assert result.name == "Test"
+        assert result.repo_full_name == "org/test"
 
     def test_get_repo_not_found_raises(self):
         import uuid
@@ -41,51 +42,35 @@ class TestProjectAPI:
             api.get_repo(uuid.uuid4())
 
     def test_list_repos_returns_dtos(self, team):
-        api.create_repo(team_id=team.id, name="First")
-        api.create_repo(team_id=team.id, name="Second")
+        api.create_repo(team_id=team.id, repo_external_id=111, repo_full_name="org/first")
+        api.create_repo(team_id=team.id, repo_external_id=222, repo_full_name="org/second")
 
         result = api.list_repos(team.id)
 
         assert len(result) == 2
-        names = {p.name for p in result}
-        assert names == {"First", "Second"}
+        names = {p.repo_full_name for p in result}
+        assert names == {"org/first", "org/second"}
 
-    def test_update_repo_sets_github_config(self, team):
-        created = api.create_repo(team_id=team.id, name="Test")
-        assert created.repo_full_name == ""
+    def test_update_repo_sets_baseline_paths(self, team):
+        created = api.create_repo(team_id=team.id, repo_external_id=333, repo_full_name="org/test")
         assert created.baseline_file_paths == {}
 
         result = api.update_repo(
             UpdateRepoInput(
                 repo_id=created.id,
-                repo_full_name="posthog/posthog",
                 baseline_file_paths={"storybook": ".storybook/snapshots.yml"},
             )
         )
 
-        assert result.repo_full_name == "posthog/posthog"
         assert result.baseline_file_paths == {"storybook": ".storybook/snapshots.yml"}
-        assert result.name == "Test"  # unchanged
-
-    def test_update_repo_partial_update(self, team):
-        created = api.create_repo(team_id=team.id, name="Original")
-
-        result = api.update_repo(
-            UpdateRepoInput(
-                repo_id=created.id,
-                name="Updated",
-            )
-        )
-
-        assert result.name == "Updated"
-        assert result.repo_full_name == ""  # unchanged
+        assert result.repo_full_name == "org/test"  # unchanged
 
 
 @pytest.mark.django_db
 class TestRunAPI:
     @pytest.fixture
     def repo(self, team):
-        return api.create_repo(team_id=team.id, name="Test")
+        return api.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
     @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
     def test_create_run_returns_result_with_uploads(self, mock_presigned, repo):
@@ -198,7 +183,7 @@ class TestRunAPI:
 class TestApproveRunAPI:
     @pytest.fixture
     def repo(self, team):
-        return api.create_repo(team_id=team.id, name="Test")
+        return api.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
     def test_approve_run(self, repo, user):
         # Create artifact first (directly via logic since API no longer exposes this)
