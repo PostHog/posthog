@@ -719,9 +719,10 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
     )
 
 
-CONTINUE_AS_NEW_THRESHOLD = 30
+CONTINUE_AS_NEW_THRESHOLD = 20
 BATCH_SIZE = 5
 BATCH_DEBOUNCE_SECONDS = 5
+TYPE_EXAMPLES_CACHE_TTL = timedelta(minutes=5)
 
 
 async def _process_one_signal(inputs: EmitSignalInputs) -> str:
@@ -906,10 +907,14 @@ def _augment_candidates_with_batch(
     return augmented
 
 
-async def _process_signal_batch(batch: list[EmitSignalInputs]) -> int:
+async def _process_signal_batch(
+    batch: list[EmitSignalInputs],
+    cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
+) -> tuple[int, FetchSignalTypeExamplesOutput]:
     """
     Process a batch of signals with parallel preparation (steps 1-4) and sequential
-    matching/assignment (steps 5-7). Returns the number of dropped (failed) signals.
+    matching/assignment (steps 5-7). Returns (dropped_count, type_examples) — the
+    caller can cache the type_examples for subsequent batches.
 
     Earlier signals in the batch are injected into later signals' candidate sets via
     local cosine distance comparison, eliminating the need for per-signal CH waits
@@ -920,14 +925,20 @@ async def _process_signal_batch(batch: list[EmitSignalInputs]) -> int:
 
     # === PARALLEL PHASE (steps 1-4) ===
 
-    # Step 1: Embed all signals + fetch type examples (shared across batch)
-    step1_results = await asyncio.gather(
-        workflow.execute_activity(
+    # Step 1a: Fetch type examples if not cached (needed by query gen)
+    if cached_type_examples is not None:
+        type_examples_result = cached_type_examples
+    else:
+        type_examples_result = await workflow.execute_activity(
             fetch_signal_type_examples_activity,
             FetchSignalTypeExamplesInput(team_id=team_id),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
-        ),
+        )
+
+    # Step 1b: Embed all signals + generate search queries in parallel
+    # (query gen needs type examples but NOT the signal embeddings)
+    step1b_results = await asyncio.gather(
         *[
             workflow.execute_activity(
                 get_embedding_activity,
@@ -937,29 +948,23 @@ async def _process_signal_batch(batch: list[EmitSignalInputs]) -> int:
             )
             for s in batch
         ],
+        *[
+            workflow.execute_activity(
+                generate_search_queries_activity,
+                GenerateSearchQueriesInput(
+                    description=s.description,
+                    source_product=s.source_product,
+                    source_type=s.source_type,
+                    signal_type_examples=type_examples_result.examples,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            for s in batch
+        ],
     )
-    type_examples_result: FetchSignalTypeExamplesOutput = step1_results[0]
-    signal_embeddings: list[GenerateEmbeddingOutput] = list(step1_results[1:])
-
-    # Step 2: Generate search queries for all signals (N parallel LLM calls)
-    query_gen_results: list[GenerateSearchQueriesOutput] = list(
-        await asyncio.gather(
-            *[
-                workflow.execute_activity(
-                    generate_search_queries_activity,
-                    GenerateSearchQueriesInput(
-                        description=s.description,
-                        source_product=s.source_product,
-                        source_type=s.source_type,
-                        signal_type_examples=type_examples_result.examples,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                for s in batch
-            ]
-        )
-    )
+    signal_embeddings: list[GenerateEmbeddingOutput] = list(step1b_results[: len(batch)])
+    query_gen_results: list[GenerateSearchQueriesOutput] = list(step1b_results[len(batch) :])
 
     # Step 3: Embed all queries across all signals (flatten → parallel embed)
     all_queries_flat: list[tuple[int, str]] = []
@@ -1113,7 +1118,7 @@ async def _process_signal_batch(batch: list[EmitSignalInputs]) -> int:
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             pass
 
-    return dropped
+    return dropped, type_examples_result
 
 
 @temporalio.workflow.defn(name="team-signal-grouping")
@@ -1131,6 +1136,8 @@ class TeamSignalGroupingWorkflow:
     def __init__(self) -> None:
         self._signal_buffer: list[EmitSignalInputs] = []
         self._signals_processed: int = 0
+        self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
+        self._type_examples_fetched_at: Optional[datetime] = None
         meter = workflow.metric_meter()
         self._signals_received_counter = meter.create_counter(
             "signals_grouping_signals_received",
@@ -1180,8 +1187,19 @@ class TeamSignalGroupingWorkflow:
                     batch.append(self._signal_buffer.pop(0))
                 self._buffer_size_gauge.set(len(self._signal_buffer))
 
+                # Invalidate type examples cache if stale
+                now = workflow.now()
+                cached = self._cached_type_examples
+                if (
+                    self._type_examples_fetched_at is not None
+                    and (now - self._type_examples_fetched_at) > TYPE_EXAMPLES_CACHE_TTL
+                ):
+                    cached = None
+
                 try:
-                    dropped = await _process_signal_batch(batch)
+                    dropped, type_examples = await _process_signal_batch(batch, cached_type_examples=cached)
+                    self._cached_type_examples = type_examples
+                    self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
                     self._signals_dropped_counter.add(dropped)
                 except Exception:
                     # Parallel phase failed — all signals in batch dropped
