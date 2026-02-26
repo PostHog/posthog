@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     PARQUET_READ_DURATION_SECONDS,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
+from posthog.temporal.data_imports.row_tracking import finish_row_tracking
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
 
@@ -178,9 +179,10 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         logger.warning("no_delta_table_for_post_load", job_id=export_signal.job_id)
         return
 
-    table_schema_dict: dict[str, str] = {}
-    if schema.table and schema.table.columns:
-        table_schema_dict = {col_name: col["hogql"] for col_name, col in schema.table.columns.items() if "hogql" in col}
+    pa_table = read_parquet(export_signal.s3_path)
+    internal_schema = HogQLSchema()
+    internal_schema.add_pyarrow_table(pa_table)
+    table_schema_dict = internal_schema.to_hogql_types()
 
     async_to_sync(run_post_load_operations)(
         job=job,
@@ -206,6 +208,8 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
     )
     job.finished_at = dt.datetime.now(dt.UTC)
     job.save()
+
+    async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
 
     logger.info(
         "job_marked_completed",
@@ -291,6 +295,7 @@ def process_message(message: Any) -> None:
             resource_name=export_signal.resource_name,
             job=job,
             logger=logger,
+            is_first_sync=export_signal.is_first_ever_sync,
         )
 
         with PARQUET_READ_DURATION_SECONDS.time():

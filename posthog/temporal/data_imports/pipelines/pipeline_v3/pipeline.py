@@ -196,6 +196,10 @@ class PipelineV3(Generic[ResumableData]):
                 self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
             )
 
+            is_fresh_sync = self._delta_table_helper._is_first_sync or self._schema.table is None
+            if is_fresh_sync:
+                self._kafka_producer._is_first_ever_sync = True
+
             async for item in async_iterate(self._resource.items()):
                 py_table = None
 
