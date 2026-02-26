@@ -228,7 +228,7 @@ class HogQLQueryExecutor:
         return source_ids
 
     def _maybe_prepare_direct_postgres_query(self) -> None:
-        query_type = self.select_query.type
+        query_type = self._get_select_query_type()
         if query_type is None:
             return
 
@@ -278,7 +278,7 @@ class HogQLQueryExecutor:
         self.direct_postgres_source_id = next(iter(direct_source_ids))
 
     def _should_use_direct_postgres(self) -> bool:
-        query_type = self.select_query.type
+        query_type = self._get_select_query_type()
         if query_type is None:
             return False
 
@@ -301,6 +301,19 @@ class HogQLQueryExecutor:
             return False
 
         return True
+
+    def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
+        if self.select_query.type is not None:
+            return self.select_query.type
+
+        resolved_query = Resolver(context=self.hogql_context or self.context, dialect="hogql").visit(
+            clone_expr(self.select_query, True)
+        )
+
+        if isinstance(resolved_query, ast.SelectQuery) or isinstance(resolved_query, ast.SelectSetQuery):
+            return resolved_query.type
+
+        return None
 
     def _execute_direct_postgres_query(self) -> None:
         assert self.direct_postgres_sql is not None

@@ -77,6 +77,40 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(executor._should_use_direct_postgres(), expected)
 
+    def test_should_use_direct_postgres_resolves_query_type_when_missing(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="postgres.ph3.ph3_postgres_without_team_id",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(query="SELECT * FROM postgres.ph3.ph3_postgres_without_team_id", team=self.team)
+
+        executor._parse_query()
+
+        self.assertIsNone(executor.select_query.type)
+        self.assertEqual(executor._should_use_direct_postgres(), True)
+
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
