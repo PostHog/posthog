@@ -173,15 +173,22 @@ impl DatabasePools {
                 })?,
         );
 
-        let non_persons_writer = Arc::new(
-            get_pool_with_config(&config.write_database_url, non_persons_writer_pool_config)
-                .map_err(|e| {
-                    FlagError::DatabaseError(
-                        e,
-                        Some("Failed to create non-persons writer pool".to_string()),
-                    )
-                })?,
-        );
+        // When SKIP_WRITES is enabled, we alias the writer pool to the reader pool.
+        // This ensures no writes can happen and allows starting without a write DB URL.
+        let non_persons_writer = if *config.skip_writes {
+            info!("SKIP_WRITES enabled: aliasing non-persons writer to reader pool");
+            non_persons_reader.clone()
+        } else {
+            Arc::new(
+                get_pool_with_config(&config.write_database_url, non_persons_writer_pool_config)
+                    .map_err(|e| {
+                        FlagError::DatabaseError(
+                            e,
+                            Some("Failed to create non-persons writer pool".to_string()),
+                        )
+                    })?,
+            )
+        };
 
         // Create persons pools if configured, otherwise reuse the non-persons pools
         let persons_reader = if config.is_persons_db_routing_enabled() {
@@ -201,7 +208,10 @@ impl DatabasePools {
             non_persons_reader.clone()
         };
 
-        let persons_writer = if config.is_persons_db_routing_enabled() {
+        let persons_writer = if *config.skip_writes {
+            info!("SKIP_WRITES enabled: aliasing persons writer to reader pool");
+            persons_reader.clone()
+        } else if config.is_persons_db_routing_enabled() {
             Arc::new(
                 get_pool_with_config(
                     &config.get_persons_write_database_url(),
@@ -256,7 +266,9 @@ impl DatabasePools {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::config::Config;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_database_routing_disabled() {
@@ -290,5 +302,23 @@ mod tests {
             config.get_persons_write_database_url(),
             "postgres://posthog:posthog@localhost:5432/posthog_persons"
         );
+    }
+
+    #[tokio::test]
+    async fn test_skip_writes_aliases_writer_to_reader() {
+        use crate::config::FlexBool;
+        let mut config = Config::default_test_config();
+        config.skip_writes = FlexBool(true);
+        // Set write URLs to something invalid to prove they aren't used
+        config.write_database_url = "invalid://url".to_string();
+        config.persons_write_database_url = "invalid://url".to_string();
+
+        let pools = DatabasePools::from_config(&config).await.unwrap();
+
+        assert!(Arc::ptr_eq(
+            &pools.non_persons_reader,
+            &pools.non_persons_writer
+        ));
+        assert!(Arc::ptr_eq(&pools.persons_reader, &pools.persons_writer));
     }
 }

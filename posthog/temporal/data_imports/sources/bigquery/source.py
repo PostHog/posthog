@@ -60,8 +60,14 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                 supports_incremental=len(columns) > 0,
                 supports_append=len(columns) > 0,
                 incremental_fields=[
-                    {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
-                    for column_name, column_type in columns
+                    {
+                        "label": column_name,
+                        "type": column_type,
+                        "field": column_name,
+                        "field_type": column_type,
+                        "nullable": nullable,
+                    }
+                    for column_name, column_type, nullable in columns
                 ],
             )
             for table_name, columns in filtered_results

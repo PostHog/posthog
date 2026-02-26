@@ -6,12 +6,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -19,10 +19,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { Endpoints } from './Endpoints'
-import { EndpointsUsage } from './EndpointsUsage'
-import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
 import { endpointsLogic } from './endpointsLogic'
+import { EndpointsUsage } from './EndpointsUsage'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
+import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
 
 const ENDPOINTS_PRODUCT_DESCRIPTION =

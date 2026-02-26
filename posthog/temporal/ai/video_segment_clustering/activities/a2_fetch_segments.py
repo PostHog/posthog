@@ -1,9 +1,12 @@
 """
 Activity 2 of the video segment clustering workflow:
 Fetch unprocessed video segments from ClickHouse.
+
+Stores result in object storage to avoid exceeding Temporal's 2 MB payload limit.
 """
 
 import json
+import time
 
 from temporalio import activity
 
@@ -13,6 +16,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     FetchSegmentsResult,
     VideoSegmentMetadata,
 )
+from posthog.temporal.ai.video_segment_clustering.state import generate_storage_key, store_fetch_result
 from posthog.temporal.common.logger import get_logger
 
 from ..data import fetch_video_segment_metadata_rows
@@ -28,12 +32,39 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
     Uses a configurable lookback period (default 7 days) to ensure idempotent
     processing - segments are deduplicated at the Task and TaskReference level.
     """
+    activity_start = time.monotonic()
+    logger.info(
+        "video_segment_clustering.fetch_segments - starting",
+        team_id=inputs.team_id,
+        lookback_hours=inputs.lookback_hours,
+    )
+
+    t0 = time.monotonic()
     team = await Team.objects.aget(id=inputs.team_id)
+    logger.info(
+        "video_segment_clustering.fetch_segments - team lookup from postgres done",
+        team_id=inputs.team_id,
+        duration_s=round(time.monotonic() - t0, 3),
+    )
+
+    t0 = time.monotonic()
     video_segment_metadata_rows = await fetch_video_segment_metadata_rows(
         team=team,
         lookback_hours=inputs.lookback_hours,
     )
+    row_count = len(video_segment_metadata_rows)
+    logger.info(
+        "video_segment_clustering.fetch_segments - clickhouse metadata query done",
+        team_id=inputs.team_id,
+        row_count=row_count,
+        lookback_hours=inputs.lookback_hours,
+        duration_s=round(time.monotonic() - t0, 3),
+    )
+
+    t0 = time.monotonic()
     segments: list[VideoSegmentMetadata] = []
+    parse_errors = 0
+    missing_metadata = 0
 
     for row in video_segment_metadata_rows:
         document_id, content, metadata_str, _timestamp_of_embedding = row
@@ -43,6 +74,7 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
         except (json.JSONDecodeError, TypeError):
             # Being defensive to avoid a poison pill kind of situation
             logger.exception(f"Failed to parse metadata for document_id: {document_id}", metadata_str=metadata_str)
+            parse_errors += 1
             continue
 
         session_id = metadata.get("session_id")
@@ -64,6 +96,7 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
             or not session_active_seconds
         ):
             logger.error(f"Missing required metadata for document_id: {document_id}", metadata=metadata)
+            missing_metadata += 1
             continue
 
         segments.append(
@@ -81,4 +114,26 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
             )
         )
 
-    return FetchSegmentsResult(segments=segments)
+    logger.info(
+        "video_segment_clustering.fetch_segments - row parsing done",
+        team_id=inputs.team_id,
+        row_count=row_count,
+        segments_produced=len(segments),
+        parse_errors=parse_errors,
+        missing_metadata=missing_metadata,
+        duration_s=round(time.monotonic() - t0, 3),
+    )
+
+    document_ids = [s.document_id for s in segments]
+    distinct_ids = list({s.distinct_id for s in segments if s.distinct_id})
+    storage_key = generate_storage_key(inputs.team_id, activity.info().workflow_run_id, name="segments")
+    await store_fetch_result(storage_key, document_ids, distinct_ids)
+
+    logger.info(
+        "video_segment_clustering.fetch_segments - finished",
+        team_id=inputs.team_id,
+        segments_produced=len(segments),
+        total_duration_s=round(time.monotonic() - activity_start, 3),
+    )
+
+    return FetchSegmentsResult(storage_key=storage_key, document_count=len(segments))

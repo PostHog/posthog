@@ -411,6 +411,7 @@ class AssistantTrendsDisplayType(RootModel[str | Any]):
 
 
 class Display(StrEnum):
+    AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
@@ -683,6 +684,7 @@ class ChartDisplayCategory(StrEnum):
 
 
 class ChartDisplayType(StrEnum):
+    AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
@@ -1972,6 +1974,7 @@ class FunnelVizType(StrEnum):
     STEPS = "steps"
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
+    FLOW = "flow"
 
 
 class Position(StrEnum):
@@ -2258,6 +2261,7 @@ class IntegrationKind(StrEnum):
     AZURE_BLOB = "azure-blob"
     FIREBASE = "firebase"
     JIRA = "jira"
+    PINTEREST_ADS = "pinterest-ads"
 
 
 class IntervalType(StrEnum):
@@ -2996,6 +3000,7 @@ class PersonType(BaseModel):
     distinct_ids: list[str]
     id: str | None = None
     is_identified: bool | None = None
+    last_seen_at: str | None = None
     name: str | None = None
     properties: dict[str, Any]
     uuid: str | None = None
@@ -3005,28 +3010,6 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
-
-
-class PlaywrightWorkspaceSetupData(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    organization_name: str | None = None
-    skip_onboarding: bool | None = None
-    use_current_time: bool | None = None
-
-
-class PlaywrightWorkspaceSetupResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    organization_id: str
-    organization_name: str
-    personal_api_key: str
-    team_id: str
-    team_name: str
-    user_email: str
-    user_id: str
 
 
 class ProductIntentContext(StrEnum):
@@ -3996,24 +3979,6 @@ class TaxonomicFilterGroupType(StrEnum):
     WORKFLOW_VARIABLES = "workflow_variables"
     SUGGESTED_FILTERS = "suggested_filters"
     EMPTY = "empty"
-
-
-class TestSetupRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    data: dict[str, Any] | None = None
-
-
-class TestSetupResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    available_tests: list[str] | None = None
-    error: str | None = None
-    result: Any | None = None
-    success: bool
-    test_name: str
 
 
 class TikTokAdsDefaultSources(StrEnum):
@@ -10716,6 +10681,12 @@ class EndpointRunRequest(BaseModel):
     limit: int | None = Field(
         default=None,
         description=("Maximum number of results to return. If not provided, returns all results."),
+    )
+    offset: int | None = Field(
+        default=None,
+        description=(
+            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
+        ),
     )
     refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
     variables: dict[str, Any] | None = Field(
@@ -19012,6 +18983,7 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
     ) = Field(..., discriminator="kind")
+    result: Any | None = None
     type: Literal["insight"] = "insight"
     variablesOverride: dict[str, HogQLVariable] | None = None
 

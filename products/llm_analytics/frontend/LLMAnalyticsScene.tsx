@@ -20,8 +20,8 @@ import { objectsEqual } from 'lib/utils'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
@@ -35,16 +35,16 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
+import { useSortableColumns } from './hooks/useSortableColumns'
+import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
+import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
-import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
@@ -188,7 +188,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
         const columns =
             generationsQuery.source.select ||
-            getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT])
+            getDefaultGenerationsColumns(
+                !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+            )
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
         const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
@@ -220,7 +223,8 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 ...generationsQuery,
                 showSavedFilters: true,
                 defaultColumns: getDefaultGenerationsColumns(
-                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
                 ),
             }}
             setQuery={(query) => {
@@ -280,6 +284,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                         },
                     },
                     person: llmAnalyticsColumnRenderers.person,
+                    "'' -- Sentiment": llmAnalyticsColumnRenderers["'' -- Sentiment"],
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
                     },
@@ -571,7 +576,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     evaluations
                 </Link>
             ) : null,
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS] ? (
+            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
                     onClick={() => toggleProduct('Prompts', true)}

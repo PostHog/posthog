@@ -647,11 +647,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         )
 
         if self.aggregation_target:
-            # For aggregation, we need separate handling for start (interval 0) and return events (interval 1+)
+            # For aggregation, we need separate handling for start (interval 0) and return events (interval 1+).
+            # Tuples are (interval_start, value, actual_timestamp); actual_timestamp is used when start and
+            # return events differ to filter interval-0 return events that happen after the start event.
             start_event_data = parse_expr(
                 """
                 groupArrayIf(
-                    ({start_of_interval_sql}, {aggregation_target}),
+                    ({start_of_interval_sql}, {aggregation_target}, events.timestamp),
                     {start_entity_expr} and {filter_timestamp}
                 )
                 """,
@@ -720,44 +722,97 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             # return_event_values is a tuple of (start_event_data, return_event_data)
             start_event_data, return_event_data = return_event_values
 
-            # Combine all events (start and return) with their intervals and values
-            # Create rows for each event
-            combined_data = parse_expr(
-                """
-                arrayConcat(
-                    arrayFilter(
-                        x -> x.1 >= 0,
-                        arrayMap(
-                            (ts, val) -> (
-                                toInt(if(ts = date_range[start_interval_index + 1], 0, -1)),
-                                val
-                            ),
-                            arrayMap(x -> x.1, {start_data}),
-                            arrayMap(x -> x.2, {start_data})
-                        )
-                    ),
-                    arrayFilter(
-                        x -> x.1 > 0,
-                        arrayMap(
-                            (ts, val) -> (
-                                toInt(indexOf(
-                                    arraySlice(date_range, start_interval_index + 2, {lookahead}),
-                                    ts
-                                )),
-                                val
-                            ),
-                            arrayMap(x -> x.1, {return_data}),
-                            arrayMap(x -> x.2, {return_data})
+            # When start and return events are different event types, return events that occur
+            # strictly after the start event within interval 0 are counted for that interval.
+            # When they are the same event type, start_data already captures all occurrences in
+            # interval 0; allowing return_data to also contribute would double-count.
+            different_event_entities = (
+                self.start_event.id != self.return_event.id or self.start_event.type != self.return_event.type
+            )
+
+            if different_event_entities:
+                # Include return events in interval 0 (index 0 = same interval as cohort) only when
+                # they happen strictly after the earliest start event in that interval.
+                combined_data = parse_expr(
+                    """
+                    arrayConcat(
+                        arrayFilter(
+                            x -> x.1 >= 0,
+                            arrayMap(
+                                item -> (toInt(if(item.1 = date_range[start_interval_index + 1], 0, -1)), item.2),
+                                {start_data}
+                            )
+                        ),
+                        arrayFilter(
+                            x -> x.1 >= 0,
+                            arrayMap(
+                                item -> (
+                                    toInt(indexOf(
+                                        arraySlice(date_range, start_interval_index + 1, {lookahead_plus_one}),
+                                        item.1
+                                    ) - 1),
+                                    item.2
+                                ),
+                                arrayFilter(
+                                    x -> (
+                                        x.1 > date_range[start_interval_index + 1] OR (
+                                            x.1 = date_range[start_interval_index + 1] AND
+                                            x.3 > arrayMin(
+                                                arrayMap(
+                                                    y -> y.3,
+                                                    arrayFilter(
+                                                        z -> z.1 = date_range[start_interval_index + 1],
+                                                        {start_data}
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    ),
+                                    {return_data}
+                                )
+                            )
                         )
                     )
+                    """,
+                    {
+                        "lookahead_plus_one": ast.Constant(value=self.query_date_range.lookahead + 1),
+                        "start_data": start_event_data,
+                        "return_data": return_event_data,
+                    },
                 )
-                """,
-                {
-                    "lookahead": ast.Constant(value=self.query_date_range.lookahead),
-                    "start_data": start_event_data,
-                    "return_data": return_event_data,
-                },
-            )
+            else:
+                # Same event: return events only contribute to intervals > 0 (current behaviour).
+                combined_data = parse_expr(
+                    """
+                    arrayConcat(
+                        arrayFilter(
+                            x -> x.1 >= 0,
+                            arrayMap(
+                                item -> (toInt(if(item.1 = date_range[start_interval_index + 1], 0, -1)), item.2),
+                                {start_data}
+                            )
+                        ),
+                        arrayFilter(
+                            x -> x.1 > 0,
+                            arrayMap(
+                                item -> (
+                                    toInt(indexOf(
+                                        arraySlice(date_range, start_interval_index + 2, {lookahead}),
+                                        item.1
+                                    )),
+                                    item.2
+                                ),
+                                {return_data}
+                            )
+                        )
+                    )
+                    """,
+                    {
+                        "lookahead": ast.Constant(value=self.query_date_range.lookahead),
+                        "start_data": start_event_data,
+                        "return_data": return_event_data,
+                    },
+                )
 
             intervals_from_base_expr = parse_expr("(arrayJoin({data})).1", {"data": combined_data})
             retention_value_expr = parse_expr("(arrayJoin({data})).2", {"data": combined_data})
@@ -1312,7 +1367,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {
                     (start_event_matching_interval, intervals_from_base): {
                         "count": correct_result_for_sampling(count, self.query.samplingFactor),
-                        "aggregation_value": correct_result_for_sampling(aggregation_value, self.query.samplingFactor),
+                        "aggregation_value": correct_result_for_sampling(aggregation_value, self.query.samplingFactor)
+                        or 0.0,
                     }
                     for (
                         start_event_matching_interval,
@@ -1594,11 +1650,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         self, minimum_occurrences: int, start_of_interval_sql: Expr, return_entity_expr: Expr
     ) -> Expr:
         if self.aggregation_target:
-            # For aggregation, collect tuples of (timestamp, value) for return events only
+            # Collect 3-tuples of (interval_start, value, actual_timestamp) for return events.
+            # actual_timestamp is needed to filter same-interval return events that happen after the start event.
             return parse_expr(
                 """
                 groupArrayIf(
-                    ({start_of_interval_timestamp}, {aggregation_target}),
+                    ({start_of_interval_timestamp}, {aggregation_target}, events.timestamp),
                     {returning_entity_expr} and
                     {filter_timestamp}
                 )

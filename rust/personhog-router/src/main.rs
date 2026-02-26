@@ -59,6 +59,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Replica URL: {}", config.replica_url);
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
     tracing::info!("Metrics port: {}", config.metrics_port);
+    tracing::info!(
+        "Retry config: max_retries={}, initial_backoff={}ms, max_backoff={}ms",
+        config.max_retries,
+        config.initial_backoff_ms,
+        config.max_backoff_ms
+    );
 
     // Start HTTP server for metrics and health checks
     let metrics_port = config.metrics_port;
@@ -79,8 +85,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Create backend connection to personhog-replica
-    let replica_backend = ReplicaBackend::new(&config.replica_url, config.backend_timeout())
-        .expect("Failed to create replica backend");
+    let replica_backend = ReplicaBackend::new(
+        &config.replica_url,
+        config.backend_timeout(),
+        config.retry_config(),
+    )
+    .expect("Failed to create replica backend");
 
     // Create the router with the replica backend
     let router = PersonHogRouter::new(Arc::new(replica_backend));

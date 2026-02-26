@@ -16,7 +16,7 @@ uv run uvicorn llm_gateway.main:app --reload
 
 ```bash
 curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer phx_your_personal_api_key" \
+  -H "Authorization: Bearer phx_dev_local_test_api_key_1234567890abcdef" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4.1-mini",
@@ -35,6 +35,30 @@ The gateway supports two authentication methods:
 | OAuth Access Token | `pha_`       | `Authorization: Bearer pha_...`                         |
 
 **Required Scope**: `llm_gateway:read`
+
+### Local development key
+
+When running via mprocs, a personal API key with the `llm_gateway:read` scope is **automatically provisioned** on startup.
+The key is deterministic and survives database resets:
+
+```text
+phx_dev_local_test_api_key_1234567890abcdef
+```
+
+You can use this key directly to make requests to the gateway locally.
+It is also available as `settings.DEV_API_KEY` in Django.
+
+In local dev (`DEBUG=True`), the gateway client defaults to `http://localhost:3308` and this key,
+so `get_llm_client()` works out of the box without setting any environment variables.
+
+You can also provision the key manually:
+
+```bash
+python manage.py setup_local_api_key --add-scopes llm_gateway:read
+```
+
+`--add-scopes` merges into existing scopes without removing any.
+`--scopes` replaces all scopes on the key.
 
 ## User attribution
 
