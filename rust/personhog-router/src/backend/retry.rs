@@ -114,11 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn retries_transient_then_succeeds() {
-        let transient_codes = vec![
-            Code::Unavailable,
-            Code::DeadlineExceeded,
-            Code::Internal,
-        ];
+        let transient_codes = vec![Code::Unavailable, Code::DeadlineExceeded, Code::Internal];
         for code in transient_codes {
             let calls = AtomicU32::new(0);
             let result = with_retry(&test_config(), "test", || {
@@ -135,7 +131,11 @@ mod tests {
             .await;
 
             assert_eq!(result.unwrap(), "recovered", "should recover from {code:?}");
-            assert_eq!(calls.load(Ordering::SeqCst), 3, "should take 3 attempts for {code:?}");
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                3,
+                "should take 3 attempts for {code:?}"
+            );
         }
     }
 
