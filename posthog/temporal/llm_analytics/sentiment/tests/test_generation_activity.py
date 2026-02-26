@@ -63,7 +63,9 @@ class TestGenerationLevelSingle:
 
         mock_classify.assert_called_once_with(["I love this product"])
         assert result["gen-1"]["label"] == "positive"
-        assert 0 in result["gen-1"]["messages"]
+        assert "0" in result["gen-1"]["messages"]
+        # message dict keys must be strings for orjson serialization
+        assert all(isinstance(k, str) for k in result["gen-1"]["messages"].keys())
 
     @pytest.mark.asyncio
     @patch(_PATCH_CLASSIFY)
