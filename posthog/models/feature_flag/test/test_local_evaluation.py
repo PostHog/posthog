@@ -1194,7 +1194,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert result["status"] == "match"
         assert result["issue"] == ""
 
-    def test_verify_returns_mismatch_when_flag_changed(self):
+    def test_verify_returns_mismatch_when_flag_key_renamed(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
@@ -1211,7 +1211,35 @@ class TestVerifyFlagDefinitions(BaseTest):
 
         assert result["status"] == "mismatch"
         assert result["issue"] == "DATA_MISMATCH"
-        assert "diffs" in result
+        assert "1 missing, 1 stale" in result["details"]
+        missing_diffs = [d for d in result["diffs"] if d["type"] == "MISSING_IN_CACHE"]
+        stale_diffs = [d for d in result["diffs"] if d["type"] == "STALE_IN_CACHE"]
+        assert len(missing_diffs) == 1
+        assert missing_diffs[0]["flag_key"] == "modified-flag"
+        assert len(stale_diffs) == 1
+        assert stale_diffs[0]["flag_key"] == "test-flag"
+
+    def test_verify_returns_field_mismatch_when_flag_filters_changed(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 50}]}
+        flag.save()
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        assert "1 mismatched" in result["details"]
+        field_mismatch_diffs = [d for d in result["diffs"] if d["type"] == "FIELD_MISMATCH"]
+        assert len(field_mismatch_diffs) == 1
+        assert field_mismatch_diffs[0]["flag_key"] == "test-flag"
 
     def test_verify_both_variants_independently(self):
         FeatureFlag.objects.create(

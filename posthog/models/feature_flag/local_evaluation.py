@@ -40,6 +40,7 @@ from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import get_nested_cohort_ids
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
+from posthog.models.feature_flag.flags_cache import _compare_flag_fields
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.surveys.survey import Survey
@@ -744,6 +745,7 @@ def verify_team_flag_definitions(
             "status": "miss",
             "issue": "CACHE_MISS",
             "details": f"No cache entry found (team has {len(db_flags)} flags in DB)",
+            "db_data": db_data,
         }
 
     # Extract cached flags
@@ -781,7 +783,7 @@ def verify_team_flag_definitions(
             db_flag = db_flags_by_key[flag_key]
             cached_flag = cached_flags_by_key[flag_key]
             if db_flag != cached_flag:
-                field_diffs = _compare_flag_definition_fields(db_flag, cached_flag)
+                field_diffs = _compare_flag_fields(db_flag, cached_flag)
                 diff: dict = {
                     "type": "FIELD_MISMATCH",
                     "flag_key": flag_key,
@@ -829,27 +831,13 @@ def verify_team_flag_definitions(
         "status": "mismatch",
         "issue": "DATA_MISMATCH",
         "details": details or "unknown differences",
+        "db_data": db_data,
     }
 
     if verbose:
         result["diffs"] = diffs
 
     return result
-
-
-def _compare_flag_definition_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
-    """Compare field values between DB and cached versions of a flag."""
-    field_diffs = []
-    all_keys = set(db_flag.keys()) | set(cached_flag.keys())
-
-    for key in all_keys:
-        db_val = db_flag.get(key)
-        cached_val = cached_flag.get(key)
-
-        if db_val != cached_val:
-            field_diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
-
-    return field_diffs
 
 
 # NOTE: All models that affect feature flag evaluation should have a signal to update the cache
