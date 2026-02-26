@@ -272,7 +272,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
 
     @freeze_time("2022-04-01 12:45")
     @override_settings(IN_UNIT_TESTING=True)
-    def test_created_by_cannot_be_set_to_arbitrary_user(self) -> None:
+    def test_created_by_cannot_be_set_to_user_outside_organization(self) -> None:
         other_org = Organization.objects.create(name="other org")
         other_org_user = User.objects.create_and_join(other_org, "other@example.com", "password")
 
@@ -281,6 +281,9 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
 
         tile = dashboard_json["tiles"][0]
         tile["text"]["created_by"] = {"id": other_org_user.id}
-        dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, tile)
 
-        assert dashboard_json["tiles"][0]["text"]["created_by"]["id"] == self.user.id
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

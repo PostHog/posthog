@@ -499,11 +499,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if tile_data.get("text", None):
             text_json: dict = tile_data.get("text", {})
-            existing_text_id = text_json.get("id", None)
-            if existing_text_id:
+            created_by_json = text_json.get("created_by", None)
+            if created_by_json:
                 last_modified_by = user
-                existing_text = Text.objects.filter(id=existing_text_id, team_id=instance.team_id).first()
-                created_by = existing_text.created_by if existing_text else user
+                try:
+                    created_by = User.objects.get(
+                        id=created_by_json.get("id"),
+                        organization_membership__organization_id=instance.team.organization_id,
+                    )
+                except User.DoesNotExist:
+                    raise serializers.ValidationError("User not found in this organization.")
             else:
                 created_by = user
                 last_modified_by = None
