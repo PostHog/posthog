@@ -103,15 +103,16 @@ def _is_timeout_error(response: requests.Response) -> bool:
     """Check if the response is a Meta API timeout error that can be resolved with smaller date ranges."""
     try:
         error = response.json().get("error", {})
-    except (ValueError, KeyError):
+
+        if error.get("error_subcode") in META_TIMEOUT_ERROR_SUBCODES:
+            return True
+
+        # This check is a bit fragile, but the Meta API has been observed to return a 500 response like this:
+        # {"error":{"code":1,"message":"Please reduce the amount of data you're asking for, then retry your request"}}
+        message = str(error.get("message") or "").lower()
+        return error.get("code") == 1 and "reduce the amount of data" in message
+    except (ValueError, KeyError, AttributeError):
         return False
-
-    if error.get("error_subcode") in META_TIMEOUT_ERROR_SUBCODES:
-        return True
-
-    # This check is a bit fragile, but the Meta API has been observed to return a 500 response like this:
-    # {"error":{"code":1,"message":"Please reduce the amount of data you're asking for, then retry your request"}}
-    return error.get("code") == 1 and "reduce the amount of data" in error.get("message", "").lower()
 
 
 def _fetch_time_range_chunk(
