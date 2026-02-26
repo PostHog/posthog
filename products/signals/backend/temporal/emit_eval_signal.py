@@ -1,19 +1,39 @@
 import json
-from typing import Any
+from dataclasses import dataclass
+from datetime import timedelta
 
 import structlog
 import temporalio
+import temporalio.workflow
 from pydantic import BaseModel, Field
+from temporalio.common import RetryPolicy
 
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.llm_analytics.metrics import increment_eval_signal_outcome
+from posthog.temporal.common.base import PostHogWorkflow
 
-from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.llm import call_llm
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class EmitEvalSignalInputs:
+    """Strongly typed inputs for the eval signal workflow and activity."""
+
+    team_id: int
+    evaluation_id: str
+    evaluation_name: str
+    evaluation_prompt: str
+
+    event_uuid: str
+    event_type: str
+    trace_id: str
+
+    reasoning: str
+    model: str
+    provider: str
 
 
 class EvalSignalSummary(BaseModel):
@@ -60,40 +80,22 @@ Keep total output under 4000 tokens - be as concise as possible, without losing 
 Respond with a JSON object containing "title", "description", and "significance" fields. Return ONLY valid JSON, no other text. The first token of output must be {"""
 
 
-def _build_eval_signal_prompt(
-    evaluation: dict[str, Any],
-    event_data: dict[str, Any],
-    result: dict[str, Any],
-) -> str:
-    eval_name = evaluation.get("name", "Unknown evaluation")
-    eval_prompt = (evaluation.get("evaluation_config") or {}).get("prompt", "")
-    reasoning = result.get("reasoning", "")
-
-    properties = event_data.get("properties", {})
-    if isinstance(properties, str):
-        properties = json.loads(properties)
-    trace_id = properties.get("$ai_trace_id", "")
-    event_type = event_data.get("event", "")
-
+def _build_eval_signal_prompt(inputs: EmitEvalSignalInputs) -> str:
     parts = [
-        f"EVALUATION NAME: {eval_name}",
-        f"\nEVALUATION PROMPT (judge criteria):\n{eval_prompt}",
-        f"\nJUDGE REASONING:\n{reasoning}",
-        f"\nTARGET EVENT TYPE: {event_type}",
+        f"EVALUATION NAME: {inputs.evaluation_name}",
+        f"\nEVALUATION PROMPT (judge criteria):\n{inputs.evaluation_prompt}",
+        f"\nJUDGE REASONING:\n{inputs.reasoning}",
+        f"\nTARGET EVENT TYPE: {inputs.event_type}",
     ]
-    if trace_id:
-        parts.append(f"TRACE ID: {trace_id}")
+    if inputs.trace_id:
+        parts.append(f"TRACE ID: {inputs.trace_id}")
 
     return "\n".join(parts)
 
 
-async def summarize_eval_for_signal(
-    evaluation: dict[str, Any],
-    event_data: dict[str, Any],
-    result: dict[str, Any],
-) -> EvalSignalSummary:
+async def summarize_eval_for_signal(inputs: EmitEvalSignalInputs) -> EvalSignalSummary:
     """Use the signals LLM to produce a signal-sized summary of an eval result."""
-    user_prompt = _build_eval_signal_prompt(evaluation, event_data, result)
+    user_prompt = _build_eval_signal_prompt(inputs)
 
     def validate(text: str) -> EvalSignalSummary:
         data = json.loads(text)
@@ -108,32 +110,12 @@ async def summarize_eval_for_signal(
 
 
 @temporalio.activity.defn
-async def emit_eval_signal_activity(
-    team_id: int,
-    evaluation: dict[str, Any],
-    event_data: dict[str, Any],
-    result: dict[str, Any],
-) -> None:
-    verdict = result.get("verdict")
-    allows_na = result.get("allows_na", False)
-
-    if allows_na and not result.get("applicable", False):
-        increment_eval_signal_outcome("skipped_not_applicable")
-        return
-    if verdict is not True:
-        increment_eval_signal_outcome("skipped_verdict_not_true")
-        return
-    if not result.get("reasoning"):
-        increment_eval_signal_outcome("skipped_no_reasoning")
-        return
-
-    evaluation_id = evaluation.get("id", "")
-
+async def emit_eval_signal_activity(inputs: EmitEvalSignalInputs) -> None:
     def _is_eval_enabled() -> Team | None:
         """Check SignalSourceConfig and return Team if this eval is enabled, else None."""
         try:
             source_config = SignalSourceConfig.objects.get(
-                team_id=team_id,
+                team_id=inputs.team_id,
                 source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
                 source_type=SignalSourceConfig.SourceType.EVALUATION,
                 enabled=True,
@@ -142,59 +124,69 @@ async def emit_eval_signal_activity(
             return None
 
         enabled_ids = source_config.config.get("evaluation_ids", [])
-        if evaluation_id not in enabled_ids:
+        if inputs.evaluation_id not in enabled_ids:
             return None
 
-        return Team.objects.get(id=team_id)
+        return Team.objects.get(id=inputs.team_id)
 
     team = await database_sync_to_async(_is_eval_enabled, thread_sensitive=False)()
     if team is None:
-        increment_eval_signal_outcome("skipped_config_disabled")
         return
 
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
-        increment_eval_signal_outcome("skipped_org_not_approved")
         return
 
     # LLM call to produce a signal-quality summary from the raw eval data
-    try:
-        summary = await summarize_eval_for_signal(evaluation, event_data, result)
-    except Exception:
-        increment_eval_signal_outcome("summarization_failed")
-        raise
-
-    properties = event_data.get("properties", {})
-    if isinstance(properties, str):
-        properties = json.loads(properties)
-    trace_id = properties.get("$ai_trace_id", "")
+    summary = await summarize_eval_for_signal(inputs)
 
     if summary.significance < 0.1:
-        increment_eval_signal_outcome("skipped_low_significance")
         return
+
+    from products.signals.backend.api import emit_signal
 
     await emit_signal(
         team=team,
         source_product="llm_analytics",
         source_type="evaluation",
-        source_id=f"{evaluation['id']}:{event_data.get('uuid', '')}",
+        source_id=f"{inputs.evaluation_id}:{inputs.event_uuid}",
         description=summary.description,
         weight=summary.significance,
         extra={
-            "evaluation_id": evaluation["id"],
-            "target_event_id": event_data.get("uuid"),
-            "target_event_type": event_data.get("event"),
-            "trace_id": trace_id,
-            "model": result.get("model"),
-            "provider": result.get("provider"),
+            "evaluation_id": inputs.evaluation_id,
+            "target_event_id": inputs.event_uuid,
+            "target_event_type": inputs.event_type,
+            "trace_id": inputs.trace_id,
+            "model": inputs.model,
+            "provider": inputs.provider,
         },
     )
 
-    increment_eval_signal_outcome("emitted")
-
     logger.info(
         "Emitted eval signal",
-        evaluation_id=evaluation.get("id"),
-        team_id=team_id,
+        evaluation_id=inputs.evaluation_id,
+        team_id=inputs.team_id,
         signal_title=summary.title,
     )
+
+
+@temporalio.workflow.defn(name="emit-eval-signal")
+class EmitEvalSignalWorkflow(PostHogWorkflow):
+    """
+    Dedicated workflow for emitting eval signals, runs on VIDEO_EXPORT_TASK_QUEUE
+    (the signals worker) instead of the evals queue. Fire-and-forget from RunEvaluationWorkflow.
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> EmitEvalSignalInputs:
+        loaded = json.loads(inputs[0])
+        return EmitEvalSignalInputs(**loaded)
+
+    @temporalio.workflow.run
+    async def run(self, inputs: EmitEvalSignalInputs) -> None:
+        await temporalio.workflow.execute_activity(
+            emit_eval_signal_activity,
+            inputs,
+            schedule_to_close_timeout=timedelta(seconds=120),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
