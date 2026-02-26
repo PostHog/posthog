@@ -236,7 +236,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                         {/* Span so we can have both tooltip and context menu, without it the tooltip doesn't work with context menu */}
                         <span className="contents">{element}</span>
                     </ContextMenuTrigger>
-                    <ContextMenuContent className="max-w-[300px]">
+                    <ContextMenuContent className="max-w-[300px] click-outside-block">
                         <ContextMenuGroup>
                             <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
                             {extraContextMenuItems && (
