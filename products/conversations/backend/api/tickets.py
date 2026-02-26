@@ -404,7 +404,10 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             error_msg = str(e)
             logger.warning("AI suggest_reply validation error", extra={"ticket_id": str(ticket.id), "error": error_msg})
             return Response(
-                {"detail": f"Failed to generate suggestion: {error_msg}", "error_type": "validation_error"},
+                {
+                    "detail": "Failed to generate suggestion. Please try again.",
+                    "error_type": "validation_error",
+                },
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except Exception as e:
