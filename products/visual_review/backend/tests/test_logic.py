@@ -609,3 +609,54 @@ class TestRunSupersession:
         )
 
         assert run.approved is True
+
+    def test_approved_run_not_superseded(self, repo, user):
+        first = self._create_run(repo, commit_sha="1st")
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="1st", storage_path="p/1st")
+        logic.approve_run(
+            run_id=first.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "snap", "new_hash": "1st"}],
+            commit_to_github=False,
+        )
+
+        self._create_run(repo, commit_sha="2nd")
+
+        first.refresh_from_db()
+        assert first.superseded_by is None
+
+    def test_clean_run_not_superseded(self, repo):
+        clean_run, _ = logic.create_run(
+            repo_id=repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="clean",
+            branch="feat/x",
+            pr_number=1,
+            snapshots=[{"identifier": "snap", "content_hash": "same"}],
+            baseline_hashes={"snap": "same"},
+        )
+        logic.mark_run_completed(clean_run.id)
+
+        self._create_run(repo, commit_sha="next")
+
+        clean_run.refresh_from_db()
+        assert clean_run.superseded_by is None
+
+    def test_approved_run_shows_in_clean_not_stale(self, repo, team, user):
+        first = self._create_run(repo, commit_sha="1st")
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="1st", storage_path="p/1st")
+        logic.approve_run(
+            run_id=first.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "snap", "new_hash": "1st"}],
+            commit_to_github=False,
+        )
+
+        self._create_run(repo, commit_sha="2nd")
+
+        stale = list(logic.list_runs_for_team(team.id, review_state="stale"))
+        clean = list(logic.list_runs_for_team(team.id, review_state="clean"))
+
+        assert len(stale) == 0
+        clean_shas = {r.commit_sha for r in clean}
+        assert "1st" in clean_shas
