@@ -34,6 +34,10 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { ByokModelPicker } from './ByokModelPicker'
 import { JSONEditor } from './components/JSONEditor'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
@@ -53,12 +57,44 @@ const formatMs = (ms: number | null | undefined): string => {
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
     logic: llmAnalyticsPlaygroundLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmAnalyticsPlaygroundLogic)
+    const { messages, submitting } = useValues(llmAnalyticsPlaygroundLogic)
+    const { submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
 
-    return <PlaygroundLayout />
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name="Playground"
+                description="Test and experiment with LLM prompts in a sandbox environment."
+                resourceType={{ type: 'llm_playground' }}
+                actions={
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlay />}
+                        onClick={() => submitPrompt()}
+                        loading={submitting}
+                        tooltip="Run prompt (⌘↵)"
+                        disabledReason={
+                            submitting
+                                ? 'Generating...'
+                                : messages.length === 0
+                                  ? 'Add messages to start the conversation'
+                                  : undefined
+                        }
+                        size="small"
+                        data-attr="playground-run"
+                    >
+                        Run
+                    </LemonButton>
+                }
+            />
+            <PlaygroundLayout />
+        </SceneContent>
+    )
 }
 
 function RateLimitBanner(): JSX.Element | null {
@@ -111,12 +147,11 @@ function PlaygroundLayout(): JSX.Element {
     }, [submitting])
 
     return (
-        <div className="flex flex-col min-h-[calc(100vh-120px)] gap-4 pb-6">
+        <div className="flex flex-col gap-4 pb-6">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
             <section className="border rounded overflow-hidden min-h-0 flex flex-col max-h-[55vh] lg:max-h-[60vh]">
-                <ComposerHeader />
                 <div className="p-4 space-y-4 min-h-0 overflow-y-auto">
                     <ModelConfigBar />
                     <MessagesSection />
@@ -127,33 +162,6 @@ function PlaygroundLayout(): JSX.Element {
                 <OutputSection />
             </section>
             <ComparisonTablePanel />
-        </div>
-    )
-}
-
-function ComposerHeader(): JSX.Element {
-    const { messages, submitting } = useValues(llmAnalyticsPlaygroundLogic)
-    const { submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
-
-    return (
-        <div className="px-4 py-3 border-b flex items-center justify-end">
-            <LemonButton
-                type="primary"
-                icon={<IconPlay />}
-                onClick={() => submitPrompt()}
-                loading={submitting}
-                tooltip="Run prompt (⌘↵)"
-                disabledReason={
-                    submitting
-                        ? 'Generating...'
-                        : messages.length === 0
-                          ? 'Add messages to start the conversation'
-                          : undefined
-                }
-                data-attr="playground-run"
-            >
-                Run
-            </LemonButton>
         </div>
     )
 }

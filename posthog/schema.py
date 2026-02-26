@@ -1867,6 +1867,7 @@ class FileSystemIconType(StrEnum):
     LLM_DATASETS = "llm_datasets"
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
+    LLM_PLAYGROUND = "llm_playground"
     EXPORTS = "exports"
 
 
