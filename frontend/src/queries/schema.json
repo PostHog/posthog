@@ -19712,7 +19712,8 @@
                 "CTR",
                 "Reported Conversion",
                 "Reported Conversion Value",
-                "Reported ROAS"
+                "Reported ROAS",
+                "Cost per Reported Conversion"
             ],
             "type": "string"
         },

@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconFilter } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -474,6 +474,34 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             }
 
             return <LazyGenerationSentimentCell traceId={traceId} generationEventId={uuid} />
+        },
+    },
+    'properties.$ai_tools_called': {
+        title: 'Tools',
+        render: ({ value }) => {
+            if (!value || typeof value !== 'string') {
+                return <>–</>
+            }
+            const tools = [
+                ...new Set(
+                    value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean)
+                ),
+            ]
+            if (tools.length === 0) {
+                return <>–</>
+            }
+            return (
+                <div className="flex flex-wrap gap-1">
+                    {tools.map((tool) => (
+                        <LemonTag key={tool} type="muted">
+                            {tool}
+                        </LemonTag>
+                    ))}
+                </div>
+            )
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page
