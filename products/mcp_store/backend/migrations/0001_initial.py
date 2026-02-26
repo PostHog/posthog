@@ -81,11 +81,10 @@ class Migration(migrations.Migration):
                     "auth_type",
                     models.CharField(
                         choices=[
-                            ("none", "None"),
                             ("api_key", "API Key"),
                             ("oauth", "OAuth"),
                         ],
-                        default="none",
+                        default="oauth",
                         max_length=20,
                     ),
                 ),

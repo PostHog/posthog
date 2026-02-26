@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
+
+from posthog.models import Team, User
+from posthog.models.integration import OauthIntegration
+
+from products.mcp_store.backend.models import MCPServerInstallation
+from products.mcp_store.backend.oauth import TokenRefreshError, refresh_oauth_token
 
 if TYPE_CHECKING:
     from products.mcp_store.backend.models import SensitiveConfig
 
-from posthog.models import Team, User
-
 
 def _get_installations(team: Team, user: User) -> list[dict]:
-    from products.mcp_store.backend.models import MCPServerInstallation
-
     return list(
         MCPServerInstallation.objects.filter(team=team, user=user)  # type: ignore[arg-type]
         .select_related("server")
@@ -28,8 +31,6 @@ def _get_installations(team: Team, user: User) -> list[dict]:
 
 
 def _mark_needs_reauth_sync(installation_id: str) -> None:
-    from products.mcp_store.backend.models import MCPServerInstallation
-
     try:
         inst = MCPServerInstallation.objects.get(id=installation_id)
     except MCPServerInstallation.DoesNotExist:
@@ -41,13 +42,6 @@ def _mark_needs_reauth_sync(installation_id: str) -> None:
 
 
 def _refresh_token_sync(installation: dict) -> SensitiveConfig:
-    import time as _time
-
-    from posthog.models.integration import OauthIntegration
-
-    from products.mcp_store.backend.models import MCPServerInstallation
-    from products.mcp_store.backend.oauth import TokenRefreshError, refresh_oauth_token
-
     sensitive = installation.get("sensitive_configuration") or {}
     refresh_token = sensitive.get("refresh_token")
     if not refresh_token:
@@ -84,7 +78,7 @@ def _refresh_token_sync(installation: dict) -> SensitiveConfig:
 
     updated_sensitive: SensitiveConfig = {
         "access_token": token_data["access_token"],
-        "token_retrieved_at": int(_time.time()),
+        "token_retrieved_at": int(time.time()),
         "refresh_token": token_data.get("refresh_token", refresh_token),
     }
     if "expires_in" in token_data:
@@ -103,7 +97,7 @@ def _build_server_headers(installations: list[dict]) -> dict[str, dict[str, str]
     headers: dict[str, dict[str, str]] = {}
     for inst in installations:
         url = inst["url"]
-        auth_type = inst.get("auth_type", "none")
+        auth_type = inst.get("auth_type", "api_key")
         sensitive = inst.get("sensitive_configuration") or {}
 
         if auth_type == "api_key":

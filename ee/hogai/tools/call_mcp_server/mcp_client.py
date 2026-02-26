@@ -36,9 +36,9 @@ class MCPClient:
 
         try:
             await self._connect_sse()
-        except Exception as e:
+        except Exception:
             await self._stack.aclose()
-            raise MCPClientError(f"Failed to connect to MCP server: {e}") from e
+            raise MCPClientError("Failed to connect to MCP server")
 
     async def _connect_streamable_http(self) -> None:
         http_client = await self._stack.enter_async_context(
@@ -71,8 +71,8 @@ class MCPClient:
             raise MCPClientError("Client not initialized. Call initialize() first.")
         try:
             result = await self._session.list_tools()
-        except Exception as e:
-            raise MCPClientError(str(e)) from e
+        except Exception:
+            raise MCPClientError("Failed to list tools")
         return [tool.model_dump(by_alias=True) for tool in result.tools]
 
     async def call_tool(self, tool_name: str, arguments: dict | None = None) -> str:
@@ -80,12 +80,13 @@ class MCPClient:
             raise MCPClientError("Client not initialized. Call initialize() first.")
         try:
             result = await self._session.call_tool(tool_name, arguments or {})
-        except Exception as e:
-            raise MCPClientError(str(e)) from e
+        except Exception:
+            raise MCPClientError("Failed to call tool")
 
         if result.isError:
             text_parts = [c.text for c in result.content if isinstance(c, TextContent)]
-            raise MCPClientError("\n".join(text_parts) if text_parts else "Tool returned an error")
+            error_text = "\n".join(text_parts) if text_parts else "Tool returned an error"
+            raise MCPClientError(error_text[:500])
 
         text_parts = [c.text for c in result.content if isinstance(c, TextContent)]
         return "\n".join(text_parts) if text_parts else str(result.content)

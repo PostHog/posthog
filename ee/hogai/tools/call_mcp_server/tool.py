@@ -131,16 +131,16 @@ class CallMCPServerTool(MaxTool):
         try:
             return await self._attempt_call(server_url, tool_name, arguments)
         except MCPClientError:
-            if not self._has_auth_configured(server_url):
-                raise
+            # Refresh auth in case that was the issue and retry the tool call once.
             await self._refresh_auth_or_mark_reauth(server_url)
             return await self._attempt_call(server_url, tool_name, arguments)
 
     async def _attempt_call(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
         headers = self._server_headers.get(server_url)
         client = MCPClient(server_url, headers=headers)
-
         try:
+            # We build up and tear down the client session with every request.
+            # This lets us use the same code in cloud, our backend, and when proxying via the server.
             await client.initialize()
             return await self._execute_mcp_call(client, server_url, tool_name, arguments)
         finally:
@@ -150,28 +150,34 @@ class CallMCPServerTool(MaxTool):
         self, client: MCPClient, server_url: str, tool_name: str, arguments: dict | None
     ) -> str:
         if tool_name == "__list_tools__":
-            raw_tools = await client.list_tools()
-            if not raw_tools:
-                return "This MCP server has no tools available."
+            return await self._get_tool_list(client, server_url)
+        else:
+            return await self._call_tool(client, server_url, tool_name, arguments)
 
-            tools: list[MCPToolDefinition] = []
-            for raw in raw_tools:
-                try:
-                    tools.append(MCPToolDefinition.model_validate(raw))
-                except ValidationError:
-                    logger.warning("Skipping malformed tool definition from MCP server", server_url=server_url, raw=raw)
+    async def _get_tool_list(self, client: MCPClient, server_url: str) -> str:
+        raw_tools = await client.list_tools()
+        if not raw_tools:
+            return "This MCP server has no tools available."
 
-            if not tools:
-                return "This MCP server has no tools available."
+        tools: list[MCPToolDefinition] = []
+        for raw in raw_tools:
+            try:
+                tools.append(MCPToolDefinition.model_validate(raw))
+            except ValidationError:
+                logger.warning("Skipping malformed tool definition from MCP server", server_url=server_url, raw=raw)
 
-            formatted = "\n\n".join(t.format_for_llm() for t in tools)
-            return f"Tools available on {server_url}:\n\n{formatted}"
+        if not tools:
+            return "This MCP server has no tools available."
 
+        formatted = "\n\n".join(t.format_for_llm() for t in tools)
+        return f"Tools available on {server_url}:\n\n{formatted}"
+
+    async def _call_tool(self, client: MCPClient, server_url: str, tool_name: str, arguments: dict | None) -> str:
         return await client.call_tool(tool_name, arguments or {})
 
     def _validate_server_url(self, server_url: str) -> None:
         if server_url not in self._allowed_server_urls:
-            raise MaxToolRetryableError(
+            raise MaxToolFatalError(
                 f"Server URL '{server_url}' is not in the user's installed MCP servers. "
                 f"Allowed URLs: {', '.join(sorted(self._allowed_server_urls))}"
             )
@@ -188,22 +194,18 @@ class CallMCPServerTool(MaxTool):
             logger.warning("Proactive token refresh failed, continuing with current token", server_url=server_url)
 
     async def _refresh_auth_or_mark_reauth(self, server_url: str) -> None:
-        from products.mcp_store.backend.oauth import TokenRefreshError
-
         try:
             await self._refresh_token_for_server(server_url)
-        except (TokenRefreshError, MaxToolFatalError):
-            await self._mark_needs_reauth(server_url)
+        except Exception:
+            inst = self._get_installation(server_url)
+            await database_sync_to_async(_mark_needs_reauth_sync)(inst["id"])
             raise MaxToolFatalError(
                 f"Authentication failed for {server_url} and token refresh failed. "
                 "Ask the user to re-authenticate with this MCP server in the MCP store settings page."
             )
 
     def _is_token_expiring(self, server_url: str) -> bool:
-        inst = self._installations_by_url.get(server_url)
-        if not inst:
-            return False
-
+        inst = self._get_installation(server_url)
         sensitive = inst.get("sensitive_configuration") or {}
 
         try:
@@ -211,6 +213,7 @@ class CallMCPServerTool(MaxTool):
             expires_in = float(sensitive.get("expires_in", 0))
         except (TypeError, ValueError):
             return False
+
         if not token_retrieved_at or not expires_in:
             return False
 
@@ -218,10 +221,7 @@ class CallMCPServerTool(MaxTool):
         return time.time() > token_retrieved_at + (expires_in / 2)
 
     async def _refresh_token_for_server(self, server_url: str) -> None:
-        inst = self._installations_by_url.get(server_url)
-        if not inst:
-            raise MaxToolFatalError(f"No installation found for {server_url}")
-
+        inst = self._get_installation(server_url)
         sensitive = inst.get("sensitive_configuration") or {}
         refresh_token = sensitive.get("refresh_token")
         if not refresh_token:
@@ -235,14 +235,8 @@ class CallMCPServerTool(MaxTool):
         self._installations_by_url[server_url] = inst
         self._server_headers[server_url] = {"Authorization": f"Bearer {updated['access_token']}"}
 
-    async def _mark_needs_reauth(self, server_url: str) -> None:
+    def _get_installation(self, server_url: str) -> dict:
         inst = self._installations_by_url.get(server_url)
         if not inst:
-            return
-        await database_sync_to_async(_mark_needs_reauth_sync)(inst["id"])
-
-    def _has_auth_configured(self, server_url: str) -> bool:
-        inst = self._installations_by_url.get(server_url)
-        if not inst:
-            return False
-        return inst.get("auth_type") in ("oauth", "api_key")
+            raise MaxToolFatalError(f"No installation found for {server_url}")
+        return inst

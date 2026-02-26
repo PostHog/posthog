@@ -15,7 +15,7 @@ export interface RecommendedServer {
     url: string
     description: string
     icon_url: string
-    auth_type: 'none' | 'api_key' | 'oauth'
+    auth_type: 'api_key' | 'oauth'
     oauth_provider_kind?: string
 }
 
@@ -26,7 +26,7 @@ export interface MCPServerInstallation {
     display_name: string
     url: string
     description: string
-    auth_type: 'none' | 'api_key' | 'oauth'
+    auth_type: 'api_key' | 'oauth'
     needs_reauth: boolean
     pending_oauth: boolean
     created_at: string
@@ -45,7 +45,7 @@ const CUSTOM_SERVER_FORM_DEFAULTS: CustomServerFormValues = {
     name: '',
     url: '',
     description: '',
-    auth_type: 'none',
+    auth_type: 'api_key',
     api_key: '',
 }
 

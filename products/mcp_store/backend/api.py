@@ -1,7 +1,7 @@
 import time
 import secrets
 from typing import Any, cast
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -19,6 +19,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.cloud_utils import is_dev_mode
 from posthog.models import User
 from posthog.models.integration import OauthIntegration
 from posthog.rate_limit import (
@@ -47,6 +48,13 @@ class MCPProxyRenderer(renderers.BaseRenderer):
 logger = structlog.get_logger(__name__)
 
 _SECURE_COOKIES = settings.SITE_URL.startswith("https")
+
+
+def _is_https(url: str) -> bool:
+    """Check that a URL uses HTTPS. Returns True in dev mode to allow http://localhost."""
+    if is_dev_mode():
+        return True
+    return urlparse(url).scheme == "https"
 
 
 @extend_schema(tags=["mcp_store"])
@@ -115,7 +123,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     url = serializers.URLField(max_length=2048)
-    auth_type = serializers.ChoiceField(choices=["none", "api_key", "oauth"])
+    auth_type = serializers.ChoiceField(choices=["api_key", "oauth"])
     api_key = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
     oauth_provider_kind = serializers.CharField(required=False, allow_blank=True, default="")
@@ -261,6 +269,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _authorize_for_custom(
         self, request: Request, *, name: str, mcp_url: str, description: str, oauth_provider_kind: str = ""
     ) -> HttpResponse:
+        allowed, reason = is_url_allowed(mcp_url)
+        if not allowed:
+            logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
+            return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
+
         redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/settings/mcp-servers"
 
         installation, created = MCPServerInstallation.objects.get_or_create(
@@ -329,7 +342,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if scopes := server.oauth_metadata.get("scopes_supported"):
             query_params["scope"] = " ".join(scopes)
 
-        authorize_url = f"{server.oauth_metadata['authorization_endpoint']}?{urlencode(query_params)}"
+        auth_endpoint = server.oauth_metadata["authorization_endpoint"]
+        if not _is_https(auth_endpoint):
+            if created:
+                installation.delete()
+            return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
+
+        authorize_url = f"{auth_endpoint}?{urlencode(query_params)}"
 
         response = Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
         response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES)
@@ -457,6 +476,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return response
 
     def _authorize_dcr(self, server: MCPServer, server_id: str, *, mcp_url: str) -> HttpResponse:
+        allowed, reason = is_url_allowed(mcp_url)
+        if not allowed:
+            logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
+            return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
+
         redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/settings/mcp-servers"
 
         cached_redirect_uri = server.oauth_metadata.get("dcr_redirect_uri", "") if server.oauth_metadata else ""
@@ -491,7 +515,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if scopes := server.oauth_metadata.get("scopes_supported"):
             query_params["scope"] = " ".join(scopes)
 
-        authorize_url = f"{server.oauth_metadata['authorization_endpoint']}?{urlencode(query_params)}"
+        auth_endpoint = server.oauth_metadata["authorization_endpoint"]
+        if not _is_https(auth_endpoint):
+            return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
+
+        authorize_url = f"{auth_endpoint}?{urlencode(query_params)}"
 
         response = HttpResponse(status=302)
         response["Location"] = authorize_url
@@ -589,9 +617,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
 
         if token_response.status_code != 200:
-            logger.error(
-                "OAuth token exchange failed", status_code=token_response.status_code, body=token_response.text[:500]
-            )
+            logger.error("OAuth token exchange failed", status_code=token_response.status_code)
             return Response({"detail": "Failed to exchange authorization code"}, status=status.HTTP_400_BAD_REQUEST)
 
         return token_response.json()
@@ -605,8 +631,18 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             return Response({"detail": "Server missing OAuth configuration"}, status=status.HTTP_400_BAD_REQUEST)
 
         redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/settings/mcp-servers"
+        token_endpoint = server.oauth_metadata["token_endpoint"]
+
+        allowed, reason = is_url_allowed(token_endpoint)
+        if not allowed:
+            logger.warning("SSRF blocked token endpoint", url=token_endpoint, reason=reason)
+            return Response({"detail": "Token endpoint blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not _is_https(token_endpoint):
+            return Response({"detail": "Token endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
+
         token_response = requests.post(
-            server.oauth_metadata["token_endpoint"],
+            token_endpoint,
             data={
                 "client_id": server.oauth_client_id,
                 "code": code,
@@ -618,9 +654,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
 
         if token_response.status_code != 200:
-            logger.error(
-                "DCR token exchange failed", status_code=token_response.status_code, body=token_response.text[:500]
-            )
+            logger.error("DCR token exchange failed", status_code=token_response.status_code)
             return Response({"detail": "Failed to exchange authorization code"}, status=status.HTTP_400_BAD_REQUEST)
 
         return token_response.json()

@@ -6,7 +6,6 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 AUTH_TYPE_CHOICES = [
-    ("none", "None"),
     ("api_key", "API Key"),
     ("oauth", "OAuth"),
 ]
@@ -61,7 +60,7 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     display_name = models.CharField(max_length=200, blank=True, default="")
     url = models.URLField(max_length=2048, default="")
     description = models.TextField(blank=True, default="")
-    auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="none")
+    auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     sensitive_configuration = EncryptedJSONField(default=dict, blank=True)
 
     class Meta:
