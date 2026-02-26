@@ -447,8 +447,7 @@ describe('CdpCyclotronWorker', () => {
                     })
                 )
 
-                hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS = blockTime
-                hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS = 0
+                processor.hogExecutor['config'].hogCostTimingUpperMs = blockTime
 
                 const numberToTest = 5
                 const invocations = Array.from({ length: numberToTest }, () =>

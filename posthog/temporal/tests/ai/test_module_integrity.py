@@ -19,6 +19,7 @@ class TestAITemporalModuleIntegrity:
             "TeamSignalGroupingWorkflow",
             "EmitSignalWorkflow",
             "SignalReportSummaryWorkflow",
+            "EmitEvalSignalWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS + ai.SIGNALS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -84,6 +85,7 @@ class TestAITemporalModuleIntegrity:
             "safety_judge_activity",
             "wait_for_signal_in_clickhouse_activity",
             "summarize_signals_activity",
+            "emit_eval_signal_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

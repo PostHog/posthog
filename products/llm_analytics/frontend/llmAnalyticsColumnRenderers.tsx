@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconFilter } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -218,6 +218,47 @@ function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element 
     )
 }
 
+function LazyGenerationSentimentCell({
+    traceId,
+    generationEventId,
+}: {
+    traceId: string
+    generationEventId: string
+}): JSX.Element {
+    const { sentimentByTraceId, isTraceLoading, getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+
+    const cached = sentimentByTraceId[traceId]
+    const loading = isTraceLoading(traceId)
+
+    if (cached === undefined && !loading) {
+        ensureSentimentLoaded(traceId, dateFilter)
+    }
+
+    if (loading || cached === undefined) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    if (cached === null) {
+        return <>–</>
+    }
+
+    const generationSentiment = getGenerationSentiment(traceId, generationEventId)
+    if (!generationSentiment) {
+        return <>–</>
+    }
+
+    return (
+        <SentimentBar
+            label={generationSentiment.label}
+            score={generationSentiment.score}
+            size="full"
+            messages={generationSentiment.messages}
+        />
+    )
+}
+
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     const { input, isLoading } = useAIData(eventData)
 
@@ -408,6 +449,59 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
                 return <>–</>
             }
             return <LazySentimentColumnCell traceId={traceRecord.id} />
+        },
+    },
+    "'' -- Sentiment": {
+        title: 'Sentiment',
+        render: ({ record, query }) => {
+            if (!Array.isArray(record) || !isDataTableNode(query) || !isEventsQuery(query.source)) {
+                return <>–</>
+            }
+
+            const select = query.source.select ?? []
+            const uuidIdx = select.findIndex((c) => c === 'uuid')
+            const traceIdIdx = select.findIndex((c) => c === 'properties.$ai_trace_id')
+
+            if (uuidIdx < 0 || traceIdIdx < 0) {
+                return <>–</>
+            }
+
+            const uuid = record[uuidIdx]
+            const traceId = record[traceIdIdx]
+
+            if (typeof uuid !== 'string' || typeof traceId !== 'string') {
+                return <>–</>
+            }
+
+            return <LazyGenerationSentimentCell traceId={traceId} generationEventId={uuid} />
+        },
+    },
+    'properties.$ai_tools_called': {
+        title: 'Tools',
+        render: ({ value }) => {
+            if (!value || typeof value !== 'string') {
+                return <>–</>
+            }
+            const tools = [
+                ...new Set(
+                    value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean)
+                ),
+            ]
+            if (tools.length === 0) {
+                return <>–</>
+            }
+            return (
+                <div className="flex flex-wrap gap-1">
+                    {tools.map((tool) => (
+                        <LemonTag key={tool} type="muted">
+                            {tool}
+                        </LemonTag>
+                    ))}
+                </div>
+            )
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page

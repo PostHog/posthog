@@ -257,6 +257,32 @@ export interface SurveyApi {
             "index": 2
         }
         ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
          */
     questions?: unknown | null
     readonly conditions: string
@@ -317,6 +343,7 @@ export interface SurveyApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    translations?: unknown | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -438,6 +465,32 @@ export interface SurveySerializerCreateUpdateOnlyApi {
             "index": 2
         }
         ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
          */
     questions?: unknown | null
     conditions?: unknown | null
@@ -497,6 +550,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    translations?: unknown | null
     _create_in_folder?: string
     form_content?: unknown | null
 }
@@ -605,6 +659,32 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
             "index": 2
         }
         ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
          */
     questions?: unknown | null
     conditions?: unknown | null
@@ -664,6 +744,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    translations?: unknown | null
     _create_in_folder?: string
     form_content?: unknown | null
 }

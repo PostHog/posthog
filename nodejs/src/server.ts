@@ -18,6 +18,7 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
+import { createHogTransformerService } from './cdp/hog-transformations/hog-transformer.service'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -121,24 +122,31 @@ export class PluginServer {
 
                 for (const consumerOption of consumersOptions) {
                     serviceLoaders.push(async () => {
-                        const consumer = new IngestionConsumer(hub, {
-                            INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
-                            INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                        })
+                        const consumer = new IngestionConsumer(
+                            hub,
+                            { ...hub, hogTransformer: createHogTransformerService(hub) },
+                            {
+                                INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
+                                INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
+                            }
+                        )
                         await consumer.start()
                         return consumer.service
                     })
                 }
             } else if (capabilities.ingestionV2) {
                 serviceLoaders.push(async () => {
-                    const consumer = new IngestionConsumer(hub)
+                    const consumer = new IngestionConsumer(hub, {
+                        ...hub,
+                        hogTransformer: createHogTransformerService(hub),
+                    })
                     await consumer.start()
                     return consumer.service
                 })
             }
 
             if (capabilities.evaluationScheduler) {
-                serviceLoaders.push(() => startEvaluationScheduler(hub))
+                serviceLoaders.push(() => startEvaluationScheduler(hub, hub))
             }
 
             if (capabilities.sessionRecordingBlobIngestionV2) {
@@ -293,7 +301,7 @@ export class PluginServer {
 
             if (capabilities.logsIngestion) {
                 serviceLoaders.push(async () => {
-                    const consumer = new LogsIngestionConsumer(hub)
+                    const consumer = new LogsIngestionConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -309,7 +317,7 @@ export class PluginServer {
 
             if (capabilities.recordingApi) {
                 serviceLoaders.push(async () => {
-                    const api = new RecordingApi(hub)
+                    const api = new RecordingApi(hub, hub.postgres)
                     this.expressApp.use('/', api.router())
                     await api.start()
                     return api.service
