@@ -23,7 +23,7 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     }),
     reducers({
         showDescription: [
-            false,
+            true,
             { persist: true },
             {
                 toggleShowDescription: (state) => !state,
