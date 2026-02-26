@@ -1213,7 +1213,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, asyncActions, cache }) => ({
         beforeUnmount: () => {
             actions.stopAutoRefreshInterval()
         },
@@ -1439,9 +1439,9 @@ export const experimentLogic = kea<experimentLogicType>([
             cache.refreshSummariesById[refreshId] = summaries
             try {
                 await Promise.all([
-                    actions.loadPrimaryMetricsResults(forceRefresh, refreshId),
-                    actions.loadSecondaryMetricsResults(forceRefresh, refreshId),
-                    actions.loadExposures(forceRefresh),
+                    asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
+                    asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
+                    asyncActions.loadExposures(forceRefresh),
                 ])
             } finally {
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
@@ -1460,14 +1460,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     (values.experiment?.saved_metrics?.filter(
                         (m: { metadata: { type: string } }) => m.metadata.type === 'secondary'
                     ).length || 0)
-                const successfulCount =
-                    values.legacyPrimaryMetricsResults.filter(Boolean).length +
-                    values.primaryMetricsResults.filter(Boolean).length +
-                    values.legacySecondaryMetricsResults.filter(Boolean).length +
-                    values.secondaryMetricsResults.filter(Boolean).length
-                const erroredCount =
-                    values.primaryMetricsResultsErrors.filter(Boolean).length +
-                    values.secondaryMetricsResultsErrors.filter(Boolean).length
+                const successfulCount = refreshSummaries.reduce((sum, s) => sum + s.successfulCount, 0)
+                const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
                 const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
 
                 eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(

@@ -598,7 +598,7 @@ class TeamAdmin(admin.ModelAdmin):
         try:
             temporal = sync_connect()
             prefix = f"delete-recordings-{team_id}-"
-            query = f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~" ORDER BY StartTime DESC'
+            query = f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~"'
 
             async def fetch_workflows():
                 workflows = []
