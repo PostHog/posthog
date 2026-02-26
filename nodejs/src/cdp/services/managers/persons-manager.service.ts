@@ -33,17 +33,15 @@ export type PersonManagerPersonWithDistinctId = PersonManagerPerson & {
 
 export class PersonsManagerService {
     private lazyLoader: LazyLoader<PersonManagerPerson>
-    private lookupMode: 'distinct_id' | 'person_id'
 
     constructor(
         private personRepository: PersonRepository,
         lookupMode: 'distinct_id' | 'person_id' = 'distinct_id'
     ) {
-        this.lookupMode = lookupMode
         this.lazyLoader = new LazyLoader({
             name: `person_manager_lookup_by_${lookupMode}`,
             loader: async (ids) => {
-                return this.lookupMode === 'distinct_id'
+                return lookupMode === 'distinct_id'
                     ? await this.fetchPersonsByDistinctIds(ids)
                     : await this.fetchPersonsByPersonIds(ids)
             },
