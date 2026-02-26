@@ -12,6 +12,8 @@ from posthog.models import Team, User
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 
+from products.mcp_store.backend.oauth import TokenRefreshError
+
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
@@ -188,8 +190,6 @@ class CallMCPServerTool(MaxTool):
             logger.warning("Proactive token refresh failed, continuing with current token", server_url=server_url)
 
     async def _refresh_auth_or_mark_reauth(self, server_url: str) -> None:
-        from products.mcp_store.backend.oauth import TokenRefreshError
-
         try:
             await self._refresh_token_for_server(server_url)
         except (TokenRefreshError, MaxToolFatalError):
