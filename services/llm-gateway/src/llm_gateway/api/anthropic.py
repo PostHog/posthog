@@ -1,4 +1,3 @@
-import re
 from typing import Any
 
 import litellm
@@ -17,22 +16,23 @@ POSTHOG_PROPERTY_PREFIX = "x-posthog-property-"
 POSTHOG_FLAG_PREFIX = "x-posthog-flag-"
 
 
-def extract_posthog_properties_from_headers(request: Request) -> dict[str, str]:
-    properties: dict[str, str] = {}
+def _extract_headers_with_prefix(request: Request, prefix: str) -> dict[str, str]:
+    """Extract headers whose name (lowercased) starts with prefix; key = remainder after prefix, lowercased."""
+    result: dict[str, str] = {}
+    prefix_lower = prefix.lower()
     for name, value in request.headers.items():
-        if name.lower().startswith(POSTHOG_PROPERTY_PREFIX):
-            key = re.sub(r"^x-", "", name, flags=re.IGNORECASE).lower()
-            properties[key] = value
-    return properties
+        if name.lower().startswith(prefix_lower):
+            key = name[len(prefix) :].lower()
+            result[key] = value
+    return result
+
+
+def extract_posthog_properties_from_headers(request: Request) -> dict[str, str]:
+    return _extract_headers_with_prefix(request, POSTHOG_PROPERTY_PREFIX)
 
 
 def extract_posthog_flags_from_headers(request: Request) -> dict[str, str]:
-    flags: dict[str, str] = {}
-    for name, value in request.headers.items():
-        if name.lower().startswith(POSTHOG_FLAG_PREFIX):
-            key = name[len(POSTHOG_FLAG_PREFIX) :].lower()
-            flags[key] = value
-    return flags
+    return _extract_headers_with_prefix(request, POSTHOG_FLAG_PREFIX)
 
 
 async def _handle_anthropic_messages(
