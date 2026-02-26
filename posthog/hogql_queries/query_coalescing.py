@@ -25,7 +25,7 @@ return 0
 coalesce_counter = Counter(
     "query_coalesce_total",
     "Query coalescing outcomes",
-    labelnames=["outcome"],  # leader, follower_hit, follower_timeout, follower_leader_gone, follower_dry_run
+    labelnames=["outcome"],
 )
 
 coalesce_wait_histogram = Histogram(
