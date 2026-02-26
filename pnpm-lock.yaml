@@ -79,8 +79,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.354.2
-      version: 1.354.2
+      specifier: ^1.355.0
+      version: 1.355.0
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -963,7 +963,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.354.2
+        version: 1.355.0
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1830,7 +1830,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.354.2
+        version: 1.355.0
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -1869,7 +1869,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.354.2
+        version: 1.355.0
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2037,7 +2037,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.354.2
+        version: 1.355.0
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2106,7 +2106,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.354.2
+        version: 1.355.0
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2286,7 +2286,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.354.2
+        version: 1.355.0
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2368,7 +2368,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.354.2
+        version: 1.355.0
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2693,7 +2693,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.354.2
+        version: 1.355.0
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2765,7 +2765,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.354.2
+        version: 1.355.0
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -7768,8 +7768,8 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.354.2':
-    resolution: {integrity: sha512-UlPQkXcrCxWwuAtr6GAASYe7cBMBqxMVxev17BvA5cJnUbdCc4Gg4efeI5QwuqLVlwvFY5R1s1P3ctcLa46vnw==}
+  '@posthog/types@1.355.0':
+    resolution: {integrity: sha512-g9YNcIzSe+BJFKjuea7Hr0DiN83XlmqBXRpIyEJ7t9jVAK2Srf67Y2rI0ZjeNXe2LasOyOvoy7RgnSPBXbNZGw==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -17944,8 +17944,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.354.2:
-    resolution: {integrity: sha512-6bfPjqxLmLoyXHDh0634Mx88Ub8mtekQoFazrQfpo4wrrf5+LSsfDnyR9adQhEnHtllbbBe3IFF2Zbdb5e+VCQ==}
+  posthog-js@1.355.0:
+    resolution: {integrity: sha512-RpxHyodlr9wuqoZOct8DDg50SGq3SQmUWxYu+G1eOO+PvWsr5N2ZZdhE/rpv2zZccPdbXdgIy3M1pa574Nps7w==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -28388,7 +28388,7 @@ snapshots:
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.354.2': {}
+  '@posthog/types@1.355.0': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -41152,7 +41152,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.354.2:
+  posthog-js@1.355.0:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
@@ -41160,7 +41160,7 @@ snapshots:
       '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
       '@posthog/core': 1.23.1
-      '@posthog/types': 1.354.2
+      '@posthog/types': 1.355.0
       core-js: 3.40.0
       dompurify: 3.3.1
       fflate: 0.4.8
