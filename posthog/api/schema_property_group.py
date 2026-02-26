@@ -1,3 +1,4 @@
+import math
 import logging
 from typing import Any
 
@@ -94,7 +95,7 @@ def _validate_numeric_rules(rules: dict[str, Any]) -> None:
 
     for key in rules:
         val = rules[key]
-        if not isinstance(val, (int, float)):
+        if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val):
             raise serializers.ValidationError({"validation_rules": f"'{key}' must be a number"})
 
     lower_key = next((k for k in LOWER_BOUND_KEYWORDS if k in rules), None)
@@ -172,18 +173,21 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
 
         try:
-            property_group = SchemaPropertyGroup.objects.create(
-                **validated_data,
-                team_id=self.context["team_id"],
-                project_id=self.context["project_id"],
-                created_by=request.user if request else None,
-            )
+            with transaction.atomic():
+                property_group = SchemaPropertyGroup.objects.create(
+                    **validated_data,
+                    team_id=self.context["team_id"],
+                    project_id=self.context["project_id"],
+                    created_by=request.user if request else None,
+                )
 
-            for property_data in properties_data:
-                validate_validation_rules(property_data.get("property_type", ""), property_data.get("validation_rules"))
-                SchemaPropertyGroupProperty.objects.create(property_group=property_group, **property_data)
+                for property_data in properties_data:
+                    validate_validation_rules(
+                        property_data.get("property_type", ""), property_data.get("validation_rules")
+                    )
+                    SchemaPropertyGroupProperty.objects.create(property_group=property_group, **property_data)
 
-            return property_group
+                return property_group
         except IntegrityError as e:
             if "unique_schema_property_group_team_name" in str(e):
                 raise serializers.ValidationError(
