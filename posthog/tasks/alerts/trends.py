@@ -97,7 +97,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             )
 
             if not calculation_result.result:
-                breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, None, "")
+                breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, None, "empty result")
                 return AlertEvaluationResult(value=0, breaches=breaches)
 
             interval = query.interval if not is_non_time_series else None
@@ -189,7 +189,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             )
 
             if not calculation_result.result:
-                breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, query.interval, "")
+                breaches = _breach_messages(
+                    threshold.bounds, 0, threshold.type, condition.type, query.interval, "empty result"
+                )
                 return AlertEvaluationResult(value=0, breaches=breaches)
 
             results_to_evaluate: list[TrendResult] = []
@@ -297,7 +299,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             )
 
             if not calculation_result.result:
-                breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, query.interval, "")
+                breaches = _breach_messages(
+                    threshold.bounds, 0, threshold.type, condition.type, query.interval, "empty result"
+                )
                 return AlertEvaluationResult(value=0, breaches=breaches)
 
             results_to_evaluate = []
