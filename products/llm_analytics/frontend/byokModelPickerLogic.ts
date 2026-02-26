@@ -151,7 +151,13 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                     groups.push({ provider: key.provider, providerKeyId: key.id, label, models })
                 }
 
-                return groups.sort((a, b) => providerSortIndex(a.provider) - providerSortIndex(b.provider))
+                return groups.sort((a, b) => {
+                    const providerDiff = providerSortIndex(a.provider) - providerSortIndex(b.provider)
+                    if (providerDiff !== 0) {
+                        return providerDiff
+                    }
+                    return a.label.localeCompare(b.label)
+                })
             },
         ],
         selectedProviderForModel: [
