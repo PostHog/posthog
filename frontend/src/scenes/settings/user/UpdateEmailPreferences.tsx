@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -71,7 +70,7 @@ function ProjectDigestSelector({
                                     )
                                 }
                             >
-                                Enable for all teams
+                                Enable for all projects
                             </LemonButton>
                             <LemonButton
                                 size="xsmall"
@@ -83,7 +82,7 @@ function ProjectDigestSelector({
                                     )
                                 }
                             >
-                                Disable for all teams
+                                Disable for all projects
                             </LemonButton>
                         </div>
 
@@ -119,8 +118,6 @@ export function UpdateEmailPreferences(): JSX.Element {
         updateETWeeklyDigestForAllTeams,
         updateDataPipelineErrorThreshold,
     } = useActions(userLogic)
-    const showETWeeklyDigest = useFeatureFlag('ERROR_TRACKING_WEEKLY_DIGEST')
-
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const etDigestEnabled = user?.notification_settings?.error_tracking_weekly_digest !== false
 
@@ -226,37 +223,35 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
             </div>
 
-            {showETWeeklyDigest && (
-                <div className="border rounded p-4 space-y-3">
-                    <SimpleSwitch
-                        setting="error_tracking_weekly_digest"
-                        label="Error tracking weekly digest"
-                        description="Get a weekly summary of exceptions caught across your projects every Monday"
-                        dataAttr="error_tracking_weekly_digest_enabled"
-                    />
+            <div className="border rounded p-4 space-y-3">
+                <SimpleSwitch
+                    setting="error_tracking_weekly_digest"
+                    label="Error tracking weekly digest"
+                    description="Get a weekly summary of exceptions caught across your projects every Monday"
+                    dataAttr="error_tracking_weekly_digest_enabled"
+                />
 
-                    {etDigestEnabled && (
-                        <>
-                            {!user?.notification_settings.error_tracking_weekly_digest_project_enabled && (
-                                <LemonBanner type="info">
-                                    You haven't selected any projects yet, so on the first digest run we'll
-                                    automatically pick the one with the most exceptions. If you'd prefer to choose
-                                    yourself, just select your projects below and we won't override your choice.
-                                </LemonBanner>
-                            )}
-                            <ProjectDigestSelector
-                                keyPrefix="et-digest"
-                                dataAttrPrefix="et_weekly_digest"
-                                isTeamDisabled={(teamId) =>
-                                    !user?.notification_settings.error_tracking_weekly_digest_project_enabled?.[teamId]
-                                }
-                                onToggleTeam={updateETWeeklyDigestForTeam}
-                                onToggleAllTeams={updateETWeeklyDigestForAllTeams}
-                            />
-                        </>
-                    )}
-                </div>
-            )}
+                {etDigestEnabled && (
+                    <>
+                        {!user?.notification_settings.error_tracking_weekly_digest_project_enabled && (
+                            <LemonBanner type="info">
+                                You haven't selected any projects yet, so on the first digest run we'll automatically
+                                pick the one with the most exceptions. If you'd prefer to choose yourself, just select
+                                your projects below and we won't override your choice.
+                            </LemonBanner>
+                        )}
+                        <ProjectDigestSelector
+                            keyPrefix="et-digest"
+                            dataAttrPrefix="et_weekly_digest"
+                            isTeamDisabled={(teamId) =>
+                                !user?.notification_settings.error_tracking_weekly_digest_project_enabled?.[teamId]
+                            }
+                            onToggleTeam={updateETWeeklyDigestForTeam}
+                            onToggleAllTeams={updateETWeeklyDigestForAllTeams}
+                        />
+                    </>
+                )}
+            </div>
 
             <div className="border rounded p-4">
                 <SimpleSwitch
