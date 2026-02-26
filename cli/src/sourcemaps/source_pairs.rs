@@ -1,6 +1,7 @@
 use crate::{
     api::symbol_sets::SymbolSetUpload,
     sourcemaps::content::{MinifiedSourceFile, SourceMapFile},
+    utils::files::chunk_id_hash,
 };
 use anyhow::{anyhow, Context, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
@@ -71,6 +72,14 @@ impl SourcePair {
 
     pub fn set_release_id(&mut self, release_id: Option<String>) {
         self.sourcemap.set_release_id(release_id);
+    }
+
+    /// Computes a deterministic chunk ID from the pre-injection content.
+    /// Returns SHA-256(clean_js || clean_sourcemap) truncated to 32 hex chars.
+    pub fn compute_chunk_id(&self) -> Result<String> {
+        let clean_js = self.source.clean_content();
+        let clean_map = self.sourcemap.clean_content_bytes()?;
+        Ok(chunk_id_hash(clean_js.as_bytes(), &clean_map))
     }
 
     pub fn save(&self) -> Result<()> {

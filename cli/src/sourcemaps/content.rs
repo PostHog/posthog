@@ -114,6 +114,17 @@ impl SourceMapFile {
     pub fn set_release_id(&mut self, release_id: Option<String>) {
         self.inner.content.release_id = release_id;
     }
+
+    /// Returns the source map content serialized without PostHog metadata (chunk_id, release_id).
+    /// Used to compute deterministic content-hash chunk IDs from the actual source map data.
+    pub fn clean_content_bytes(&self) -> Result<Vec<u8>> {
+        let clean = SourceMapContent {
+            release_id: None,
+            chunk_id: None,
+            fields: self.inner.content.fields.clone(),
+        };
+        Ok(serde_json::to_vec(&clean)?)
+    }
 }
 
 impl MinifiedSourceFile {
@@ -130,6 +141,22 @@ impl MinifiedSourceFile {
     pub fn get_chunk_id(&self) -> Option<String> {
         let patterns = ["//# chunkId="];
         self.get_comment_value(&patterns)
+    }
+
+    /// Returns the JS content with any existing chunk ID injection stripped.
+    /// Used to compute deterministic content-hash chunk IDs from pre-injection content.
+    pub fn clean_content(&self) -> String {
+        let content = &self.inner.content;
+        let Some(existing_id) = self.get_chunk_id() else {
+            return content.clone();
+        };
+
+        let mut result = content.clone();
+        let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, &existing_id);
+        result = result.replace(&code_snippet, "");
+        let chunk_comment = CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, &existing_id);
+        result = result.replace(&chunk_comment, "");
+        result
     }
 
     pub fn set_chunk_id(&mut self, chunk_id: &str) -> Result<SourceMap> {

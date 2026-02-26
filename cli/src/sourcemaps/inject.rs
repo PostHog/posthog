@@ -75,17 +75,18 @@ pub fn inject_pairs(
     created_release_id: Option<String>,
 ) -> Result<Vec<SourcePair>> {
     for pair in &mut pairs {
-        let current_release_id = pair.get_release_id();
-        // We only update release ids and chunk ids when the release id changed or is not present
-        if current_release_id != created_release_id || pair.get_chunk_id().is_none() {
-            pair.set_release_id(created_release_id.clone());
+        let chunk_id = pair.compute_chunk_id()?;
 
-            let chunk_id = uuid::Uuid::now_v7().to_string();
-            if let Some(previous_chunk_id) = pair.get_chunk_id() {
-                pair.update_chunk_id(previous_chunk_id, chunk_id)?;
-            } else {
-                pair.add_chunk_id(chunk_id)?;
+        pair.set_release_id(created_release_id.clone());
+
+        if let Some(previous_chunk_id) = pair.get_chunk_id() {
+            if previous_chunk_id == chunk_id {
+                // Content hasn't changed — skip re-injection
+                continue;
             }
+            pair.update_chunk_id(previous_chunk_id, chunk_id)?;
+        } else {
+            pair.add_chunk_id(chunk_id)?;
         }
     }
 

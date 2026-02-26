@@ -89,3 +89,13 @@ where
     }
     format!("{:x}", hasher.finalize())
 }
+
+/// Computes a deterministic chunk ID from the pre-injection minified JS and source map content.
+/// Uses SHA-256(js_content || sourcemap_content) truncated to 32 hex chars.
+pub fn chunk_id_hash(js_content: &[u8], sourcemap_content: &[u8]) -> String {
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(js_content);
+    hasher.update(sourcemap_content);
+    let hash = format!("{:x}", hasher.finalize());
+    hash[..32].to_string()
+}
