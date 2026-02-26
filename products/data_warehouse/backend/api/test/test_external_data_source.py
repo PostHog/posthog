@@ -9,6 +9,7 @@ from django.conf import settings
 from django.test import override_settings
 
 import psycopg
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
@@ -60,7 +61,11 @@ class TestExternalDataSource(APIBaseTest):
             name="Customers", team_id=self.team.pk, source_id=source_id, table=None
         )
 
-    def test_create_external_data_source(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -107,7 +112,11 @@ class TestExternalDataSource(APIBaseTest):
             len(STRIPE_ENDPOINTS),
         )
 
-    def test_create_external_data_source_delete_on_missing_schemas(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_delete_on_missing_schemas(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -122,7 +131,11 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
 
-    def test_create_external_data_source_delete_on_bad_schema(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_delete_on_bad_schema(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -139,7 +152,11 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
 
-    def test_prefix_external_data_source(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_prefix_external_data_source(self, _mock_validate):
         # Create no prefix
 
         response = self.client.post(
@@ -269,7 +286,11 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"message": "Prefix already exists"})
 
-    def test_create_external_data_source_incremental(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -332,7 +353,11 @@ class TestExternalDataSource(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201)
 
-    def test_create_external_data_source_incremental_missing_field(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental_missing_field(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -389,7 +414,11 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert len(ExternalDataSource.objects.all()) == 0
 
-    def test_create_external_data_source_incremental_missing_type(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental_missing_type(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -448,9 +477,15 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_create_external_data_source_bigquery_removes_project_id_prefix(self):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
-        with patch(
-            "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-        ) as mocked_get_bigquery_schemas:
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
+            ) as mocked_get_bigquery_schemas,
+            patch(
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+                return_value=(True, None),
+            ),
+        ):
             mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             response = self.client.post(
@@ -1036,6 +1071,53 @@ class TestExternalDataSource(APIBaseTest):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
 
+    @parameterized.expand(
+        [
+            ("192.168.1.1",),
+            ("169.254.169.254",),
+            ("localhost",),
+            ("127.0.0.1",),
+            ("0.0.0.0",),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+        return_value={"table_1": [("id", "integer", True)]},
+    )
+    def test_blocks_internal_host(self, host, _patch_schemas):
+        database_schema_url = f"/api/environments/{self.team.pk}/external_data_sources/database_schema/"
+        database_schema_data = {
+            "source_type": "Postgres",
+            "host": host,
+            "port": int(settings.PG_PORT),
+            "database": settings.PG_DATABASE,
+            "user": settings.PG_USER,
+            "password": settings.PG_PASSWORD,
+            "schema": "public",
+        }
+        create_url = f"/api/environments/{self.team.pk}/external_data_sources/"
+        create_data = {
+            "source_type": "Postgres",
+            "payload": {
+                "host": host,
+                "port": 5432,
+                "database": "mydb",
+                "user": "user",
+                "password": "pass",
+                "schema": "public",
+            },
+            "schemas": [],
+        }
+        with override_settings(CLOUD_DEPLOYMENT="US"):
+            for url, data in [(database_schema_url, database_schema_data), (create_url, create_data)]:
+                response = self.client.post(url, data=data)
+                self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {url}")
+                self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+
+            self.assertFalse(
+                ExternalDataSource.objects.filter(team=self.team, source_type="Postgres").exists(),
+            )
+
     def test_source_jobs(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
@@ -1154,7 +1236,11 @@ class TestExternalDataSource(APIBaseTest):
             assert len(data) == 1
             assert data[0]["id"] == str(job3.pk)
 
-    def test_trimming_payload(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_trimming_payload(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -1748,9 +1834,15 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_bigquery_create_and_update(self):
         """Test that we can create and update the config for a BigQuery source"""
-        with patch(
-            "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-        ) as mocked_get_bigquery_schemas:
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+                return_value=(True, None),
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
+            ) as mocked_get_bigquery_schemas,
+        ):
             mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             # Create a BigQuery source
@@ -2055,7 +2147,11 @@ class TestExternalDataSource(APIBaseTest):
                     f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}",
                 )
 
-    def test_create_external_data_source_accepts_valid_prefix(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_accepts_valid_prefix(self, _mock_validate):
         """Test that valid prefixes are accepted."""
         valid_prefixes = [
             "valid_prefix",
