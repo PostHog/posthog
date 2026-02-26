@@ -89,3 +89,27 @@ where
     }
     format!("{:x}", hasher.finalize())
 }
+
+/// Computes a deterministic chunk ID from the pre-injection minified JS and source map content.
+/// Uses SHA-256(js_content || sourcemap_content) truncated to 32 hex chars.
+/// Must match the JS implementation in @posthog/core/process/chunk-id.ts.
+pub fn chunk_id_hash(js_content: &[u8], sourcemap_content: &[u8]) -> String {
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(js_content);
+    hasher.update(sourcemap_content);
+    let hash = format!("{:x}", hasher.finalize());
+    hash[..32].to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chunk_id_hash_matches_js_implementation() {
+        // This value must match the output of the JS computeChunkId function
+        // in @posthog/core/src/process/chunk-id.ts with the same inputs.
+        let result = chunk_id_hash(b"var x = 1;", b"{\"mappings\":\"AAAA\"}");
+        assert_eq!(result, "c1b08c52e81d19e59bfcb02180762bea");
+    }
+}

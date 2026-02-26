@@ -229,11 +229,12 @@ fn test_reinject_without_new_release() {
     assert_eq!(pairs.len(), 1);
     let injected_pairs = inject_pairs(pairs, None).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
-    assert_ne!(&first_pair.source.get_chunk_id().unwrap(), "0");
-    assert_eq!(
-        &first_pair.sourcemap.get_chunk_id().unwrap(),
-        &first_pair.source.get_chunk_id().unwrap()
-    );
+    let chunk_id = first_pair.source.get_chunk_id().unwrap();
+    assert_ne!(&chunk_id, "0");
+    // Chunk ID should be a 32-char hex string (content hash)
+    assert_eq!(chunk_id.len(), 32);
+    assert!(chunk_id.chars().all(|c| c.is_ascii_hexdigit()));
+    assert_eq!(&first_pair.sourcemap.get_chunk_id().unwrap(), &chunk_id);
     assert!(&first_pair.sourcemap.get_release_id().is_none());
 }
 
@@ -247,15 +248,53 @@ fn test_reinject_with_new_release() {
     let injected_pairs =
         inject_pairs(pairs, Some(release_id.clone())).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
-    assert_ne!(&first_pair.source.get_chunk_id().unwrap(), "0");
-    assert_eq!(
-        &first_pair.sourcemap.get_chunk_id().unwrap(),
-        &first_pair.source.get_chunk_id().unwrap()
-    );
+    let chunk_id = first_pair.source.get_chunk_id().unwrap();
+    assert_ne!(&chunk_id, "0");
+    // Chunk ID should be a 32-char hex string (content hash)
+    assert_eq!(chunk_id.len(), 32);
+    assert!(chunk_id.chars().all(|c| c.is_ascii_hexdigit()));
+    assert_eq!(&first_pair.sourcemap.get_chunk_id().unwrap(), &chunk_id);
     assert_eq!(
         first_pair.sourcemap.get_release_id().unwrap(),
         release_id.clone()
     );
+}
+
+#[test]
+fn test_chunk_id_is_deterministic() {
+    let case_path = get_case_path("inject");
+
+    // First injection
+    let pairs1 =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected1 = inject_pairs(pairs1, None).expect("Failed to inject pairs");
+    let chunk_id_1 = injected1.first().unwrap().source.get_chunk_id().unwrap();
+
+    // Second injection of the same content
+    let pairs2 =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected2 = inject_pairs(pairs2, None).expect("Failed to inject pairs");
+    let chunk_id_2 = injected2.first().unwrap().source.get_chunk_id().unwrap();
+
+    assert_eq!(chunk_id_1, chunk_id_2);
+}
+
+#[test]
+fn test_chunk_id_differs_across_release_stays_same() {
+    let case_path = get_case_path("inject");
+
+    let pairs1 =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected1 = inject_pairs(pairs1, Some("release-a".to_string())).expect("Failed");
+    let chunk_id_1 = injected1.first().unwrap().source.get_chunk_id().unwrap();
+
+    let pairs2 =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected2 = inject_pairs(pairs2, Some("release-b".to_string())).expect("Failed");
+    let chunk_id_2 = injected2.first().unwrap().source.get_chunk_id().unwrap();
+
+    // Same content, different release — chunk ID should be the same
+    assert_eq!(chunk_id_1, chunk_id_2);
 }
 
 #[test]
