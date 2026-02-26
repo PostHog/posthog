@@ -571,13 +571,11 @@ function MessageDisplay({ message, index }: { message: Message; index: number })
         }
     }
 
-    const isAssistantWithContent = message.role === 'assistant' && message.content.trim().length > 0
-
     return (
         <div
             className={`border rounded p-3 relative group hover:shadow-sm transition-shadow ${getRoleBorderClass(
                 message.role
-            )} ${isAssistantWithContent ? 'bg-surface-secondary' : ''}`}
+            )}`}
         >
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <LemonButton
@@ -601,23 +599,15 @@ function MessageDisplay({ message, index }: { message: Message; index: number })
                 />
             </div>
 
-            {isAssistantWithContent ? (
-                <div className="text-sm opacity-75">
-                    <LemonMarkdown className="break-words" lowKeyHeadings wrapCode>
-                        {message.content}
-                    </LemonMarkdown>
-                </div>
-            ) : (
-                <LemonTextArea
-                    className="text-sm w-full"
-                    placeholder={`Enter ${message.role} message here...`}
-                    value={message.content}
-                    onChange={handleContentChange}
-                    minRows={2}
-                    maxRows={undefined}
-                    onPressCmdEnter={() => submitPrompt()}
-                />
-            )}
+            <LemonTextArea
+                className="text-sm w-full"
+                placeholder={`Enter ${message.role} message here...`}
+                value={message.content}
+                onChange={handleContentChange}
+                minRows={2}
+                maxRows={undefined}
+                onPressCmdEnter={() => submitPrompt()}
+            />
         </div>
     )
 }
