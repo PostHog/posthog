@@ -752,8 +752,8 @@ def verify_team_flag_definitions(
     cached_flags = cached_data.get("flags", []) if cached_data else []
 
     # Compare flags by key (flag definitions use key as primary identifier)
-    db_flags_by_key = {flag.get("key"): flag for flag in db_flags}
-    cached_flags_by_key = {flag.get("key"): flag for flag in cached_flags}
+    db_flags_by_key = {flag["key"]: flag for flag in db_flags}
+    cached_flags_by_key = {flag["key"]: flag for flag in cached_flags}
 
     diffs = []
 
