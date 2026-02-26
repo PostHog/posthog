@@ -14,8 +14,9 @@ import { urls } from 'scenes/urls'
 import type { Experiment, FeatureFlagType } from '~/types'
 import { ExperimentProgressStatus } from '~/types'
 
-import { experimentsLogic, getExperimentStatus, getShippedVariantKey, isSingleVariantShipped } from './experimentsLogic'
+import { getExperimentStatus, getShippedVariantKey, isSingleVariantShipped } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
+import { featureFlagRelatedExperimentsLogic } from './featureFlagRelatedExperimentsLogic'
 import { isLegacyExperiment } from './utils'
 
 type ExperimentTabContentProps = {
@@ -34,11 +35,12 @@ const getExperimentDuration = (experiment: Experiment): number | undefined => {
 export const ExperimentTabContent = ({
     featureFlag,
     multipleExperimentsBannerMessage,
-}: ExperimentTabContentProps): JSX.Element => {
-    const { experiments, experimentsLoading } = useValues(experimentsLogic)
-
-    const relatedExperiments = experiments.results.filter((exp) =>
-        featureFlag.experiment_set?.includes(exp.id as number)
+}: ExperimentTabContentProps): JSX.Element | null => {
+    /**
+     * we only operate with existing feature flags, so id will never be null.
+     */
+    const { relatedExperiments, relatedExperimentsLoading } = useValues(
+        featureFlagRelatedExperimentsLogic({ featureFlagId: featureFlag.id! })
     )
 
     if (relatedExperiments.length === 0) {
@@ -67,7 +69,7 @@ export const ExperimentTabContent = ({
 
             <LemonTable
                 dataSource={relatedExperiments}
-                loading={experimentsLoading}
+                loading={relatedExperimentsLoading}
                 defaultSorting={{
                     columnKey: 'created_at',
                     order: -1,
