@@ -183,7 +183,14 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                 const data = {
                     name: formValues.name,
                     description: formValues.description,
-                    properties: formValues.properties.map((p) => ({ ...p, name: p.name.trim() })),
+                    properties: formValues.properties.map((p) => ({
+                        ...p,
+                        name: p.name.trim(),
+                        validation_rules:
+                            p.validation_rules && Object.keys(p.validation_rules).length > 0
+                                ? p.validation_rules
+                                : null,
+                    })),
                 }
 
                 try {

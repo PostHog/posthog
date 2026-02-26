@@ -20,6 +20,7 @@ import {
     SchemaPropertyGroupProperty,
     schemaManagementLogic,
 } from './schemaManagementLogic'
+import { validationRulesSummary } from './ValidationRulesEditor'
 
 function EventRow({ event }: { event: EventDefinitionBasic }): JSX.Element {
     return (
@@ -32,6 +33,7 @@ function EventRow({ event }: { event: EventDefinitionBasic }): JSX.Element {
 }
 
 function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): JSX.Element {
+    const summary = validationRulesSummary(property)
     return (
         <div className="flex items-center gap-4 py-3 px-4 border-b last:border-b-0">
             <div className="flex-1">
@@ -54,6 +56,9 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
                 {property.is_required && property.is_optional_in_types && (
                     <LemonTag type="muted">Optional in types</LemonTag>
                 )}
+            </div>
+            <div className="w-32">
+                {summary ? <LemonTag type="muted">{summary}</LemonTag> : <span className="text-muted">—</span>}
             </div>
             <div className="flex-1 text-muted">{property.description || '—'}</div>
         </div>
@@ -202,6 +207,7 @@ export function SchemaManagement(): JSX.Element {
                                                     <div className="flex-1">Property</div>
                                                     <div className="w-32">Type</div>
                                                     <div className="w-24">Required</div>
+                                                    <div className="w-32">Validation</div>
                                                     <div className="flex-1">Description</div>
                                                 </div>
                                                 {propertyGroup.properties.map((property) => (
