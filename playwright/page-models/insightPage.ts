@@ -2,7 +2,7 @@ import { Locator, Page, expect } from '@playwright/test'
 
 import { urls } from 'scenes/urls'
 
-import { InsightType } from '~/types'
+import { InsightShortId, InsightType } from '~/types'
 
 import { randomString } from '../utils'
 import { FunnelsInsight } from './insights/funnelsInsight'
@@ -19,6 +19,7 @@ export class InsightPage {
     // top bar
     readonly saveButton: Locator
     readonly editButton: Locator
+    readonly cancelButton: Locator
     readonly topBarName: Locator
     readonly activeTab: Locator
 
@@ -35,6 +36,7 @@ export class InsightPage {
 
         this.saveButton = page.getByTestId('insight-save-button')
         this.editButton = page.getByTestId('insight-edit-button')
+        this.cancelButton = page.getByTestId('insight-cancel-edit-button')
         this.topBarName = page.locator('.scene-name')
         this.activeTab = page.locator('.LemonTabs__tab--active')
 
@@ -64,6 +66,26 @@ export class InsightPage {
 
     async goToSql(): Promise<InsightPage> {
         await this.page.goto('/sql', { waitUntil: 'domcontentloaded' })
+        return this
+    }
+
+    async goToInsight(
+        shortId: InsightShortId,
+        options?: { edit?: boolean; queryParams?: Record<string, string | number | object> }
+    ): Promise<InsightPage> {
+        const base = options?.edit ? urls.insightEdit(shortId) : urls.insightView(shortId)
+
+        if (!options?.queryParams) {
+            await this.page.goto(base, { waitUntil: 'domcontentloaded' })
+            return this
+        }
+
+        const params = new URLSearchParams()
+        for (const [k, v] of Object.entries(options.queryParams)) {
+            params.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v))
+        }
+        const sep = base.includes('?') ? '&' : '?'
+        await this.page.goto(`${base}${sep}${params}`, { waitUntil: 'domcontentloaded' })
         return this
     }
 
