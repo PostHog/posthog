@@ -125,7 +125,7 @@ export type Result<T, E = Error> = { success: true; data: T } | { success: false
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
-    clientIdentifier?: string
+    clientIdentifier?: string | undefined
 }
 
 type Endpoint = Record<string, any>
