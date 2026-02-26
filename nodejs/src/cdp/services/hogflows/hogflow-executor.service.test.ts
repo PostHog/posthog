@@ -637,7 +637,7 @@ describe('Hogflow Executor', () => {
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
-                      "Workflow exited early due to exit condition: exit_on_conversion ([Person|person_id|John Doe] matches conversion filters)",
+                      "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
                     ]
                 `)
             })
@@ -678,7 +678,7 @@ describe('Hogflow Executor', () => {
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
-                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched ([Person|person_id|John Doe] no longer matches trigger filters)",
+                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched ([Person:person_id|John Doe] no longer matches trigger filters)",
                     ]
                 `)
             })
@@ -750,7 +750,7 @@ describe('Hogflow Executor', () => {
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
-                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person|person_id|John Doe] matches conversion filters)",
+                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
                     ]
                 `)
             })
