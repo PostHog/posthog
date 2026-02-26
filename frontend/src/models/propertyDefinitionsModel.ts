@@ -106,8 +106,6 @@ export type Option = {
     refreshing?: boolean
     /** Values present when the latest background refresh started, used to identify newly appeared values. */
     preRefreshValueNames?: string[]
-    /** Values loaded with no search input, used to keep ordering stable as the user types. */
-    initialValueNames?: string[]
     /** Current search input for this property key. */
     searchInput?: string
 }
@@ -241,14 +239,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 setOptions: (state, { key, values, allowCustomValues, refreshing }) => {
                     const current = state[key]
                     const valueNames = values.map((v) => toString(v.name))
-                    const searchInput = current?.searchInput || ''
 
                     // Capture values as the pre-refresh baseline when a refresh begins
                     const isStartingRefresh = refreshing && !current?.refreshing
                     const preRefreshValueNames = isStartingRefresh ? valueNames : current?.preRefreshValueNames
-
-                    // Keep ordering baseline updated whenever loaded with no search
-                    const initialValueNames = searchInput === '' ? valueNames : current?.initialValueNames
 
                     return {
                         ...state,
@@ -259,7 +253,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                             allowCustomValues,
                             refreshing: refreshing ?? false,
                             preRefreshValueNames,
-                            initialValueNames,
                         },
                     }
                 },
