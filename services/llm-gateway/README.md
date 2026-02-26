@@ -118,6 +118,14 @@ response = client.messages.create(
 )
 ```
 
+## Feature flags
+
+The gateway supports feature flags via the `X-POSTHOG-FLAG-*` headers. Feature flags are sent as `X-POSTHOG-FLAG-<FLAG_KEY>: <VALUE>` headers and appear on PostHog events as `$feature/<FLAG_KEY>: <VALUE>`.
+
+## Custom event properties
+
+The gateway supports capturing additional event properties to PostHog via the `X-POSTHOG-PROPERTY-*` headers. Event properties are sent as `X-POSTHOG-PROPERTY-<PROPERTY_KEY>: <VALUE>` headers and appear on PostHog events as `<PROPERTY_KEY>: <VALUE>`.
+
 ## API endpoints
 
 ### OpenAI-compatible
