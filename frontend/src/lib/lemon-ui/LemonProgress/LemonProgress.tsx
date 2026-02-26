@@ -13,6 +13,7 @@ export type LemonProgressProps = React.HTMLAttributes<HTMLDivElement> & {
     smoothing?: boolean
     children?: React.ReactNode
     className?: string
+    ref?: React.RefObject<HTMLDivElement>
 }
 
 export function LemonProgress({
@@ -25,7 +26,7 @@ export function LemonProgress({
     children,
     className,
     ...rest
-}: LemonProgressProps & React.RefAttributes<HTMLDivElement>): JSX.Element {
+}: LemonProgressProps): JSX.Element {
     const width = isNaN(percent) ? 0 : Math.max(Math.min(percent, 100), 0)
 
     return (

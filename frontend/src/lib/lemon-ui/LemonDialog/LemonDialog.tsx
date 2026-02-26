@@ -45,7 +45,7 @@ type LemonDialogMethods = {
     openForm: (props: LemonFormDialogProps) => void
 }
 
-const LemonDialogComponent = function LemonDialog({
+function LemonDialogComponent({
     ref,
     onAfterClose,
     onClose,

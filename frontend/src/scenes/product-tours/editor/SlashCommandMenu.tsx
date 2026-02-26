@@ -111,7 +111,7 @@ interface SlashCommandsRef {
     onKeyDown: (event: KeyboardEvent) => boolean
 }
 
-const SlashCommands = function SlashCommands({ ref, editor, range, query, onClose }: SlashCommandsProps): JSX.Element {
+function SlashCommands({ ref, editor, range, query, onClose }: SlashCommandsProps): JSX.Element {
     const [selectedIndex, setSelectedIndex] = useState(0)
 
     const filteredCommands = SLASH_COMMANDS.filter((item) => {
@@ -200,7 +200,7 @@ interface SlashCommandsPopoverProps extends SlashCommandsProps {
     decorationNode?: HTMLElement | null
 }
 
-const SlashCommandsPopover = function SlashCommandsPopover({
+function SlashCommandsPopover({
     ref,
     visible,
     decorationNode,

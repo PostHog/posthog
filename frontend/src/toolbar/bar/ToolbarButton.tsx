@@ -2,7 +2,7 @@ import './ToolbarButton.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FunctionComponent, useEffect } from 'react'
+import { useEffect } from 'react'
 import * as React from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
@@ -18,12 +18,19 @@ export type ToolbarButtonProps = {
     titleMinimized?: JSX.Element | string
     menuId?: MenuState
     flex?: boolean
+    ref?: React.RefObject<HTMLDivElement>
 }
 
-export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwardRef<
-    HTMLDivElement,
-    ToolbarButtonProps
->(({ children, title, onClick, titleMinimized, menuId, flex, ...props }, ref): JSX.Element => {
+export function ToolbarButton({
+    ref,
+    children,
+    title,
+    onClick,
+    titleMinimized,
+    menuId,
+    flex,
+    ...props
+}: ToolbarButtonProps): JSX.Element {
     const { visibleMenu, minimized, isDragging } = useValues(toolbarLogic)
     const { setVisibleMenu } = useActions(toolbarLogic)
 
@@ -73,6 +80,6 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
     ) : (
         theButton
     )
-})
+}
 
 ToolbarButton.displayName = 'ToolbarButton'

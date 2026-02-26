@@ -192,7 +192,7 @@ type SessionTimelineItemContainerProps = RendererProps<TimelineItem> & {
     ref?: React.RefObject<HTMLDivElement>
 }
 
-const SessionTimelineItemContainer = function SessionTimelineItemContainer({
+function SessionTimelineItemContainer({
     ref,
     renderer,
     item,

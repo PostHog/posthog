@@ -13,6 +13,7 @@ interface LemonBadgePropsBase {
     active?: boolean
     style?: React.CSSProperties
     title?: string
+    ref?: React.RefObject<HTMLSpanElement>
 }
 
 export interface LemonBadgeProps extends LemonBadgePropsBase {
@@ -29,6 +30,7 @@ export interface LemonBadgeNumberProps extends LemonBadgePropsBase {
      * Whether to force the badge to show a plus with the number e.g. if we know we have the count of a page of values but there are more available
      */
     forcePlus?: boolean
+    ref?: React.RefObject<HTMLSpanElement>
 }
 
 /** An icon-sized badge. */
@@ -42,7 +44,7 @@ function LemonBadgeComponent({
     status = 'primary',
     active = false,
     ...spanProps
-}: LemonBadgeProps & React.RefAttributes<HTMLSpanElement>): JSX.Element {
+}: LemonBadgeProps): JSX.Element {
     return (
         <CSSTransition in={visible} timeout={150} classNames="LemonBadge-" mountOnEnter unmountOnExit>
             <span
@@ -77,7 +79,7 @@ function LemonBadgeNumber({
     showZero = false,
     forcePlus = false,
     ...badgeProps
-}: LemonBadgeNumberProps & React.RefAttributes<HTMLSpanElement>): JSX.Element {
+}: LemonBadgeNumberProps): JSX.Element {
     if (maxDigits < 1) {
         throw new Error('maxDigits must be at least 1')
     }

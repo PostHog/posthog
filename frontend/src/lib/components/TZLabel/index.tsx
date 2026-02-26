@@ -170,7 +170,7 @@ const TZLabelPopoverRow = React.memo(function TZLabelPopoverRow({
 
 /** Return a simple label component with timezone conversion UI. */
 
-const TZLabelRaw = function TZLabelRaw({
+function TZLabelRaw({
     ref,
     time,
     showSeconds,

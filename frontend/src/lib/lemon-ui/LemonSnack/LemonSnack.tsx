@@ -14,6 +14,7 @@ export interface LemonSnackProps {
     wrap?: boolean
     className?: string
     'data-attr'?: string
+    ref?: React.RefObject<HTMLSpanElement>
 }
 
 export function LemonSnack({
@@ -25,7 +26,7 @@ export function LemonSnack({
     onClose,
     title,
     className,
-}: LemonSnackProps & React.RefAttributes<HTMLSpanElement>): JSX.Element {
+}: LemonSnackProps): JSX.Element {
     const isRegular = type === 'regular'
     const isClickable = !!onClick
     return (

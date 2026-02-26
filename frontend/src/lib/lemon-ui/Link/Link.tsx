@@ -84,6 +84,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     extraContextMenuItems?: React.ReactNode
     /** Skip the context menu */
     skipContext?: boolean
+    ref?: React.RefObject<HTMLElement>
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
@@ -143,7 +144,7 @@ export const Link = ({
     skipContext,
     extraContextMenuItems,
     ...props
-}: LinkProps & React.RefAttributes<HTMLElement>): JSX.Element => {
+}: LinkProps): JSX.Element => {
     const externalLink = isExternalLink(to)
     const { elementProps: draggableProps } = useNotebookDrag({
         href: typeof to === 'string' ? to : undefined,

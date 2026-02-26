@@ -1,4 +1,4 @@
-import { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
+import { ReactNode, useCallback, useMemo } from 'react'
 import * as React from 'react'
 
 import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -279,69 +279,66 @@ interface LemonMenuItemButtonProps {
     tooltipPlacement: TooltipProps['placement'] | undefined
     tag?: 'alpha' | 'beta' | 'new'
     active?: boolean
+    ref?: React.RefObject<HTMLButtonElement>
 }
 
-const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
-    React.forwardRef(
-        (
-            {
-                item: { label, items, placement, keyboardShortcut, tag, custom, ...buttonProps },
-                size,
-                tooltipPlacement,
-                active,
-            },
-            ref
-        ): JSX.Element => {
-            const Label = typeof label === 'function' ? label : null
-            const button = Label ? (
-                <Label key="x" />
-            ) : (
-                // @ts-expect-error - We don't have a type-level guarantee that `sideAction` won't be present
-                // alongside `sideIcon` in one menu item, but that's fine. It'd be horribly complex to implement here.
-                <LemonButton
-                    ref={ref}
-                    tooltipPlacement={tooltipPlacement}
-                    fullWidth
-                    role="menuitem"
-                    size={size}
-                    {...buttonProps}
-                    active={active}
+function LemonMenuItemButton({
+    ref,
+    item: { label, items, placement, keyboardShortcut, tag, custom, ...buttonProps },
+    size,
+    tooltipPlacement,
+    active,
+}: LemonMenuItemButtonProps): JSX.Element {
+    const Label = typeof label === 'function' ? label : null
+    const button = Label ? (
+        <Label key="x" />
+    ) : (
+        // @ts-expect-error - We don't have a type-level guarantee that `sideAction` won't be present
+        // alongside `sideIcon` in one menu item, but that's fine. It'd be horribly complex to implement here.
+        <LemonButton
+            ref={ref}
+            tooltipPlacement={tooltipPlacement}
+            fullWidth
+            role="menuitem"
+            size={size}
+            {...buttonProps}
+            active={active}
+        >
+            {label as ReactNode}
+            {keyboardShortcut && (
+                <div className="-mr-0.5 inline-flex grow justify-end">
+                    {/* Show the keyboard shortcut on the right */}
+                    <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
+                </div>
+            )}
+            {tag && (
+                <LemonTag
+                    type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
+                    size="small"
+                    className="ml-2"
                 >
-                    {label as ReactNode}
-                    {keyboardShortcut && (
-                        <div className="-mr-0.5 inline-flex grow justify-end">
-                            {/* Show the keyboard shortcut on the right */}
-                            <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
-                        </div>
-                    )}
-                    {tag && (
-                        <LemonTag
-                            type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
-                            size="small"
-                            className="ml-2"
-                        >
-                            {tag.toUpperCase()}
-                        </LemonTag>
-                    )}
-                </LemonButton>
-            )
-
-            return items ? (
-                <LemonMenu
-                    items={items}
-                    tooltipPlacement={tooltipPlacement}
-                    placement={placement || 'right-start'}
-                    closeOnClickInside={!custom}
-                    closeParentPopoverOnClickInside={!custom}
-                    buttonSize={size}
-                >
-                    {button}
-                </LemonMenu>
-            ) : (
-                button
-            )
-        }
+                    {tag.toUpperCase()}
+                </LemonTag>
+            )}
+        </LemonButton>
     )
+
+    return items ? (
+        <LemonMenu
+            items={items}
+            tooltipPlacement={tooltipPlacement}
+            placement={placement || 'right-start'}
+            closeOnClickInside={!custom}
+            closeParentPopoverOnClickInside={!custom}
+            buttonSize={size}
+        >
+            {button}
+        </LemonMenu>
+    ) : (
+        button
+    )
+}
+
 LemonMenuItemButton.displayName = 'LemonMenuItemButton'
 
 function normalizeItems(sectionsAndItems: LemonMenuItems): LemonMenuItem[] | LemonMenuSection[] {

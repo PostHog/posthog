@@ -54,11 +54,11 @@ interface BaseHedgehogProps extends ImgHTMLAttributes<HTMLImageElement> {
 }
 
 // w400 x h400
-const SquaredHedgehog = function SquaredHedgehog({ ref, ...props }: BaseHedgehogProps): JSX.Element {
+function SquaredHedgehog({ ref, ...props }: BaseHedgehogProps): JSX.Element {
     return <img src={props.src} width={400} height={400} alt="PostHog hedgehog" {...props} ref={ref} />
 }
 // any width x h400
-const RectangularHedgehog = function RectangularHedgehog({ ref, ...props }: BaseHedgehogProps): JSX.Element {
+function RectangularHedgehog({ ref, ...props }: BaseHedgehogProps): JSX.Element {
     return <img src={props.src} height={400} alt="PostHog hedgehog" {...props} ref={ref} />
 }
 

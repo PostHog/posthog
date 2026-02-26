@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FunctionComponent, isValidElement, memo, useEffect, useRef } from 'react'
+import { isValidElement, memo, useEffect, useRef } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
@@ -10,12 +10,14 @@ import {
     IconChat,
     IconCloud,
     IconCollapse,
+    IconComponent,
     IconCursor,
     IconDashboard,
     IconExpand,
     IconEye,
     IconLeave,
     IconLogomark,
+    IconProps,
     IconRedux,
     IconTerminal,
 } from '@posthog/icons'
@@ -47,7 +49,7 @@ import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 interface IconAndDescription {
-    Icon: FunctionComponent | undefined
+    Icon: IconComponent<IconProps> | undefined
     tooltip: string | undefined
 }
 
@@ -135,7 +137,7 @@ function IconWithOptionalBadge({
     TypeIcon,
     showBadge = false,
 }: {
-    TypeIcon: FunctionComponent | undefined
+    TypeIcon: IconComponent<IconProps> | undefined
     showBadge?: boolean
 }): JSX.Element {
     if (!TypeIcon) {

@@ -72,7 +72,7 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 /** Root ListBox implementation */
-const InnerListBox = function ListBox({
+function InnerListBox({
     ref,
     children,
     className,

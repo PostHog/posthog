@@ -37,6 +37,7 @@ export interface LemonTagProps {
     'data-attr'?: string
     /** When true, the icon will swap to a close icon on hover and the entire tag becomes clickable to close */
     closeOnClick?: boolean
+    ref?: React.RefObject<HTMLDivElement>
 }
 
 export function LemonTag({
@@ -53,9 +54,7 @@ export function LemonTag({
     disabledReason,
     closeOnClick,
     ...props
-}: LemonTagProps &
-    React.RefAttributes<HTMLDivElement> &
-    Omit<HTMLProps<HTMLDivElement>, keyof LemonTagProps>): JSX.Element {
+}: LemonTagProps & Omit<HTMLProps<HTMLDivElement>, keyof LemonTagProps>): JSX.Element {
     return (
         <div
             ref={ref}

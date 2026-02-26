@@ -246,7 +246,7 @@ const Content = ({ className, children }: ContentProps): JSX.Element => {
 }
 
 /** Compound type augmentation */
-export type ComboboxType = React.ForwardRefExoticComponent<ComboboxProps & React.RefAttributes<ListBoxHandle>> & {
+export type ComboboxType = React.ForwardRefExoticComponent<ComboboxProps> & {
     Search: typeof Search
     Group: typeof Group
     Empty: typeof Empty

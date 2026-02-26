@@ -83,12 +83,7 @@ interface MinimizedButtonProps {
     ref?: React.RefObject<HTMLButtonElement>
 }
 
-const MinimizedButton = function MinimizedButton({
-    ref,
-    remainingCount,
-    isActive,
-    onClick,
-}: MinimizedButtonProps): JSX.Element {
+function MinimizedButton({ ref, remainingCount, isActive, onClick }: MinimizedButtonProps): JSX.Element {
     return (
         <LemonButton
             ref={ref}
@@ -118,13 +113,7 @@ interface ExpandedButtonProps {
     ref?: React.RefObject<HTMLButtonElement>
 }
 
-const ExpandedButton = function ExpandedButton({
-    ref,
-    remainingCount,
-    showBadge,
-    isActive,
-    onClick,
-}: ExpandedButtonProps): JSX.Element {
+function ExpandedButton({ ref, remainingCount, showBadge, isActive, onClick }: ExpandedButtonProps): JSX.Element {
     return (
         <LemonButton
             ref={ref}

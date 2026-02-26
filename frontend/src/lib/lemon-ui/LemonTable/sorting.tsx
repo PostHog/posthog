@@ -28,12 +28,10 @@ export function getNextSorting(
 
 interface SortingIndicatorProps {
     order: Sorting['order'] | null
+    ref?: React.RefObject<HTMLDivElement>
 }
 
-export function SortingIndicator({
-    ref,
-    order,
-}: SortingIndicatorProps & React.RefAttributes<HTMLDivElement>): JSX.Element {
+export function SortingIndicator({ ref, order }: SortingIndicatorProps): JSX.Element {
     return (
         <div ref={ref} className="sorting-indicator flex items-center text-base ml-2 whitespace-nowrap">
             {order === -1 ? <IconArrowDown /> : order === 1 ? <IconArrowUp /> : <IconSort />}

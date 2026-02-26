@@ -138,7 +138,7 @@ export function Mentions({ ref, range, onClose, query, editor }: MentionsProps):
     )
 }
 
-const MentionsPopover = function MentionsPopover({
+function MentionsPopover({
     ref,
     visible = true,
     decorationNode,

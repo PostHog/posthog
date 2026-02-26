@@ -27,6 +27,7 @@ export interface LemonSwitchProps {
     sliderColorOverrideChecked?: string
     sliderColorOverrideUnchecked?: string
     loading?: boolean
+    ref?: React.RefObject<HTMLDivElement>
 }
 
 /** Counter used for collision-less automatic switch IDs. */
@@ -51,7 +52,7 @@ export function LemonSwitch({
     sliderColorOverrideChecked,
     sliderColorOverrideUnchecked,
     loading = false,
-}: LemonSwitchProps & React.RefAttributes<HTMLDivElement>): JSX.Element {
+}: LemonSwitchProps): JSX.Element {
     const id = useMemo(() => rawId || `lemon-switch-${switchCounter++}`, [rawId])
     const [isActive, setIsActive] = useState(false)
 
