@@ -3,10 +3,8 @@ import './Link.scss'
 import { router } from 'kea-router'
 import React from 'react'
 
-import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
+import { IconExternal, IconSend } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -24,9 +22,7 @@ import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/route
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urlToResource } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
-import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
 
@@ -105,10 +101,6 @@ const isDirectLink = (url: string): boolean => {
     return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
 }
 
-const isPostHogComDocs = (url: string): url is PostHogComDocsURL => {
-    return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
-}
-
 export type PostHogComDocsURL = `https://${'www.' | ''}posthog.com/docs/${string}`
 
 /**
@@ -125,7 +117,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             target,
             subtle,
             disableClientSideRouting,
-            disableDocsPanel = false,
+            disableDocsPanel: _disableDocsPanel,
             preventClick = false,
             onClick: onClickRaw,
             onAuxClick,
@@ -152,8 +144,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
-
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
                 event.stopPropagation()
@@ -164,34 +154,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
             if (event.isDefaultPrevented()) {
                 event.preventDefault()
-                return
-            }
-
-            const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
-            const mountedFeatureFlagLogic = featureFlagLogic.findMounted()
-            const { featureFlags } = mountedFeatureFlagLogic?.values || {}
-
-            const isRemovingSidePanelFlag = featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
-
-            if (shouldOpenInDocsPanel && mountedSidePanelLogic && !isRemovingSidePanelFlag) {
-                // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
-                const { sidePanelOpen } = mountedSidePanelLogic.values
-                const { openSidePanel } = mountedSidePanelLogic.actions
-
-                event.preventDefault()
-
-                const target = event.currentTarget
-                const container = document.getElementsByTagName('main')[0]
-                const topBar = document.getElementsByClassName('TopBar3000')[0]
-                if (!sidePanelOpen && container.contains(target)) {
-                    setTimeout(() => {
-                        // Little delay to allow the rendering of the side panel
-                        const y = container.scrollTop + target.getBoundingClientRect().top - topBar.clientHeight
-                        container.scrollTo({ top: y })
-                    }, 50)
-                }
-
-                openSidePanel(SidePanelTab.Docs, to)
                 return
             }
 
@@ -245,9 +207,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             >
                 {children}
                 {targetBlankIcon &&
-                    (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
-                        <IconOpenSidebar />
-                    ) : href?.startsWith('mailto:') ? (
+                    (href?.startsWith('mailto:') ? (
                         <IconSend />
                     ) : target === '_blank' ? (
                         <IconExternal className={buttonProps ? 'size-3' : ''} />

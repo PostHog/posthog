@@ -476,6 +476,31 @@ describe('vercel log drain template', () => {
         expect(props.utm_source).toBeNull()
         expect(props.utm_medium).toBe('cpc')
     })
+
+    it('should handle malformed percent-encoding without crashing', async () => {
+        const logWithMalformedEncoding = {
+            ...vercelLogDrain,
+            proxy: {
+                ...vercelLogDrain.proxy,
+                path: '/api/users?utm_campaign=100%free&utm_source=google',
+            },
+        }
+
+        const response = await tester.invoke(
+            {},
+            {
+                request: createVercelRequest(logWithMalformedEncoding),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+        const props = response.capturedPostHogEvents[0].properties
+        // Malformed value falls back to raw string
+        expect(props.utm_campaign).toBe('100%free')
+        // Valid encoding still works
+        expect(props.utm_source).toBe('google')
+    })
 })
 
 const createVercelRequest = (body: Record<string, any> | Record<string, any>[]) => {

@@ -380,7 +380,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             </>
                         ) : editingInsight ? (
                             <LemonButton
-                                disabledReason={!updateInsightButtonEnabled ? 'No updates to save' : undefined}
+                                disabledReason={
+                                    !isSourceQueryLastRun
+                                        ? 'Run latest query changes before saving'
+                                        : !updateInsightButtonEnabled
+                                          ? 'No updates to save'
+                                          : undefined
+                                }
                                 loading={insightLoading}
                                 type="primary"
                                 size="small"

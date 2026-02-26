@@ -46,7 +46,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hogflow')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(hub)
+        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(hub.SITE_URL, hub.internalFetchService)
     }
 
     private createHogFlowInvocation({

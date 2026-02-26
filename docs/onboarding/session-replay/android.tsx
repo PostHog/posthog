@@ -88,6 +88,10 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             config.sessionReplayConfig.maskAllImages = true
 
                                             // Capture logs automatically. Default is true.
+                                            // 
+                                            // Support for remote configuration 
+                                            // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
+                                            // requires SDK version 3.32.0 or higher.
                                             config.sessionReplayConfig.captureLogcat = true
 
                                             // Whether replays are created using high quality screenshots. Default is false.

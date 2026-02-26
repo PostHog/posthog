@@ -9,7 +9,6 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -51,7 +50,6 @@ export function NotebookScene(): JSX.Element {
     )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     useEffect(() => {
         if (notebookId === 'new') {
@@ -159,15 +157,14 @@ export function NotebookScene(): JSX.Element {
                         }}
                         tooltip={
                             <>
-                                Opens the notebook in a {isRemovingSidePanelFlag ? 'context panel' : 'side panel'}, that
-                                can be accessed from anywhere in the PostHog app. This is great for dragging and
-                                dropping elements like insights, recordings or even feature flags into your active
-                                notebook.
+                                Opens the notebook in a context panel, that can be accessed from anywhere in the PostHog
+                                app. This is great for dragging and dropping elements like insights, recordings or even
+                                feature flags into your active notebook.
                             </>
                         }
                         sideIcon={<IconOpenSidebar />}
                     >
-                        {isRemovingSidePanelFlag ? 'Open in context panel' : 'Open in side panel'}
+                        Open in context panel
                     </LemonButton>
                 </div>
             </div>

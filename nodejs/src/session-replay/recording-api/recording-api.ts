@@ -12,6 +12,7 @@ import {
 } from '../../types'
 import { createRedisPoolFromConfig } from '../../utils/db/redis'
 import { logger, serializeError } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'
 import { RedisCachedKeyStore } from '../shared/keystore/cache'
@@ -19,7 +20,7 @@ import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
 import { RetentionService } from '../shared/retention/retention-service'
 import { TeamService } from '../shared/teams/team-service'
 import { RecordingService } from './recording-service'
-import { BulkDeleteBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
+import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
 import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
 
 export class RecordingApi {
@@ -93,7 +94,7 @@ export class RecordingApi {
         })
         const retentionService = new RetentionService(this.redisPool, teamService)
 
-        const keyStore: KeyStore = getKeyStore(teamService, retentionService, s3Region, {
+        const keyStore: KeyStore = getKeyStore(retentionService, s3Region, {
             kmsEndpoint: this.hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: this.hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
@@ -169,8 +170,7 @@ export class RecordingApi {
                 fn(req, res).catch(next)
 
         router.get('/api/projects/:team_id/recordings/:session_id/block', asyncHandler(this.getBlock))
-        router.delete('/api/projects/:team_id/recordings/:session_id', asyncHandler(this.deleteRecording))
-        router.post('/api/projects/:team_id/recordings/bulk_delete', asyncHandler(this.bulkDeleteRecordings))
+        router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
 
         return router
     }
@@ -218,8 +218,9 @@ export class RecordingApi {
             if (!result.ok) {
                 if (result.error === 'deleted') {
                     res.status(410).json({
-                        error: 'Recording has been deleted',
+                        error: 'recording_deleted',
                         deleted_at: result.deletedAt,
+                        deleted_by: result.deletedBy,
                     })
                     return
                 }
@@ -240,18 +241,19 @@ export class RecordingApi {
                 teamId,
                 sessionId,
             })
+            captureException(error)
             res.status(500).json({ error: 'Failed to fetch block from S3' })
         }
     }
 
-    private bulkDeleteRecordings = async (req: express.Request, res: express.Response): Promise<void> => {
+    private deleteRecordings = async (req: express.Request, res: express.Response): Promise<void> => {
         const paramsResult = TeamParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
             return
         }
 
-        const bodyResult = BulkDeleteBodySchema.safeParse(req.body)
+        const bodyResult = DeleteRecordingsBodySchema.safeParse(req.body)
         if (!bodyResult.success) {
             res.status(400).json({ error: bodyResult.error.issues[0].message })
             return
@@ -263,54 +265,18 @@ export class RecordingApi {
         }
 
         const { team_id: teamId } = paramsResult.data
-        const { session_ids: sessionIds } = bodyResult.data
+        const { session_ids: sessionIds, deleted_by: deletedBy } = bodyResult.data
 
         try {
-            const result = await this.recordingService.bulkDeleteRecordings(sessionIds, teamId)
+            const result = await this.recordingService.deleteRecordings(sessionIds, teamId, deletedBy)
             res.json(result)
         } catch (error) {
-            logger.error('[RecordingApi] Error in bulk delete', {
+            logger.error('[RecordingApi] Error in delete recordings', {
                 error: serializeError(error),
                 teamId,
             })
-            res.status(500).json({ error: 'Failed to bulk delete recordings' })
-        }
-    }
-
-    private deleteRecording = async (req: express.Request, res: express.Response): Promise<void> => {
-        // Parse and validate request
-        const paramsResult = RecordingParamsSchema.safeParse(req.params)
-        if (!paramsResult.success) {
-            res.status(400).json({ error: paramsResult.error.issues[0].message })
-            return
-        }
-
-        // Check service initialization
-        if (!this.recordingService) {
-            res.status(503).json({ error: 'KeyStore not initialized' })
-            return
-        }
-
-        const { team_id: teamId, session_id: sessionId } = paramsResult.data
-
-        // Call service
-        try {
-            const result = await this.recordingService.deleteRecording(sessionId, teamId)
-
-            // Serialize response
-            if (!result.ok) {
-                res.status(500).json({ error: 'Recording key deleted but post-deletion cleanup failed' })
-                return
-            }
-
-            res.json({ team_id: teamId, session_id: sessionId, status: 'deleted', deleted_at: result.deletedAt })
-        } catch (error) {
-            logger.error('[RecordingApi] Error deleting recording key', {
-                error: serializeError(error),
-                teamId,
-                sessionId,
-            })
-            res.status(500).json({ error: 'Failed to delete recording key' })
+            captureException(error)
+            res.status(500).json({ error: 'Failed to delete recordings' })
         }
     }
 }
