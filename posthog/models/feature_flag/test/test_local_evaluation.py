@@ -1,18 +1,26 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.feature_flag.local_evaluation import (
+    FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
+    FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
     _extract_cohort_ids_from_filters,
     _get_flags_response_for_local_evaluation,
     _get_flags_response_for_local_evaluation_batch,
-    clear_flag_caches,
-    flags_hypercache,
+    _update_flag_definitions_with_cohorts,
+    _update_flag_definitions_without_cohorts,
+    clear_flag_definition_caches,
+    flag_definitions_hypercache,
+    flag_definitions_without_cohorts_hypercache,
     get_flags_response_for_local_evaluation,
     update_flag_caches,
+    update_flag_definitions_cache,
 )
 from posthog.models.project import Project
 from posthog.models.surveys.survey import Survey
@@ -31,7 +39,7 @@ class TestLocalEvaluationCache(BaseTest):
         )
         self.team = team
         self._create_examples(self.team)
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
     def _create_examples(self, team: Team):
         FeatureFlag.objects.all().delete()
@@ -177,25 +185,25 @@ class TestLocalEvaluationCache(BaseTest):
 
     def test_get_flags_cache_hot(self):
         update_flag_caches(self.team)
-        response, source = flags_hypercache.get_from_cache_with_source(self.team)
+        response, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
 
     def test_get_flags_cache_warm(self):
         update_flag_caches(self.team)
-        clear_flag_caches(self.team, kinds=["redis"])
-        response, source = flags_hypercache.get_from_cache_with_source(self.team)
+        clear_flag_definition_caches(self.team, kinds=["redis"])
+        response, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert source == "s3"
         self._assert_payload_valid_with_cohorts(response)
 
     def test_get_flags_cold(self):
-        clear_flag_caches(self.team, kinds=["redis", "s3"])
-        response, source = flags_hypercache.get_from_cache_with_source(self.team)
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+        response, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert source == "db"
         self._assert_payload_valid_with_cohorts(response)
 
         # second request should be cached in redis
-        response, source = flags_hypercache.get_from_cache_with_source(self.team)
+        response, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
 
@@ -1009,3 +1017,147 @@ class TestLocalEvaluationBatch(BaseTest):
         flag_keys = [f["key"] for f in results[team.id]["flags"]]
         assert "flag-ref-deleted-cohort" in flag_keys
         assert str(cohort_id) not in results[team.id]["cohorts"]
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestFlagDefinitionsCache(BaseTest):
+    """Tests for flag definitions HyperCache operations."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+
+    def test_cache_key_format_is_stable(self):
+        """
+        Changing the key format would orphan existing cached data,
+        causing a cold cache on deploy.
+        """
+        with_cohorts_key = flag_definitions_hypercache.get_cache_key(self.team)
+        without_cohorts_key = flag_definitions_without_cohorts_hypercache.get_cache_key(self.team)
+
+        assert with_cohorts_key == f"cache/teams/{self.team.id}/feature_flags/flags_with_cohorts.json"
+        assert without_cohorts_key == f"cache/teams/{self.team.id}/feature_flags/flags_without_cohorts.json"
+
+    def test_update_flag_definitions_cache_updates_both_variants(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = update_flag_definitions_cache(self.team)
+        assert result is True
+
+        with_cohorts, source1 = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        without_cohorts, source2 = flag_definitions_without_cohorts_hypercache.get_from_cache_with_source(self.team)
+
+        assert source1 == "redis"
+        assert source2 == "redis"
+        assert with_cohorts is not None
+        assert without_cohorts is not None
+        assert len(with_cohorts["flags"]) == 1
+        assert len(without_cohorts["flags"]) == 1
+
+    def test_update_flag_definitions_cache_accepts_team_id(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = update_flag_definitions_cache(self.team.id)
+        assert result is True
+
+        data, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        assert source == "redis"
+        assert data is not None
+        assert len(data["flags"]) == 1
+
+    def test_update_flag_definitions_cache_returns_false_for_nonexistent_team(self):
+        result = update_flag_definitions_cache(999999)
+        assert result is False
+
+    def test_clear_flag_definition_caches_clears_both_variants(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        _, source1 = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        _, source2 = flag_definitions_without_cohorts_hypercache.get_from_cache_with_source(self.team)
+        assert source1 == "redis"
+        assert source2 == "redis"
+
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+
+        _, source1 = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        _, source2 = flag_definitions_without_cohorts_hypercache.get_from_cache_with_source(self.team)
+        assert source1 == "db"
+        assert source2 == "db"
+
+    def test_hypercache_configs_are_properly_configured(self):
+        config1 = FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG
+        assert config1.cache_name == "flag_definitions"
+        assert config1.hypercache == flag_definitions_hypercache
+        assert config1.update_fn == _update_flag_definitions_with_cohorts
+
+        config2 = FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG
+        assert config2.cache_name == "flag_definitions_no_cohorts"
+        assert config2.hypercache == flag_definitions_without_cohorts_hypercache
+        assert config2.update_fn == _update_flag_definitions_without_cohorts
+
+    def test_update_flag_definitions_cache_returns_false_on_partial_failure(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        with patch.object(flag_definitions_hypercache, "update_cache", return_value=False):
+            result = update_flag_definitions_cache(self.team)
+
+        assert result is False
+
+        # The second variant should still have been updated
+        _, source = flag_definitions_without_cohorts_hypercache.get_from_cache_with_source(self.team)
+        assert source == "redis"
+
+    def test_update_flag_definitions_cache_passes_custom_ttl(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        with (
+            patch.object(flag_definitions_hypercache, "update_cache", return_value=True) as mock_with,
+            patch.object(
+                flag_definitions_without_cohorts_hypercache, "update_cache", return_value=True
+            ) as mock_without,
+        ):
+            update_flag_definitions_cache(self.team, ttl=3600)
+
+        mock_with.assert_called_once_with(self.team, ttl=3600)
+        mock_without.assert_called_once_with(self.team, ttl=3600)
+
+
+@override_settings(FLAGS_REDIS_URL=None)
+class TestFlagDefinitionsCacheWithoutRedis(BaseTest):
+    def test_update_flag_definitions_cache_returns_true_without_redis(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = update_flag_definitions_cache(self.team)
+        assert result is True
