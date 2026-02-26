@@ -628,10 +628,12 @@ class EventViewSet(
                 except json.JSONDecodeError:
                     values.append(row[0])
 
-        return self._return_with_short_cache([{"name": convert_property_value(v)} for v in flatten(values)], refreshing=False)
+        return self._return_with_short_cache(
+            [{"name": convert_property_value(v)} for v in flatten(values)], refreshing=False
+        )
 
     @staticmethod
-    def _return_with_short_cache(values: List, refreshing: bool = False) -> response.Response:
+    def _return_with_short_cache(values: builtins.list, refreshing: bool = False) -> response.Response:
         resp = response.Response({"results": values, "refreshing": refreshing})
         resp["Cache-Control"] = "max-age=10"
         return resp

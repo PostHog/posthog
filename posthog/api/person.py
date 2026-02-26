@@ -521,7 +521,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if not key or key.startswith("$virt"):
                 span.set_attribute("result_count", 0)
-                return response.Response({"results": [], "refreshing": False})
+                resp = response.Response({"results": [], "refreshing": False})
+                resp["Cache-Control"] = "max-age=10"
+                return resp
 
             runner = PropertyValuesQueryRunner(
                 team=self.team,
