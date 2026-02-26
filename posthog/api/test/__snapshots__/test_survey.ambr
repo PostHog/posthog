@@ -180,6 +180,8 @@
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."test_account_filters_bytecode",
+         "posthog_team"."test_account_filters_bytecode_error",
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
