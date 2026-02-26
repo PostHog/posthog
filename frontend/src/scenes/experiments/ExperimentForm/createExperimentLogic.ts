@@ -24,6 +24,7 @@ import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { isExperimentCreationIncomplete } from '../experimentsLogic'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -313,7 +314,17 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     events(({ actions, values, props }) => ({
         afterMount: () => {
-            if (props.experiment || values.experiment.id !== 'new') {
+            // When opened with an existing experiment (e.g. revisiting an
+            // incomplete draft), always sync the reducer to the prop value.
+            // This handles the case where a kea logic instance is reused
+            // across re-renders — the reducer's initial value was captured
+            // at first mount and won't reflect newer props without this.
+            if (props.experiment) {
+                actions.setExperiment(props.experiment)
+                return
+            }
+
+            if (values.experiment.id !== 'new') {
                 return
             }
 
@@ -484,7 +495,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         lemonToast.success('Experiment updated successfully!')
                     } else {
                         // Create flow
-                        actions.reportExperimentCreated(response)
+                        const isWizard = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]
+                        actions.reportExperimentCreated(response, {
+                            creation_source: isWizard ? 'wizard' : 'classic_form',
+                            has_linked_flag: !!response.feature_flag?.id,
+                        })
                         actions.addProductIntent({
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
@@ -498,7 +513,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.saveExperimentSuccess()
                     clearDraftStorage(props.tabId)
 
-                    if (props.tabId) {
+                    if (isExperimentCreationIncomplete(response)) {
+                        router.actions.push(urls.experiments())
+                    } else if (props.tabId) {
                         const sceneLogicInstance = experimentSceneLogic({ tabId: props.tabId })
                         sceneLogicInstance.actions.setSceneState(response.id, FORM_MODES.update)
                         const logicRef = sceneLogicInstance.values.experimentLogicRef

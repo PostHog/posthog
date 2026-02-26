@@ -56,7 +56,7 @@ export function ClusterCard({
             }`}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                borderLeftWidth: 3,
+                borderLeftWidth: 5,
                 borderLeftColor: clusterColor,
                 borderLeftStyle: isOutlierCluster ? 'dashed' : 'solid',
             }}

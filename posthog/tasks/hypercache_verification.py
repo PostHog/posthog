@@ -19,6 +19,7 @@ import structlog
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
+from posthog.storage.hypercache_verifier import _run_verification_for_cache
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -57,8 +58,6 @@ def _run_cache_verification(cache_type: CacheType, chunk_size: int) -> None:
 
     try:
         logger.info("Starting cache verification", cache_type=cache_type, chunk_size=chunk_size)
-
-        from posthog.storage.hypercache_verifier import _run_verification_for_cache
 
         # Import cache-specific config and verify function
         if cache_type == "flags":

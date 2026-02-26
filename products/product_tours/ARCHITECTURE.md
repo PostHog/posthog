@@ -288,7 +288,7 @@ Will provide a dedicated UI for viewing, managing, and analyzing product tours w
 | Context               | Auth Method                                      |
 | --------------------- | ------------------------------------------------ |
 | Toolbar → Backend API | Temporary token (`TemporaryTokenAuthentication`) |
-| SDK → Public endpoint | Project API key in request                       |
+| SDK → Public endpoint | Project token in request                         |
 | App UI → Backend API  | Session auth (standard PostHog auth)             |
 
 ### Error Handling
