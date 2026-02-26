@@ -8,6 +8,7 @@ Read/delete path (async, from Temporal activities): uses aioboto3
 """
 
 import math
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from itertools import batched
@@ -18,6 +19,8 @@ import aioboto3
 from botocore.client import Config
 
 from posthog.storage import object_storage
+
+logger = logging.getLogger(__name__)
 
 STORAGE_KEY_PREFIX = "deletion-inputs"
 
@@ -93,4 +96,4 @@ async def delete_session_id_chunks(prefix: str, total_chunks: int) -> None:
                     Key=key,
                 )
             except Exception:
-                pass
+                logger.warning("Failed to delete chunk %s, orphaned object may remain", key, exc_info=True)
