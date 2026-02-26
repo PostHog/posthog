@@ -8,7 +8,7 @@ jest.mock('~/utils/request', () => ({
 }))
 
 describe('InternalFetchService', () => {
-    it('calls internalFetch with internal auth header and templateId', async () => {
+    it('calls internalFetch with internal auth header', async () => {
         const internalFetchService = new InternalFetchService({
             INTERNAL_API_SECRET: 'secret-123',
             INTERNAL_API_BASE_URL: 'https://internal.example.com',
@@ -34,7 +34,6 @@ describe('InternalFetchService', () => {
         expect(mockedInternalFetch).toHaveBeenCalledTimes(1)
         expect(mockedInternalFetch.mock.calls[0][0]).toMatchObject({
             url: 'https://internal.example.com/health',
-            templateId: 'InternalFetchService',
             fetchParams: {
                 method: 'POST',
                 headers: {
