@@ -28,6 +28,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.sentiment.constants import (
     BATCH_MAX_TRACE_IDS,
     CACHE_KEY_PREFIX,
+    CACHE_TTL,
     MAX_RETRY_ATTEMPTS,
     WORKFLOW_NAME,
     WORKFLOW_TIMEOUT_BATCH_SECONDS,
@@ -163,12 +164,17 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     date_to=date_to,
                 )
 
+                to_cache: dict[str, dict] = {}
                 for tid in misses:
                     trace_result = batch_results.get(tid)
                     if trace_result:
                         results[tid] = trace_result
+                        to_cache[self._get_cache_key(tid)] = trace_result
                     else:
                         results[tid] = {"error": "Failed to compute sentiment"}
+
+                if to_cache:
+                    cache.set_many(to_cache, timeout=CACHE_TTL)
 
             except Exception as e:
                 logger.exception(
