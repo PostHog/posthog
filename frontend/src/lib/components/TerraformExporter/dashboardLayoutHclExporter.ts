@@ -1,4 +1,4 @@
-import { formatJsonForHcl } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
+import { formatHclValue, formatJsonForHcl } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
 import { DashboardTile, DashboardType } from '~/types'
 
@@ -25,13 +25,11 @@ function formatTileObject(tile: DashboardTile, insightIdReplacements?: Map<numbe
     }
 
     if (tile.text?.body) {
-        lines.push(
-            `      text_body = "${tile.text.body.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`
-        )
+        lines.push(`      text_body = ${formatHclValue(tile.text.body)}`)
     }
 
     if (tile.color) {
-        lines.push(`      color = "${tile.color}"`)
+        lines.push(`      color = ${formatHclValue(tile.color)}`)
     }
 
     if (tile.layouts && Object.keys(tile.layouts).length > 0) {
@@ -76,25 +74,18 @@ const DASHBOARD_LAYOUT_FIELD_MAPPINGS: FieldMapping<Partial<DashboardType>, Dash
     },
 ]
 
-function validateDashboardLayout(
-    dashboard: Partial<DashboardType>,
-    options: DashboardLayoutHclExportOptions
-): string[] {
-    const warnings: string[] = []
-    if (!options.dashboardTfReference && dashboard.id !== undefined) {
-        warnings.push(
-            '`dashboard_id` is hardcoded. Consider referencing the Terraform resource instead (for example, `posthog_dashboard.my_dashboard.id`) so the dashboard is managed alongside this configuration.'
-        )
-    }
-    return warnings
+// No validation needed: this resource is generated in a way that we
+// always provide the dashboardTfReference and insightIdReplacements.
+function validateDashboardLayout(): string[] {
+    return []
 }
 
 const DASHBOARD_LAYOUT_EXPORTER: ResourceExporter<Partial<DashboardType>, DashboardLayoutHclExportOptions> = {
     resourceType: 'posthog_dashboard_layout',
-    resourceLabel: 'dashboard layout',
+    resourceLabel: 'dashboard_layout',
     fieldMappings: DASHBOARD_LAYOUT_FIELD_MAPPINGS,
     validate: validateDashboardLayout,
-    getResourceName: (d) => d.name || `dashboard_${d.id || 'new'}`,
+    getResourceName: (d) => d.name || `dashboard_layout_${d.id || 'new'}`,
     getId: (d) => d.id,
 }
 

@@ -9,7 +9,7 @@ import { DashboardBasicType, DashboardType, HogFunctionType, InsightModel } from
 
 import { generateDashboardLayoutHCL } from './dashboardLayoutHclExporter'
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
-import { generateInsightHCL } from './insightHclExporter'
+import { generateInsightHCL, INSIGHT_EXPORTER } from './insightHclExporter'
 
 export interface DashboardHclExportOptions extends HclExportOptions {
     /** Child insights to include in export */
@@ -106,7 +106,7 @@ export function generateDashboardHCL(
     const insightIdReplacements = new Map<number, string>()
     if (options.insights && options.insights.length > 0) {
         const dashboardIdReplacements = new Map<number, string>()
-        if (dashboard.id && dashboardTfReference) {
+        if (dashboardTfReference) {
             dashboardIdReplacements.set(dashboard.id, dashboardTfReference)
         }
 
@@ -124,10 +124,10 @@ export function generateDashboardHCL(
 
             if (insight.id) {
                 const insightTfName = sanitizeResourceName(
-                    insight.name || insight.derived_name || `insight_${insight.id}`,
-                    'insight'
+                    INSIGHT_EXPORTER.getResourceName(insight),
+                    INSIGHT_EXPORTER.resourceLabel
                 )
-                insightIdReplacements.set(insight.id, `posthog_insight.${insightTfName}.id`)
+                insightIdReplacements.set(insight.id, `${INSIGHT_EXPORTER.resourceType}.${insightTfName}.id`)
             }
         }
     }
@@ -142,7 +142,7 @@ export function generateDashboardHCL(
         })
         hclSections.push('')
         hclSections.push(layoutResult.hcl)
-        allWarnings.push(...layoutResult.warnings.map((w) => `[Layout] ${w}`))
+        allWarnings.push(...layoutResult.warnings.map((w) => `[Dashboard Layout] ${w}`))
     }
 
     return {

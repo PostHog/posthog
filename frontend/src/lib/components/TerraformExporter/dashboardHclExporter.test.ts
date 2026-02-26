@@ -176,22 +176,34 @@ describe('dashboardHclExporter test', () => {
                 insights: [{ id: 100, name: 'My Insight' }] as any,
             })
 
-            expect(result.hcl).toContain('resource "posthog_dashboard_layout" "with_tiles"')
-            expect(result.hcl).toContain('dashboard_id = posthog_dashboard.with_tiles.id')
-        })
-
-        it('uses insight TF references in layout tiles', () => {
-            const dashboard = createTestDashboard({
-                id: 2,
-                name: 'Ref Test',
-                tiles: [{ id: 20, insight: { id: 200 }, color: null, layouts: {} }],
-            })
-
-            const result = generateDashboardHCL(dashboard, {
-                insights: [{ id: 200, name: 'Tracked Insight' }] as any,
-            })
-
-            expect(result.hcl).toContain('insight_id = posthog_insight.tracked_insight.id')
+            expect(result.hcl).toContain(`resource "posthog_dashboard" "with_tiles" {
+  name = "With Tiles"
+  tags = ["managed-by:terraform"]
+}`)
+            expect(result.hcl).toContain(`resource "posthog_insight" "my_insight" {
+  name = "My Insight"
+  tags = ["managed-by:terraform"]
+}`)
+            expect(result.hcl).toContain(`resource "posthog_dashboard_layout" "with_tiles" {
+  dashboard_id = posthog_dashboard.with_tiles.id
+  tiles = [
+    {
+      insight_id = posthog_insight.my_insight.id
+      layouts_json = jsonencode({
+        "sm": {
+          "x": 0,
+          "y": 0,
+          "w": 6,
+          "h": 5
+        }
+      })
+    },
+    {
+      text_body = "A note"
+      color = "blue"
+    },
+  ]
+}`)
         })
 
         it('does not generate layout resource when no tiles exist', () => {

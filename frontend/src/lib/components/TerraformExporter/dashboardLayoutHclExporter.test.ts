@@ -13,7 +13,7 @@ describe('dashboardLayoutHclExporter test', () => {
             { input: '123 Starting With Number', expected: '_123_starting_with_number' },
             { input: 'Special!@#$%Characters', expected: 'special_characters' },
             { input: '  Multiple   Spaces  ', expected: 'multiple_spaces' },
-            { input: '', expected: 'dashboard_new' },
+            { input: '', expected: 'dashboard_layout_new' },
         ]
 
         it.each(testCases)('converts "$input" to "$expected"', ({ input, expected }) => {
@@ -47,7 +47,12 @@ describe('dashboardLayoutHclExporter test', () => {
                 projectId: 42,
             })
 
-            expect(result.hcl).toContain(`resource "posthog_dashboard_layout" "my_dashboard" {
+            expect(result.hcl).toContain(`import {
+  to = posthog_dashboard_layout.my_dashboard
+  id = "42/1"
+}
+
+resource "posthog_dashboard_layout" "my_dashboard" {
   dashboard_id = posthog_dashboard.my_dashboard.id
   tiles = [
     {
@@ -67,8 +72,6 @@ describe('dashboardLayoutHclExporter test', () => {
     },
   ]
 }`)
-            expect(result.hcl).toContain('import {')
-            expect(result.hcl).toContain('  id = "42/1"')
             expect(result.warnings).toHaveLength(0)
         })
 
@@ -83,28 +86,10 @@ describe('dashboardLayoutHclExporter test', () => {
                 dashboardTfReference: 'posthog_dashboard.no_layouts.id',
             })
 
-            expect(result.hcl).toContain(`    {
+            expect(result.hcl).toContain(`{
       insight_id = 500
     },`)
             expect(result.hcl).not.toContain('layouts_json')
-        })
-
-        it('includes import block for saved dashboards by default', () => {
-            const dashboard = createTestDashboard({
-                id: 7,
-                name: 'Saved',
-                tiles: [{ id: 70, insight: { id: 700 }, color: null, layouts: {} }],
-            })
-
-            const result = generateDashboardLayoutHCL(dashboard, {
-                dashboardTfReference: 'posthog_dashboard.saved.id',
-                projectId: 42,
-            })
-
-            expect(result.hcl).toContain(`import {
-  to = posthog_dashboard_layout.saved
-  id = "42/7"
-}`)
         })
 
         it('excludes import block for new dashboards', () => {
@@ -168,7 +153,7 @@ describe('dashboardLayoutHclExporter test', () => {
                 dashboardTfReference: 'posthog_dashboard.mixed_tiles.id',
             })
 
-            expect(result.hcl).toContain(`  tiles = [
+            expect(result.hcl).toContain(`tiles = [
     {
       insight_id = 600
     },
@@ -176,52 +161,34 @@ describe('dashboardLayoutHclExporter test', () => {
       text_body = "Active"
     },
   ]`)
+            expect(result.hcl).not.toContain('insight_id = 601')
         })
     })
 
-    describe('generates expected warnings', () => {
-        it('warns when dashboard_id is hardcoded', () => {
+    describe('falls back to hardcoded ids', () => {
+        it('uses hardcoded insight_id when no replacement exists', () => {
             const dashboard = createTestDashboard({
-                id: 10,
-                name: 'Hardcoded',
-                tiles: [{ id: 100, insight: { id: 1000 }, color: null, layouts: {} }],
-            })
-
-            const result = generateDashboardLayoutHCL(dashboard)
-
-            expect(result.warnings).toHaveLength(1)
-            expect(result.warnings[0]).toContain('`dashboard_id` is hardcoded')
-        })
-
-        it('does not warn when dashboard TF reference is provided', () => {
-            const dashboard = createTestDashboard({
-                id: 11,
-                name: 'Referenced',
-                tiles: [{ id: 110, insight: { id: 1100 }, color: null, layouts: {} }],
-            })
-
-            const result = generateDashboardLayoutHCL(dashboard, {
-                dashboardTfReference: 'posthog_dashboard.referenced.id',
-            })
-
-            expect(result.warnings).toHaveLength(0)
-        })
-
-        it('falls back to hardcoded insight_id when no replacement exists', () => {
-            const dashboard = createTestDashboard({
-                id: 12,
+                id: 13,
                 name: 'Partial Refs',
-                tiles: [{ id: 120, insight: { id: 1200 }, color: null, layouts: {} }],
+                tiles: [
+                    { id: 130, insight: { id: 1300 }, color: null, layouts: {} },
+                    { id: 131, insight: { id: 1301 }, color: null, layouts: {} },
+                ],
             })
 
             const result = generateDashboardLayoutHCL(dashboard, {
                 dashboardTfReference: 'posthog_dashboard.partial_refs.id',
-                insightIdReplacements: new Map(),
+                insightIdReplacements: new Map([[1300, 'posthog_insight.replaced.id']]),
             })
 
-            expect(result.hcl).toContain(`    {
-      insight_id = 1200
-    },`)
+            expect(result.hcl).toContain(`tiles = [
+    {
+      insight_id = posthog_insight.replaced.id
+    },
+    {
+      insight_id = 1301
+    },
+  ]`)
         })
     })
 })
