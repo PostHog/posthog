@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconSparkles, IconX } from '@posthog/icons'
 import { IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSwitch, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -110,77 +110,86 @@ export function DashboardReloadAction(): JSX.Element {
                 interaction="click"
                 scope={Scene.Dashboard}
             >
-                <LemonButton
-                    onClick={() => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())}
-                    type="secondary"
-                    icon={
-                        itemsLoading ? (
-                            <IconX />
-                        ) : blockRefresh &&
-                          nextAllowedDashboardRefresh &&
-                          dayjs(nextAllowedDashboardRefresh).isAfter(dayjs()) ? (
-                            <IconCheck />
-                        ) : (
-                            <IconRefresh />
-                        )
-                    }
-                    size="small"
-                    data-attr="dashboard-items-action-refresh"
-                    tooltip={itemsLoading ? 'Cancel refresh' : undefined}
-                    disabledReason={refreshDisabledReason}
-                    sideAction={{
-                        'data-attr': 'dashboard-items-action-refresh-dropdown',
-                        dropdown: {
-                            closeOnClickInside: false,
-                            placement: 'bottom-end',
-                            overlay: (
-                                <LemonMenuOverlay
-                                    items={[
-                                        {
-                                            label: 'Refresh & analyze with AI',
-                                            onClick: () => analyzeDashboardRefresh(),
-                                            disabledReason: itemsLoading
-                                                ? 'Wait for current refresh to complete'
-                                                : refreshDisabledReason,
-                                        },
-                                        {
-                                            label: () => (
-                                                <LemonSwitch
-                                                    onChange={(checked) =>
-                                                        setAutoRefresh(checked, autoRefresh.interval)
-                                                    }
-                                                    label="Auto refresh while on page"
-                                                    checked={autoRefresh.enabled}
-                                                    fullWidth
-                                                    className="mt-1 mb-2"
-                                                />
-                                            ),
-                                        },
-                                        {
-                                            title: 'Refresh interval',
-                                            items: [
-                                                {
-                                                    label: () => (
-                                                        <LemonRadio
-                                                            value={autoRefresh.interval}
-                                                            options={options}
-                                                            onChange={(value: number) => {
-                                                                setAutoRefresh(true, value)
-                                                            }}
-                                                            className="mx-2 mb-1"
-                                                        />
-                                                    ),
-                                                },
-                                            ],
-                                        },
-                                    ]}
-                                />
-                            ),
-                        },
-                    }}
-                >
-                    {itemsLoading ? 'Cancel' : 'Refresh'}
-                </LemonButton>
+                <div className="relative inline-flex">
+                    <LemonButton
+                        onClick={() => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())}
+                        type="secondary"
+                        icon={
+                            itemsLoading ? (
+                                <IconX />
+                            ) : blockRefresh &&
+                              nextAllowedDashboardRefresh &&
+                              dayjs(nextAllowedDashboardRefresh).isAfter(dayjs()) ? (
+                                <IconCheck />
+                            ) : (
+                                <IconRefresh />
+                            )
+                        }
+                        size="small"
+                        data-attr="dashboard-items-action-refresh"
+                        tooltip={itemsLoading ? 'Cancel refresh' : undefined}
+                        disabledReason={refreshDisabledReason}
+                        sideAction={{
+                            'data-attr': 'dashboard-items-action-refresh-dropdown',
+                            dropdown: {
+                                closeOnClickInside: false,
+                                placement: 'bottom-end',
+                                overlay: (
+                                    <LemonMenuOverlay
+                                        items={[
+                                            {
+                                                label: () => (
+                                                    <LemonSwitch
+                                                        onChange={(checked) =>
+                                                            setAutoRefresh(checked, autoRefresh.interval)
+                                                        }
+                                                        label="Auto refresh while on page"
+                                                        checked={autoRefresh.enabled}
+                                                        fullWidth
+                                                        className="mt-1 mb-2"
+                                                    />
+                                                ),
+                                            },
+                                            {
+                                                title: 'Refresh interval',
+                                                items: [
+                                                    {
+                                                        label: () => (
+                                                            <LemonRadio
+                                                                value={autoRefresh.interval}
+                                                                options={options}
+                                                                onChange={(value: number) => {
+                                                                    setAutoRefresh(true, value)
+                                                                }}
+                                                                className="mx-2 mb-1"
+                                                            />
+                                                        ),
+                                                    },
+                                                ],
+                                            },
+                                        ]}
+                                    />
+                                ),
+                            },
+                        }}
+                    >
+                        {itemsLoading ? 'Cancel' : 'Refresh'}
+                    </LemonButton>
+                    {!itemsLoading && (
+                        <Tooltip title="Refresh and analyze with AI">
+                            <button
+                                className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-5 h-5 rounded-full bg-bg-light border border-border cursor-pointer p-0 hover:[&>svg]:animate-hue-rotate"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    analyzeDashboardRefresh()
+                                }}
+                                aria-label="Refresh and analyze with AI"
+                            >
+                                <IconSparkles className="text-ai size-4" />
+                            </button>
+                        </Tooltip>
+                    )}
+                </div>
             </AppShortcut>
 
             <LemonBadge
