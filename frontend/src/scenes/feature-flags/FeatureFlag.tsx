@@ -127,6 +127,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
+        originalFeatureFlag,
         featureFlagLoading,
         featureFlagMissing,
         isEditingFlag,
@@ -154,9 +155,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { reportUserFeedbackButtonClicked } = useActions(eventUsageLogic)
-
-    // whether the key for an existing flag is being changed
-    const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
     const [quickSurveyVariantKey, setQuickSurveyVariantKey] = useState<string | null>(null)
@@ -389,11 +387,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     name="key"
                                     label="Key"
                                     help={
-                                        hasKeyChanged && id !== 'new' ? (
+                                        id !== 'new' &&
+                                        originalFeatureFlag &&
+                                        featureFlag.key !== originalFeatureFlag.key ? (
                                             <span className="text-warning">
                                                 <b>Warning! </b>Changing this key will break any existing code that
-                                                references it (e.g. <code>getFeatureFlag('{featureFlag.key}')</code>).
-                                                Make sure to update all SDK calls and integrations.
+                                                references it (e.g.{' '}
+                                                <code>getFeatureFlag('{originalFeatureFlag.key}')</code>). Make sure to
+                                                update all SDK calls and integrations.
                                             </span>
                                         ) : undefined
                                     }
@@ -402,12 +403,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         <>
                                             <LemonInput
                                                 value={value}
-                                                onChange={(v) => {
-                                                    if (v !== value) {
-                                                        setHasKeyChanged(true)
-                                                    }
-                                                    onChange(v)
-                                                }}
+                                                onChange={onChange}
                                                 data-attr="feature-flag-key"
                                                 className="ph-ignore-input"
                                                 autoFocus

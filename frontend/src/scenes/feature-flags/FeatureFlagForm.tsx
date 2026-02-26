@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import {
     IconBalance,
@@ -57,6 +57,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
+        originalFeatureFlag,
         multivariateEnabled,
         variants,
         nonEmptyVariants,
@@ -86,7 +87,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
-    const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
@@ -217,11 +217,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     label="Flag key"
                                     info="Unique identifier used in your code."
                                     help={
-                                        hasKeyChanged && !isNewFeatureFlag ? (
+                                        !isNewFeatureFlag &&
+                                        originalFeatureFlag &&
+                                        featureFlag.key !== originalFeatureFlag.key ? (
                                             <span className="text-warning">
                                                 <b>Warning! </b>Changing this key will break any existing code that
-                                                references it (e.g. <code>getFeatureFlag('{featureFlag.key}')</code>).
-                                                Make sure to update all SDK calls and integrations.
+                                                references it (e.g.{' '}
+                                                <code>getFeatureFlag('{originalFeatureFlag.key}')</code>). Make sure to
+                                                update all SDK calls and integrations.
                                             </span>
                                         ) : undefined
                                     }
@@ -229,12 +232,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     {({ value, onChange }) => (
                                         <LemonInput
                                             value={value}
-                                            onChange={(v) => {
-                                                if (v !== value) {
-                                                    setHasKeyChanged(true)
-                                                }
-                                                onChange(v)
-                                            }}
+                                            onChange={onChange}
                                             data-attr="feature-flag-key"
                                             className="ph-ignore-input"
                                             autoComplete="off"
