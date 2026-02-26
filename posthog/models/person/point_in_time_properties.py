@@ -6,7 +6,7 @@ at a specific timestamp by querying ClickHouse events and applying property upda
 chronologically.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 from posthog.clickhouse.client import sync_execute
@@ -171,7 +171,7 @@ def build_person_properties_at_time(
     params = {
         "team_id": team_id,
         "distinct_ids": distinct_ids,
-        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
     try:
