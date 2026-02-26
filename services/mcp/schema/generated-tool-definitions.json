@@ -75,7 +75,7 @@
         }
     },
     "cohorts-list": {
-        "description": "List all cohorts in the project. Cohorts are groups of users that share common properties or behaviors. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on filters). Use the 'type' parameter to filter by cohort type.",
+        "description": "List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on property filters).",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "List all cohorts",
@@ -90,7 +90,7 @@
         }
     },
     "cohorts-create": {
-        "description": "Create a new cohort. For dynamic cohorts, provide 'filters' with property conditions. For static cohorts, set 'is_static: true', then use 'cohorts-add-persons-to-static-cohort' to add person UUIDs. Dynamic cohort filters use a nested structure with AND/OR groups containing person property filters (type: \"person\"), behavioral filters (type: \"behavioral\"), or references to other cohorts (type: \"cohort\").",
+        "description": "Create a new cohort. For dynamic cohorts, provide 'filters' with AND/OR groups of property conditions (person properties, behavioral filters, or cohort references). For static cohorts, set 'is_static: true' then use the 'cohorts-add-persons-to-static-cohort-partial-update' tool to add person UUIDs.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Create cohort",
@@ -105,7 +105,7 @@
         }
     },
     "cohorts-retrieve": {
-        "description": "Get a specific cohort by ID. Returns the cohort configuration including name, description, filters (for dynamic cohorts), count of matching users, and calculation status.",
+        "description": "Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of matching users, and calculation status.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Get cohort",
@@ -120,7 +120,7 @@
         }
     },
     "cohorts-partial-update": {
-        "description": "Update an existing cohort. Can update name, description, and filters. For dynamic cohorts, changing filters will trigger a recalculation of matching users. Note: cohorts used in active feature flags cannot have behavioral filters added. To delete a cohort, set 'deleted: true' (soft delete).",
+        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Update cohort",
@@ -135,7 +135,7 @@
         }
     },
     "cohorts-add-persons-to-static-cohort-partial-update": {
-        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true). Provide a list of person UUIDs in 'person_ids'. Maximum batch size is limited.",
+        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Add persons to static cohort",
@@ -150,7 +150,7 @@
         }
     },
     "cohorts-remove-person-from-static-cohort-partial-update": {
-        "description": "Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). This operation is idempotent - removing a person who isn't in the cohort will succeed without error.",
+        "description": "Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). Idempotent: removing a person not in the cohort succeeds silently.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Remove person from static cohort",
