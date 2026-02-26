@@ -10,11 +10,11 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr
 
-INLINE_COHORT_DURATION_THRESHOLD = 10
+INLINE_COHORT_THRESHOLD_SECONDS = 10
 
 
 def should_inline_based_on_durations(
-    durations: list[float], threshold: float = INLINE_COHORT_DURATION_THRESHOLD
+    durations: list[float], threshold: float = INLINE_COHORT_THRESHOLD_SECONDS
 ) -> bool:
     if not durations:
         return False

@@ -373,22 +373,13 @@ class InCohortResolver(TraversingVisitor):
                     "SELECT id as person_id, 1 as matched FROM {inline_query}",
                     {"inline_query": inline_ast},
                 )
-            elif is_static:
-                sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
-                subquery = parse_expr(
-                    sql,
-                    {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
-                    start=None,
-                )
-            elif version is not None:
-                sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
-                subquery = parse_expr(
-                    sql,
-                    {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
-                    start=None,
-                )
             else:
-                sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+                if is_static:
+                    sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+                elif version is not None:
+                    sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
+                else:
+                    sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
                 subquery = parse_expr(
                     sql,
                     {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
@@ -413,9 +404,6 @@ class InCohortResolver(TraversingVisitor):
                 ast.JoinExpr,
                 resolve_types(new_join, self.context, self.dialect, [self.stack[-1].type]),
             )
-            # The inline query AST may contain lazy table references (e.g., persons)
-            # that need resolving. resolve_in_cohorts runs after resolve_lazy_tables
-            # in the pipeline, so we resolve lazy tables on the new join here.
             if inline_ast is not None:
                 resolve_lazy_tables(new_join, self.dialect, [self.stack[-1]], self.context)
                 if self.context.property_swapper:
