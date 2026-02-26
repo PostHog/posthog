@@ -1,8 +1,10 @@
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use dashmap::DashSet;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -318,7 +320,7 @@ pub struct GlobalRateLimiterImpl {
     config: GlobalRateLimiterConfig,
     cache: Cache<String, CacheEntry>,
     update_tx: Option<mpsc::Sender<UpdateRequest>>,
-    pending_sync: Arc<Mutex<HashSet<String>>>,
+    pending_sync: Arc<DashSet<String>>,
 }
 
 #[async_trait]
@@ -373,7 +375,7 @@ impl GlobalRateLimiterImpl {
             .build();
 
         let (update_tx, update_rx) = mpsc::channel(config.channel_capacity);
-        let pending_sync = Arc::new(Mutex::new(HashSet::new()));
+        let pending_sync = Arc::new(DashSet::new());
 
         let limiter = Self {
             config: config.clone(),
@@ -430,7 +432,7 @@ impl GlobalRateLimiterImpl {
                 tier_sync_interval(effective_pressure, self.config.sync_interval)
             {
                 if now_instant.duration_since(entry.synced_at) > tier_interval {
-                    self.pending_sync.lock().unwrap().insert(key.to_string());
+                    self.pending_sync.insert(key.to_string());
                     metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "result" => "sync_queued")
                         .increment(1);
                 } else {
@@ -440,7 +442,7 @@ impl GlobalRateLimiterImpl {
             } else {
                 // Idle tier: only queue sync if local traffic has pushed us above idle threshold
                 if current_pressure >= 0.1 {
-                    self.pending_sync.lock().unwrap().insert(key.to_string());
+                    self.pending_sync.insert(key.to_string());
                     metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "result" => "sync_queued")
                         .increment(1);
                 } else {
@@ -467,7 +469,7 @@ impl GlobalRateLimiterImpl {
                 pressure: 0.0,
             };
             self.cache.insert(key.to_string(), entry);
-            self.pending_sync.lock().unwrap().insert(key.to_string());
+            self.pending_sync.insert(key.to_string());
 
             (count as f64, false)
         };
@@ -529,7 +531,7 @@ impl GlobalRateLimiterImpl {
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
         mut update_rx: mpsc::Receiver<UpdateRequest>,
         cache: Cache<String, CacheEntry>,
-        pending_sync: Arc<Mutex<HashSet<String>>>,
+        pending_sync: Arc<DashSet<String>>,
     ) {
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(config.tick_interval);
@@ -575,17 +577,14 @@ impl GlobalRateLimiterImpl {
         config: &GlobalRateLimiterConfig,
         redis_instances: &[Arc<dyn Client + Send + Sync>],
         cache: &Cache<String, CacheEntry>,
-        pending_sync: &Arc<Mutex<HashSet<String>>>,
+        pending_sync: &Arc<DashSet<String>>,
         write_batch: &mut HashMap<(String, i64), u64>,
     ) {
         let tick_start = Instant::now();
 
-        // Drain pending sync set
-        let sync_keys: Vec<String> = {
-            let mut set = pending_sync.lock().unwrap();
-            let keys: Vec<String> = set.drain().collect();
-            keys
-        };
+        // Drain pending sync set (lock-free: iterate then clear)
+        let sync_keys: Vec<String> = pending_sync.iter().map(|r| r.key().clone()).collect();
+        pending_sync.clear();
 
         // Take ownership of write batch
         let writes = std::mem::take(write_batch);
@@ -1182,7 +1181,7 @@ mod tests {
 
         // Verify entity was queued for sync
         assert!(
-            limiter.pending_sync.lock().unwrap().contains("unknown_key"),
+            limiter.pending_sync.contains("unknown_key"),
             "Should have queued entity for sync"
         );
     }
@@ -1424,7 +1423,7 @@ mod tests {
 
         let _ = limiter.check_limit("stale_key", 1, None).await;
         assert!(
-            limiter.pending_sync.lock().unwrap().contains("stale_key"),
+            limiter.pending_sync.contains("stale_key"),
             "Should have queued stale entity for sync"
         );
     }
@@ -1448,7 +1447,7 @@ mod tests {
 
         let _ = limiter.check_limit("fresh_key", 1, None).await;
         assert!(
-            !limiter.pending_sync.lock().unwrap().contains("fresh_key"),
+            !limiter.pending_sync.contains("fresh_key"),
             "Should NOT have queued fresh entity for sync"
         );
     }
@@ -1474,8 +1473,11 @@ mod tests {
         let _ = limiter.check_limit("dedup_key", 1, None).await;
         let _ = limiter.check_limit("dedup_key", 1, None).await;
 
-        let set = limiter.pending_sync.lock().unwrap();
-        let count = set.iter().filter(|k| k.as_str() == "dedup_key").count();
+        let count = limiter
+            .pending_sync
+            .iter()
+            .filter(|r| r.key() == "dedup_key")
+            .count();
         assert_eq!(count, 1, "pending_sync should deduplicate entries");
     }
 

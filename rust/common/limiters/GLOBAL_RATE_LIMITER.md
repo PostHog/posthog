@@ -22,7 +22,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
 │  │  3. Compare against threshold → Allowed / Limited              │  │
 │  │  4. Increment local_pending on CacheEntry                     │  │
 │  │  5. Enqueue UpdateRequest to mpsc channel                     │  │
-│  │  6. Maybe push entity key to pending_sync (HashSet)           │  │
+│  │  6. Maybe push entity key to pending_sync (DashSet)           │  │
 │  │                                                                │  │
 │  │  ⚡ Zero Redis I/O — all decisions are local                   │  │
 │  └───────────┬──────────────────────────────┬────────────────────┘  │
