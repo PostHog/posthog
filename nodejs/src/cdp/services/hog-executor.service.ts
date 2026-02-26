@@ -66,6 +66,20 @@ const cdpHttpRequestTiming = new Histogram({
 
 export const shadowFetchContext = new AsyncLocalStorage<boolean>()
 
+// Stale keep-alive connections produce these errors when the server has closed its end before
+// we reuse the socket. A single in-process retry on a fresh connection resolves them immediately.
+export function isConnectionLevelError(error: any): boolean {
+    return (
+        error?.code === 'UND_ERR_SOCKET' || // undici SocketError ("other side closed")
+        error?.code === 'ECONNRESET' ||
+        error?.code === 'EPIPE' ||
+        error?.message === 'other side closed' ||
+        error?.message === 'socket hang up'
+    )
+}
+
+export const CONNECTION_RETRY_LIMIT = 2
+
 export async function cdpTrackedFetch({
     url,
     fetchParams,
@@ -90,7 +104,16 @@ export async function cdpTrackedFetch({
     }
 
     const start = performance.now()
-    const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+    let fetchError: Error | null = null
+    let fetchResponse: FetchResponse | null = null
+
+    for (let attempt = 0; attempt <= CONNECTION_RETRY_LIMIT; attempt++) {
+        ;[fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+        if (!fetchError || !isConnectionLevelError(fetchError)) {
+            break
+        }
+    }
+
     const fetchDuration = performance.now() - start
     cdpHttpRequestTiming.observe(fetchDuration)
     cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
@@ -127,21 +150,6 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     }
 
     return canRetry
-}
-
-// Connection-level errors (TCP reset, keep-alive race) don't warrant exponential backoff — the
-// server was healthy, the socket was just stale. A fresh connection should succeed immediately.
-export const isConnectionLevelError = (error: any): boolean => {
-    if (!error) {
-        return false
-    }
-    return (
-        error.code === 'UND_ERR_SOCKET' || // undici SocketError ("other side closed")
-        error.code === 'ECONNRESET' ||
-        error.code === 'EPIPE' ||
-        error.message === 'other side closed' ||
-        error.message === 'socket hang up'
-    )
 }
 
 export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tries: number): DateTime => {
@@ -666,16 +674,13 @@ export class HogExecutorService {
         result.invocation.state.attempts++
 
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
-            const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
-            const connectionError = isConnectionLevelError(fetchError)
+            const backoffMs = Math.min(
+                this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
+                    Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
+                this.config.fetchBackoffMaxMs
+            )
 
-            const backoffMs = connectionError
-                ? 0
-                : Math.min(
-                      this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
-                          Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
-                      this.config.fetchBackoffMaxMs
-                  )
+            const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
 
             let message = `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${
                 fetchResponse?.status ?? '(none)'
@@ -686,7 +691,7 @@ export class HogExecutorService {
             }
 
             if (canRetry) {
-                message += connectionError ? ' Retrying immediately.' : ` Retrying in ${backoffMs}ms.`
+                message += ` Retrying in ${backoffMs}ms.`
             }
 
             addLog('error', message)
