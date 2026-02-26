@@ -8,7 +8,9 @@ import { LemonBadge, LemonButton, LemonSwitch, Spinner, Tooltip } from '@posthog
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -53,6 +55,8 @@ export function DashboardReloadAction(): JSX.Element {
     } = useActions(dashboardLogic)
 
     usePageVisibilityCb(setPageVisibility)
+
+    const dashboardAiAnalysisEnabled = useFeatureFlag(FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_AI_ANALYSIS)
 
     // Force a re-render when nextAllowedDashboardRefresh is reached, since the blockRefresh
     // selector uses now() which isn't reactive - it only recomputes on dependency changes
@@ -175,7 +179,7 @@ export function DashboardReloadAction(): JSX.Element {
                     >
                         {itemsLoading ? 'Cancel' : 'Refresh'}
                     </LemonButton>
-                    {!itemsLoading && (
+                    {!itemsLoading && dashboardAiAnalysisEnabled && (
                         <Tooltip title="Refresh and analyze with AI">
                             <button
                                 className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-5 h-5 rounded-full bg-bg-light border border-border cursor-pointer p-0 hover:[&>svg]:animate-hue-rotate"
