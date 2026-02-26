@@ -282,14 +282,14 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
             </div>
 
             {!item ? (
-                <div className="text-xs text-muted flex-1 min-h-[96px] flex flex-col items-center justify-center border border-dashed rounded bg-surface-secondary gap-2">
+                <div className="text-xs text-muted flex-1 min-h-[96px] flex flex-col items-center justify-center border border-dashed rounded bg-surface-primary gap-2">
                     <IconPlay className="w-5 h-5 opacity-20" />
                     <span>Run prompt to see result</span>
                 </div>
             ) : (
                 <>
                     <div
-                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs whitespace-normal break-words p-3 min-w-0 rounded border bg-surface-secondary leading-5 ${
+                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs whitespace-normal break-words p-3 min-w-0 rounded border bg-surface-primary leading-5 ${
                             item.error ? 'text-danger' : ''
                         }`}
                         style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
