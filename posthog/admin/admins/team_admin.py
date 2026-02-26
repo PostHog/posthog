@@ -1,6 +1,5 @@
 import io
 import uuid
-import asyncio
 import tempfile
 import dataclasses
 from datetime import timedelta
@@ -15,6 +14,7 @@ from django.urls import path, reverse
 from django.utils.html import escapejs, format_html
 from django.utils.safestring import mark_safe
 
+from asgiref.sync import async_to_sync
 from structlog import get_logger
 from temporalio import common
 
@@ -339,22 +339,17 @@ class TeamAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def ingest_signals_view(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
 
-        if request.method == "GET":
-            context = {
-                **self.admin_site.each_context(request),
-                "team": team,
-                "title": f"Ingest Signals - {team.name}",
-            }
-            return render(request, "admin/posthog/team/ingest_signals_form.html", context)
+        team = Team.objects.get(pk=object_id)
 
         from products.signals.backend.ingest import ingest_signals, parse_signals_json
 
         signals_file = request.FILES.get("signals_file")
         if not signals_file:
             messages.error(request, "Signals JSON file is required")
-            return redirect(reverse("admin:posthog_team_ingest_signals", args=[object_id]))
+            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
         logger.info(
             "ingest_signals_triggered",
@@ -369,10 +364,10 @@ class TeamAdmin(admin.ModelAdmin):
 
         if not rows:
             messages.error(request, "No valid signal rows found in the uploaded file")
-            return redirect(reverse("admin:posthog_team_ingest_signals", args=[object_id]))
+            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
         try:
-            result = asyncio.run(ingest_signals(team, rows))
+            result = async_to_sync(ingest_signals)(team, rows)
             messages.success(
                 request,
                 f"Ingested {result.success} signals ({result.failed} failed) out of {result.total} total "
@@ -432,17 +427,15 @@ class TeamAdmin(admin.ModelAdmin):
             workflow_input = ExportRecordingInput(exported_recording_id=export_record.id)
             workflow_id = f"export-recording-{export_record.id}-{uuid.uuid4()}"
 
-            asyncio.run(
-                temporal.start_workflow(
-                    "export-recording",
-                    workflow_input,
-                    id=workflow_id,
-                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
-                )
+            async_to_sync(temporal.start_workflow)(
+                "export-recording",
+                workflow_input,
+                id=workflow_id,
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=1),
+                ),
             )
 
             log_activity(
@@ -554,17 +547,15 @@ class TeamAdmin(admin.ModelAdmin):
             workflow_input = ImportRecordingInput(team_id=team.id, export_file=tmp_file_path)
             workflow_id = f"import-recording-{team.id}-{uuid.uuid4()}"
 
-            asyncio.run(
-                temporal.start_workflow(
-                    "import-recording",
-                    workflow_input,
-                    id=workflow_id,
-                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
-                )
+            async_to_sync(temporal.start_workflow)(
+                "import-recording",
+                workflow_input,
+                id=workflow_id,
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=1),
+                ),
             )
 
             log_activity(
