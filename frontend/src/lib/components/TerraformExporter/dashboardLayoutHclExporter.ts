@@ -11,7 +11,7 @@ export interface DashboardLayoutHclExportOptions extends HclExportOptions {
     insightIdReplacements?: Map<number, string>
 }
 
-function formatTileObject(tile: DashboardTile, insightIdReplacements?: Map<number, string>): string[] {
+function formatTileObject(tile: DashboardTile<any>, insightIdReplacements?: Map<number, string>): string[] {
     const lines: string[] = []
     lines.push('    {')
 
@@ -43,7 +43,7 @@ function formatTileObject(tile: DashboardTile, insightIdReplacements?: Map<numbe
 /**
  * @see https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/dashboard_layout
  */
-const DASHBOARD_LAYOUT_FIELD_MAPPINGS: FieldMapping<Partial<DashboardType>, DashboardLayoutHclExportOptions>[] = [
+const DASHBOARD_LAYOUT_FIELD_MAPPINGS: FieldMapping<Partial<DashboardType<any>>, DashboardLayoutHclExportOptions>[] = [
     {
         source: 'id',
         target: 'dashboard_id',
@@ -80,7 +80,7 @@ function validateDashboardLayout(): string[] {
     return []
 }
 
-const DASHBOARD_LAYOUT_EXPORTER: ResourceExporter<Partial<DashboardType>, DashboardLayoutHclExportOptions> = {
+const DASHBOARD_LAYOUT_EXPORTER: ResourceExporter<Partial<DashboardType<any>>, DashboardLayoutHclExportOptions> = {
     resourceType: 'posthog_dashboard_layout',
     resourceLabel: 'dashboard_layout',
     fieldMappings: DASHBOARD_LAYOUT_FIELD_MAPPINGS,
@@ -90,7 +90,7 @@ const DASHBOARD_LAYOUT_EXPORTER: ResourceExporter<Partial<DashboardType>, Dashbo
 }
 
 export function generateDashboardLayoutHCL(
-    dashboard: Partial<DashboardType>,
+    dashboard: Partial<DashboardType<any>>,
     options: DashboardLayoutHclExportOptions = {}
 ): HclExportResult {
     return generateHCL(dashboard, DASHBOARD_LAYOUT_EXPORTER, options)
