@@ -1,4 +1,4 @@
-import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import { RefObject, useCallback, useEffect, useState } from 'react'
 
 export interface ViewportVirtualizationConfig {
     /** Total number of rows to virtualize */
@@ -18,24 +18,14 @@ export interface ViewportVirtualizationResult {
     bottomSpacerHeight: number
 }
 
-function getScrollParent(element: HTMLElement): HTMLElement | Window {
-    let current: HTMLElement | null = element.parentElement
-    while (current) {
-        const { overflowY } = getComputedStyle(current)
-        if (overflowY === 'auto' || overflowY === 'scroll') {
-            return current
-        }
-        current = current.parentElement
-    }
-    return window
-}
-
 /**
  * Viewport-based virtualization hook. Instead of creating its own scroll container,
  * it relies on the page/scene scroll and only renders rows that are actually
  * visible in the viewport (plus overscan).
  *
- * Works with any scroll ancestor — finds the nearest scrollable parent automatically.
+ * Uses `document` scroll capture to detect scrolling from any ancestor,
+ * and `getBoundingClientRect()` for viewport-relative positioning. This avoids
+ * the need to detect which ancestor is the scroll container.
  */
 export function useViewportVirtualization(
     containerRef: RefObject<HTMLElement | null>,
@@ -44,7 +34,6 @@ export function useViewportVirtualization(
     const { rowCount, estimatedRowHeight, overscan = 10, enabled = true } = config
 
     const [range, setRange] = useState({ start: 0, end: Math.min(overscan * 2, rowCount) })
-    const scrollParentRef = useRef<HTMLElement | Window | null>(null)
 
     const updateRange = useCallback(() => {
         const element = containerRef.current
@@ -52,32 +41,21 @@ export function useViewportVirtualization(
             return
         }
 
-        const scrollParent = scrollParentRef.current
-        if (!scrollParent) {
-            return
-        }
-
         const elementRect = element.getBoundingClientRect()
+        const viewportHeight = window.innerHeight
 
-        let viewportTop: number
-        let viewportHeight: number
-
-        if (scrollParent instanceof Window) {
-            viewportTop = 0
-            viewportHeight = window.innerHeight
-        } else {
-            const parentRect = scrollParent.getBoundingClientRect()
-            viewportTop = parentRect.top
-            viewportHeight = parentRect.height
-        }
-
-        // How far above the viewport top is the element's top?
-        // Positive = element top is above the viewport start (we've scrolled into it)
-        const scrolledIntoElement = viewportTop - elementRect.top
-
+        // elementRect.top < 0 means we've scrolled past the top of the element
+        const scrolledIntoElement = -elementRect.top
         const totalHeight = rowCount * estimatedRowHeight
 
+        // Element is fully below or above the viewport — keep a minimal range
         if (scrolledIntoElement + viewportHeight < 0 || scrolledIntoElement > totalHeight) {
+            setRange((prev) => {
+                if (prev.start === 0 && prev.end === 0) {
+                    return prev
+                }
+                return { start: 0, end: 0 }
+            })
             return
         }
 
@@ -99,13 +77,10 @@ export function useViewportVirtualization(
     }, [containerRef, rowCount, estimatedRowHeight, overscan])
 
     useEffect(() => {
-        if (!enabled || !containerRef.current) {
+        if (!enabled) {
             setRange({ start: 0, end: rowCount })
             return
         }
-
-        scrollParentRef.current = getScrollParent(containerRef.current)
-        const scrollParent = scrollParentRef.current
 
         let rafId: number | null = null
         const handleScroll = (): void => {
@@ -115,15 +90,16 @@ export function useViewportVirtualization(
             rafId = requestAnimationFrame(updateRange)
         }
 
-        const scrollTarget = scrollParent instanceof Window ? window : scrollParent
-        scrollTarget.addEventListener('scroll', handleScroll, { passive: true })
+        // Capture scroll events from ANY ancestor — scroll events don't bubble,
+        // but capture phase works regardless of which element is scrolling
+        document.addEventListener('scroll', handleScroll, { capture: true, passive: true })
         window.addEventListener('resize', handleScroll, { passive: true })
 
-        // Initial calculation
-        updateRange()
+        // Initial calculation (delayed to ensure layout is ready)
+        rafId = requestAnimationFrame(updateRange)
 
         return () => {
-            scrollTarget.removeEventListener('scroll', handleScroll)
+            document.removeEventListener('scroll', handleScroll, { capture: true })
             window.removeEventListener('resize', handleScroll)
             if (rafId !== null) {
                 cancelAnimationFrame(rafId)
