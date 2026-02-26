@@ -56,13 +56,8 @@ export function DashboardReloadAction(): JSX.Element {
         urlVariables,
         isAnalyzing,
     } = useValues(dashboardLogic)
-    const {
-        triggerDashboardRefresh,
-        setAutoRefresh,
-        setPageVisibility,
-        cancelDashboardRefresh,
-        analyzeDashboardRefresh,
-    } = useActions(dashboardLogic)
+    const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
+        useActions(dashboardLogic)
 
     usePageVisibilityCb(setPageVisibility)
 
@@ -105,7 +100,12 @@ export function DashboardReloadAction(): JSX.Element {
                 {itemsLoading ? (
                     <span className="flex items-center gap-1">
                         <Spinner textColored className="text-sm" />
-                        {isAnalyzing ? (
+                        {refreshMetrics.total > 0 && refreshMetrics.completed < refreshMetrics.total ? (
+                            <>
+                                {dashboardLoadData?.action === 'initial_load' ? 'Loaded' : 'Refreshed'}{' '}
+                                {refreshMetrics.completed} out of {refreshMetrics.total}
+                            </>
+                        ) : isAnalyzing ? (
                             <>Analyzing...</>
                         ) : refreshMetrics.total ? (
                             <>
@@ -199,7 +199,7 @@ export function DashboardReloadAction(): JSX.Element {
                                 className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-5 h-5 rounded-full bg-bg-light border border-border cursor-pointer p-0 hover:[&>svg]:animate-hue-rotate"
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    analyzeDashboardRefresh()
+                                    triggerDashboardRefresh({ withAnalysis: true })
                                 }}
                                 aria-label="Refresh and analyze with AI"
                             >

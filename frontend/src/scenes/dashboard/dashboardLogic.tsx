@@ -181,8 +181,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        /** Manually refresh the entire dashboard. */
-        triggerDashboardRefresh: true,
+        /** Manually refresh the entire dashboard. Pass withAnalysis: true to also run AI analysis after refresh. */
+        triggerDashboardRefresh: (payload?: { withAnalysis?: boolean }) => ({
+            withAnalysis: payload?.withAnalysis ?? false,
+        }),
         /** Manually refresh a single insight from the insight card on the dashboard. */
         refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
         /** Refresh tiles of a loaded dashboard e.g. stale tiles after initial load, previewed tiles after applying filters, etc. */
@@ -291,7 +293,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * AI Dashboard Refresh Analysis.
          */
-        analyzeDashboardRefresh: true,
         setAnalyzeStatus: (isAnalyzing: boolean) => ({ isAnalyzing }),
         setRefreshAnalysisCacheKey: (cacheKey: string | null) => ({ cacheKey }),
         setRefreshAnalysisResult: (result: string | null) => ({ result }),
@@ -892,20 +893,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as string | null,
             {
                 setRefreshAnalysisCacheKey: (_, { cacheKey }) => cacheKey,
-                analyzeDashboardRefresh: () => null,
+                triggerDashboardRefresh: () => null,
             },
         ],
         refreshAnalysisResult: [
             null as string | null,
             {
                 setRefreshAnalysisResult: (_, { result }) => result,
-                analyzeDashboardRefresh: () => null,
+                triggerDashboardRefresh: () => null,
             },
         ],
         isAnalyzing: [
             false,
             {
                 setAnalyzeStatus: (_, { isAnalyzing }) => isAnalyzing,
+                triggerDashboardRefresh: () => false,
             },
         ],
         isSavingTags: [
@@ -1503,38 +1505,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
-        triggerDashboardRefresh: () => {
-            // reset auto refresh interval
+        triggerDashboardRefresh: async ({ withAnalysis }, breakpoint) => {
             actions.resetInterval()
-            actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
-        },
-        /** Trigger dashboard refresh with AI analysis */
-        analyzeDashboardRefresh: async (_, breakpoint) => {
-            const dashboardId = props.id
-            actions.setAnalyzeStatus(true)
 
-            try {
-                // 1. Snapshot the current cached state ("before")
-                const snapshotResponse = await api.create(
-                    `api/environments/${values.currentTeamId}/dashboards/${dashboardId}/snapshot`,
-                    {}
-                )
-                const { cache_key: cacheKey } = snapshotResponse
+            if (withAnalysis) {
+                try {
+                    // Snapshot the current cached state ("before") before any refresh happens
+                    const snapshotResponse = await api.create(
+                        `api/environments/${values.currentTeamId}/dashboards/${props.id}/snapshot`,
+                        {}
+                    )
+                    const { cache_key: cacheKey } = snapshotResponse
 
-                if (!cacheKey) {
-                    throw new Error('No cache key returned from snapshot')
+                    if (!cacheKey) {
+                        throw new Error('No cache key returned from snapshot')
+                    }
+
+                    actions.setRefreshAnalysisCacheKey(cacheKey)
+                    actions.setAnalyzeStatus(true)
+
+                    await breakpoint()
+                } catch (e: any) {
+                    lemonToast.error('Failed to start analysis: ' + String(e))
+                    return
                 }
-
-                actions.setRefreshAnalysisCacheKey(cacheKey)
-
-                await breakpoint()
-
-                // 2. Trigger a force refresh — analysis continues in loadDashboardSuccess
-                actions.loadDashboard({ action: DashboardLoadAction.Update, refresh: 'force_blocking' })
-            } catch (e: any) {
-                lemonToast.error('Failed to start analysis: ' + String(e))
-                actions.setAnalyzeStatus(false)
             }
+
+            actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
         },
         /** Called when a single insight is refreshed manually on the dashboard */
         refreshDashboardItem: async ({ tile }, breakpoint) => {
@@ -1732,6 +1729,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
                     }
                 )
+
+                // Run AI analysis after tiles finish, if it was requested and refresh wasn't aborted
+                if (values.isAnalyzing && values.refreshAnalysisCacheKey && tilesAbortedCount === 0) {
+                    const cacheKey = values.refreshAnalysisCacheKey
+                    try {
+                        const analysisResponse = await api.create(
+                            `api/environments/${values.currentTeamId}/dashboards/${dashboardId}/analyze_refresh_result`,
+                            { cache_key: cacheKey }
+                        )
+                        actions.setRefreshAnalysisResult(analysisResponse.result)
+                    } catch (e: any) {
+                        lemonToast.error('Failed to analyze dashboard changes: ' + String(e))
+                    } finally {
+                        actions.setAnalyzeStatus(false)
+                        actions.setRefreshAnalysisCacheKey(null)
+                    }
+                }
             }
         },
         saveEditModeChanges: () => {
