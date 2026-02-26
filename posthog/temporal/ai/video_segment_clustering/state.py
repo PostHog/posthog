@@ -6,6 +6,7 @@ a 24h lifecycle rule for automatic cleanup of stale data.
 
 import gzip
 import json
+import dataclasses
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -13,6 +14,8 @@ from django.conf import settings
 
 import aioboto3
 from botocore.client import Config
+
+from posthog.temporal.ai.video_segment_clustering.models import VideoSegmentMetadata
 
 STORAGE_KEY_PREFIX = "video_segment_clustering"
 
@@ -41,10 +44,14 @@ async def _s3_client() -> AsyncIterator:
 
 async def store_fetch_result(
     key: str,
-    document_ids: list[str],
+    segments: list[VideoSegmentMetadata],
     distinct_ids: list[str],
 ) -> None:
-    content = gzip.compress(json.dumps({"document_ids": document_ids, "distinct_ids": distinct_ids}).encode("utf-8"))
+    payload = {
+        "segments": [dataclasses.asdict(s) for s in segments],
+        "distinct_ids": distinct_ids,
+    }
+    content = gzip.compress(json.dumps(payload).encode("utf-8"))
     async with _s3_client() as client:
         await client.put_object(
             Bucket=settings.VIDEO_SEGMENT_CLUSTERING_S3_BUCKET,
@@ -55,7 +62,7 @@ async def store_fetch_result(
 
 async def load_fetch_result(
     key: str,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[VideoSegmentMetadata], list[str]]:
     """Load fetch result from object storage. Raises ValueError if key not found."""
     async with _s3_client() as client:
         try:
@@ -70,6 +77,7 @@ async def load_fetch_result(
     data = json.loads(gzip.decompress(raw).decode("utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"Object storage key {key} contains invalid data type: {type(data)}")
-    if "document_ids" not in data or "distinct_ids" not in data:
+    if "segments" not in data or "distinct_ids" not in data:
         raise ValueError(f"Object storage key {key} missing required keys")
-    return data["document_ids"], data["distinct_ids"]
+    segments = [VideoSegmentMetadata(**s) for s in data["segments"]]
+    return segments, data["distinct_ids"]

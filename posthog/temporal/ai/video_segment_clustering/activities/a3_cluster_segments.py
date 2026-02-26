@@ -3,7 +3,6 @@ Activity 3 of the video segment clustering workflow:
 Clustering video segments using iterative K-means, with noise handling.
 """
 
-import json
 import math
 import asyncio
 from dataclasses import dataclass
@@ -20,11 +19,12 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     ClusteringResult,
     ClusterSegmentsActivityInputs,
     VideoSegment,
+    VideoSegmentMetadata,
 )
 from posthog.temporal.ai.video_segment_clustering.state import load_fetch_result
 from posthog.temporal.common.logger import get_logger
 
-from ..data import fetch_video_segment_embedding_rows
+from ..data import fetch_video_segment_embedding_vectors
 
 logger = get_logger(__name__)
 
@@ -64,9 +64,8 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
 
     """
     team = await Team.objects.aget(id=inputs.team_id)
-    document_ids, _ = await load_fetch_result(inputs.storage_key)
-    # We fetch segments here instead of passing via Temporal, to avoid large Temporal payloads (each embedding is 3 KB)
-    segments = await _fetch_embeddings_by_document_ids(team, document_ids)
+    stored_segments, _ = await load_fetch_result(inputs.storage_key)
+    segments = await _enrich_segments_with_embeddings(team, stored_segments)
 
     # Run in to_thread as clustering is CPU-bound
     clustering_with_centroids = await asyncio.to_thread(_perform_clustering, segments)
@@ -74,56 +73,35 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
     return clustering_with_centroids.result
 
 
-async def _fetch_embeddings_by_document_ids(
+async def _enrich_segments_with_embeddings(
     team: Team,
-    document_ids: list[str],
+    metadata_segments: list[VideoSegmentMetadata],
 ) -> list[VideoSegment]:
-    if not document_ids:
+    """Combine segment metadata from S3 with embedding vectors from ClickHouse."""
+    if not metadata_segments:
         return []
 
-    rows = await fetch_video_segment_embedding_rows(team, document_ids)
-    segments: list[VideoSegment] = []
+    document_ids = [s.document_id for s in metadata_segments]
+    embedding_map = await fetch_video_segment_embedding_vectors(team, document_ids)
 
-    for row in rows:
-        document_id, content, embedding, metadata_str, _timestamp_of_embedding = row
-        try:
-            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-        except (json.JSONDecodeError, TypeError):
-            # Being defensive to avoid a poison pill kind of situation
-            logger.exception(f"Failed to parse metadata for document_id: {document_id}", metadata_str=metadata_str)
-            continue
-        session_id = metadata.get("session_id")
-        start_time = metadata.get("start_time")
-        end_time = metadata.get("end_time")
-        distinct_id = metadata.get("distinct_id")
-        session_start_time = metadata.get("session_start_time")
-        session_end_time = metadata.get("session_end_time")
-        session_duration = metadata.get("session_duration")
-        session_active_seconds = metadata.get("session_active_seconds")
-        if (
-            not session_id
-            or not start_time
-            or not end_time
-            or not distinct_id
-            or not session_start_time
-            or not session_end_time
-            or not session_duration
-            or not session_active_seconds
-        ):
-            logger.error(f"Missing required metadata for document_id: {document_id}", metadata=metadata)
+    segments: list[VideoSegment] = []
+    for seg in metadata_segments:
+        embedding = embedding_map.get(seg.document_id)
+        if embedding is None:
+            logger.warning(f"No embedding found for document_id: {seg.document_id}")
             continue
         segments.append(
             VideoSegment(
-                document_id=document_id,
-                session_id=session_id,
-                start_time=start_time,
-                end_time=end_time,
-                session_start_time=session_start_time,
-                session_end_time=session_end_time,
-                session_duration=session_duration,
-                session_active_seconds=session_active_seconds,
-                distinct_id=distinct_id,
-                content=content,
+                document_id=seg.document_id,
+                session_id=seg.session_id,
+                start_time=seg.start_time,
+                end_time=seg.end_time,
+                session_start_time=seg.session_start_time,
+                session_end_time=seg.session_end_time,
+                session_duration=seg.session_duration,
+                session_active_seconds=seg.session_active_seconds,
+                distinct_id=seg.distinct_id,
+                content=seg.content,
                 embedding=embedding,
             )
         )

@@ -124,10 +124,9 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
         duration_s=round(time.monotonic() - t0, 3),
     )
 
-    document_ids = [s.document_id for s in segments]
     distinct_ids = list({s.distinct_id for s in segments if s.distinct_id})
     storage_key = generate_storage_key(inputs.team_id, activity.info().workflow_run_id, name="segments")
-    await store_fetch_result(storage_key, document_ids, distinct_ids)
+    await store_fetch_result(storage_key, segments, distinct_ids)
 
     logger.info(
         "video_segment_clustering.fetch_segments - finished",
