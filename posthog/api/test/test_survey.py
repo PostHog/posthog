@@ -228,6 +228,7 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.translations is not None
         assert "<script>" not in survey.translations["es"]["name"]
         assert "Título" in survey.translations["es"]["name"]
         assert "<b>Bold</b>" in survey.translations["es"]["description"]
@@ -293,6 +294,7 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.questions is not None
 
         q0_es = survey.questions[0]["translations"]["es"]
         assert "<i>¿Califica?</i>" in q0_es["question"]
@@ -2029,6 +2031,7 @@ class TestSurvey(APIBaseTest):
             type="popover",
             questions=[{"type": "open", "question": "Initial question?"}],
         )
+        assert survey.questions is not None
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
@@ -3903,6 +3906,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
         survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
         survey_with_actions.save()
+        assert survey_with_actions.questions is not None
         self.client.logout()
 
         with self.assertNumQueries(3):
@@ -3985,6 +3989,8 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             questions=[{"type": "open", "question": "What's a hedgehog?"}],
         )
 
+        assert survey_with_flags.questions is not None
+        assert basic_survey.questions is not None
         self.client.logout()
 
         with self.assertNumQueries(3):
