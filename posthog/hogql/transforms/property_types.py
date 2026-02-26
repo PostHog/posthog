@@ -304,7 +304,7 @@ class PropertySwapper(CloningVisitor):
         if field_type == "DateTime":
             return ast.Call(name="toDateTime", args=[node])
         if field_type == "Float":
-            return ast.Call(name="toFloat", args=[node])
+            return ast.Call(name="toFloat", args=[ast.Call(name="trim", args=[node])])
         if field_type == "Boolean":
             return ast.Call(
                 name="toBool",
