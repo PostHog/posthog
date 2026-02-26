@@ -425,16 +425,10 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
 
 function LLMAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
-    const {
-        submitting: playgroundSubmitting,
-        hasRunnablePrompts,
-        activePromptId,
-    } = useValues(llmAnalyticsPlaygroundLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
 
     const { push } = useActions(router)
-    const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
     const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
 
     // Tab switching shortcuts
@@ -622,36 +616,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 }}
                 actions={
                     <>
-                        {activeTab === 'playground' && (
-                            <>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconPlus />}
-                                    onClick={() => addPromptConfig(activePromptId ?? undefined)}
-                                    disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
-                                >
-                                    Add prompt
-                                </LemonButton>
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    icon={<IconPlay />}
-                                    onClick={() => submitPrompt()}
-                                    loading={playgroundSubmitting}
-                                    disabledReason={
-                                        playgroundSubmitting
-                                            ? 'Generating...'
-                                            : !hasRunnablePrompts
-                                              ? 'Add messages to at least one prompt'
-                                              : undefined
-                                    }
-                                    data-attr="playground-run"
-                                >
-                                    Run
-                                </LemonButton>
-                            </>
-                        )}
+                        {activeTab === 'playground' ? <PlaygroundHeaderActions /> : null}
                         <LemonButton
                             to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
                             type="secondary"
@@ -692,5 +657,45 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 }
             />
         </SceneContent>
+    )
+}
+
+function PlaygroundHeaderActions(): JSX.Element {
+    const {
+        submitting: playgroundSubmitting,
+        hasRunnablePrompts,
+        activePromptId,
+    } = useValues(llmAnalyticsPlaygroundLogic)
+    const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
+
+    return (
+        <>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+            >
+                Add prompt
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlay />}
+                onClick={() => submitPrompt()}
+                loading={playgroundSubmitting}
+                disabledReason={
+                    playgroundSubmitting
+                        ? 'Generating...'
+                        : !hasRunnablePrompts
+                          ? 'Add messages to at least one prompt'
+                          : undefined
+                }
+                data-attr="playground-run"
+            >
+                Run
+            </LemonButton>
+        </>
     )
 }
