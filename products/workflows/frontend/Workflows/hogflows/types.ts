@@ -36,7 +36,7 @@ export const HogFlowSchema = z.object({
         .object({
             window_minutes: z.number().nullable(),
             filters: z.any(),
-            bytecode: z.array(z.any()).optional(), // Bytecode only present after save
+            bytecode: z.array(z.union([z.string(), z.number()])).optional(), // Bytecode only present after save
         })
         .optional(),
     exit_condition: z.enum([
