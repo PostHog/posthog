@@ -88,7 +88,7 @@ impl RayonDispatcher {
             INFLIGHT_TASKS.fetch_sub(1, Ordering::Relaxed);
 
             // Release the permit BEFORE sending the result so that
-            // `rx.await` is a reliable synchronisation point for permit
+            // `rx.await` is a reliable synchronization point for permit
             // availability (avoids a race where the caller observes the
             // result but the semaphore hasn't been incremented yet).
             drop(permit);
