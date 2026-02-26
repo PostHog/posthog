@@ -156,8 +156,8 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
-# logger = logging.getLogger(__name__)
 logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 @patchable
@@ -220,7 +220,7 @@ def sync_execute(
     if not workload:
         workload = Workload.DEFAULT
         # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
-        logging.warning(f"workload is None", traceback.format_stack())
+        logger.warning(f"workload is None", traceback.format_stack())
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
