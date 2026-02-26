@@ -852,8 +852,8 @@ describe('CDP API', () => {
                 )
                 .send({})
 
-            expect(res.status).toEqual(404)
-            expect(res.body.errors[0]).toEqual('Empty event')
+            expect(res.status).toEqual(400)
+            expect(res.body.errors[0]).toEqual('Invalid event')
         })
 
         it('errors if invocation_id is not a valid UUID', async () => {

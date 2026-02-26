@@ -1,6 +1,7 @@
 import { TeamManager } from '~/utils/team-manager'
 
 import { RawClickHouseEvent, Team } from '../../types'
+import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUID, UUIDT } from '../../utils/utils'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
@@ -8,6 +9,8 @@ import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
 import { HogExecutorService } from './hog-executor.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
+import { HogWatcherService } from './monitoring/hog-watcher.service'
 
 export interface ExecutionRequest {
     batchExportId: string
@@ -18,11 +21,17 @@ export interface ExecutionRequest {
 }
 
 export class BatchExportHogFunctionService {
+    private promiseScheduler: PromiseScheduler
+
     constructor(
         private teamManager: TeamManager,
         private hogFunctionManager: HogFunctionManagerService,
-        private hogExecutor: HogExecutorService
-    ) {}
+        private hogExecutor: HogExecutorService,
+        private hogWatcher: HogWatcherService,
+        private hogFunctionMonitoringService: HogFunctionMonitoringService
+    ) {
+        this.promiseScheduler = new PromiseScheduler()
+    }
 
     /**
      * Parses and validates all inputs required to execute a batch export hog function.
@@ -93,7 +102,18 @@ export class BatchExportHogFunctionService {
         const invocation = createInvocation(globalsWithInputs, request.hogFunction)
         invocation.id = request.invocationId.toString()
 
-        return await this.hogExecutor.executeWithAsyncFunctions(invocation)
+        const result = await this.hogExecutor.executeWithAsyncFunctions(invocation)
+
+        await this.hogFunctionMonitoringService.queueInvocationResults([result])
+        void this.promiseScheduler.schedule(
+            Promise.all([this.hogFunctionMonitoringService.flush(), this.hogWatcher.observeResultsBuffered(result)])
+        )
+
+        return result
+    }
+
+    public async stop(): Promise<void> {
+        await this.promiseScheduler.waitForAllSettled()
     }
 }
 
@@ -118,6 +138,6 @@ export class ParseError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'ParseError'
-        Object.setPrototypeOf(this, NotFoundError.prototype)
+        Object.setPrototypeOf(this, ParseError.prototype)
     }
 }

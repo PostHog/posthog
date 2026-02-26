@@ -111,7 +111,9 @@ export class CdpApi {
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             hub.teamManager,
             this.hogFunctionManager,
-            this.hogExecutor
+            this.hogExecutor,
+            this.hogWatcher,
+            this.hogFunctionMonitoringService
         )
     }
 
@@ -132,7 +134,11 @@ export class CdpApi {
     }
 
     async stop(): Promise<void> {
-        await Promise.all([this.cdpWarehouseKafkaProducer?.disconnect(), this.cdpSourceWebhooksConsumer.stop()])
+        await Promise.all([
+            this.cdpWarehouseKafkaProducer?.disconnect(),
+            this.cdpSourceWebhooksConsumer.stop(),
+            this.batchExportHogFunctionService.stop(),
+        ])
     }
 
     isHealthy(): HealthCheckResult {
