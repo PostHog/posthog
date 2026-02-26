@@ -1344,7 +1344,7 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         super().setUp()
         clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
 
-    def test_verify_command_specific_teams(self):
+    def test_verify_command_processes_both_variants_by_default(self):
         from io import StringIO
 
         from django.core.management import call_command
@@ -1360,8 +1360,9 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         call_command("verify_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
 
         output = out.getvalue()
-        assert "Verification Results" in output
-        assert "Total teams verified: 1" in output
+        assert "with cohorts" in output
+        assert "without cohorts" in output
+        assert output.count("Verification Results") == 2
 
     def test_verify_command_with_variant_flag(self):
         from io import StringIO
@@ -1385,9 +1386,10 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
 
         output = out.getvalue()
         assert "with cohorts" in output
+        assert "without cohorts" not in output
         assert output.count("Verification Results") == 1
 
-    def test_warm_command_specific_teams(self):
+    def test_warm_command_processes_both_variants_by_default(self):
         from io import StringIO
 
         from django.core.management import call_command
@@ -1403,7 +1405,9 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         call_command("warm_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
 
         output = out.getvalue()
-        assert "Flag definitions cache warm completed" in output or "Total teams: 1" in output
+        assert "with cohorts" in output
+        assert "without cohorts" in output
+        assert "Successful: 1" in output
 
     def test_warm_command_with_variant_flag(self):
         from io import StringIO
@@ -1427,6 +1431,7 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
 
         output = out.getvalue()
         assert "with cohorts" in output
+        assert "without cohorts" not in output
 
 
 @override_settings(FLAGS_REDIS_URL=None)

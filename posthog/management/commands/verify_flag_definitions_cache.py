@@ -25,7 +25,7 @@ Usage:
     python manage.py verify_flag_definitions_cache --fix
 """
 
-from typing import Any
+from typing import Any, override
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
 from posthog.models.feature_flag.local_evaluation import (
@@ -49,7 +49,38 @@ class Command(BaseHyperCacheCommand):
             help="Verify only the specified variant (default: both)",
         )
 
+    @override
+    def format_verbose_diff(self, diff: dict):
+        """
+        Format and print a single diff for verbose verification output.
+
+        Handles the flag-definitions diff structure which uses:
+        - type: MISSING_IN_CACHE, STALE_IN_CACHE, or FIELD_MISMATCH
+        - flag_key: The flag key
+        - field_diffs: (for FIELD_MISMATCH) List of {field, db_value, cached_value}
+        """
+        diff_type = diff.get("type")
+        flag_key = diff.get("flag_key") or str(diff.get("flag_id"))
+
+        if diff_type == "MISSING_IN_CACHE":
+            self.stdout.write(f"  Flag '{flag_key}': exists in DB but missing from cache")
+        elif diff_type == "STALE_IN_CACHE":
+            self.stdout.write(f"  Flag '{flag_key}': exists in cache but deleted from DB")
+        elif diff_type == "FIELD_MISMATCH":
+            self.stdout.write(f"  Flag '{flag_key}': field values differ")
+            field_diffs = diff.get("field_diffs", [])
+            for field_diff in field_diffs:
+                field_name = field_diff.get("field", "unknown_field")
+                self.stdout.write(f"    Field: {field_name}")
+                self.stdout.write(f"      DB:    {field_diff.get('db_value')}")
+                self.stdout.write(f"      Cache: {field_diff.get('cached_value')}")
+        else:
+            # Fallback for unknown diff types (e.g., COHORTS_MISMATCH, GROUP_TYPE_MAPPING_MISMATCH)
+            self.stdout.write(f"  Flag '{flag_key}': {diff_type}")
+
     def handle(self, *args, **options):
+        # No check_dedicated_cache_configured() needed — flag definitions use the
+        # default cache (REDIS_URL), not the dedicated flags cache (FLAGS_REDIS_URL).
         team_ids = options.get("team_ids")
         sample_size = options.get("sample")
         verbose = options.get("verbose", False)

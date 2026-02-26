@@ -42,6 +42,8 @@ class Command(BaseHyperCacheCommand):
         )
 
     def handle(self, *args, **options):
+        # No check_dedicated_cache_configured() needed — flag definitions use the
+        # default cache (REDIS_URL), not the dedicated flags cache (FLAGS_REDIS_URL).
         team_ids = options.get("team_ids")
         batch_size = options["batch_size"]
         invalidate_first = options["invalidate_first"]
