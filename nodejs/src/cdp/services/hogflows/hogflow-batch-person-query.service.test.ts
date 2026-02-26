@@ -47,7 +47,7 @@ describe('HogFlowBatchPersonQueryService', () => {
 
             expect(fetchMock).toHaveBeenCalledTimes(1)
             expect(fetchMock).toHaveBeenCalledWith({
-                url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius',
+                urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius',
                 fetchParams: {
                     method: 'POST',
                     body: JSON.stringify({
@@ -69,7 +69,7 @@ describe('HogFlowBatchPersonQueryService', () => {
             await service.getBlastRadius(team, filters)
 
             expect(fetchMock).toHaveBeenCalledWith({
-                url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius',
+                urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius',
                 fetchParams: {
                     method: 'POST',
                     body: JSON.stringify({
@@ -135,7 +135,7 @@ describe('HogFlowBatchPersonQueryService', () => {
 
             expect(fetchMock).toHaveBeenCalledTimes(2)
             expect(fetchMock).toHaveBeenNthCalledWith(1, {
-                url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius_persons',
+                urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
                     body: JSON.stringify({
@@ -146,7 +146,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 },
             })
             expect(fetchMock).toHaveBeenNthCalledWith(2, {
-                url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius_persons',
+                urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
                     body: JSON.stringify({
@@ -173,7 +173,7 @@ describe('HogFlowBatchPersonQueryService', () => {
             await service.getBlastRadiusPersons(team, filters)
 
             expect(fetchMock).toHaveBeenCalledWith({
-                url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius_persons',
+                urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
                     body: JSON.stringify({

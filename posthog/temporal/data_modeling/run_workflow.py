@@ -45,6 +45,7 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
@@ -393,13 +394,16 @@ async def handle_error(
     error_message: str,
     logger: FilteringBoundLogger,
 ):
+    error_str = str(error)
     if job:
         await logger.ainfo("Marking job %s as failed", job.id)
-        await logger.aerror(f"handle_error: error={error}. error_message={error_message}")
+        await logger.aerror(f"handle_error: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.FAILED
-        job.error = str(error)
+        job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
-    await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
+    await queue.put(
+        QueueMessage(status=ModelStatus.FAILED, label=model.label, error=strip_hostname_from_error(error_str))
+    )
 
 
 async def handle_cancelled(
@@ -410,12 +414,15 @@ async def handle_cancelled(
     error_message: str,
     logger: FilteringBoundLogger,
 ):
+    error_str = str(error)
     if job:
-        await logger.aerror(f"handle_cancelled: error={error}. error_message={error_message}")
+        await logger.aerror(f"handle_cancelled: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.CANCELLED
-        job.error = str(error)
+        job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
-    await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
+    await queue.put(
+        QueueMessage(status=ModelStatus.FAILED, label=model.label, error=strip_hostname_from_error(error_str))
+    )
 
 
 async def start_job_modeling_run(
@@ -624,13 +631,14 @@ async def materialize_model(
             await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
-            saved_query.latest_error = f"Query failed to materialize: {error_message}"
+            sanitized_error = strip_hostname_from_error(error_message)
+            saved_query.latest_error = f"Query failed to materialize: {sanitized_error}"
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
             if isinstance(e, NonRetryableException):
                 raise
-            raise Exception(error_message) from e
+            raise Exception(sanitized_error) from e
 
     data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
@@ -694,12 +702,15 @@ async def materialize_model(
 async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: FilteringBoundLogger) -> None:
     """
     Mark DataModelingJob as failed and send notification email if applicable.
+
+    The original error message (with hostnames) is logged for internal debugging,
+    but the user-facing error has hostnames stripped to avoid exposing infrastructure details.
     """
 
     await logger.aerror(f"mark_job_as_failed: {error_message}")
     await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
-    job.error = error_message
+    job.error = strip_hostname_from_error(error_message)
     await database_sync_to_async(job.save)()
 
     if job.saved_query_id:
