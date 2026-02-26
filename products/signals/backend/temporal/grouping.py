@@ -1007,6 +1007,7 @@ async def _process_signal_batch(batch: list[EmitSignalInputs]) -> int:
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
     processed_batch_signals: list[_ProcessedBatchSignal] = []
+    promoted_reports: dict[str, SignalReportSummaryWorkflowInputs] = {}
     last_assign_result: Optional[AssignAndEmitSignalOutput] = None
     last_signal_id: Optional[str] = None
 
@@ -1069,18 +1070,9 @@ async def _process_signal_batch(batch: list[EmitSignalInputs]) -> int:
             last_signal_id = signal_id
 
             if assign_result.promoted:
-                try:
-                    await workflow.start_child_workflow(
-                        SignalReportSummaryWorkflow.run,
-                        SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=assign_result.report_id),
-                        id=SignalReportSummaryWorkflow.workflow_id_for(signal.team_id, assign_result.report_id),
-                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                        parent_close_policy=ParentClosePolicy.ABANDON,
-                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        execution_timeout=timedelta(minutes=30),
-                    )
-                except temporalio.exceptions.WorkflowAlreadyStartedError:
-                    pass
+                promoted_reports[assign_result.report_id] = SignalReportSummaryWorkflowInputs(
+                    team_id=signal.team_id, report_id=assign_result.report_id
+                )
 
         except Exception:
             dropped += 1
@@ -1105,6 +1097,21 @@ async def _process_signal_batch(batch: list[EmitSignalInputs]) -> int:
             heartbeat_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+
+    # Spawn summary workflows after CH wait so they can find the signals
+    for report_input in promoted_reports.values():
+        try:
+            await workflow.start_child_workflow(
+                SignalReportSummaryWorkflow.run,
+                report_input,
+                id=SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                execution_timeout=timedelta(minutes=30),
+            )
+        except temporalio.exceptions.WorkflowAlreadyStartedError:
+            pass
 
     return dropped
 
