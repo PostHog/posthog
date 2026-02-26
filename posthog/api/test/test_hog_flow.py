@@ -220,14 +220,16 @@ class TestHogFlowAPI(APIBaseTest):
         assert conversion["bytecode"] == expected_conversion_bytecode
 
         flow = HogFlow.objects.get(pk=response.json()["id"])
-        assert flow.conversion["window_minutes"] is None
-        assert flow.conversion["filters"][0] == {
+        flow_conversion = flow.conversion
+        assert flow_conversion is not None
+        assert flow_conversion["window_minutes"] is None
+        assert flow_conversion["filters"][0] == {
             "key": "$browser",
             "type": "person",
             "value": ["Chrome"],
             "operator": "exact",
         }
-        assert flow.conversion["bytecode"] == expected_conversion_bytecode
+        assert flow_conversion["bytecode"] == expected_conversion_bytecode
 
     def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
         expected_conversion_bytecode = [
@@ -286,14 +288,16 @@ class TestHogFlowAPI(APIBaseTest):
         assert conversion["bytecode"] == expected_conversion_bytecode
 
         flow = HogFlow.objects.get(pk=flow_id)
-        assert flow.conversion["window_minutes"] is None
-        assert flow.conversion["filters"][0] == {
+        flow_conversion = flow.conversion
+        assert flow_conversion is not None
+        assert flow_conversion["window_minutes"] is None
+        assert flow_conversion["filters"][0] == {
             "key": "$browser",
             "type": "person",
             "value": ["Chrome"],
             "operator": "exact",
         }
-        assert flow.conversion["bytecode"] == expected_conversion_bytecode
+        assert flow_conversion["bytecode"] == expected_conversion_bytecode
 
     def test_hog_flow_conditional_branch_filters_bytecode(self):
         conditional_action = {
