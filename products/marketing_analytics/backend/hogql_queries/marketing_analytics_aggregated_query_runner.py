@@ -93,6 +93,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 MarketingAnalyticsBaseColumns.CPC,
                 MarketingAnalyticsBaseColumns.CTR,
                 MarketingAnalyticsBaseColumns.REPORTED_ROAS,
+                MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION,
             )
         }
 
@@ -372,6 +373,33 @@ class MarketingAnalyticsAggregatedQueryRunner(
                     has_comparison=has_comparison,
                 )
             results_dict[MarketingAnalyticsBaseColumns.CTR.value] = ctr_item
+
+        # Calculate Cost per Reported Conversion
+        total_reported_conversion_item = results_dict.get(MarketingAnalyticsBaseColumns.REPORTED_CONVERSION.value)
+        if total_cost_item and total_reported_conversion_item:
+            if (
+                has_comparison
+                and total_cost_item.previous is not None
+                and total_reported_conversion_item.previous is not None
+            ):
+                current_cprc = self._calculate_rate(total_cost_item.value, total_reported_conversion_item.value)
+                previous_cprc = self._calculate_rate(total_cost_item.previous, total_reported_conversion_item.previous)
+
+                cprc_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION.value,
+                    value=current_cprc,
+                    previous=previous_cprc,
+                    has_comparison=has_comparison,
+                )
+            else:
+                cprc_value = self._calculate_rate(total_cost_item.value, total_reported_conversion_item.value)
+                cprc_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION.value,
+                    value=cprc_value,
+                    previous=None,
+                    has_comparison=has_comparison,
+                )
+            results_dict[MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION.value] = cprc_item
 
         # Calculate Reported ROAS (Return on Ad Spend = Reported Conversion Value / Cost)
         total_reported_conversion_value_item = results_dict.get(
