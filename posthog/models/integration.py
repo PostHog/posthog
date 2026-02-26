@@ -270,21 +270,14 @@ class OauthIntegration:
                 name_path="team.name",
             )
         elif kind == "slack-twig":
-            from_settings = get_instance_settings(
-                [
-                    "SLACK_TWIG_CLIENT_ID",
-                    "SLACK_TWIG_CLIENT_SECRET",
-                ]
-            )
-
-            if not from_settings["SLACK_TWIG_CLIENT_ID"] or not from_settings["SLACK_TWIG_CLIENT_SECRET"]:
+            if not settings.SLACK_TWIG_CLIENT_ID or not settings.SLACK_TWIG_CLIENT_SECRET:
                 raise NotImplementedError("Twig Slack app not configured")
 
             return OauthConfig(
                 authorize_url="https://slack.com/oauth/v2/authorize",
                 token_url="https://slack.com/api/oauth.v2.access",
-                client_id=from_settings["SLACK_TWIG_CLIENT_ID"],
-                client_secret=from_settings["SLACK_TWIG_CLIENT_SECRET"],
+                client_id=settings.SLACK_TWIG_CLIENT_ID,
+                client_secret=settings.SLACK_TWIG_CLIENT_SECRET,
                 scope="app_mentions:read,channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
@@ -1014,15 +1007,12 @@ class SlackIntegration:
         return config
 
     @classmethod
-    @cache_for(timedelta(minutes=5))
     def twig_slack_config(cls) -> dict[str, str]:
-        return get_instance_settings(
-            [
-                "SLACK_TWIG_CLIENT_ID",
-                "SLACK_TWIG_CLIENT_SECRET",
-                "SLACK_TWIG_SIGNING_SECRET",
-            ]
-        )
+        return {
+            "SLACK_TWIG_CLIENT_ID": settings.SLACK_TWIG_CLIENT_ID,
+            "SLACK_TWIG_CLIENT_SECRET": settings.SLACK_TWIG_CLIENT_SECRET,
+            "SLACK_TWIG_SIGNING_SECRET": settings.SLACK_TWIG_SIGNING_SECRET,
+        }
 
 
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
