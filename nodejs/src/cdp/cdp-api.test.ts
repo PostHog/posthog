@@ -779,4 +779,100 @@ describe('CDP API', () => {
             expect(res.body.error).toEqual('Kafka producer not available')
         })
     })
+    describe('batch export hog function invocations', () => {
+        const batchExportId = new UUIDT().toString()
+        let batchExportHogFunction: HogFunctionType
+
+        const clickhouseEvent = {
+            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+            event: '$pageview',
+            team_id: team.id,
+            distinct_id: '123',
+            timestamp: '2021-09-28T14:00:00Z',
+            created_at: '2021-09-28T14:00:00Z',
+            properties: '{"$lib_version":"1.0.0"}',
+            elements_chain: '',
+        }
+
+        beforeEach(async () => {
+            batchExportHogFunction = await insertHogFunction({
+                name: 'test batch export hog function',
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                batch_export_id: batchExportId,
+            })
+        })
+
+        it('errors if missing team', async () => {
+            const nonExistentTeamId = new UUIDT().toString()
+            const res = await supertest(app)
+                .post(
+                    `/api/projects/${nonExistentTeamId}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
+                )
+                .send({ clickhouse_event: clickhouseEvent })
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Team not found')
+        })
+
+        it('errors if missing hog function', async () => {
+            const nonExistentHogFunctionId = new UUIDT().toString()
+            const res = await supertest(app)
+                .post(
+                    `/api/projects/${team.id}/batch_exports/${batchExportId}/hog_functions/${nonExistentHogFunctionId}/invocations`
+                )
+                .send({ clickhouse_event: clickhouseEvent })
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Hog function not found')
+        })
+
+        it('errors if hog function belongs to a different team', async () => {
+            // hogFunction (from outer beforeEach) has no batch_export_id and belongs to team.id,
+            // but we're requesting it under a different team's path
+            const res = await supertest(app)
+                .post(
+                    `/api/projects/${new UUIDT().toString()}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
+                )
+                .send({ clickhouse_event: clickhouseEvent })
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Team not found')
+        })
+
+        it('errors if hog function belongs to a different batch export', async () => {
+            const differentBatchExportId = new UUIDT().toString()
+            const res = await supertest(app)
+                .post(
+                    `/api/projects/${team.id}/batch_exports/${differentBatchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
+                )
+                .send({ clickhouse_event: clickhouseEvent })
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Hog function not found')
+        })
+
+        it('errors if missing event', async () => {
+            const res = await supertest(app)
+                .post(
+                    `/api/projects/${team.id}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
+                )
+                .send({})
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Missing event')
+        })
+
+        it('errors if invocation_id is not a valid UUID', async () => {
+            const res = await supertest(app)
+                .post(
+                    `/api/projects/${team.id}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
+                )
+                .send({ clickhouse_event: clickhouseEvent, invocation_id: 'not-a-uuid' })
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Invalid invocation ID')
+        })
+    })
 })
