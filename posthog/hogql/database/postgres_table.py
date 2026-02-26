@@ -1,4 +1,3 @@
-from functools import cache
 from typing import Optional
 
 from django.conf import settings
@@ -9,16 +8,6 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.scopes import APIScopeObject
-
-
-@cache
-def _pk_column_for_pg_table(postgres_table_name: str) -> Optional[str]:
-    """Look up the primary key column from the actual DB schema. Cached per process.
-    Returns None for tables with composite primary key."""
-    from django.db import connection
-
-    with connection.cursor() as cursor:
-        return connection.introspection.get_primary_key_column(cursor, postgres_table_name)
 
 
 def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):
@@ -70,10 +59,6 @@ class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
     access_scope: Optional[APIScopeObject] = None
-
-    @property
-    def primary_key(self) -> Optional[str]:
-        return _pk_column_for_pg_table(self.postgres_table_name)
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
