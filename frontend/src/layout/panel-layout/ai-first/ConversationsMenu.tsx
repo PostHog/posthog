@@ -1,7 +1,7 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import { Link, Spinner } from '@posthog/lemon-ui'

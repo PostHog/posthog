@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { EitherMembershipLevel, OrganizationMembershipLevel } from 'lib/constants'

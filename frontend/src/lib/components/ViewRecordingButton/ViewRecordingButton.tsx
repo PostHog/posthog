@@ -1,6 +1,6 @@
 import classNames from 'classnames'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, type JSX } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/lemon-ui'

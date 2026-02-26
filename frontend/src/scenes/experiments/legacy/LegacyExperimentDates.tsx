@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Label } from 'lib/ui/Label/Label'

@@ -1,7 +1,7 @@
 import './TextCard.scss'
 
 import clsx from 'clsx'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'

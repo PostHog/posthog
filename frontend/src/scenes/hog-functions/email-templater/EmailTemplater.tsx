@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconExternal } from '@posthog/icons'

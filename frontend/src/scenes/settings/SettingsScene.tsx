@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { capitalizeFirstLetter } from 'lib/utils'

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

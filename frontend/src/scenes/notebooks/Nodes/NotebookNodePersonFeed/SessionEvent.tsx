@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { eventToDescription } from 'lib/utils'
 

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 import { toast } from 'react-toastify'
 
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'

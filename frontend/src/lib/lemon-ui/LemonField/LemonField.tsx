@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
+import type { JSX } from 'react'
 
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'

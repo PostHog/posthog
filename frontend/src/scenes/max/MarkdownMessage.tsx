@@ -1,5 +1,5 @@
 import { marked } from 'marked'
-import { memo, useMemo } from 'react'
+import { memo, useMemo, type JSX } from 'react'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 

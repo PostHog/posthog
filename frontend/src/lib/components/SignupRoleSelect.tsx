@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 

@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { IconInfo, IconTrash } from '@posthog/icons'
 import {

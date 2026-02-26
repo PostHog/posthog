@@ -1,5 +1,7 @@
 import './ListDisplay.scss'
 
+import type { JSX } from 'react'
+
 import { Tooltip } from '@posthog/lemon-ui'
 
 interface ListDisplayProps {

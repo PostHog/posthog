@@ -1,5 +1,7 @@
 import './EmptyMessage.scss'
 
+import type { JSX } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export interface EmptyMessageProps {

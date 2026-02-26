@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 interface NodeProps {
     pref: (el: HTMLDivElement | null) => void
     width?: string

@@ -5,7 +5,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type JSX } from 'react'
 
 import {
     IconCopy,

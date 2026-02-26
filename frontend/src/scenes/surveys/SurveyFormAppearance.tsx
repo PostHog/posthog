@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
+import type { JSX } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 

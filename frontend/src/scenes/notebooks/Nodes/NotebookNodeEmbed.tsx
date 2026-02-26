@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 
 import { LemonButton, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 

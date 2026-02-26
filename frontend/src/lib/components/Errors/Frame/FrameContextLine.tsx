@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { Language } from 'lib/components/CodeSnippet'
 import { CodeLine } from 'lib/components/CodeSnippet/CodeSnippet'

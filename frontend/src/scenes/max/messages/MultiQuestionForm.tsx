@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconCheck } from '@posthog/icons'
 
 import { MultiQuestionForm as MultiQuestionFormType } from '~/queries/schema/schema-assistant-messages'

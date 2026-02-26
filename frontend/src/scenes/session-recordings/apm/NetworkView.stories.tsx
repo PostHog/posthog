@@ -1,7 +1,7 @@
 import './NetworkView.scss'
 
 import { Meta } from '@storybook/react'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState, type JSX } from 'react'
 
 import { LemonTable } from '@posthog/lemon-ui'
 

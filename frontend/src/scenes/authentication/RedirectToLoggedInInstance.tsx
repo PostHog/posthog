@@ -21,7 +21,7 @@
  * http://eu.posthogtest.com:8000/login?next=/apps
  */
 import { posthog } from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 

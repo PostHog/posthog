@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BuiltLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { uuid } from 'lib/utils'
 

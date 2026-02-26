@@ -1,5 +1,5 @@
 import classNames from 'classnames'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconCursorClick, IconMegaphone } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'

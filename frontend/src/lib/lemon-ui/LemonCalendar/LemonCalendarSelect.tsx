@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useRef, useState } from 'react'
+import { useRef, useState, type JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 

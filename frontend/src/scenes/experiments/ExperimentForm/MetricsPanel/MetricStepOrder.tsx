@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { match } from 'ts-pattern'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'

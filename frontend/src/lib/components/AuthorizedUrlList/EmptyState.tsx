@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 

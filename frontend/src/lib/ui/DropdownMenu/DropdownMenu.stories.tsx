@@ -1,6 +1,6 @@
 import { DropdownMenuCheckboxItemProps } from '@radix-ui/react-dropdown-menu'
 import type { Meta } from '@storybook/react'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconChevronRight, IconSearch } from '@posthog/icons'
 

@@ -1,5 +1,5 @@
 import { Placement } from '@floating-ui/react'
-import { Ref, forwardRef, useEffect, useState } from 'react'
+import { Ref, forwardRef, useEffect, useState, type JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 

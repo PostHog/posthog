@@ -1,6 +1,6 @@
 import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import {

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'

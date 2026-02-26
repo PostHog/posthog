@@ -1,5 +1,7 @@
 import './DateDisplay.scss'
 
+import type { JSX } from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 

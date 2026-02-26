@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'

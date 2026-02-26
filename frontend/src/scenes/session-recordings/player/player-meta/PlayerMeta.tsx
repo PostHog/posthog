@@ -2,6 +2,7 @@ import './PlayerMeta.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 

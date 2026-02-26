@@ -2,7 +2,7 @@ import './RichContentEditor.scss'
 
 import { EditorContent, Extensions, useEditor } from '@tiptap/react'
 import { BindLogic } from 'kea'
-import { PropsWithChildren, useEffect } from 'react'
+import { PropsWithChildren, useEffect, type JSX } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 

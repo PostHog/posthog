@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 

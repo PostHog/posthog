@@ -1,4 +1,4 @@
-import { forwardRef } from 'react'
+import { forwardRef, type JSX } from 'react'
 import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
 
 import { IconMarkdownFilled } from '@posthog/icons'

@@ -1,4 +1,5 @@
 import { LogicWrapper } from 'kea'
+import type { JSX } from 'react'
 
 import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'

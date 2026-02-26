@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState, type JSX } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 

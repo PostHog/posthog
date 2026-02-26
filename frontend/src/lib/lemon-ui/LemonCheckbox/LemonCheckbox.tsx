@@ -1,7 +1,7 @@
 import './LemonCheckbox.scss'
 
 import clsx from 'clsx'
-import { ChangeEvent, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, useEffect, useMemo, useState, type JSX } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 

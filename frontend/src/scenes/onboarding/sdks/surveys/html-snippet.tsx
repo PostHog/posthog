@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SDKHtmlSnippetInstructions } from '../sdk-install-instructions/html-snippet'
 
 export function HTMLSnippetInstructions(): JSX.Element {

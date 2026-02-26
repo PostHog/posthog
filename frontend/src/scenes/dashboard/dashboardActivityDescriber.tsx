@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 import { DashboardFilter, HogQLVariable } from 'src/queries/schema/schema-general'
 
 import { Link } from '@posthog/lemon-ui'

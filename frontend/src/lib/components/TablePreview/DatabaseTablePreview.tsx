@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { databaseTablePreviewLogic } from './databaseTablePreviewLogic'
 import { TablePreview, TablePreviewProps } from './TablePreview'

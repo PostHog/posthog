@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IntegrationKind, IntegrationType } from '~/types'
 
 import { VercelIntegrationSuffix } from './VercelIntegrationSuffix'

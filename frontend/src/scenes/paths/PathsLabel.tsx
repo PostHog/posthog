@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 export function PathCanvasLabel(): JSX.Element | null {
     return (
         <div className="flex items-center text-secondary">

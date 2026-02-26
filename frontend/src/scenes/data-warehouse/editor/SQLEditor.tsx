@@ -1,7 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { IconBook, IconChevronDown, IconDownload } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'

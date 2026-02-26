@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconChip } from '@posthog/icons'
 

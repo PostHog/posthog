@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconGraph, IconLineGraph, IconTrending } from '@posthog/icons'
 import { LemonSegmentedButtonOption } from '@posthog/lemon-ui'

@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'

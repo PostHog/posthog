@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconCheck, IconPlus, IconX } from '@posthog/icons'
 

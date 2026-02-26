@@ -2,7 +2,7 @@
 import './icons.scss'
 
 import clsx from 'clsx'
-import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
+import { CSSProperties, PropsWithChildren, SVGAttributes, type JSX } from 'react'
 
 import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 

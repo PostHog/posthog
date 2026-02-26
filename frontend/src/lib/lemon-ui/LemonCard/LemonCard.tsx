@@ -1,6 +1,6 @@
 import './LemonCard.scss'
 
-import { forwardRef } from 'react'
+import { forwardRef, type JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 

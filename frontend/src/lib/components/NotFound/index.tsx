@@ -3,7 +3,7 @@ import './NotFound.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, ProfilePicture, SpinnerOverlay, lemonToast } from '@posthog/lemon-ui'

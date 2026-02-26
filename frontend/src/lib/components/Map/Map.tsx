@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 import maplibregl, { Marker, Map as RawMap } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import layers from 'protomaps-themes-base'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ErrorTrackingException } from '../types'
 import { formatExceptionDisplay } from '../utils'
 

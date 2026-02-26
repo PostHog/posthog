@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { getSeriesColor } from 'lib/colors'
 import { RGBToRGBA, alphabet, hexToRGBA, lightenDarkenColor } from 'lib/utils'

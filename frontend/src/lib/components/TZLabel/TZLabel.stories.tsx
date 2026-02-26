@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel/index'
 import { now } from 'lib/dayjs'

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, type JSX } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconCornerDownRight } from '@posthog/icons'

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { HedgehogActorOptions, StaticHedgehog } from '@posthog/hedgehog-mode'
 

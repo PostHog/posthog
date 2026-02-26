@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const IOSLogo = React.memo(function IOSLogo(): JSX.Element {
     return (

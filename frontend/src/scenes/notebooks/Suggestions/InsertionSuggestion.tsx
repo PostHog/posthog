@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
 
 export type InsertionSuggestionViewProps = {

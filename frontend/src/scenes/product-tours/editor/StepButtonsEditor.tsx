@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { ProductTourButtonAction, ProductTourStepButton, ProductTourStepButtons } from '~/types'

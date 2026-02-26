@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { OrgCombobox } from 'lib/components/Account/OrgCombobox'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'

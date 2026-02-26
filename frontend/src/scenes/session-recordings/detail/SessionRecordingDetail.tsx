@@ -1,6 +1,7 @@
 import './SessionRecordingScene.scss'
 
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'

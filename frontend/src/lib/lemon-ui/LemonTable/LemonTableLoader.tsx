@@ -1,6 +1,6 @@
 import './LemonTableLoader.scss'
 
-import React from 'react'
+import React, { type JSX } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 export function LemonTableLoader({

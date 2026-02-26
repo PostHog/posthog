@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, type JSX } from 'react'
 
 import {
     ActivityChange,

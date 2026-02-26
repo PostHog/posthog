@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const OpenRouterLogo = React.memo(function OpenRouterLogo(): JSX.Element {
     return (

@@ -1,5 +1,7 @@
 import 'kea'
 
+import type { JSX } from 'react'
+
 import { IconBalance, IconMessage, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 

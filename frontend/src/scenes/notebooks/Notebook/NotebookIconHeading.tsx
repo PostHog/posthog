@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 const NotebookIconHeading = ({ level }: { level: number }): JSX.Element => {
     return (
         <div className="text-base font-semibold">

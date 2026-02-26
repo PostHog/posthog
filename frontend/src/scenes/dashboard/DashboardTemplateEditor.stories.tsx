@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'

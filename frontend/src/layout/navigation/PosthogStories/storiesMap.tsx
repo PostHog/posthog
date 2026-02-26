@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 // This should eventually be moved to a DB.
 import { PizzaSurveyOverlayComponent } from './PizzaSurveyOverlayComponent'
 

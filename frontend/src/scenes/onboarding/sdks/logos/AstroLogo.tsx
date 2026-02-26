@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const AstroLogo = React.memo(function AstroLogo(): JSX.Element {
     return (

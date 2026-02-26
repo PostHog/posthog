@@ -1,7 +1,7 @@
 import { Handle, Position } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 

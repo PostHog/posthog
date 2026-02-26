@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { PlayerSidebarSessionSummary } from 'scenes/session-recordings/player/sidebar/PlayerSidebarSessionSummary'
 
 export function PlayerSidebarSessionSummaryTab(): JSX.Element {

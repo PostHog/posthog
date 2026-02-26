@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'

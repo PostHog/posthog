@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'

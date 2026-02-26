@@ -4,7 +4,7 @@ import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, 
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'

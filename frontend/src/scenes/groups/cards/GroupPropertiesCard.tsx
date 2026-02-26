@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

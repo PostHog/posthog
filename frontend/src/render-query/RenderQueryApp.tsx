@@ -1,6 +1,6 @@
 import './RenderQuery.scss'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 

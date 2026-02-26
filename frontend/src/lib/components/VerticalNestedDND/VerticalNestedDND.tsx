@@ -28,7 +28,7 @@ import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
 import debounce from 'lodash.debounce'
 import isEqual from 'lodash.isequal'
-import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconTrash } from '@posthog/icons'

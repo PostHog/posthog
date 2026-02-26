@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack'

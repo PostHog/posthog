@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { NetworkView } from 'scenes/session-recordings/apm/NetworkView'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'

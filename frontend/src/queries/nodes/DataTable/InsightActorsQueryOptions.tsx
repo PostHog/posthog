@@ -1,4 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { cleanedInsightActorsQueryOptions } from 'scenes/trends/persons-modal/persons-modal-utils'

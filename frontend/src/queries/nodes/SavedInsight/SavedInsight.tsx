@@ -1,4 +1,5 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'

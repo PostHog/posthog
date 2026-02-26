@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { ProductTourStats } from '../productTourLogic'

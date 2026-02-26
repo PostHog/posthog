@@ -1,7 +1,7 @@
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef, useState, type JSX } from 'react'
 
 import { IconCode } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'

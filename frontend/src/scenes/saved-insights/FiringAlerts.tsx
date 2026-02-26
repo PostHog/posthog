@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { alertsLogic } from 'lib/components/Alerts/alertsLogic'
 import { AlertType } from 'lib/components/Alerts/types'

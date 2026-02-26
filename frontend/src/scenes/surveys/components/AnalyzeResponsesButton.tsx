@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconAI } from '@posthog/icons'
 

@@ -1,4 +1,5 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconRewind } from '@posthog/icons'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'

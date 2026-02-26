@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { IconEllipsis, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonMenu, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'

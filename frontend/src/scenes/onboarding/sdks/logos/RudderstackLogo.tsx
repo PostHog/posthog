@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const RudderstackLogo = React.memo(function RudderstackLogo(): JSX.Element {
     return (

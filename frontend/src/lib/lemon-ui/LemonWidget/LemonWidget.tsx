@@ -1,6 +1,7 @@
 import './LemonWidget.scss'
 
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 

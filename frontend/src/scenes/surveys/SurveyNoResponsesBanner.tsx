@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SurprisedHog } from 'lib/components/hedgehogs'
 
 interface Props {

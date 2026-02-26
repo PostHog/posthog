@@ -1,6 +1,7 @@
 import './CollapsiblePrimitive.scss'
 
 import * as Collapsible from '@radix-ui/react-collapsible'
+import type { JSX } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 

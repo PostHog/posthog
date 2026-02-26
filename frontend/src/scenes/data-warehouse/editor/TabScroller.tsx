@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 export default function TabScroller({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         <div className="relative w-full overflow-auto">

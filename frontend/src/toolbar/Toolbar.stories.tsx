@@ -3,7 +3,7 @@ import '~/toolbar/styles.scss'
 
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 

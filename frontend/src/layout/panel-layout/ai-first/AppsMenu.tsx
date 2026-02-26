@@ -1,7 +1,7 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 
 import { IconApps, IconChevronRight } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'

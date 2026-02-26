@@ -1,5 +1,6 @@
 import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconFilter } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'

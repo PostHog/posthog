@@ -2,7 +2,7 @@ import './InsightTooltip.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { dayjs } from 'lib/dayjs'

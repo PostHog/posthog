@@ -1,7 +1,7 @@
 import './Variables.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconCodeInsert, IconCopy, IconGear, IconTrash, IconX } from '@posthog/icons'
 import {

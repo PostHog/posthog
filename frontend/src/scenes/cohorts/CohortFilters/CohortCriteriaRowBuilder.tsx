@@ -3,6 +3,7 @@ import './CohortCriteriaRowBuilder.scss'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'

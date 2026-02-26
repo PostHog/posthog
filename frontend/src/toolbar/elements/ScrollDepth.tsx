@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { ScrollDepthMouseCanvas, scrollDepthColor } from 'lib/components/heatmaps/ScrollDepthCanvas'
 import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'

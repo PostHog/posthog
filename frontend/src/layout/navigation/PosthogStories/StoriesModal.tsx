@@ -2,7 +2,7 @@ import './StoriesModal.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 

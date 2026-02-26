@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 

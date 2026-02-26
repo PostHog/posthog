@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'

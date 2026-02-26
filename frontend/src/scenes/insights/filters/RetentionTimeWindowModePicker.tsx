@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { RETENTION_TIME_WINDOW_MODE_OPTIONS } from 'scenes/retention/constants'

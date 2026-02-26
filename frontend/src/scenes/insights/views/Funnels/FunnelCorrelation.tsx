@@ -1,6 +1,7 @@
 import './FunnelCorrelation.scss'
 
 import { useMountedLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'

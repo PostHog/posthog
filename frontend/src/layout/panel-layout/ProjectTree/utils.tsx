@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 // draw a beam around an element
 import { ElementRect } from '~/toolbar/types'
 

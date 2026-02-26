@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type JSX } from 'react'
 
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'

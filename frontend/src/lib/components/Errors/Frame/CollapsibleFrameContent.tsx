@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { getLanguage } from 'lib/components/CodeSnippet/CodeSnippet'
 import { CollapsiblePrimitiveContent } from 'lib/ui/CollapsiblePrimitive/CollapsiblePrimitive'
 

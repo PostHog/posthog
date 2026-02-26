@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { Marker } from 'maplibre-gl'
+import type { JSX } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 

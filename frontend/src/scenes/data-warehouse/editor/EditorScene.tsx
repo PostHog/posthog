@@ -1,5 +1,7 @@
 import './EditorScene.scss'
 
+import type { JSX } from 'react'
+
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SQLEditor } from './SQLEditor'

@@ -1,6 +1,6 @@
 import './AnimatedBackButton.scss'
 
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 export function AnimatedBackButton({ children, in: inProp }: React.PropsWithChildren<{ in: boolean }>): JSX.Element {

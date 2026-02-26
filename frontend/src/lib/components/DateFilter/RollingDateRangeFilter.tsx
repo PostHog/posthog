@@ -1,6 +1,7 @@
 import './RollingDateRangeFilter.scss'
 
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 

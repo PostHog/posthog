@@ -1,5 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { HogQLEditor } from './HogQLEditor'
 

@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic } from 'kea'
+import type { JSX } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'

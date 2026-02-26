@@ -1,5 +1,6 @@
 import { Meta } from '@storybook/react'
 import { BindLogic } from 'kea'
+import type { JSX } from 'react'
 
 import { PlayerCommentModal } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'

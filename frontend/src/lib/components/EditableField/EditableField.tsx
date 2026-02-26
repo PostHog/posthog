@@ -2,7 +2,7 @@ import './EditableField.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, type JSX } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
 import { IconMarkdownFilled, IconPencil } from '@posthog/icons'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 

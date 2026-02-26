@@ -1,5 +1,6 @@
 import { Node, mergeAttributes, nodePasteRule } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
+import type { JSX } from 'react'
 
 export interface EmbedOptions {
     HTMLAttributes: Record<string, any>

@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
@@ -133,13 +134,11 @@ const MetricsTab = (): JSX.Element => {
                     <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
             )}
-
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />
                 </div>
             )}
-
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
                 <div className="mb-4 mt-2">

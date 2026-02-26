@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 

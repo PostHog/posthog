@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 import { LemonSegmentedButton, LemonSegmentedButtonProps } from '../LemonSegmentedButton'

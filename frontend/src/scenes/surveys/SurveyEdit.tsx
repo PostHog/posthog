@@ -4,7 +4,7 @@ import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconGitBranch, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {

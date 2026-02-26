@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
+import type { JSX } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonColorButton } from '@posthog/lemon-ui'

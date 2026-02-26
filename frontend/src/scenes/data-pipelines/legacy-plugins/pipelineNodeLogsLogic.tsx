@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import type { JSX } from 'react'
 
 import { LemonTableColumns, Link } from '@posthog/lemon-ui'
 

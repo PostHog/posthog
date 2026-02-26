@@ -1,6 +1,6 @@
 import { AnimatePresence } from 'motion/react'
 import * as motion from 'motion/react-client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

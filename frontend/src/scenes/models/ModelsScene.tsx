@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'

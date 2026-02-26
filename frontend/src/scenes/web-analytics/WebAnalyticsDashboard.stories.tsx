@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'

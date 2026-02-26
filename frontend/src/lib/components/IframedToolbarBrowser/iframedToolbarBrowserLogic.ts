@@ -1,6 +1,6 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
-import { RefObject } from 'react'
+import { RefObject, type JSX } from 'react'
 
 import {
     AuthorizedUrlListType,

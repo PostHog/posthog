@@ -1,7 +1,7 @@
 import './Resizer.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 

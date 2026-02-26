@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
 import { buildAlertFilterConfig } from 'lib/utils/alertUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'

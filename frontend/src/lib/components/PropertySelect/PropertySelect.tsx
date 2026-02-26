@@ -3,7 +3,7 @@ import { restrictToParentElement } from '@dnd-kit/modifiers'
 import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

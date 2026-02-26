@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

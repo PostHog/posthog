@@ -1,5 +1,5 @@
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 

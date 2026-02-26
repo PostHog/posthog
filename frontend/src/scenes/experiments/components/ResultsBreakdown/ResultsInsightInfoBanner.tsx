@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import type { ResultBreakdownRenderProps } from './types'

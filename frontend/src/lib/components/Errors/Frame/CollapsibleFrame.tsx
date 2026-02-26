@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { CollapsiblePrimitive } from 'lib/ui/CollapsiblePrimitive/CollapsiblePrimitive'
 
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'

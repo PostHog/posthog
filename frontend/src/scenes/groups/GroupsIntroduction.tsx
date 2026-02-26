@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 

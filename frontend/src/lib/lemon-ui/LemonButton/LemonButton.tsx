@@ -1,7 +1,7 @@
 import './LemonButton.scss'
 
 import clsx from 'clsx'
-import React, { useContext } from 'react'
+import React, { useContext, type JSX } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 

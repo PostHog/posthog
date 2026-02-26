@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'

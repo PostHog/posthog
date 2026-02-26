@@ -1,7 +1,7 @@
 import './BillingGauge.scss'
 
 import clsx from 'clsx'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 

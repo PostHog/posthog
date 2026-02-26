@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { DataCollection } from 'scenes/experiments/ExperimentView/DataCollection'
 
 export function LegacyExperimentHeader(): JSX.Element {

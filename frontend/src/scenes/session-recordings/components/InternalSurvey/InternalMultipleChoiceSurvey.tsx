@@ -2,6 +2,7 @@
  * @fileoverview A component that displays an interactive survey within a session recording. It handles survey display, user responses, and submission
  */
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-ui'
 

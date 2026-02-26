@@ -1,5 +1,6 @@
 import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'

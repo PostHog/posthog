@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconLock } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'

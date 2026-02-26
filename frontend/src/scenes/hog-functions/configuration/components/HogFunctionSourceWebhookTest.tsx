@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { IconInfo, IconX } from '@posthog/icons'
 import {

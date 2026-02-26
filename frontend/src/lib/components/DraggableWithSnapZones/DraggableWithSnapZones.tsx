@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ReactElement, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { ReactElement, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type JSX } from 'react'
 import Draggable, { DraggableData, DraggableEvent } from 'react-draggable'
 
 export type SnapPosition =

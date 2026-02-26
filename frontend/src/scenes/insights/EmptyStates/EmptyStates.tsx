@@ -2,7 +2,7 @@ import './EmptyStates.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconWarning } from '@posthog/icons'

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, type JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 

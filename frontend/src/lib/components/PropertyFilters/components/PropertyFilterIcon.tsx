@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconBuilding, IconPeople, IconPerson, IconPiggyBank } from '@posthog/icons'
 
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'

@@ -1,5 +1,6 @@
 import { BaseEdge, Edge, EdgeLabelRenderer, EdgeProps, getSmoothStepPath } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

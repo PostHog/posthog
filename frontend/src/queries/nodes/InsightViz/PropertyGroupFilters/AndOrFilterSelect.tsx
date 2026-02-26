@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonButtonProps, LemonSelect } from '@posthog/lemon-ui'
 
 import { FilterLogicalOperator } from '~/types'

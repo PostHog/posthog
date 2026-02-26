@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Ref, forwardRef } from 'react'
+import { Ref, forwardRef, type JSX } from 'react'
 
 import { IconGearFilled, IconHeadset, IconPhone, IconTabletPortrait } from '@posthog/icons'
 

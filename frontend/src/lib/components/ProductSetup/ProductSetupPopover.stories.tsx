@@ -1,7 +1,7 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { Meta } from '@storybook/react'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 

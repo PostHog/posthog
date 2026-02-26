@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
 

@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'

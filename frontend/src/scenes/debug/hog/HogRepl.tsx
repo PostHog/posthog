@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 
 import { printHogStringOutput } from '@posthog/hogvm'
 import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'

@@ -1,5 +1,5 @@
 import { Dialog } from '@base-ui/react/dialog'
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, type JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 

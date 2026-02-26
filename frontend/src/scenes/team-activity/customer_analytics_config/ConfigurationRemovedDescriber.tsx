@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ActionsNode, EventsNode, NodeKind } from '~/queries/schema/schema-general'
 
 export const ConfigurationRemovedDescriber = ({

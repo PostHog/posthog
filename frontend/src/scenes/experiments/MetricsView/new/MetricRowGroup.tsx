@@ -1,7 +1,7 @@
 import './MetricRowGroup.scss'
 
 import { useActions } from 'kea'
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'

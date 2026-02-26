@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconFilter, IconList, IconSort } from '@posthog/icons'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'

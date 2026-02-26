@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 

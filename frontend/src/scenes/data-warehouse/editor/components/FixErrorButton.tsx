@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconSparkles, IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'

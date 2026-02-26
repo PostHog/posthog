@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'

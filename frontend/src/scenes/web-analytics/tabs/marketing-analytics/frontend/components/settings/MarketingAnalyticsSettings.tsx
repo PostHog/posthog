@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'

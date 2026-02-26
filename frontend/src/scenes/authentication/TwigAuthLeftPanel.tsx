@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import twigLogo from 'public/twig-logo.svg'
 
 export function TwigAuthLeftPanel(): JSX.Element {

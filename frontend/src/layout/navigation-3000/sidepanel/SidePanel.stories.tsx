@@ -1,5 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'

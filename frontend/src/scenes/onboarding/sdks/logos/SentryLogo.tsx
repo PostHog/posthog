@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const SentryLogo = React.memo(function SentryLogo(): JSX.Element {
     return (

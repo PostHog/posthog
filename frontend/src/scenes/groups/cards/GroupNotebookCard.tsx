@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 
 interface GroupNotebookCardProps {

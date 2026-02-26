@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'

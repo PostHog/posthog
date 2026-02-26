@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'

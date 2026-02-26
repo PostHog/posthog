@@ -3,6 +3,7 @@ import { FieldNamePath, capitalizeFirstLetter, forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 

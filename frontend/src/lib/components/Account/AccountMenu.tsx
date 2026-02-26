@@ -1,5 +1,6 @@
 import { DropdownMenuContentProps } from '@radix-ui/react-dropdown-menu'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import {
     IconCake,

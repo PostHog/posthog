@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'

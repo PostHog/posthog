@@ -1,5 +1,7 @@
 import './LemonSkeleton.scss'
 
+import type { JSX } from 'react'
+
 import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { range } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'

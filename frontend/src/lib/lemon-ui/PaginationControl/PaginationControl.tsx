@@ -1,6 +1,7 @@
 import './PaginationControl.scss'
 
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 

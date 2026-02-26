@@ -2,7 +2,7 @@ import './PersonDisplay.scss'
 
 import clsx from 'clsx'
 import { router } from 'kea-router'
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, type JSX } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 

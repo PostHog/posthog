@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { isExperimentMeanMetric } from '~/queries/schema/schema-general'
 

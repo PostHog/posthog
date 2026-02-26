@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconGithub } from '@posthog/icons'
 
 import { IconGitlab, IconGoogle, IconKey } from 'lib/lemon-ui/icons'

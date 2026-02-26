@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SurveyTabPosition } from '~/types'
 
 import { PositionButton } from './PositionButton'

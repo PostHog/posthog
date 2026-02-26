@@ -1,6 +1,6 @@
 import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import {
     LemonBanner,

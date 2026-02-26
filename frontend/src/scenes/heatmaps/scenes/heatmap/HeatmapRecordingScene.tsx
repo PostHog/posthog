@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { HeatmapRecording } from 'scenes/heatmaps/components/HeatmapRecording'
 import { heatmapRecordingLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapRecordingLogic'

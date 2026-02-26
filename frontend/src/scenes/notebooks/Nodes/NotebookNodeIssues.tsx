@@ -1,5 +1,5 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { PropsWithChildren } from 'react'
+import { PropsWithChildren, type JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 

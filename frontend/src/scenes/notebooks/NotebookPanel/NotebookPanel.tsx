@@ -1,7 +1,7 @@
 import './NotebookPanel.scss'
 
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconExpand45 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'

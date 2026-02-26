@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { getSeriesColor } from 'lib/colors'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'

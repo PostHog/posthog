@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback } from 'react'
+import { useCallback, type JSX } from 'react'
 
 import { Search } from 'lib/components/Search/Search'
 import { SearchItem } from 'lib/components/Search/searchLogic'

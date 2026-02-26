@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonSnack, LemonSnackProps } from './LemonSnack'

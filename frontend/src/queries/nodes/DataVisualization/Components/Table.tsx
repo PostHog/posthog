@@ -2,7 +2,7 @@ import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 

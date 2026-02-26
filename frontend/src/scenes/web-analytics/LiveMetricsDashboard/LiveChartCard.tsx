@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { type ReactNode, type JSX } from 'react'
 
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 

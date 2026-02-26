@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Fragment } from 'react'
+import { Fragment, type JSX } from 'react'
 import { toast } from 'react-toastify'
 
 import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'

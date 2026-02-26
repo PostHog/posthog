@@ -2,7 +2,7 @@ import './SessionRecordingPlayer.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 

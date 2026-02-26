@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ActiveUsers } from './ActiveUsers'
 import { Activity } from './Activity'
 import { FiringAlerts } from './FiringAlerts'

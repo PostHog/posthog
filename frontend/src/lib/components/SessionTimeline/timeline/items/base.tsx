@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { TimeTree } from 'lib/utils/time-tree'

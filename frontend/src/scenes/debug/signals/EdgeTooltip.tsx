@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { GraphEdge } from './types'
 
 export function EdgeTooltip({ edge, x, y }: { edge: GraphEdge; x: number; y: number }): JSX.Element {

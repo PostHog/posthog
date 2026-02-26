@@ -4,7 +4,7 @@ import './PlayerFrameLLMHighlight.scss'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, type JSX } from 'react'
 
 import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 

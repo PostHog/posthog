@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Fragment, useState } from 'react'
+import { Fragment, useState, type JSX } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 

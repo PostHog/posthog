@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 

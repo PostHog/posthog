@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { ReactNode, useRef, useState } from 'react'
+import { ReactNode, useRef, useState, type JSX } from 'react'
 
 import { IconFolder, IconFolderOpen } from '@posthog/icons'
 

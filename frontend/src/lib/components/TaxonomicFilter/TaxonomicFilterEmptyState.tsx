@@ -1,6 +1,7 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import type React from 'react'
+import type { JSX } from 'react'
 
 import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

@@ -1,4 +1,4 @@
-import { Fragment, forwardRef, useEffect, useRef, useState } from 'react'
+import { Fragment, forwardRef, useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconInfo, IconMinusSmall, IconSearch, IconX } from '@posthog/icons'
 

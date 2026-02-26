@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
 
 export function NextJSInstructions(): JSX.Element {

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Fragment } from 'react'
+import { Fragment, type JSX } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 

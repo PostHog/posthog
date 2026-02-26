@@ -1,4 +1,5 @@
 import { capitalizeFirstLetter } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

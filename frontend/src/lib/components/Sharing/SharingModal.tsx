@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState, type JSX } from 'react'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
@@ -177,7 +177,6 @@ export function SharingModalContent({
                     <LemonDivider />
                 </>
             ) : undefined}
-
             {insightShortId ? (
                 <>
                     <AccessControlPopoutCTA
@@ -189,7 +188,6 @@ export function SharingModalContent({
                     <LemonDivider />
                 </>
             ) : undefined}
-
             <div className="deprecated-space-y-2">
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <LemonSkeleton.Row repeat={3} />

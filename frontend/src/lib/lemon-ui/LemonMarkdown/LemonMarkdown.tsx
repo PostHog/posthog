@@ -2,7 +2,7 @@ import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
 import { props } from 'kea'
-import React, { memo, useMemo } from 'react'
+import React, { memo, useMemo, type JSX } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 

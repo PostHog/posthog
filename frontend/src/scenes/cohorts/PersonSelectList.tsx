@@ -1,7 +1,7 @@
 import './AddPersonToCohortModalBody.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import { CSSProperties, useMemo, useState } from 'react'
+import { CSSProperties, useMemo, useState, type JSX } from 'react'
 import { List } from 'react-window'
 import { useDebouncedCallback } from 'use-debounce'
 

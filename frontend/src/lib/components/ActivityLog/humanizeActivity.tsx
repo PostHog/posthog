@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { fullName } from 'lib/utils'

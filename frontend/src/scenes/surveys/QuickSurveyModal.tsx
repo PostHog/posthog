@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { SurveyQuestionType } from 'posthog-js'
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, type JSX } from 'react'
 
 import {
     LemonBanner,

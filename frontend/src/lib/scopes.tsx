@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py

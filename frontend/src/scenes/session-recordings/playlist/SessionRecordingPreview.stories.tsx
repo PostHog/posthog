@@ -1,6 +1,7 @@
 import './SessionRecordingPreview.scss'
 
 import { Meta, StoryFn } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { IconCursorClick, IconKeyboard } from '@posthog/icons'
 

@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import { EXPERIMENT_TEMPLATES } from './constants'
 import { ExperimentTemplateCard } from './ExperimentTemplateCard'

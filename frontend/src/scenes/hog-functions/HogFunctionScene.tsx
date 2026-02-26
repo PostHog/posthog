@@ -1,5 +1,6 @@
 import { BindLogic, actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import type { JSX } from 'react'
 
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 

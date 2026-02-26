@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 import { IconDownload, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'

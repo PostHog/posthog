@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { PropertiesTable } from 'products/error_tracking/frontend/components/PropertiesTable'
 
 export function FrameVariables({ variables }: { variables: Record<string, unknown> }): JSX.Element {

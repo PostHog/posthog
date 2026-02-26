@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconPlusSmall, IconRefresh, IconX } from '@posthog/icons'
 

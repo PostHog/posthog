@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { useChartColors } from '../shared/colors'
 import { generateViolinPath } from './violinUtils'
 
@@ -68,7 +70,6 @@ export function ViolinPath({
                     />
                 </>
             )}
-
             {/* Delta marker */}
             <g transform={`translate(${deltaX}, 0)`}>
                 <line

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FunctionComponent, isValidElement, memo, useEffect, useRef } from 'react'
+import { FunctionComponent, isValidElement, memo, useEffect, useRef, type JSX } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 

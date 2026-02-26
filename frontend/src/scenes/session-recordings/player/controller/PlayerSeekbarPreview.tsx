@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { MutableRefObject, memo, useEffect, useRef, useState } from 'react'
+import { MutableRefObject, memo, useEffect, useRef, useState, type JSX } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { Dayjs } from 'lib/dayjs'

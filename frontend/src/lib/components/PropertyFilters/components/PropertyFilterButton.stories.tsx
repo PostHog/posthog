@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 

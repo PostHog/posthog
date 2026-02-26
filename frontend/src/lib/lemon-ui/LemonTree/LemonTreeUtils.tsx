@@ -1,5 +1,5 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSSProperties, useRef } from 'react'
+import { CSSProperties, useRef, type JSX } from 'react'
 
 import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
 

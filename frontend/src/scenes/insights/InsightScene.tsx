@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { InsightAsScene } from 'scenes/insights/InsightAsScene'

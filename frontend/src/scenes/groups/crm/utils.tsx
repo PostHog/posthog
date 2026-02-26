@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyNumber } from 'lib/utils'

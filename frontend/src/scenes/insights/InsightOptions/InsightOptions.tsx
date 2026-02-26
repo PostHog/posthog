@@ -1,7 +1,7 @@
 import './InsightOptions.scss'
 
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconPlay } from '@posthog/icons'
 

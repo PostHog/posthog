@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonCheckbox, Link } from '@posthog/lemon-ui'

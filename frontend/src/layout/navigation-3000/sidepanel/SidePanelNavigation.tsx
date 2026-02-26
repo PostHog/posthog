@@ -1,5 +1,6 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconSparkles, IconX } from '@posthog/icons'
 

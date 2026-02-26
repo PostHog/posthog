@@ -2,6 +2,7 @@ import { Node, NodeViewProps, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 

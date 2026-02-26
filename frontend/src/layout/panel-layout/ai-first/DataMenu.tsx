@@ -1,6 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconChevronRight, IconClock, IconDatabase, IconPeople } from '@posthog/icons'
 

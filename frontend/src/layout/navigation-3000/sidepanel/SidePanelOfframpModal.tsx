@@ -1,6 +1,6 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconSidePanel } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

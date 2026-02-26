@@ -1,7 +1,7 @@
 import '@xyflow/react/dist/style.css'
 
 import { Background, Controls, ReactFlow, useEdgesState, useNodesState } from '@xyflow/react'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { Survey } from '~/types'
 

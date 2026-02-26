@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 export enum BillingGaugeItemKind {
     FreeTier = 'free_tier',
     CurrentUsage = 'current_usage',

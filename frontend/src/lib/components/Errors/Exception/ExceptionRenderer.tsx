@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 import { match } from 'ts-pattern'
 
 import { ErrorTrackingException, ErrorTrackingStackFrame } from '../types'

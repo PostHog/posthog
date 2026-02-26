@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/components/DefinitionPopover/utils'
 

@@ -1,4 +1,5 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 

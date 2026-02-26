@@ -2,7 +2,7 @@ import './Playlist.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useRef, useState } from 'react'
+import { ReactNode, useRef, useState, type JSX } from 'react'
 
 import { IconMagicWand, IconSidebarClose } from '@posthog/icons'
 import {

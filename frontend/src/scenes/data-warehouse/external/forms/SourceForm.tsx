@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { FieldName, Form, Group } from 'kea-forms'
-import React, { useEffect } from 'react'
+import React, { useEffect, type JSX } from 'react'
 
 import {
     LemonDivider,

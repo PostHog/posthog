@@ -2,7 +2,7 @@ import './InsightViz.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'

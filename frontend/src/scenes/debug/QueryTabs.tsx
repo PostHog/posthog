@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'

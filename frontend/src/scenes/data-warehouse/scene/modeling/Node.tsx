@@ -1,7 +1,7 @@
 import { Handle } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useState, type JSX } from 'react'
 
 import { IconActivity, IconClockRewind, IconPlay, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconDatabase, IconPiggyBank } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 

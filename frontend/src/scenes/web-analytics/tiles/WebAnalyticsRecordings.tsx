@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'

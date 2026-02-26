@@ -1,6 +1,7 @@
 import './Site.scss'
 
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import {
     AuthorizedUrlListType,

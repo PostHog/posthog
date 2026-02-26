@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useEffect } from 'react'
+import { CSSProperties, useEffect, type JSX } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { IconHome } from '@posthog/icons'

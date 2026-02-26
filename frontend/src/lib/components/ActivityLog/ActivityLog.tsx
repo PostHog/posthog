@@ -3,7 +3,7 @@ import './ActivityLog.scss'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef, useState, type JSX } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'

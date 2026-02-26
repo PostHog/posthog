@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { insightLogic } from 'scenes/insights/insightLogic'

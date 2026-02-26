@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { IconHandClick } from 'lib/lemon-ui/icons'

@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import * as Icons from '@posthog/icons'
 import { IconArrowRight, IconChevronDown, IconSparkles } from '@posthog/icons'

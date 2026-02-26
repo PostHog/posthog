@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { IconInfo, IconX } from '@posthog/icons'

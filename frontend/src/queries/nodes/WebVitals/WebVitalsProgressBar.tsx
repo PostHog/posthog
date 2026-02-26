@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
 
 import {

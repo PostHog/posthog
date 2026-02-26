@@ -2,7 +2,7 @@ import './ProjectHomepage.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconHome } from '@posthog/icons'
 

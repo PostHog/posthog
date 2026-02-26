@@ -1,5 +1,6 @@
 import { BindLogic, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'

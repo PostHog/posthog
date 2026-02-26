@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
     PerformanceCardDescriptions,

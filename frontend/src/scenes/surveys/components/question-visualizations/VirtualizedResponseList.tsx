@@ -1,4 +1,4 @@
-import { CSSProperties, useCallback, useState } from 'react'
+import { CSSProperties, useCallback, useState, type JSX } from 'react'
 import { Grid } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'

@@ -1,5 +1,5 @@
 // Loads custom icons (some icons may come from a third-party library)
-import React, { ImgHTMLAttributes } from 'react'
+import React, { ImgHTMLAttributes, type JSX } from 'react'
 
 import threeBearsHogs from 'public/hedgehog/3-bears-hogs.png'
 import bigLeaguesHog from 'public/hedgehog/big-leagues.png'

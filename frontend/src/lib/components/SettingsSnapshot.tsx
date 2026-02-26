@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type JSX } from 'react'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { settingsLogic } from 'scenes/settings/settingsLogic'

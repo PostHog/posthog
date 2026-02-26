@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'

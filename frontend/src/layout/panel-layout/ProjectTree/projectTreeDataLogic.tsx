@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import type { JSX } from 'react'
 
 import { IconDocument, IconFolder, IconPlus } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'

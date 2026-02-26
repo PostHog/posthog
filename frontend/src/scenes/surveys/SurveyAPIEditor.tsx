@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { Survey } from '~/types'

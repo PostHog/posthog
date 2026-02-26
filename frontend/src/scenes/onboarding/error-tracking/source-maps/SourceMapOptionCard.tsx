@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonCard } from '@posthog/lemon-ui'
 
 export interface SourceMapOptionCardProps {

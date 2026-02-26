@@ -1,4 +1,5 @@
 import { Attribute, ExtendedRegExpMatchArray } from '@tiptap/core'
+import type { JSX } from 'react'
 
 import { LemonButtonProps } from '@posthog/lemon-ui'
 

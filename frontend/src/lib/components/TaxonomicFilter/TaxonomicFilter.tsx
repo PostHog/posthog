@@ -2,7 +2,7 @@ import './TaxonomicFilter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { IconKeyboard } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'

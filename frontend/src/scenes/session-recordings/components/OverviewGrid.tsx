@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 import { IconFilter } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'

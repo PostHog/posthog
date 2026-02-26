@@ -2,7 +2,7 @@ import './PlayerInspectorList.scss'
 
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useCallback, useEffect, useRef } from 'react'
+import { CSSProperties, useCallback, useEffect, useRef, type JSX } from 'react'
 import { List, useDynamicRowHeight, useListRef } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'

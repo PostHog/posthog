@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'

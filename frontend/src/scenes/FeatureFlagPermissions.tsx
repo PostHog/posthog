@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { AccessControlResourceType, FeatureFlagType } from '~/types'
 

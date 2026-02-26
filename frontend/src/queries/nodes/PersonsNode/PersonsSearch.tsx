@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'

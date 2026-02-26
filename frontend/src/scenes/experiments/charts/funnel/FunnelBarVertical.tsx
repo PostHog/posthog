@@ -1,6 +1,6 @@
 import '../../../funnels/FunnelBarVertical/FunnelBarVertical.scss'
 
-import { createContext, useContext, useLayoutEffect, useRef, useState } from 'react'
+import { createContext, useContext, useLayoutEffect, useRef, useState, type JSX } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'

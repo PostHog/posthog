@@ -2,7 +2,7 @@ import './PropertyFilterButton.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'

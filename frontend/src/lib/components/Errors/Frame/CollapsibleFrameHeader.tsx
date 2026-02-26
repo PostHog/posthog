@@ -2,7 +2,7 @@ import './CollapsibleFrameHeader.scss'
 
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconBox, IconEllipsis, IconSpinner, IconWarning } from '@posthog/icons'

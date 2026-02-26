@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'

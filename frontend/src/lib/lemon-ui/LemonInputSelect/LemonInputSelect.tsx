@@ -5,7 +5,7 @@ import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@d
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
-import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { List } from 'react-window'
 
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'

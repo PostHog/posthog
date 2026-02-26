@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { useChartColors } from '../shared/colors'

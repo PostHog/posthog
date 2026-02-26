@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { useChart } from 'lib/hooks/useChart'
 
 import { ProcessedChartData } from '../../experimentTimeseriesLogic'

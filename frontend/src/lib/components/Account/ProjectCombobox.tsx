@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'

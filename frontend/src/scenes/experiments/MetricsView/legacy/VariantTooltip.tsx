@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 

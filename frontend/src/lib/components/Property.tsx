@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Link } from '@posthog/lemon-ui'
 
 import { isExternalLink } from 'lib/utils'

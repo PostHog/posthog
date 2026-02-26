@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonDropdown, LemonTag, LemonTagProps } from '@posthog/lemon-ui'
 
 import { HogFunctionType, HogWatcherState } from '~/types'

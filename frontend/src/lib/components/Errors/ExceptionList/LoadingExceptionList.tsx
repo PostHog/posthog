@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'

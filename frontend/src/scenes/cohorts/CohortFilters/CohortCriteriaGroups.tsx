@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
+import type { JSX } from 'react'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 

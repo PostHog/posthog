@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, type JSX } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 

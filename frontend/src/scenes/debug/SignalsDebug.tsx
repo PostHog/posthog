@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, type JSX } from 'react'
 
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

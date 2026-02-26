@@ -1,6 +1,6 @@
 import '../../../funnels/Funnel.scss'
 
-import { createContext, useContext, useMemo } from 'react'
+import { createContext, useContext, useMemo, type JSX } from 'react'
 
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import {

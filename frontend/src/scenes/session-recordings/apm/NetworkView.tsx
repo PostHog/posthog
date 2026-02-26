@@ -1,7 +1,7 @@
 import './NetworkView.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState, type JSX } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonTable, Link } from '@posthog/lemon-ui'

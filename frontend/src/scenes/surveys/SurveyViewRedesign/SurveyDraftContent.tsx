@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconRocket } from '@posthog/icons'
 
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'

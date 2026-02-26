@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconArrowRight, IconFunnels } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 

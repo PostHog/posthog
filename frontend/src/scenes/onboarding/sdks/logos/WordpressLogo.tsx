@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const WordpressLogo = React.memo(function WordpressLogo(): JSX.Element {
     return (

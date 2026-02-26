@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { SupportedWebVitalsMetrics } from 'posthog-js'
+import type { JSX } from 'react'
 
 import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 

@@ -1,4 +1,5 @@
 import { combineUrl, router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 

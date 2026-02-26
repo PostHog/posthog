@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SDKInstallSvelteJSInstructions } from '../sdk-install-instructions/svelte'
 
 export function SvelteInstructions(): JSX.Element {

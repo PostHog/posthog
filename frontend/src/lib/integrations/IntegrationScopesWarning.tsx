@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import api from 'lib/api'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'

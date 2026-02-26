@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { EventsNode, EventsQuery, SessionsQuery } from '~/queries/schema/schema-general'
 
 import { EventName as EventNameComponent } from 'products/actions/frontend/components/EventName'

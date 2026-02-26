@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 
 // see https://github.com/PostHog/posthog/pull/20359/files#r1490894232 for a visual example of what this is trying to
 // solve

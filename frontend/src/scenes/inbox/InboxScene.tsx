@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconArrowLeft, IconBug, IconGear, IconNotification, IconSearch, IconSparkles } from '@posthog/icons'
 import {

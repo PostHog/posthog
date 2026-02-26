@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import type { JSX } from 'react'
 
 import * as packageIcons from '@posthog/icons'
 

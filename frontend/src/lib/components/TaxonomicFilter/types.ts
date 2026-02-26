@@ -1,6 +1,6 @@
 import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'

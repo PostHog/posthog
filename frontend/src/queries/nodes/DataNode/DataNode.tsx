@@ -1,5 +1,5 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'

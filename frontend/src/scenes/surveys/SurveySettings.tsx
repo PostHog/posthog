@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'

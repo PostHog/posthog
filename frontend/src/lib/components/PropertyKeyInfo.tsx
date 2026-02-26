@@ -1,7 +1,7 @@
 import './PropertyKeyInfo.scss'
 
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 

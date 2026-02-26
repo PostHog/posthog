@@ -1,4 +1,5 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'

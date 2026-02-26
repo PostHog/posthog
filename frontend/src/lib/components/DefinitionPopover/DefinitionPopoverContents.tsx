@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
-import { Fragment, useEffect, useMemo } from 'react'
+import { Fragment, useEffect, useMemo, type JSX } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'

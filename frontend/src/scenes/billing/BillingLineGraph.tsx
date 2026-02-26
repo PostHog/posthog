@@ -4,7 +4,7 @@ import 'chartjs-adapter-dayjs-3'
 
 import annotationPlugin from 'chartjs-plugin-annotation'
 import { useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
 import { IconInfo } from '@posthog/icons'

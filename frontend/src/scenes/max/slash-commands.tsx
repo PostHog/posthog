@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconActivity, IconMemory, IconRocket, IconSupport, IconThumbsUp } from '@posthog/icons'
 
 import { FeatureFlagKey } from 'lib/constants'

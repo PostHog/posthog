@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const RetoolLogo = React.memo(function RetoolLogo(): JSX.Element {
     return (

@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { TOOLBAR_FIXED_POSITION_HITBOX, toolbarLogic } from './toolbarLogic'
 

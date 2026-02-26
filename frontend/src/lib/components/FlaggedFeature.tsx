@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { FeatureFlagKey } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'

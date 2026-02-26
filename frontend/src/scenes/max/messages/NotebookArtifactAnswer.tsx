@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { IconCollapse, IconExpand, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'

@@ -2,6 +2,7 @@ import './Cohorts.scss'
 
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 

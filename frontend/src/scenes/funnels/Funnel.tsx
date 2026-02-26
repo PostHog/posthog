@@ -1,6 +1,7 @@
 import './Funnel.scss'
 
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { FunnelLayout } from 'lib/constants'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'

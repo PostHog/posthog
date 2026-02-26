@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { capitalizeFirstLetter } from 'lib/utils'

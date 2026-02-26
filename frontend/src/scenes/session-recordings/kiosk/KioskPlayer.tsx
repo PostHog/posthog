@@ -2,7 +2,7 @@ import './KioskPlayer.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 

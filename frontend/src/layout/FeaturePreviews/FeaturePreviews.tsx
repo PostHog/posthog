@@ -1,5 +1,5 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useState, type JSX } from 'react'
 
 import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'

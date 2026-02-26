@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -44,7 +45,6 @@ export const MetricErrorState = ({ error, query, onRetry, height = 200 }: Metric
                     ? 'This may occur when the experiment has a large amount of data or is particularly complex. We are actively working on fixing this. In the meantime, please click try again to refresh the results.'
                     : message}
             </p>
-
             <div className="flex gap-1.5 mt-1">
                 {onRetry && (
                     <LemonButton
@@ -88,7 +88,6 @@ export const MetricErrorState = ({ error, query, onRetry, height = 200 }: Metric
                     Report issue
                 </LemonButton>
             </div>
-
             {error.queryId && (
                 <div className="text-[10px] text-muted mt-1">
                     Query ID: <span className="font-mono">{error.queryId}</span>

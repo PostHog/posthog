@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { formatUnitByQuantity } from 'scenes/experiments/utils'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'

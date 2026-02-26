@@ -2,6 +2,7 @@ import './Dashboard.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 

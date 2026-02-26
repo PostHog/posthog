@@ -1,4 +1,5 @@
 import { useAsyncActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconArrowRight, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'

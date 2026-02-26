@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { InsightShortId } from '~/types'

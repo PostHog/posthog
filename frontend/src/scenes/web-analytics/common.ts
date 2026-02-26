@@ -1,4 +1,5 @@
 import { BreakPointFunction } from 'kea'
+import type { JSX } from 'react'
 
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'

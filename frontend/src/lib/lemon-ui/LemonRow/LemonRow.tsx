@@ -1,7 +1,7 @@
 import './LemonRow.scss'
 
 import clsx from 'clsx'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip } from '../Tooltip'

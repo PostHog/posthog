@@ -1,7 +1,7 @@
 // KeaDevtools.tsx
 import { getContext } from 'kea'
 import type { BuiltLogic, Context as KeaContext } from 'kea'
-import React, { CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
+import React, { CSSProperties, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { List } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'

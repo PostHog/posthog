@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { pluralize } from 'lib/utils'
@@ -48,7 +50,7 @@ export const pathsTitle = (props: { mode: pathModes; label: string }): React.Rea
     }
     return (
         <>
-            {modeMap[props.mode]} step{' '}
+            {modeMap[props.mode]}step{' '}
             <PropertyKeyInfo value={props.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
         </>
     )

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const OpenAILogo = React.memo(function OpenAILogo(): JSX.Element {
     return (

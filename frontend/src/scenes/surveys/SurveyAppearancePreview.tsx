@@ -1,5 +1,5 @@
 import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type JSX } from 'react'
 
 import { sanitizeSurvey } from 'scenes/surveys/utils'
 

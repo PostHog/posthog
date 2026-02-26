@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconArrowRight } from '@posthog/icons'

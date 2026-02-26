@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
-import { useCallback } from 'react'
+import { useCallback, type JSX } from 'react'
 
 import { IconChevronLeft, IconInfo } from '@posthog/icons'
 import {

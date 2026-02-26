@@ -1,7 +1,7 @@
 import './PersonsModal.scss'
 
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useState, type JSX } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'

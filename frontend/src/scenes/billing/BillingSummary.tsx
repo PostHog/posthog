@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'

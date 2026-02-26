@@ -1,4 +1,5 @@
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
+import type { JSX } from 'react'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 

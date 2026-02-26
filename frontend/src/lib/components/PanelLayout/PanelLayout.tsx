@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { PropsWithChildren } from 'react'
+import { PropsWithChildren, type JSX } from 'react'
 
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 

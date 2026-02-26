@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 import { valueToXCoordinate } from '../shared/utils'

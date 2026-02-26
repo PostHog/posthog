@@ -1,7 +1,7 @@
 import './FunnelCorrelationTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { IconArchive, IconTrending } from '@posthog/icons'
 import { LemonCheckbox, LemonTable } from '@posthog/lemon-ui'

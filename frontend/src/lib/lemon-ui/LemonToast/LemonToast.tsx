@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 import { ToastOptions, ToastContentProps as ToastifyRenderProps, toast } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'

@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import type { ReactNode } from 'react'
+import type { ReactNode, JSX } from 'react'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'

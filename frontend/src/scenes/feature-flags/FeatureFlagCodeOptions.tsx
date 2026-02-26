@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconServer } from '@posthog/icons'
 import {
     IconCSharp,

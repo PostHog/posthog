@@ -1,5 +1,5 @@
 // A React component that renders a list of key-value pairs in a simple way.
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState, type JSX } from 'react'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'

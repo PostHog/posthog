@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { SurveyQuestionType } from 'posthog-js'
+import type { JSX } from 'react'
 
 import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 

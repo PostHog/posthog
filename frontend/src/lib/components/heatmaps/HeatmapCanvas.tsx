@@ -1,6 +1,6 @@
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useActions, useValues } from 'kea'
-import { MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MutableRefObject, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapAreaPoint } from 'lib/components/heatmaps/types'

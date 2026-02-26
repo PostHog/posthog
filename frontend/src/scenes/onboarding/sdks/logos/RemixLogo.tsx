@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const RemixLogo = React.memo(function RemixLogo(): JSX.Element {
     return (

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'

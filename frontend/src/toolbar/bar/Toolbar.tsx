@@ -3,7 +3,7 @@ import './Toolbar.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PostHog } from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import {
     IconBolt,

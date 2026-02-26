@@ -3,6 +3,7 @@ Scene to enter a new password from a received reset link
 */
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 

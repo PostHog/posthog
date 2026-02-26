@@ -3,6 +3,7 @@
  */
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { IconAI, IconCopy, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'

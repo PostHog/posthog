@@ -1,7 +1,7 @@
 import { PluginKey } from '@tiptap/pm/state'
 import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState, type JSX } from 'react'
 
 import { IconCode, IconImage, IconList, IconMinus, IconQuote, IconVideoCamera } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

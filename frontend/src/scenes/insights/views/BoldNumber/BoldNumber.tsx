@@ -2,7 +2,7 @@ import './BoldNumber.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { useEffect } from 'react'
 import React from 'react'
 

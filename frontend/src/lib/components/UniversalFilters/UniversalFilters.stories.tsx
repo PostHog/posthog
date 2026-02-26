@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'

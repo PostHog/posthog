@@ -1,4 +1,4 @@
-import { ReactNode, memo } from 'react'
+import { ReactNode, memo, type JSX } from 'react'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { formatAggregationValue } from 'scenes/insights/utils'

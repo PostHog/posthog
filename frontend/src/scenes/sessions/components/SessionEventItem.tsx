@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import {
     BaseIcon,

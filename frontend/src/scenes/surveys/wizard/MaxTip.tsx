@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { DetectiveHog, MicrophoneHog, ProfessorHog, StarHog } from 'lib/components/hedgehogs'
 

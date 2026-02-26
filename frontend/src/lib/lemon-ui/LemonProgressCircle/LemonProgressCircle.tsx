@@ -1,6 +1,7 @@
 import './LemonProgressCircle.scss'
 
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 export type LemonProgressCircleProps = {
     strokePercentage?: number

@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { IconCursor, IconKeyboard, IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'

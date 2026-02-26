@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'

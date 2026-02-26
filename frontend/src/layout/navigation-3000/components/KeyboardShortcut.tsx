@@ -1,5 +1,7 @@
 import './KeyboardShortcut.scss'
 
+import type { JSX } from 'react'
+
 import { isMac, isMobile } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 

@@ -1,6 +1,7 @@
 import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 

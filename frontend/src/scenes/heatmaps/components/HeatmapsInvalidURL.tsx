@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonBanner } from '@posthog/lemon-ui'
 
 export function HeatmapsInvalidURL(): JSX.Element {

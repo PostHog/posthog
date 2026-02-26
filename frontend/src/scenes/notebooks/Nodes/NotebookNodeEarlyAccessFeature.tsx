@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { IconFlag, IconRocket } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'

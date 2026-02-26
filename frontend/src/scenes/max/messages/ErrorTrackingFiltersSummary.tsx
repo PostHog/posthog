@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ErrorTrackingUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/ErrorTrackingUniversalFiltersDisplay'
 
 import { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-assistant-error-tracking'

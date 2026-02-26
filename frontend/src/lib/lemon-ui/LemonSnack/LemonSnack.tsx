@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { forwardRef } from 'react'
+import React, { forwardRef, type JSX } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import { IconX } from '@posthog/icons'

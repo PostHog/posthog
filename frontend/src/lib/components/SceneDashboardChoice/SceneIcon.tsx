@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { IconHome, IconPerson } from '@posthog/icons'
 

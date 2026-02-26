@@ -1,4 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import type { JSX } from 'react'
 
 import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'

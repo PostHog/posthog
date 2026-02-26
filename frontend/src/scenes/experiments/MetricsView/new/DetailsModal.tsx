@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'

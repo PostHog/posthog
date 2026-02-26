@@ -1,5 +1,5 @@
 import { Logic, LogicWrapper } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { LemonTagType, SideAction } from '@posthog/lemon-ui'
 

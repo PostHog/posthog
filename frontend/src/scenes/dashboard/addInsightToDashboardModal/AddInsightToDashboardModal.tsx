@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { IconFunnels, IconRetention, IconTrends } from '@posthog/icons'
 

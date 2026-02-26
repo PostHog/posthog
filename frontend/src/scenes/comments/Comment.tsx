@@ -2,7 +2,7 @@ import { generateText } from '@tiptap/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 
 import { IconEllipsis, IconEye, IconPencil, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu, ProfilePicture } from '@posthog/lemon-ui'

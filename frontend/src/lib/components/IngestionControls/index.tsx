@@ -1,5 +1,5 @@
 import { BindLogic } from 'kea'
-import { PropsWithChildren } from 'react'
+import { PropsWithChildren, type JSX } from 'react'
 
 import { IngestionControlsLogicProps, ingestionControlsLogic } from './ingestionControlsLogic'
 import { MatchTypeSelect, MatchTypeTag } from './TriggerMatchChoice'

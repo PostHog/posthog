@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, Popover } from '@posthog/lemon-ui'

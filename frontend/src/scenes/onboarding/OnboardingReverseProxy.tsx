@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, Spinner, Tooltip } from '@posthog/lemon-ui'

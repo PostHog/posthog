@@ -10,7 +10,7 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 
 import { IconArrowRight, IconCollapse, IconDatabase, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'

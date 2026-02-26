@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { urls } from 'scenes/urls'

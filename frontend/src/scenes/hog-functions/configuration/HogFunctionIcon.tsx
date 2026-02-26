@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { IconUpload } from '@posthog/icons'

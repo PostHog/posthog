@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { IntegrationChoice, IntegrationConfigureProps } from './IntegrationChoice'

@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'

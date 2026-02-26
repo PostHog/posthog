@@ -1,7 +1,7 @@
 import './RegionMap.scss'
 
 import { useActions, useValues } from 'kea'
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, type JSX } from 'react'
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps'
 
 import { gradateColor } from 'lib/utils'

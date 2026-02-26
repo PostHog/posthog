@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { Meta } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { ChartDisplayType, PersonActorType } from '~/types'

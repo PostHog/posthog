@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconCheck } from '@posthog/icons'
 
 import { useInstallationComplete } from './hooks/useInstallationComplete'

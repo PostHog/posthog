@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'

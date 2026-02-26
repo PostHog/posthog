@@ -1,4 +1,5 @@
 import { Handle, NodeProps, Position } from '@xyflow/react'
+import type { JSX } from 'react'
 
 import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 import type { QuestionNode } from '../types'

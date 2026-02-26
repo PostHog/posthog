@@ -2,7 +2,7 @@ import './DraggableToNotebook.scss'
 
 import clsx from 'clsx'
 import { useActions } from 'kea'
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 

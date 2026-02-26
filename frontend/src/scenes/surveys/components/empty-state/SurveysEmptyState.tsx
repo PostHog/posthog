@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 import { toast } from 'react-toastify'
 
 import { IconSparkles } from '@posthog/icons'

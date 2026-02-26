@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { DatawarehouseTableForm } from 'scenes/data-warehouse/new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouseTableLogic'

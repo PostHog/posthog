@@ -1,5 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { BindLogic } from 'kea'
+import type { JSX } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 

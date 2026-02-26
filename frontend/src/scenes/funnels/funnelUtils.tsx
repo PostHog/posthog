@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import {

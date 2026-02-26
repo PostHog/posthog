@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const AnthropicLogo = React.memo(function AnthropicLogo(): JSX.Element {
     return (

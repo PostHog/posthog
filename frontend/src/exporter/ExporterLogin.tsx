@@ -3,6 +3,7 @@ import '../scenes/authentication/Login.scss'
 import clsx from 'clsx'
 import { actions, kea, path, reducers, useValues } from 'kea'
 import { Form, forms } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'

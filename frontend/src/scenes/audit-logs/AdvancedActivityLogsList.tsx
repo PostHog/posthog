@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'

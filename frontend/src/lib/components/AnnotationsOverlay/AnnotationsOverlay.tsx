@@ -2,7 +2,7 @@ import './AnnotationsOverlay.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 

@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import type { JSX } from 'react'
 
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'

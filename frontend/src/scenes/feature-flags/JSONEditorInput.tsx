@@ -1,6 +1,6 @@
 import './JSONEditorInput.scss'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 

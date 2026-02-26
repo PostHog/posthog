@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type JSX } from 'react'
 
 import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem, Spinner, Tooltip } from '@posthog/lemon-ui'

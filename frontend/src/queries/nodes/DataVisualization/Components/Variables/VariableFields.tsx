@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'

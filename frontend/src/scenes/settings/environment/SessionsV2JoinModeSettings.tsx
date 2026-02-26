@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
 import { HogQLQueryModifiers } from '~/queries/schema/schema-general'

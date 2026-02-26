@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, type JSX } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 

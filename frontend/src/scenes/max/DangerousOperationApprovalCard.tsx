@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'

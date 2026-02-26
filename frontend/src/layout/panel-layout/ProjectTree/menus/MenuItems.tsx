@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 
@@ -166,7 +166,6 @@ export function MenuItems({
                     <MenuSeparator />
                 </>
             ) : null}
-
             {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
                 <>
                     <BrowserLikeMenuItems
@@ -177,7 +176,6 @@ export function MenuItems({
                     <MenuSeparator />
                 </>
             ) : null}
-
             {checkedItemCountNumeric > 0 && item.record?.type === 'folder' ? (
                 <>
                     <MenuItem
@@ -207,7 +205,6 @@ export function MenuItems({
                     <MenuSeparator />
                 </>
             ) : null}
-
             {(item.record?.protocol === 'project://' && item.record?.type === 'folder') ||
             item.id?.startsWith('project-folder-empty/') ? (
                 <>
@@ -266,7 +263,6 @@ export function MenuItems({
                     </MenuItem>
                 ) : null
             ) : null}
-
             {root === 'custom-products://' && !item.id.startsWith('shortcuts://') ? (
                 <MenuItem
                     asChild
@@ -290,7 +286,6 @@ export function MenuItems({
                     <ButtonPrimitive menuItem>Add to sidebar panel</ButtonPrimitive>
                 </MenuItem>
             ) : null}
-
             {item.id.startsWith('project/') || item.id.startsWith('project://') ? (
                 <MenuItem
                     asChild
@@ -309,7 +304,6 @@ export function MenuItems({
                     <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
                 </MenuItem>
             ) : null}
-
             {(item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.type !== 'folder' ? (
                 <MenuItem
                     asChild
@@ -328,7 +322,6 @@ export function MenuItems({
                     <ButtonPrimitive menuItem>Create shortcut in...</ButtonPrimitive>
                 </MenuItem>
             ) : null}
-
             {item.record?.path &&
             item.record?.type === 'folder' &&
             !(item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
@@ -343,7 +336,6 @@ export function MenuItems({
                     <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                 </MenuItem>
             ) : null}
-
             {item.record?.path && item.record?.shortcut ? (
                 <MenuItem
                     asChild
@@ -356,7 +348,6 @@ export function MenuItems({
                     <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
                 </MenuItem>
             ) : null}
-
             {item.record?.shortcut ? (
                 <MenuItem
                     asChild

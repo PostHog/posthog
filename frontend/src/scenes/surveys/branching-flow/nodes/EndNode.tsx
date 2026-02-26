@@ -1,4 +1,5 @@
 import { Handle, NodeProps, Position } from '@xyflow/react'
+import type { JSX } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
 

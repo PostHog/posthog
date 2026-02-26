@@ -1,4 +1,5 @@
 import { clsx } from 'clsx'
+import type { JSX } from 'react'
 
 import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
 import type { MetricContext } from 'scenes/experiments/Metrics/experimentMetricModalLogic'

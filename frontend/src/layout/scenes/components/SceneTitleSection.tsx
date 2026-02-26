@@ -1,7 +1,7 @@
 import '../../panel-layout/ProjectTree/defaultTree'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconBrackets, IconPencil, IconSidePanel, IconSparkles, IconWrench } from '@posthog/icons'
@@ -275,7 +275,6 @@ export function SceneTitleSection({
                 // When this element touches top of the scene, we set the sticky bar to be sticky
                 <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
             )}
-
             <div
                 className={cn(
                     'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',

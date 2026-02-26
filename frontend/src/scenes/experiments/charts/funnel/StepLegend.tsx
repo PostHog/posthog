@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconClock } from '@posthog/icons'
 
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'

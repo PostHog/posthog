@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { MarkerSeverity, editor as monacoEditor } from 'monaco-editor'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { IconInfo, IconX } from '@posthog/icons'
 import {

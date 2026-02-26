@@ -1,6 +1,7 @@
 import './LemonColorButton.scss'
 
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { DataColorToken } from 'lib/colors'
 import { cn } from 'lib/utils/css-classes'

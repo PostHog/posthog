@@ -1,7 +1,7 @@
 import './PropertyGroupFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'

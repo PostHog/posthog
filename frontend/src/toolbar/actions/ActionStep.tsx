@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { ActionAttribute } from '~/toolbar/actions/ActionAttribute'
 import { ActionStepType } from '~/types'

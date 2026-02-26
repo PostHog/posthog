@@ -2,6 +2,7 @@ import './PreflightCheck.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconCheckCircle, IconCollapse, IconExpand, IconRefresh, IconWarning } from '@posthog/icons'
 import { Link, Spinner } from '@posthog/lemon-ui'

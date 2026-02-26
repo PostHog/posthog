@@ -1,5 +1,7 @@
 import './PersonDisplay.scss'
 
+import type { JSX } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'

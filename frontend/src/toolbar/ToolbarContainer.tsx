@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { Fade } from 'lib/components/Fade/Fade'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'

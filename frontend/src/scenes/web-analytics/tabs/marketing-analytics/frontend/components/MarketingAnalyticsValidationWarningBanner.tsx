@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconExternal } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { LemonBanner } from '@posthog/lemon-ui'

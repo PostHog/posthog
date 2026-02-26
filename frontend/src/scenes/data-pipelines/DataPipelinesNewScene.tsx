@@ -1,4 +1,5 @@
 import { kea, path, props, selectors, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'

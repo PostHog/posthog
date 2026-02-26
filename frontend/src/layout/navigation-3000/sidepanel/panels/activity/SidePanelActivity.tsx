@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { IconBell, IconList, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'

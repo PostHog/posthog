@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconShare } from '@posthog/icons'
 
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'

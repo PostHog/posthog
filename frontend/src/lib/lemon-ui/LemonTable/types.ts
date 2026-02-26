@@ -1,4 +1,4 @@
-import { CSSProperties, HTMLProps, ReactNode } from 'react'
+import { CSSProperties, HTMLProps, ReactNode, type JSX } from 'react'
 
 export interface TableCellRepresentation {
     children?: any

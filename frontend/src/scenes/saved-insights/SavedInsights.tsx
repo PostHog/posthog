@@ -1,7 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
-import { ComponentType } from 'react'
+import { ComponentType, type JSX } from 'react'
 
 import {
     IconAI,

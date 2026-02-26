@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { P, match } from 'ts-pattern'
 
 import {

@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'

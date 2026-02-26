@@ -1,4 +1,5 @@
 import { BindLogic } from 'kea'
+import type { JSX } from 'react'
 
 import { SceneExport } from 'scenes/sceneTypes'
 

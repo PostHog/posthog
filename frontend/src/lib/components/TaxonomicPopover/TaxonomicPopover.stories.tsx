@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 import { useMountedLogic } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'

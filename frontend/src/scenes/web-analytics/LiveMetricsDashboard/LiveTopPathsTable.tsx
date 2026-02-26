@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, type JSX } from 'react'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 

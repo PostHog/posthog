@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 

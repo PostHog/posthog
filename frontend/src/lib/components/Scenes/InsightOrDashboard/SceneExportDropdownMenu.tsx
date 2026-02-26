@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconDownload } from '@posthog/icons'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'

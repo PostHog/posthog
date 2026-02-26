@@ -1,7 +1,7 @@
 import './LiveUserCount.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { IconPerson, IconVideoCamera } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'

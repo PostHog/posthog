@@ -1,5 +1,7 @@
 import './SentenceList.scss'
 
+import type { JSX } from 'react'
+
 export interface SentenceListProps {
     listParts: (string | JSX.Element | null)[]
     prefix?: string | JSX.Element | null

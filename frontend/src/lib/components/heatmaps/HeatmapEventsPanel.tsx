@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { HeatmapDataLogicProps, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapEvent } from 'lib/components/heatmaps/types'

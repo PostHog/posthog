@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, type JSX } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -304,7 +304,6 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                     <foreignObject x={valueToX(0) - 150} y={y + barHeight / 2 - 10} width="90" height="16">
                         <VariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
                     </foreignObject>
-
                     {/* First draw a solid background to cover grid lines */}
                     <rect
                         x={valueToX(0) - 50}

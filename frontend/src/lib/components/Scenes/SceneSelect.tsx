@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import {

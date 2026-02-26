@@ -6,6 +6,7 @@ import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table
 import { Placeholder } from '@tiptap/extensions'
 import StarterKit, { StarterKitOptions } from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 import { useThrottledCallback } from 'use-debounce'
 
 import { IconComment } from '@posthog/icons'

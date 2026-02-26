@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { fullName } from 'lib/utils'

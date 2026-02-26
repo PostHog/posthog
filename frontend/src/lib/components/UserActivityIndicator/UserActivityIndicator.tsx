@@ -1,6 +1,7 @@
 import './UserActivityIndicator.scss'
 
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 

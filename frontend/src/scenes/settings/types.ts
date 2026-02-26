@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { PlatformSupportConfig } from 'lib/components/SupportedPlatforms/types'
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 

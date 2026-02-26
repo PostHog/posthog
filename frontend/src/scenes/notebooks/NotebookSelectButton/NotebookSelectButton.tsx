@@ -1,5 +1,5 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { ReactChild, ReactElement, useEffect } from 'react'
+import { ReactChild, ReactElement, useEffect, type JSX } from 'react'
 
 import { IconNotebook, IconPlusSmall } from '@posthog/icons'
 import { LemonDivider, LemonDropdown, LemonTag, ProfilePicture } from '@posthog/lemon-ui'

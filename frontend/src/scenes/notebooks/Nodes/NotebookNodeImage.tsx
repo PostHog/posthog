@@ -1,4 +1,4 @@
-import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
+import { ReactEventHandler, useEffect, useMemo, useState, type JSX } from 'react'
 
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'

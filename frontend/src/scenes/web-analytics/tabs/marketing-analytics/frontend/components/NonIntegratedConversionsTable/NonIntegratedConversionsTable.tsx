@@ -1,7 +1,7 @@
 import '../MarketingAnalyticsTable/MarketingAnalyticsTableStyleOverride.scss'
 
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'

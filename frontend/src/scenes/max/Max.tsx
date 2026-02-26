@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import {
     IconArrowLeft,
@@ -128,7 +128,6 @@ export const MaxInstance = React.memo(function MaxInstance({
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
                         </div>
-
                         <HistoryPreview sidePanel={sidePanel} />
                     </div>
                 ) : (

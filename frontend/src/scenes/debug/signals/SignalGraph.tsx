@@ -1,5 +1,5 @@
 import * as d3 from 'd3'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { rectEdgePoint, sourceProductColor } from './helpers'
 import { GraphEdge, LayoutPosition, NODE_H, NODE_W, SignalNode } from './types'

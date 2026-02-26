@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconGraph } from '@posthog/icons'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'

@@ -3,7 +3,7 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 import { Layout } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 

@@ -2,7 +2,7 @@ import './LemonInput.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, type JSX } from 'react'
 
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'

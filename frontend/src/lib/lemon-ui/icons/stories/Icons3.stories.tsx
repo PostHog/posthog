@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import * as React from 'react'
+import type { JSX } from 'react'
 
 import { IconDashboard } from '@posthog/icons'
 

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconChevronDown, IconGear, IconGraph, IconPulse } from '@posthog/icons'
 import { LemonCollapse, LemonTag } from '@posthog/lemon-ui'
 

@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 

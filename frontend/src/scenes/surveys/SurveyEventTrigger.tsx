@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { PropertyMatchType } from 'posthog-js'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'

@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { LemonInput, Link } from '@posthog/lemon-ui'
 

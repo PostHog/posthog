@@ -2,7 +2,7 @@ import './ViewLinkModal.scss'
 
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {

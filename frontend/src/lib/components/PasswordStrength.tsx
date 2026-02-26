@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import zxcvbn from 'zxcvbn'
 
 import { LemonDivider } from '@posthog/lemon-ui'

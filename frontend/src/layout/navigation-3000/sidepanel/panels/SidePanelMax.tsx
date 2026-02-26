@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { MaxInstance } from 'scenes/max/Max'
 
 export function SidePanelMax(): JSX.Element | null {

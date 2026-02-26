@@ -1,6 +1,7 @@
 import './BreakdownTagMenu.scss'
 
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'

@@ -1,5 +1,7 @@
 import './AnimatedSparkles.scss'
 
+import type { JSX } from 'react'
+
 interface SparkleProps {
     size?: number
     className?: string

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { SDK } from '~/types'

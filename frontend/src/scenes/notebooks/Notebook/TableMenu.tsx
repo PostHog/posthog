@@ -1,5 +1,6 @@
 import { BubbleMenu } from '@tiptap/react/menus'
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'

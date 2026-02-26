@@ -1,4 +1,4 @@
-import { cloneElement } from 'react'
+import { cloneElement, type JSX } from 'react'
 
 import { IconChevronDown, IconComment } from '@posthog/icons'
 import { LemonDropdown } from '@posthog/lemon-ui'

@@ -1,5 +1,6 @@
 import { actions, kea, listeners, path, props } from 'kea'
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 

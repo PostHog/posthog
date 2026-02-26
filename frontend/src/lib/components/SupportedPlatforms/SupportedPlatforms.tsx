@@ -1,4 +1,4 @@
-import { Fragment, memo } from 'react'
+import { Fragment, memo, type JSX } from 'react'
 
 import { IconCheck, IconInfo, IconX } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'

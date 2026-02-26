@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { getSurveyStatus } from 'scenes/surveys/surveysLogic'

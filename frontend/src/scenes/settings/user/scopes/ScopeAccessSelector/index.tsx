@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { RequiredOrganizationAccessSelector } from './RequiredOrganizationAccessSelector'
 import { RequiredTeamAccessSelector } from './RequiredTeamAccessSelector'
 import type { ScopeAccessSelectorProps } from './types'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { ActionsNode, CustomerAnalyticsConfig, EventsNode, NodeKind } from '~/queries/schema/schema-general'

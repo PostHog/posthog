@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'

@@ -2,6 +2,7 @@ import 'chartjs-adapter-dayjs-3'
 
 import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import {
     ActiveElement,

@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { IconChevronDown, IconDownload, IconGear, IconPerson, IconPlus } from '@posthog/icons'
 import {

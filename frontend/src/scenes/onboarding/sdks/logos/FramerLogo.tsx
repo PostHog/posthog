@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const FramerLogo = React.memo(function FramerLogo(): JSX.Element {
     return (

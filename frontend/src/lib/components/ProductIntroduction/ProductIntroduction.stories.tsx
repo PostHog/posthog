@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 

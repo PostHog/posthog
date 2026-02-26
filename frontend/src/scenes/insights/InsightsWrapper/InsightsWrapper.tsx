@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 // These classes are all pretty weird but they're here because we want to maintain consistency
 // between the trends insights and some other nodes
 export const InsightsWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {

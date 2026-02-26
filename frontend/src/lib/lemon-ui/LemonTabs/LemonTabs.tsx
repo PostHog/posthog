@@ -1,5 +1,7 @@
 import './LemonTabs.scss'
 
+import type { JSX } from 'react'
+
 import { IconCheckCircle, IconInfo } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'

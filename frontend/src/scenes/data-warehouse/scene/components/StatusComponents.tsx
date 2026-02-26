@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 

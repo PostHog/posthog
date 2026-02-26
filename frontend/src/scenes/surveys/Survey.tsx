@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { LemonDivider, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
 

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ElementRect } from '~/toolbar/types'
 import { inBounds } from '~/toolbar/utils'
 

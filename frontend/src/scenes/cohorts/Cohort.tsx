@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { CohortEdit } from 'scenes/cohorts/CohortEdit'
 import { SceneExport } from 'scenes/sceneTypes'
 

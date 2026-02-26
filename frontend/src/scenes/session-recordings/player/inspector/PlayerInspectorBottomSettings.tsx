@@ -1,6 +1,7 @@
 import './PlayerInspectorList.scss'
 
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { BaseIcon, IconCheck } from '@posthog/icons'
 

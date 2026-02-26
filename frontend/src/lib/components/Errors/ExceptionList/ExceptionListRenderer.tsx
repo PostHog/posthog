@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { cn } from 'lib/utils/css-classes'
 
 import { ErrorTrackingExceptionList } from '../types'

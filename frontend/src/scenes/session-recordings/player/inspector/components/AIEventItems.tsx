@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconPerson } from '@posthog/icons'
 
 import { JSONViewer } from 'lib/components/JSONViewer'

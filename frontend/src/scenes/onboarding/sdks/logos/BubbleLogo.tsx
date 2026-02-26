@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const BubbleLogo = React.memo(function BubbleLogo(): JSX.Element {
     return (

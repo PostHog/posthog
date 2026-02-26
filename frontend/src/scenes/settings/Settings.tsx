@@ -3,7 +3,7 @@ import './Settings.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'

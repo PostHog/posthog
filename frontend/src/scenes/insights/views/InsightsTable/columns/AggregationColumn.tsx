@@ -1,6 +1,7 @@
 import './AggregationColumn.scss'
 
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'

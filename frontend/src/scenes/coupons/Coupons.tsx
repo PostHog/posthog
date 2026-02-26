@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { CouponRedemption } from './CouponRedemption'

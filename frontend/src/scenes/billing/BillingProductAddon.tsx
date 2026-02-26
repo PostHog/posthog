@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useRef } from 'react'
+import { ReactNode, useRef, type JSX } from 'react'
 
 import { IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'

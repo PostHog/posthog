@@ -2,7 +2,7 @@ import './CodeSnippet.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { type HTMLProps, useEffect, useState } from 'react'
+import React, { type HTMLProps, useEffect, useState, type JSX } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'

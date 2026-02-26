@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconWeb } from 'lib/lemon-ui/icons'
 

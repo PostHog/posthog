@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { DefaultExperimentConfidenceLevel } from 'scenes/settings/environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from 'scenes/settings/environment/DefaultExperimentStatsMethod'

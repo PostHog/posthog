@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useState, type JSX } from 'react'
 
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'

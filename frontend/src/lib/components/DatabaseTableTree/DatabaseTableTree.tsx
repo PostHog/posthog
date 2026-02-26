@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'

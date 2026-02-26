@@ -2,6 +2,7 @@ import './DefinitionPopover.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 

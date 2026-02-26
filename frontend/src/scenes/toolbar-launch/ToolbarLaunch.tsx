@@ -1,5 +1,7 @@
 import './ToolbarLaunch.scss'
 
+import type { JSX } from 'react'
+
 import { IconFlag, IconFlask, IconPieChart, IconSearch } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 

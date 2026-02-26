@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { forwardRef } from 'react'
+import { forwardRef, type JSX } from 'react'
 
 export type LemonProgressProps = React.HTMLAttributes<HTMLDivElement> & {
     size?: 'medium' | 'large'

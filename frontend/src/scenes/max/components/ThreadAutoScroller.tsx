@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 
 import { getScrollableContainer } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'

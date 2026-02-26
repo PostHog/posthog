@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 

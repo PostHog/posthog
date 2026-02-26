@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export const LangChainLogo = React.memo(function LangChainLogo(): JSX.Element {
     return (

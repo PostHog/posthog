@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SDKInstallAstroInstructions } from '../sdk-install-instructions/astro'
 
 export function AstroInstructions(): JSX.Element {

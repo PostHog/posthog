@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState, type JSX } from 'react'
 
 import { LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 

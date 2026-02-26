@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useMemo } from 'react'
+import React, { useMemo, type JSX } from 'react'
 
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 

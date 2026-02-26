@@ -1,5 +1,5 @@
 import { renderProductTourPreview } from 'posthog-js/dist/product-tours-preview'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 
 import { ProductTourAppearance, ProductTourStep } from '~/types'
 

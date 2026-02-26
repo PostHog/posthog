@@ -1,4 +1,4 @@
-import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
+import React, { FunctionComponent, ReactNode, useCallback, useMemo, type JSX } from 'react'
 
 import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
 

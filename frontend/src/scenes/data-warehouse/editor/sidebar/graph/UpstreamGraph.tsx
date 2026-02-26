@@ -17,7 +17,7 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, type JSX } from 'react'
 
 import { IconArchive, IconPencil, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, lemonToast } from '@posthog/lemon-ui'

@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import type { JSX } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'

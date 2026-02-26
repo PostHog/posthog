@@ -1,4 +1,4 @@
-import { ComponentType, HTMLProps } from 'react'
+import { ComponentType, HTMLProps, type JSX } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 

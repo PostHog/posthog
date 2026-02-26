@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router/lib/utils'
+import type { JSX } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'

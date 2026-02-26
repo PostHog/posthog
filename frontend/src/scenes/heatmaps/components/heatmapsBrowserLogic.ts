@@ -2,7 +2,7 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, prop
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
-import { RefObject } from 'react'
+import { RefObject, type JSX } from 'react'
 
 import api from 'lib/api'
 import {

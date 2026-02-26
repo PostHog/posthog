@@ -1,5 +1,6 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'

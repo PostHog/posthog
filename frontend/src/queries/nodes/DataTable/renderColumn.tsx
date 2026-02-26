@@ -1,4 +1,5 @@
 import { combineUrl, router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'

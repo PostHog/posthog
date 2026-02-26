@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { forwardRef } from 'react'
+import { forwardRef, type JSX } from 'react'
 
 import { IconTarget } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

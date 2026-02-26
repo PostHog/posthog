@@ -1,6 +1,6 @@
 import useSize from '@react-hook/size'
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { LemonTag, lemonToast } from '@posthog/lemon-ui'
 

@@ -1,5 +1,5 @@
 import { cva } from 'cva'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type JSX } from 'react'
 
 import { Link, Spinner } from '@posthog/lemon-ui'
 

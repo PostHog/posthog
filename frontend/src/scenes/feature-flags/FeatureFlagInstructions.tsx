@@ -1,7 +1,7 @@
 import './FeatureFlagInstructions.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSelect, Link } from '@posthog/lemon-ui'

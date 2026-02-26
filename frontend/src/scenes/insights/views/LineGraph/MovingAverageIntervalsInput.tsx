@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'

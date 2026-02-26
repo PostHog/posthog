@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'

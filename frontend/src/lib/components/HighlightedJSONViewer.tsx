@@ -1,4 +1,5 @@
 import { ReactJsonViewProps } from '@microlink/react-json-view'
+import type { JSX } from 'react'
 
 import {
     ExpandSelector,

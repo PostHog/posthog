@@ -1,6 +1,7 @@
 import './TimelineSeekbar.scss'
 
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { LemonBadge } from '@posthog/lemon-ui'
 

@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { RelatedGroups, RelatedGroupsProps } from 'scenes/groups/RelatedGroups'
 import { urls } from 'scenes/urls'

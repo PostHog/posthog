@@ -1,5 +1,5 @@
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { pluralize } from 'lib/utils'
 

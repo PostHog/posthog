@@ -1,7 +1,7 @@
 import { offset } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { IconCheck, IconExternal, IconLock, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'

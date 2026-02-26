@@ -1,7 +1,7 @@
 import './LemonTag.scss'
 
 import clsx from 'clsx'
-import { HTMLProps, forwardRef } from 'react'
+import { HTMLProps, forwardRef, type JSX } from 'react'
 
 import { IconEllipsis, IconX } from '@posthog/icons'
 

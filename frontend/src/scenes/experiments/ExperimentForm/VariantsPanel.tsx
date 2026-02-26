@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type JSX } from 'react'
 import { match } from 'ts-pattern'
 import { useDebouncedCallback } from 'use-debounce'
 
@@ -209,7 +209,6 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
                     )}
                 </>
             </LemonField.Pure>
-
             {featureFlagKeyForAutocomplete &&
                 match(mode)
                     .with('create', () => (
@@ -227,7 +226,6 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
                         />
                     ))
                     .exhaustive()}
-
             {/* Feature Flag Selection Modal */}
             <SelectExistingFeatureFlagModal
                 onClose={() => closeSelectExistingFeatureFlagModal()}

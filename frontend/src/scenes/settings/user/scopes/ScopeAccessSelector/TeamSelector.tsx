@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonInputSelect } from '@posthog/lemon-ui'
 
 import type { TeamSelectorProps } from './types'

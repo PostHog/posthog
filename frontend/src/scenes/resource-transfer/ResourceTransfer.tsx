@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, type JSX } from 'react'
 
 import { LemonButton, LemonInputSelect, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 

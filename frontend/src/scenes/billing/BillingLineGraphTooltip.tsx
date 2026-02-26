@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SeriesColorDot } from './BillingLineGraph'
 
 export interface BillingLineGraphTooltipSeriesItem {

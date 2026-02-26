@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { IconCopy, IconEye, IconFlask, IconPause, IconPlay, IconPlusSmall, IconRefresh } from '@posthog/icons'
@@ -404,7 +404,6 @@ export function PageHeaderCustom(): JSX.Element {
                 }
             />
             <HogfettiComponent />
-
             {experiment && isExperimentLaunched && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
@@ -423,7 +422,8 @@ export function PageHeaderCustom(): JSX.Element {
                                 data-attr="view-exposure-cohort"
                                 onClick={() => newTab(urls.cohort(exposureCohortId))}
                             >
-                                <IconEye /> View exposure cohort as new tab
+                                <IconEye />
+                                View exposure cohort as new tab
                             </Link>
                         ) : (
                             <ButtonPrimitive

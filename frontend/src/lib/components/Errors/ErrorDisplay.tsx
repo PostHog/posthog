@@ -1,5 +1,5 @@
 import { BindLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 

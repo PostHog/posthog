@@ -1,4 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
+import type { JSX } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'

@@ -3,7 +3,7 @@ import './Login.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 

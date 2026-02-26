@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'

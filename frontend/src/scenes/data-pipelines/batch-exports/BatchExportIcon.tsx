@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { BatchExportService } from '~/types'

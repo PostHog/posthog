@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import {
     AutoSizer as BaseAutoSizer,
     type AutoSizerProps as BaseAutoSizerProps,

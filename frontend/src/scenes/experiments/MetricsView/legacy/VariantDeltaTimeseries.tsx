@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { useChart } from 'lib/hooks/useChart'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

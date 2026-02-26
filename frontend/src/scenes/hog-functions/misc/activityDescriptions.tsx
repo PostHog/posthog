@@ -1,4 +1,5 @@
 import { DiffEditor } from '@monaco-editor/react'
+import type { JSX } from 'react'
 
 import {
     ActivityLogItem,

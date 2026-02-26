@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { IconChevronRight, IconInfo } from '@posthog/icons'

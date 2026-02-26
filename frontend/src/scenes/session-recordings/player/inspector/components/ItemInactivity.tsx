@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconClock } from '@posthog/icons'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'

@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { Group } from 'kea-forms'
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useState, type JSX } from 'react'
 
 import { IconArrowRight, IconEllipsis, IconFilter, IconPlus } from '@posthog/icons'
 import {

@@ -1,5 +1,7 @@
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
+import type { JSX } from 'react'
+
 import {
     ActivityLogItem,
     HumanizedChange,

@@ -1,7 +1,7 @@
 import './FloatingSuggestions.scss'
 
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'

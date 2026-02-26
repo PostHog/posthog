@@ -2,7 +2,7 @@ import './Histogram.scss'
 
 import * as d3 from 'd3'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { FunnelLayout } from 'lib/constants'
 import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'

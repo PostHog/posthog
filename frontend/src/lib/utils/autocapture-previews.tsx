@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import type { JSX } from 'react'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 

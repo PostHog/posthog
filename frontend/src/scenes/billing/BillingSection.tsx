@@ -2,6 +2,7 @@ import './Billing.scss'
 
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 

@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 type ElementStatisticProps = {
     title: string
     value: string | number

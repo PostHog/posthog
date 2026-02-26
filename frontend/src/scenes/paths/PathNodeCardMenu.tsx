@@ -1,4 +1,4 @@
-import { MouseEventHandler } from 'react'
+import { MouseEventHandler, type JSX } from 'react'
 
 import { IconClock } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

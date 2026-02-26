@@ -1,4 +1,5 @@
 import { BindLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Modifiers } from 'scenes/debug/Modifiers'

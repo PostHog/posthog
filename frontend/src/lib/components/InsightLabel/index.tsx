@@ -2,6 +2,7 @@ import './InsightLabel.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 

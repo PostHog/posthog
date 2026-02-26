@@ -3,7 +3,7 @@ import './InfiniteList.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { CSSProperties, useEffect, useState } from 'react'
+import { CSSProperties, useEffect, useState, type JSX } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { IconArchive, IconCheck, IconPlus, IconSearch } from '@posthog/icons'

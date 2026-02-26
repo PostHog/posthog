@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { Field } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SessionRecordingPlaylistLogicProps } from '../playlist/sessionRecordingsPlaylistLogic'
 
 export function SessionRecordingsPlaylistRedesign({}: SessionRecordingPlaylistLogicProps): JSX.Element {

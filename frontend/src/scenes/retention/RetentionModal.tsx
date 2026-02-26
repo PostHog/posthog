@@ -2,6 +2,7 @@ import './RetentionTable.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 

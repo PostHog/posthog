@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 

@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef, useState, type JSX } from 'react'
 import root from 'react-shadow'
 import { Slide, ToastContainer } from 'react-toastify'
 

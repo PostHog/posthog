@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -57,7 +57,6 @@ export function BatchExportGeneralEditFields({
                     </LemonField>
                 )}
             </div>
-
             {isNew && !isPipeline ? (
                 <LemonField name="paused">
                     <LemonCheckbox

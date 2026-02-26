@@ -1,4 +1,5 @@
 import { PostHogFeature } from 'posthog-js/react'
+import type { JSX } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 

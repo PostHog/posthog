@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconQueryEditor } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'

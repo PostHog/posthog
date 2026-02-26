@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { JSSnippet } from 'lib/components/JSSnippet'
 
 export function SDKInstallBubbleInstructions(): JSX.Element {

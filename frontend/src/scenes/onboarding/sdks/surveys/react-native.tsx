@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SDKInstallRNInstructions } from '../sdk-install-instructions'
 
 export function RNInstructions(): JSX.Element {

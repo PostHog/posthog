@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import {
     IconBalance,

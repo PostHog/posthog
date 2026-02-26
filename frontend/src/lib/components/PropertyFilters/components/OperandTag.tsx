@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag } from '@posthog/lemon-ui'
 
 export const OperandTag = ({ operand }: { operand: 'and' | 'or' }): JSX.Element => {

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { TeamSettingToggle } from '../components/TeamSettingToggle'
 
 export function HumanFriendlyComparisonPeriodsSetting(): JSX.Element {

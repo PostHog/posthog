@@ -2,7 +2,7 @@ import './EmptyDashboardComponent.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 

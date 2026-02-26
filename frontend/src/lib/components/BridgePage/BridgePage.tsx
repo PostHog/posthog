@@ -2,7 +2,7 @@ import './BridgePage.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'

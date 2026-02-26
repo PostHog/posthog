@@ -1,5 +1,6 @@
 import { DecoratorFunction } from '@storybook/types'
 import { rest, setupWorker } from 'msw'
+import type { JSX } from 'react'
 
 import { handlers } from '~/mocks/handlers'
 import { Mocks, mocksToHandlers } from '~/mocks/utils'

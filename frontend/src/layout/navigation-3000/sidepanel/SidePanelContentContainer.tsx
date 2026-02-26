@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 

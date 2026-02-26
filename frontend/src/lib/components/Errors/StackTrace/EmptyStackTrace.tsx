@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
 import { KnownException } from '../Exception/known-exceptions'

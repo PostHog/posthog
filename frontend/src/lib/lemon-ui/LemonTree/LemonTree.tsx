@@ -10,6 +10,7 @@ import React, {
     useImperativeHandle,
     useRef,
     useState,
+    type JSX,
 } from 'react'
 
 import { IconEllipsis, IconUpload } from '@posthog/icons'

@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { useThumbSurvey } from 'posthog-js/react/surveys'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type JSX } from 'react'
 
 import {
     IconChevronDown,

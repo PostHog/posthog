@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 export default function stringWithWBR(text: string, splitAt = 30): JSX.Element {
     const addWBRAfter = [',', '.', '/', '\\']
     const naturalSplit = [' ', '-']

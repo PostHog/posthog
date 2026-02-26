@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Fragment, useState } from 'react'
+import { Fragment, useState, type JSX } from 'react'
 
 import { IconCode, IconGear, IconWarning } from '@posthog/icons'
 import { IconInfo } from '@posthog/icons'

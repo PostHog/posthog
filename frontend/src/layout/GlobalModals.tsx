@@ -1,4 +1,5 @@
 import { actions, kea, path, reducers, useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'

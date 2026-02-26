@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { CONFIDENCE_LEVEL_OPTIONS } from 'scenes/experiments/constants'
 

@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, type JSX } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'

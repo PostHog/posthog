@@ -1,4 +1,5 @@
 import equal from 'fast-deep-equal'
+import type { JSX } from 'react'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 

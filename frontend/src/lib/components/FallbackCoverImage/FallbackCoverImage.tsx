@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { getSeriesColor } from 'lib/colors'
 

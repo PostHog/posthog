@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, type JSX } from 'react'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'

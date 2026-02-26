@@ -1,6 +1,7 @@
 import './InviteModal.scss'
 
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'

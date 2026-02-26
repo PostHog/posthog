@@ -1,5 +1,6 @@
 import ReactJson, { ReactJsonViewProps } from '@microlink/react-json-view'
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 

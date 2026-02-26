@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 

@@ -1,7 +1,7 @@
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
 import posthog from 'posthog-js'
-import { Fragment } from 'react'
+import { Fragment, type JSX } from 'react'
 
 import {
     ActivityChange,

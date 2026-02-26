@@ -1,5 +1,5 @@
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 

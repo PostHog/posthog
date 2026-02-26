@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'

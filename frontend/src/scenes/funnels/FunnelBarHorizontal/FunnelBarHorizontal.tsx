@@ -2,6 +2,7 @@ import './FunnelBarHorizontal.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconInfinity } from '@posthog/icons'
 

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { IndexedTrendResult } from 'scenes/trends/types'
 

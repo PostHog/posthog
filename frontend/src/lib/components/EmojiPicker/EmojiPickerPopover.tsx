@@ -4,7 +4,7 @@ import {
     EmojiPickerListEmojiProps,
     EmojiPickerListRowProps,
 } from 'frimousse'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconEmojiAdd } from '@posthog/icons'
 

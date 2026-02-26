@@ -3,6 +3,7 @@ import { Node as PMNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { Editor, ReactRenderer } from '@tiptap/react'
+import type { JSX } from 'react'
 
 import { IconEye, IconTriangleDownFilled, IconTriangleRightFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

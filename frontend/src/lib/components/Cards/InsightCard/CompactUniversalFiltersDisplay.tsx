@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,

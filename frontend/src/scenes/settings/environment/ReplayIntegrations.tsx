@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { PropsWithChildren, useMemo, useState } from 'react'
+import { PropsWithChildren, useMemo, useState, type JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 

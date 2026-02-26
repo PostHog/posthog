@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import type { GraphEdge, SignalNode } from './types'
 import { isMatchedMetadata } from './types'
 

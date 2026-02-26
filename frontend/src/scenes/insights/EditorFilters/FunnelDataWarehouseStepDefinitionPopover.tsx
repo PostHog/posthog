@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function FunnelDataWarehouseStepDefinitionPopover({

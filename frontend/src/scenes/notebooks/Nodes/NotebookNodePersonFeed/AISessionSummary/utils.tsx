@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconCheck, IconX } from '@posthog/icons'
 
 export function formatDuration(seconds: number): string {

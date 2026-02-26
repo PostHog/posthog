@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { IndexedTrendResult } from 'scenes/trends/types'

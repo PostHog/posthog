@@ -1,4 +1,5 @@
 import { BindLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 

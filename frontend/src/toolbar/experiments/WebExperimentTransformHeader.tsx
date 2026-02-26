@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'

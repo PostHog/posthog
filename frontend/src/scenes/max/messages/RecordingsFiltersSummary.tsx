@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
 
 import { RecordingUniversalFilters } from '~/types'

@@ -1,5 +1,6 @@
 import * as PopoverPrimitiveBase from '@radix-ui/react-popover'
 import * as React from 'react'
+import type { JSX } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 

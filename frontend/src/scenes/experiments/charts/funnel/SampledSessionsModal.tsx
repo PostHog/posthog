@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import type { JSX } from 'react'
 
 import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 

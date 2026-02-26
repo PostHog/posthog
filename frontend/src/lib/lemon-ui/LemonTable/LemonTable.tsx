@@ -3,7 +3,7 @@ import './LemonTable.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 

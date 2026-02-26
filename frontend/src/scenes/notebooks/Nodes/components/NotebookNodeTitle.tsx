@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { KeyboardEvent, useEffect, useState } from 'react'
+import { KeyboardEvent, useEffect, useState, type JSX } from 'react'
 
 import { LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 

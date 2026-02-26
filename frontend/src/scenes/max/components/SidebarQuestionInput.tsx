@@ -2,7 +2,7 @@ import './QuestionInput.scss'
 
 import { ToggleGroup, ToggleGroupItem } from '@radix-ui/react-toggle-group'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type JSX } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { LemonButton } from '@posthog/lemon-ui'

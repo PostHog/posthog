@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { FeatureFlagType } from '~/types'
 

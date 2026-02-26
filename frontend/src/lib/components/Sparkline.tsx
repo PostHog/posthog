@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type JSX } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
 

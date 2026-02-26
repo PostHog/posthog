@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { ScreenPosition, SurveyPosition } from '~/types'

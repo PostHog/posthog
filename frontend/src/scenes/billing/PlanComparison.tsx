@@ -2,7 +2,7 @@ import './PlanComparison.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'

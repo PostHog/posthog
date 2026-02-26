@@ -1,4 +1,5 @@
 import { BindLogic } from 'kea'
+import type { JSX } from 'react'
 
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'

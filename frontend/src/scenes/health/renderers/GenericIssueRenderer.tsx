@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { kindToLabel } from '../healthUtils'
 import type { HealthIssue } from '../types'
 

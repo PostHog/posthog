@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonSwitch, LemonTabs } from '@posthog/lemon-ui'

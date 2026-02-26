@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 

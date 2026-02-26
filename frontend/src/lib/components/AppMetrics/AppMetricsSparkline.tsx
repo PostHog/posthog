@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type JSX } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'

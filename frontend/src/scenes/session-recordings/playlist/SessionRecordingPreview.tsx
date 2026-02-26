@@ -2,7 +2,7 @@ import './SessionRecordingPreview.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { memo } from 'react'
+import { memo, type JSX } from 'react'
 
 import { IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
 

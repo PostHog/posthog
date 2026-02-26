@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconFilter } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

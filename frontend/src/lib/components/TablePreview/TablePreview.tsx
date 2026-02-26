@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, type JSX } from 'react'
 
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 

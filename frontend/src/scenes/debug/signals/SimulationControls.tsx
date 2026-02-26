@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'

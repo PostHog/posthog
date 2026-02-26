@@ -1,6 +1,6 @@
 import './PanelSettings.scss'
 
-import { PropsWithChildren } from 'react'
+import { PropsWithChildren, type JSX } from 'react'
 
 import {
     LemonButton,

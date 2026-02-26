@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonLabel } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'

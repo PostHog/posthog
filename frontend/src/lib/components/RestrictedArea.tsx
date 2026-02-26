@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { organizationLogic } from '../../scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from '../../scenes/teamLogic'

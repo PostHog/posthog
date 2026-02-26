@@ -2,6 +2,7 @@ import './LemonBanner.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconInfo, IconSparkles, IconWarning, IconX } from '@posthog/icons'
 

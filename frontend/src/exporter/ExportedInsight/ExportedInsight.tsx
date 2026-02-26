@@ -2,6 +2,7 @@ import './ExportedInsight.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
+import type { JSX } from 'react'
 
 import { Logo } from 'lib/brand/Logo'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Fragment, useEffect } from 'react'
+import { Fragment, useEffect, type JSX } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'

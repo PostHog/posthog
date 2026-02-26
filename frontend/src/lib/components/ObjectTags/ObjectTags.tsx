@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useMemo } from 'react'
+import { CSSProperties, useMemo, type JSX } from 'react'
 
 import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'

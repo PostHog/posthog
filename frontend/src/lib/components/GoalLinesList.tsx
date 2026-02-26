@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconGear, IconTrash } from '@posthog/icons'
 import { LemonColorGlyph, LemonColorPicker, LemonLabel, LemonMenu, LemonSegmentedButton } from '@posthog/lemon-ui'
 

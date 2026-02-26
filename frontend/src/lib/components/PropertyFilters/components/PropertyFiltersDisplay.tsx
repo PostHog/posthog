@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { AnyPropertyFilter } from '~/types'
 
 import { PropertyFilterButton } from './PropertyFilterButton'

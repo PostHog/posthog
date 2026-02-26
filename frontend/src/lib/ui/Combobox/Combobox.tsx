@@ -10,6 +10,7 @@ import React, {
     useReducer,
     useRef,
     useState,
+    type JSX,
 } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'

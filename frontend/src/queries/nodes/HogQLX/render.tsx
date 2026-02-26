@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'

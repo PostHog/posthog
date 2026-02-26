@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { IconExternal, IconGitLab, IconGithub } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'

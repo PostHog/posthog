@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { COLORS } from '../shared/colors'
 
 interface GridLinesProps {

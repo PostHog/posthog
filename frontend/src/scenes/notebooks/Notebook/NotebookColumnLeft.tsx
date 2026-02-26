@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 

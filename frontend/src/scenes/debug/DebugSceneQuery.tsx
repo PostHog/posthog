@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { HogQLDebug } from 'scenes/debug/HogQLDebug'

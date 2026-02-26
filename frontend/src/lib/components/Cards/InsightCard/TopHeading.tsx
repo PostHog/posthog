@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText } from 'lib/utils'
 import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'

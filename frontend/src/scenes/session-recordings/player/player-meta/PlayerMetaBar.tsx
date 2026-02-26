@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { PlayerMeta } from './PlayerMeta'
 import { PlayerMetaTopSettings } from './PlayerMetaTopSettings'
 

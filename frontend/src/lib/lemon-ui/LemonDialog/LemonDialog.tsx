@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { ReactNode, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { ReactNode, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type JSX } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'

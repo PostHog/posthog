@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import {

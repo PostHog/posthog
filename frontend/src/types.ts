@@ -1,6 +1,6 @@
 import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 import { Layout } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'

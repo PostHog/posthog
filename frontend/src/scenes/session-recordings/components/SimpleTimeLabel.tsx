@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { memo } from 'react'
+import { memo, type JSX } from 'react'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { shortTimeZone } from 'lib/utils'

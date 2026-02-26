@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { ReplayInactivityPeriod } from '~/queries/schema/schema-general'
 import { SessionPlayerState } from '~/types'

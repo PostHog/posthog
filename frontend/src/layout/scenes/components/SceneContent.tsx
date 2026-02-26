@@ -1,5 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
-import { createContext } from 'react'
+import { createContext, type JSX } from 'react'
 
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { cn } from 'lib/utils/css-classes'

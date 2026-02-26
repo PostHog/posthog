@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form, Group, capitalizeFirstLetter } from 'kea-forms'
 import { router } from 'kea-router'
+import type { JSX } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'

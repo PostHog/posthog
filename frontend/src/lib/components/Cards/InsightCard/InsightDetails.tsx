@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconCalculator, IconCalendar, IconCode2, IconFilter, IconPencil, IconSort, IconUser } from '@posthog/icons'
 import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'

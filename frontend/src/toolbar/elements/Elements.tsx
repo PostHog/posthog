@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Fragment } from 'react'
+import { Fragment, type JSX } from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'

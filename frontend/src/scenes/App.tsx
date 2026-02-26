@@ -1,4 +1,5 @@
 import { BindLogic, useMountedLogic, useValues } from 'kea'
+import type { JSX } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { Command } from 'lib/components/Command/Command'

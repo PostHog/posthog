@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { EarlyAccessFeature } from 'posthog-js'
+import type { JSX } from 'react'
 
 import { setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 

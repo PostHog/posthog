@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 export function AbsoluteCornerBadge({
     text,
     position,

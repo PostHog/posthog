@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, type JSX } from 'react'
 
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 

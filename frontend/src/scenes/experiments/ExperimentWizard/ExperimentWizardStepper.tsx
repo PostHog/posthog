@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconCheckCircle } from '@posthog/icons'
 
 import { IconErrorOutline } from 'lib/lemon-ui/icons'

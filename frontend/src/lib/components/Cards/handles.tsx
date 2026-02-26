@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 /** A one-dimensional (either horizontal or vertical) resize handle. */
 export function ResizeHandle1D({ orientation }: { orientation: 'horizontal' | 'vertical' }): JSX.Element {

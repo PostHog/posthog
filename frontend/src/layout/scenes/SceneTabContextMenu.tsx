@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import {
     IconChevronLeft,

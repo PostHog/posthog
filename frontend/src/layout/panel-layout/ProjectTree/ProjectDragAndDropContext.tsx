@@ -10,7 +10,7 @@ import {
     useSensors,
 } from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, type JSX } from 'react'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 

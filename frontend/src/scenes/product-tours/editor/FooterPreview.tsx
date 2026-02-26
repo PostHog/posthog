@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { productTourLogic } from '../productTourLogic'
 import { isBannerAnnouncement } from '../productToursLogic'

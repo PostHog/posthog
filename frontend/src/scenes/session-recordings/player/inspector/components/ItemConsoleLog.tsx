@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 

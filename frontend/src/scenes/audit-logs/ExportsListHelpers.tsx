@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'

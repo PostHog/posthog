@@ -1,7 +1,7 @@
 import './LemonModal.scss'
 
 import clsx from 'clsx'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import Modal from 'react-modal'
 
 import { IconX } from '@posthog/icons'

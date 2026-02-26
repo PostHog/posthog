@@ -1,5 +1,6 @@
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { Chart, ChartType, LegendOptions, defaults } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'

@@ -2,7 +2,7 @@ import './PlanCards.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

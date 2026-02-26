@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 import React from 'react'
 
 import { IconAtSign, IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'

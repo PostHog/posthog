@@ -16,6 +16,8 @@ import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integr
 // Side-effect import: register all integration setups
 import './integrationSetups'
 
+import type { JSX } from 'react'
+
 export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void

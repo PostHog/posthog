@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
+import type { JSX } from 'react'
 
 import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'

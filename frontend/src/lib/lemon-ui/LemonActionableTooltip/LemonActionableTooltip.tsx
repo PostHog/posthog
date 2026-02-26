@@ -1,6 +1,7 @@
 import './LemonActionableTooltip.scss'
 
 import { Placement } from '@floating-ui/react'
+import type { JSX } from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'

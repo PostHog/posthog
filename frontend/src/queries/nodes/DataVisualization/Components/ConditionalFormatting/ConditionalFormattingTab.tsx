@@ -1,6 +1,7 @@
 import './ConditionalFormattingTab.scss'
 
 import { useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import {

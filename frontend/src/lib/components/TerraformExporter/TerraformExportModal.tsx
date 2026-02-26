@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconDownload, IconWarning } from '@posthog/icons'
 
 import { CodeSnippet, Language } from '~/lib/components/CodeSnippet/CodeSnippet'

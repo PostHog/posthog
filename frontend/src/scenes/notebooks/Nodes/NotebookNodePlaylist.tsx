@@ -1,6 +1,6 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { PostHogErrorBoundary } from 'posthog-js/react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type JSX } from 'react'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'

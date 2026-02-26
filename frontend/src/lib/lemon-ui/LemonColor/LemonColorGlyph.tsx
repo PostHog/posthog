@@ -1,6 +1,7 @@
 import './LemonColorGlyph.scss'
 
 import { useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { DataColorToken } from 'lib/colors'
 import { RGBToRGBA, hexToRGBA, lightenDarkenColor } from 'lib/utils'

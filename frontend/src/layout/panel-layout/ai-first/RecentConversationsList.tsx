@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { IconMessage } from '@posthog/icons'
 import { Link, Spinner } from '@posthog/lemon-ui'

@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import type { JSX } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { Language } from 'lib/components/CodeSnippet'
 
 import { ErrorTrackingStackFrameContext } from '../types'

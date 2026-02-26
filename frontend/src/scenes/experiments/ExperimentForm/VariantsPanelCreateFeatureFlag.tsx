@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { IconBalance, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
@@ -454,7 +454,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                     </LemonField.Pure>
                 </div>
             </div>
-
             <div>
                 <LemonCheckbox
                     label="Persist flag across authentication steps"

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 

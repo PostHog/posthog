@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { LemonLabel, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
 

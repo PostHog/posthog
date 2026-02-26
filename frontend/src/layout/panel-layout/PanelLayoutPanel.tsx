@@ -1,6 +1,6 @@
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { IconEllipsis, IconX } from '@posthog/icons'
 

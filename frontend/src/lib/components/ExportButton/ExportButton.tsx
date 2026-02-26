@@ -1,5 +1,5 @@
 import { useMountedLogic } from 'kea'
-import { forwardRef } from 'react'
+import { forwardRef, type JSX } from 'react'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'

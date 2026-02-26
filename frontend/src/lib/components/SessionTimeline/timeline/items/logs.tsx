@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconTerminal } from '@posthog/icons'
 
 import { Dayjs } from 'lib/dayjs'

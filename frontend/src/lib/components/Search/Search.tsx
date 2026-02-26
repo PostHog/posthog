@@ -14,6 +14,7 @@ import {
     useMemo,
     useRef,
     useState,
+    type JSX,
 } from 'react'
 
 import { IconSearch, IconSparkles, IconX } from '@posthog/icons'
@@ -683,7 +684,6 @@ function SearchResults({
                     <span>No results found. Try a different search term.</span>
                 </Autocomplete.Empty>
             )}
-
             <Autocomplete.List className={cn('pt-3 pb-1 empty:hidden', listClassName)} tabIndex={-1}>
                 {groupedItems.map((group) => {
                     return (

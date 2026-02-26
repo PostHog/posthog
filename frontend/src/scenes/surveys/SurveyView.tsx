@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 
 import { IconArchive, IconGraph, IconLlmAnalytics, IconThumbsDown, IconThumbsUp, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, Tooltip } from '@posthog/lemon-ui'

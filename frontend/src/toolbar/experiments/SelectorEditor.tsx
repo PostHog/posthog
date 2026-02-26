@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 
 import { IconPencil } from '@posthog/icons'
 

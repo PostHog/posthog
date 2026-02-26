@@ -1,6 +1,6 @@
 import useSize from '@react-hook/size'
 import { useValues } from 'kea'
-import { MutableRefObject, useMemo, useRef } from 'react'
+import { MutableRefObject, useMemo, useRef, type JSX } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 

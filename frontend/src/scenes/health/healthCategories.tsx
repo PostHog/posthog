@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { IconCode, IconDatabase, IconPulse, IconWarning } from '@posthog/icons'
 
 export type HealthIssueCategory = 'ingestion' | 'sdk' | 'pipelines' | 'other'

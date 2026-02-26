@@ -1,5 +1,6 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import * as React from 'react'
+import type { JSX } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 

@@ -1,7 +1,7 @@
 import './FilterRow.scss'
 
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 
 import { IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
 

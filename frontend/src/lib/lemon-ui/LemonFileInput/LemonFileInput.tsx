@@ -1,7 +1,7 @@
 import './LemonFileInput.scss'
 
 import clsx from 'clsx'
-import { ChangeEvent, RefObject, createRef, useEffect, useState } from 'react'
+import { ChangeEvent, RefObject, createRef, useEffect, useState, type JSX } from 'react'
 
 import { IconUpload } from '@posthog/icons'
 

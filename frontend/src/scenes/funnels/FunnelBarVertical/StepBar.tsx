@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, type JSX } from 'react'
 
 import { percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'

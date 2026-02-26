@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
 import { formatResolvedName } from '../utils'
 

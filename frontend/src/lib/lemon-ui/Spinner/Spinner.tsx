@@ -1,7 +1,7 @@
 import './Spinner.scss'
 
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 import { twJoin, twMerge } from 'tailwind-merge'
 
 import { IconPencil } from '@posthog/icons'

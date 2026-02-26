@@ -1,5 +1,6 @@
 import * as SelectPrimitiveBase from '@radix-ui/react-select'
 import * as React from 'react'
+import type { JSX } from 'react'
 
 import { IconCheck, IconChevronRight } from '@posthog/icons'
 

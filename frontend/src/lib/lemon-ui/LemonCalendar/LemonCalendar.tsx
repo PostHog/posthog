@@ -2,7 +2,7 @@ import './LemonCalendar.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { Ref, forwardRef, useEffect, useState } from 'react'
+import { Ref, forwardRef, useEffect, useState, type JSX } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 

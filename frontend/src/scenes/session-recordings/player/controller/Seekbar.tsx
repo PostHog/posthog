@@ -1,7 +1,7 @@
 import './Seekbar.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 import React from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'

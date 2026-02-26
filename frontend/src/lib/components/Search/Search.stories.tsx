@@ -1,4 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
+import type { JSX } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE, toPaginatedResponse } from '~/mocks/handlers'

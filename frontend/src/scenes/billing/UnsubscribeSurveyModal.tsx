@@ -2,7 +2,7 @@ import './UnsubscribeSurveyModal.scss'
 
 import { useActions, useValues } from 'kea'
 import { SurveyEventProperties } from 'posthog-js'
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import {
     LemonBanner,

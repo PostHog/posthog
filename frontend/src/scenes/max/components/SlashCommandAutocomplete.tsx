@@ -1,6 +1,6 @@
 import { offset } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 

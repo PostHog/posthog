@@ -1,6 +1,7 @@
 import './LemonLabel.scss'
 
 import clsx from 'clsx'
+import type { JSX } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 

@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { SurveyValidationRule, SurveyValidationType } from '~/types'
