@@ -21,11 +21,11 @@ class TestLLMPromptAPI(APIBaseTest):
     )
     def test_prompt_api_permission_accepts_prompt_or_early_adopters_flag(
         self,
+        mock_feature_enabled,
         _name,
         prompt_management_enabled,
         early_adopters_enabled,
         expected_status,
-        mock_feature_enabled,
     ):
         def feature_flag_side_effect(flag, *_args, **_kwargs):
             return {
