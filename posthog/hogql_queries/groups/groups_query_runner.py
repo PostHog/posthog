@@ -147,18 +147,15 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
         )
         results = response.results[: self.paginator.limit] if self.paginator.limit is not None else response.results
 
-        # Convert group_name tuples to dicts for frontend
-        for column_index, col in enumerate(self.columns):
-            if col == "group_name":
-                results = [
-                    [
-                        {"display_name": row[column_index][0], "key": str(row[column_index][1])}
-                        if idx == column_index
-                        else val
-                        for idx, val in enumerate(row)
-                    ]
-                    for row in results
+        if "group_name" in self.columns:
+            column_index = self.columns.index("group_name")
+            results = [
+                [
+                    {"display_name": col[0], "key": str(col[1])} if index == column_index else col
+                    for index, col in enumerate(row)
                 ]
+                for row in results
+            ]
 
         return GroupsQueryResponse(
             kind="GroupsQuery",
