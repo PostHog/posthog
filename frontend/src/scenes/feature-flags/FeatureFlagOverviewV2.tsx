@@ -413,8 +413,10 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                                 updateSectionDraft({
                                                     filters: {
                                                         ...featureFlag.filters,
+                                                        ...sectionDraft?.filters,
                                                         payloads: {
                                                             ...featureFlag.filters?.payloads,
+                                                            ...sectionDraft?.filters?.payloads,
                                                             true: val ?? '',
                                                         },
                                                     },

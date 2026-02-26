@@ -1639,6 +1639,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             variants[index] = { ...variants[index], [field]: coercedValue }
 
             if (field === 'key' && oldKey && oldKey !== coercedValue) {
+                const duplicateExists = variants.some((v, i) => i !== index && v.key === coercedValue)
+                if (duplicateExists) {
+                    lemonToast.error('A variant with this key already exists')
+                    return
+                }
                 const existingPayload = payloads[oldKey]
                 if (existingPayload !== undefined) {
                     delete payloads[oldKey]
