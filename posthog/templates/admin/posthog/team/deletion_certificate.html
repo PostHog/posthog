@@ -234,7 +234,7 @@
 
             {% if certificate.query %}
             <dt>Filter criteria</dt>
-            <dd style="font-family: monospace; font-size: 12px;">{{ certificate.query }}</dd>
+            <dd>{{ certificate.query_display|default:certificate.query }}</dd>
             {% endif %}
         </dl>
     </div>

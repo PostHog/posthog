@@ -576,13 +576,14 @@ class SessionReplayEvents:
                     session_replay_events
                 PREWHERE
                     team_id = %(team_id)s
-                    AND distinct_id IN (%(distinct_ids)s)
                     AND min_first_timestamp <= %(python_now)s
                     {cursor_clause}
                 GROUP BY
                     session_id
                 HAVING
                     expiry_time >= %(python_now)s
+                    AND max(is_deleted) = 0
+                    AND anyIf(distinct_id, notEmpty(distinct_id)) IN (%(distinct_ids)s)
                 {pagination_clause}
                 {{optional_format_clause}}
                 """
@@ -618,6 +619,7 @@ class SessionReplayEvents:
                     session_id
                 HAVING
                     expiry_time >= %(python_now)s
+                    AND max(is_deleted) = 0
                 {pagination_clause}
                 {{optional_format_clause}}
                 """

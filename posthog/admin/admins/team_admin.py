@@ -6,6 +6,7 @@ import asyncio
 import tempfile
 import dataclasses
 from datetime import datetime, timedelta
+from urllib import parse
 
 from django.conf import settings
 from django.contrib import admin, messages
@@ -342,6 +343,11 @@ class TeamAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.download_deletion_certificate_view),
                 name="posthog_team_download_deletion_certificate",
             ),
+            path(
+                "<path:object_id>/delete-recordings/workflows/",
+                self.admin_site.admin_view(self.delete_recordings_workflows_fragment),
+                name="posthog_team_delete_recordings_workflows",
+            ),
         ]
         return custom_urls + urls
 
@@ -616,6 +622,13 @@ class TeamAdmin(admin.ModelAdmin):
             logger.warning("Failed to fetch delete workflows", error=str(e))
             return []
 
+    def delete_recordings_workflows_fragment(self, request, object_id):
+        """Return just the workflow table rows as an HTML fragment for AJAX polling."""
+        team = Team.objects.get(pk=object_id)
+        workflows = self._get_delete_workflows(team.id)
+        context = {"team": team, "workflows": workflows}
+        return render(request, "admin/posthog/team/_delete_recordings_workflows.html", context)
+
     def delete_recordings_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
 
@@ -768,7 +781,7 @@ class TeamAdmin(admin.ModelAdmin):
                         }
                     )
                 if properties:
-                    query_parts.append(f"properties={json.dumps(properties)}")
+                    query_parts.append(f"having_predicates={json.dumps(properties)}")
 
                 query = "&".join(query_parts)
                 query_input = RecordingsWithQueryInput(team_id=team.id, query=query, config=config)
@@ -919,6 +932,39 @@ class TeamAdmin(admin.ModelAdmin):
             logger.exception("Failed to fetch deletion certificate", workflow_id=workflow_id)
             return None, "Internal error"
 
+    @staticmethod
+    def _format_query_for_display(query: str) -> str:
+        """Format a raw query string into a human-readable filter description."""
+        operator_labels = {
+            "lt": "<",
+            "gt": ">",
+            "lte": "<=",
+            "gte": ">=",
+            "exact": "=",
+            "is_not": "!=",
+        }
+        unit_suffixes = {
+            "duration": "s",
+        }
+        parts = []
+        for key, value in parse.parse_qsl(query):
+            if key in ("having_predicates", "properties"):
+                try:
+                    filters = json.loads(value)
+                    for f in filters:
+                        filter_key = f.get("key", "?").replace("_", " ")
+                        op = operator_labels.get(f.get("operator", ""), f.get("operator", "?"))
+                        raw_value = f.get("value", "?")
+                        display_value = ", ".join(raw_value) if isinstance(raw_value, list) else str(raw_value)
+                        suffix = unit_suffixes.get(f.get("key", ""), "")
+                        parts.append(f"{filter_key} {op} {display_value}{suffix}")
+                except (json.JSONDecodeError, TypeError):
+                    parts.append(f"{key}: {value}")
+            else:
+                label = key.replace("_", " ")
+                parts.append(f"{label}: {value}")
+        return ", ".join(parts) if parts else query
+
     def deletion_certificate_view(self, request, object_id, workflow_id):
         """Display a deletion certificate as a printable HTML page."""
         team = Team.objects.select_related("organization").get(pk=object_id)
@@ -937,6 +983,9 @@ class TeamAdmin(admin.ModelAdmin):
             for key in ("started_at", "completed_at"):
                 if isinstance(certificate.get(key), str):
                     certificate[key] = datetime.fromisoformat(certificate[key])
+        if isinstance(certificate, dict) and certificate.get("query"):
+            certificate["query_display"] = self._format_query_for_display(certificate["query"])
+
         context = {
             **self.admin_site.each_context(request),
             "team": team,
