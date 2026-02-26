@@ -737,8 +737,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 callback: (undo: boolean) => {
                     if (undo) {
                         restoreInsight()
+                    } else {
+                        actions.reloadSavedInsights()
                     }
-                    actions.reloadSavedInsights()
+                },
                 },
                 onError: restoreInsight,
             })
