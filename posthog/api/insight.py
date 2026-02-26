@@ -1096,13 +1096,16 @@ class InsightViewSet(
         Returns trending insights based on view count in the last 24 hours.
         Defaults to returning top 10 insights.
         """
-        days = int(request.GET.get("days", "1"))
-        limit = min(int(request.GET.get("limit", "10")), 100)
+        try:
+            days = int(request.GET.get("days", "1"))
+            limit = min(int(request.GET.get("limit", "10")), 100)
+        except (ValueError, TypeError):
+            raise ValidationError("days and limit must be valid integers")
 
         cutoff_date = now() - timedelta(days=days)
 
         queryset = (
-            Insight.objects.filter(team=self.team)
+            Insight.objects.filter(team__project_id=self.team.project_id)
             .annotate(
                 view_count=Count(
                     "insightviewed",

@@ -1,5 +1,3 @@
-import './HomeTab.scss'
-
 import { ActiveUsers } from './ActiveUsers'
 import { Activity } from './Activity'
 import { FiringAlerts } from './FiringAlerts'
@@ -9,29 +7,17 @@ import { Trending } from './Trending'
 
 export function HomeTab(): JSX.Element {
     return (
-        <div className="HomeTab">
-            <div className="HomeTab__columns">
-                <div className="HomeTab__column">
-                    <div className="HomeTab__card">
-                        <RecentlyViewed />
-                    </div>
-                    <div className="HomeTab__card">
-                        <FiringAlerts />
-                    </div>
-                    <div className="HomeTab__card">
-                        <ActiveUsers />
-                    </div>
+        <div className="py-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start">
+                <div className="flex flex-1 min-w-0 flex-col gap-4">
+                    <RecentlyViewed />
+                    <FiringAlerts />
+                    <ActiveUsers />
                 </div>
-                <div className="HomeTab__column">
-                    <div className="HomeTab__card">
-                        <Trending />
-                    </div>
-                    <div className="HomeTab__card">
-                        <NewEvents />
-                    </div>
-                    <div className="HomeTab__card">
-                        <Activity />
-                    </div>
+                <div className="flex flex-1 min-w-0 flex-col gap-4">
+                    <Trending />
+                    <NewEvents />
+                    <Activity />
                 </div>
             </div>
         </div>

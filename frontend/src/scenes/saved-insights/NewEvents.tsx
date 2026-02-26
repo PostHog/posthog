@@ -44,7 +44,7 @@ export function NewEvents(): JSX.Element {
                 buttonTo: urls.eventDefinitions(),
             }}
             items={newEvents.slice(0, 5)}
-            renderRow={(event: EventDefinition, index) => <EventRow key={index} event={event} />}
+            renderRow={(event: EventDefinition) => <EventRow key={event.id} event={event} />}
             contentHeightBehavior="fit-content"
         />
     )
