@@ -65,6 +65,8 @@ def filter_mongo_incremental_fields(
             results.append((column_name, IncrementalFieldType.Timestamp))
         elif type == "integer":
             results.append((column_name, IncrementalFieldType.Integer))
+        elif type == "double":
+            results.append((column_name, IncrementalFieldType.Numeric))
         elif column_name == "_id" and type == "string":
             results.append((column_name, IncrementalFieldType.ObjectID))
 
