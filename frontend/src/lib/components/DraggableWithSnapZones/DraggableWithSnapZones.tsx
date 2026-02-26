@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ReactElement, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { ReactElement, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import Draggable, { DraggableData, DraggableEvent } from 'react-draggable'
 
 export type SnapPosition =
@@ -177,6 +177,7 @@ export interface DraggableWithSnapZonesProps {
     onDragStart?: () => void
     /** Callback when dragging ends */
     onDragStop?: () => void
+    ref?: React.RefObject<DraggableWithSnapZonesRef>
 }
 
 export interface DraggableWithSnapZonesRef {
@@ -184,261 +185,250 @@ export interface DraggableWithSnapZonesRef {
     trySnapTo: (position: SnapPosition) => void
 }
 
-export const DraggableWithSnapZones = forwardRef<DraggableWithSnapZonesRef, DraggableWithSnapZonesProps>(
-    function DraggableWithSnapZones(
-        {
-            children,
-            handle,
-            defaultSnapPosition = 'bottom-right',
-            allowedPositions = ALL_SNAP_POSITIONS,
-            snapThreshold = DEFAULT_SNAP_THRESHOLD,
-            padding = DEFAULT_PADDING,
-            persistKey,
-            onDragStart,
-            onDragStop,
-        },
-        ref
-    ) {
-        const nodeRef = useRef<HTMLDivElement>(null)
+export function DraggableWithSnapZones({
+    ref,
+    children,
+    handle,
+    defaultSnapPosition = 'bottom-right',
+    allowedPositions = ALL_SNAP_POSITIONS,
+    snapThreshold = DEFAULT_SNAP_THRESHOLD,
+    padding = DEFAULT_PADDING,
+    persistKey,
+    onDragStart,
+    onDragStop,
+}: DraggableWithSnapZonesProps): JSX.Element {
+    const nodeRef = useRef<HTMLDivElement>(null)
 
-        const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight })
-        const [isDragging, setIsDragging] = useState(false)
+    const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight })
+    const [isDragging, setIsDragging] = useState(false)
 
-        // Load persisted state or use defaults
-        const [snapPosition, setSnapPosition] = useState<SnapPosition | null>(() => {
-            if (persistKey) {
-                const persisted = loadPersistedState(persistKey)
-                if (persisted) {
-                    return persisted.snapPosition
-                }
+    // Load persisted state or use defaults
+    const [snapPosition, setSnapPosition] = useState<SnapPosition | null>(() => {
+        if (persistKey) {
+            const persisted = loadPersistedState(persistKey)
+            if (persisted) {
+                return persisted.snapPosition
             }
-            return defaultSnapPosition
-        })
-
-        const [freePosition, setFreePosition] = useState<{ x: number; y: number } | null>(() => {
-            if (persistKey) {
-                const persisted = loadPersistedState(persistKey)
-                if (persisted) {
-                    return persisted.freePosition
-                }
-            }
-            return null
-        })
-
-        // Track the current drag position for controlled positioning (starts at 0,0, hidden until measured)
-        const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 })
-
-        // Track element dimensions (needed for initial position calculation)
-        const [elementSize, setElementSize] = useState<{ width: number; height: number } | null>(null)
-
-        // Expose imperative methods via ref
-        useImperativeHandle(
-            ref,
-            () => ({
-                trySnapTo: (targetPosition: SnapPosition) => {
-                    // Only snap if not already snapped to a position
-                    if (snapPosition !== null) {
-                        return
-                    }
-
-                    const width = elementSize?.width ?? 0
-                    const height = elementSize?.height ?? 0
-
-                    const coords = snapPositionToCoords(
-                        targetPosition,
-                        windowSize.width,
-                        windowSize.height,
-                        width,
-                        height,
-                        padding
-                    )
-
-                    setSnapPosition(targetPosition)
-                    setFreePosition(null)
-                    setDragPosition(coords)
-
-                    if (persistKey) {
-                        persistState(persistKey, { snapPosition: targetPosition, freePosition: null })
-                    }
-                },
-            }),
-            [snapPosition, elementSize, windowSize.width, windowSize.height, padding, persistKey]
-        )
-
-        // Update window size on resize
-        useEffect(() => {
-            const handleResize = (): void => {
-                setWindowSize({ width: window.innerWidth, height: window.innerHeight })
-            }
-            window.addEventListener('resize', handleResize)
-            return () => window.removeEventListener('resize', handleResize)
-        }, [])
-
-        // Measure element after mount using ResizeObserver for accuracy
-        useEffect(() => {
-            const element = nodeRef.current
-            if (!element) {
-                return
-            }
-
-            const updateSize = (): void => {
-                setElementSize({
-                    width: element.offsetWidth,
-                    height: element.offsetHeight,
-                })
-            }
-
-            const observer = new ResizeObserver(updateSize)
-            observer.observe(element)
-            updateSize()
-
-            return () => observer.disconnect()
-        }, [])
-
-        const snapZones = useMemo(
-            () => getSnapZonePositions(windowSize.width, windowSize.height),
-            [windowSize.width, windowSize.height]
-        )
-
-        // Calculate the actual position based on snap or free position
-        const position = useMemo(() => {
-            // Use fallback dimensions until measured (element hidden until then anyway)
-            const width = elementSize?.width ?? 0
-            const height = elementSize?.height ?? 0
-
-            if (freePosition) {
-                return {
-                    x: Math.max(padding, Math.min(freePosition.x, windowSize.width - width - padding)),
-                    y: Math.max(padding, Math.min(freePosition.y, windowSize.height - height - padding)),
-                }
-            }
-
-            if (snapPosition) {
-                return snapPositionToCoords(snapPosition, windowSize.width, windowSize.height, width, height, padding)
-            }
-
-            return snapPositionToCoords(
-                defaultSnapPosition,
-                windowSize.width,
-                windowSize.height,
-                width,
-                height,
-                padding
-            )
-        }, [freePosition, snapPosition, windowSize.width, windowSize.height, padding, defaultSnapPosition, elementSize])
-
-        // Update drag position when calculated position changes (for controlled mode)
-        useEffect(() => {
-            if (!isDragging) {
-                setDragPosition(position)
-            }
-        }, [position, isDragging])
-
-        const handleDragStart = (): void => {
-            setIsDragging(true)
-            onDragStart?.()
         }
+        return defaultSnapPosition
+    })
 
-        const handleDrag = (_e: DraggableEvent, data: DraggableData): void => {
-            if (!nodeRef.current) {
-                return
+    const [freePosition, setFreePosition] = useState<{ x: number; y: number } | null>(() => {
+        if (persistKey) {
+            const persisted = loadPersistedState(persistKey)
+            if (persisted) {
+                return persisted.freePosition
             }
-
-            const elementWidth = nodeRef.current.offsetWidth
-            const elementHeight = nodeRef.current.offsetHeight
-
-            const nearestSnap = findNearestSnapZone(
-                data.x,
-                data.y,
-                allowedPositions,
-                windowSize.width,
-                windowSize.height,
-                elementWidth,
-                elementHeight,
-                padding,
-                snapThreshold
-            )
-            setSnapPosition(nearestSnap)
-            setDragPosition({ x: data.x, y: data.y })
         }
+        return null
+    })
 
-        const handleDragStop = (_e: DraggableEvent, data: DraggableData): void => {
-            setIsDragging(false)
+    // Track the current drag position for controlled positioning (starts at 0,0, hidden until measured)
+    const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 })
 
-            if (!nodeRef.current) {
-                onDragStop?.()
-                return
-            }
+    // Track element dimensions (needed for initial position calculation)
+    const [elementSize, setElementSize] = useState<{ width: number; height: number } | null>(null)
 
-            const elementWidth = nodeRef.current.offsetWidth
-            const elementHeight = nodeRef.current.offsetHeight
+    // Expose imperative methods via ref
+    useImperativeHandle(
+        ref,
+        () => ({
+            trySnapTo: (targetPosition: SnapPosition) => {
+                // Only snap if not already snapped to a position
+                if (snapPosition !== null) {
+                    return
+                }
 
-            const nearestSnap = findNearestSnapZone(
-                data.x,
-                data.y,
-                allowedPositions,
-                windowSize.width,
-                windowSize.height,
-                elementWidth,
-                elementHeight,
-                padding,
-                snapThreshold
-            )
+                const width = elementSize?.width ?? 0
+                const height = elementSize?.height ?? 0
 
-            if (nearestSnap) {
-                setSnapPosition(nearestSnap)
-                setFreePosition(null)
-                const snappedCoords = snapPositionToCoords(
-                    nearestSnap,
+                const coords = snapPositionToCoords(
+                    targetPosition,
                     windowSize.width,
                     windowSize.height,
-                    elementWidth,
-                    elementHeight,
+                    width,
+                    height,
                     padding
                 )
-                setDragPosition(snappedCoords)
-                if (persistKey) {
-                    persistState(persistKey, { snapPosition: nearestSnap, freePosition: null })
-                }
-            } else {
-                setSnapPosition(null)
-                setFreePosition({ x: data.x, y: data.y })
-                if (persistKey) {
-                    persistState(persistKey, { snapPosition: null, freePosition: { x: data.x, y: data.y } })
-                }
-            }
 
-            onDragStop?.()
+                setSnapPosition(targetPosition)
+                setFreePosition(null)
+                setDragPosition(coords)
+
+                if (persistKey) {
+                    persistState(persistKey, { snapPosition: targetPosition, freePosition: null })
+                }
+            },
+        }),
+        [snapPosition, elementSize, windowSize.width, windowSize.height, padding, persistKey]
+    )
+
+    // Update window size on resize
+    useEffect(() => {
+        const handleResize = (): void => {
+            setWindowSize({ width: window.innerWidth, height: window.innerHeight })
+        }
+        window.addEventListener('resize', handleResize)
+        return () => window.removeEventListener('resize', handleResize)
+    }, [])
+
+    // Measure element after mount using ResizeObserver for accuracy
+    useEffect(() => {
+        const element = nodeRef.current
+        if (!element) {
+            return
         }
 
-        return (
-            <>
-                {isDragging && (
-                    <SnapZonesOverlay snapZones={snapZones} activePosition={snapPosition} size={snapThreshold} />
-                )}
-                <Draggable
-                    nodeRef={nodeRef}
-                    handle={handle}
-                    position={dragPosition}
-                    onStart={handleDragStart}
-                    onDrag={handleDrag}
-                    onStop={handleDragStop}
-                >
-                    <div
-                        ref={nodeRef}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            position: 'fixed',
-                            top: 0,
-                            left: 0,
-                            zIndex: 'var(--z-modal)',
-                            visibility: elementSize ? 'visible' : 'hidden',
-                        }}
-                    >
-                        {children}
-                    </div>
-                </Draggable>
-            </>
-        )
+        const updateSize = (): void => {
+            setElementSize({
+                width: element.offsetWidth,
+                height: element.offsetHeight,
+            })
+        }
+
+        const observer = new ResizeObserver(updateSize)
+        observer.observe(element)
+        updateSize()
+
+        return () => observer.disconnect()
+    }, [])
+
+    const snapZones = useMemo(
+        () => getSnapZonePositions(windowSize.width, windowSize.height),
+        [windowSize.width, windowSize.height]
+    )
+
+    // Calculate the actual position based on snap or free position
+    const position = useMemo(() => {
+        // Use fallback dimensions until measured (element hidden until then anyway)
+        const width = elementSize?.width ?? 0
+        const height = elementSize?.height ?? 0
+
+        if (freePosition) {
+            return {
+                x: Math.max(padding, Math.min(freePosition.x, windowSize.width - width - padding)),
+                y: Math.max(padding, Math.min(freePosition.y, windowSize.height - height - padding)),
+            }
+        }
+
+        if (snapPosition) {
+            return snapPositionToCoords(snapPosition, windowSize.width, windowSize.height, width, height, padding)
+        }
+
+        return snapPositionToCoords(defaultSnapPosition, windowSize.width, windowSize.height, width, height, padding)
+    }, [freePosition, snapPosition, windowSize.width, windowSize.height, padding, defaultSnapPosition, elementSize])
+
+    // Update drag position when calculated position changes (for controlled mode)
+    useEffect(() => {
+        if (!isDragging) {
+            setDragPosition(position)
+        }
+    }, [position, isDragging])
+
+    const handleDragStart = (): void => {
+        setIsDragging(true)
+        onDragStart?.()
     }
-)
+
+    const handleDrag = (_e: DraggableEvent, data: DraggableData): void => {
+        if (!nodeRef.current) {
+            return
+        }
+
+        const elementWidth = nodeRef.current.offsetWidth
+        const elementHeight = nodeRef.current.offsetHeight
+
+        const nearestSnap = findNearestSnapZone(
+            data.x,
+            data.y,
+            allowedPositions,
+            windowSize.width,
+            windowSize.height,
+            elementWidth,
+            elementHeight,
+            padding,
+            snapThreshold
+        )
+        setSnapPosition(nearestSnap)
+        setDragPosition({ x: data.x, y: data.y })
+    }
+
+    const handleDragStop = (_e: DraggableEvent, data: DraggableData): void => {
+        setIsDragging(false)
+
+        if (!nodeRef.current) {
+            onDragStop?.()
+            return
+        }
+
+        const elementWidth = nodeRef.current.offsetWidth
+        const elementHeight = nodeRef.current.offsetHeight
+
+        const nearestSnap = findNearestSnapZone(
+            data.x,
+            data.y,
+            allowedPositions,
+            windowSize.width,
+            windowSize.height,
+            elementWidth,
+            elementHeight,
+            padding,
+            snapThreshold
+        )
+
+        if (nearestSnap) {
+            setSnapPosition(nearestSnap)
+            setFreePosition(null)
+            const snappedCoords = snapPositionToCoords(
+                nearestSnap,
+                windowSize.width,
+                windowSize.height,
+                elementWidth,
+                elementHeight,
+                padding
+            )
+            setDragPosition(snappedCoords)
+            if (persistKey) {
+                persistState(persistKey, { snapPosition: nearestSnap, freePosition: null })
+            }
+        } else {
+            setSnapPosition(null)
+            setFreePosition({ x: data.x, y: data.y })
+            if (persistKey) {
+                persistState(persistKey, { snapPosition: null, freePosition: { x: data.x, y: data.y } })
+            }
+        }
+
+        onDragStop?.()
+    }
+
+    return (
+        <>
+            {isDragging && (
+                <SnapZonesOverlay snapZones={snapZones} activePosition={snapPosition} size={snapThreshold} />
+            )}
+            <Draggable
+                nodeRef={nodeRef}
+                handle={handle}
+                position={dragPosition}
+                onStart={handleDragStart}
+                onDrag={handleDrag}
+                onStop={handleDragStop}
+            >
+                <div
+                    ref={nodeRef}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        zIndex: 'var(--z-modal)',
+                        visibility: elementSize ? 'visible' : 'hidden',
+                    }}
+                >
+                    {children}
+                </div>
+            </Draggable>
+        </>
+    )
+}

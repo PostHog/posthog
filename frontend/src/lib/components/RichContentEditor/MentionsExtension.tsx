@@ -3,7 +3,7 @@ import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
@@ -18,8 +18,9 @@ type MentionsProps = {
     range: EditorRange
     query?: string
     decorationNode?: any
-    onClose?: () => void
     editor: Editor
+    ref?: React.RefObject<MentionsRef>
+    onClose?: () => void
 }
 
 type MentionsPopoverProps = MentionsProps & {
@@ -31,10 +32,7 @@ type MentionsRef = {
     onKeyDown: (event: KeyboardEvent) => boolean
 }
 
-export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCommands(
-    { range, onClose, query, editor }: MentionsProps,
-    ref
-): JSX.Element | null {
+export function Mentions({ ref, range, onClose, query, editor }: MentionsProps): JSX.Element | null {
     const { meFirstMembers } = useValues(membersLogic)
 
     // We start with 1 because the first item is the text controls
@@ -138,12 +136,16 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
             )}
         </div>
     )
-})
+}
 
-const MentionsPopover = forwardRef<MentionsRef, MentionsPopoverProps>(function MentionsPopover(
-    { visible = true, decorationNode, children, onClose, ...props }: MentionsPopoverProps,
-    ref
-): JSX.Element | null {
+const MentionsPopover = function MentionsPopover({
+    ref,
+    visible = true,
+    decorationNode,
+    children,
+    onClose,
+    ...props
+}: MentionsPopoverProps): JSX.Element | null {
     return (
         <Popover
             placement="bottom-start"
@@ -156,7 +158,7 @@ const MentionsPopover = forwardRef<MentionsRef, MentionsPopoverProps>(function M
             {children}
         </Popover>
     )
-})
+}
 
 const MentionsPluginKey = new PluginKey('mentions')
 

@@ -5,4 +5,5 @@ export interface PropertyIconProps {
     value?: string
     className?: string
     onClick?: HTMLAttributes<HTMLDivElement>['onClick']
+    ref?: React.RefObject<HTMLDivElement>
 }

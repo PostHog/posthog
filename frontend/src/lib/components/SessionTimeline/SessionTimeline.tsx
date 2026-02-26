@@ -1,5 +1,5 @@
 import { cva } from 'cva'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import { Link, Spinner } from '@posthog/lemon-ui'
 
@@ -189,31 +189,33 @@ type SessionTimelineItemContainerProps = RendererProps<TimelineItem> & {
     renderer: ItemRenderer<TimelineItem>
     selected: boolean
     onTimeClick?: (timestamp: Dayjs) => void
+    ref?: React.RefObject<HTMLDivElement>
 }
 
-const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineItemContainerProps>(
-    function SessionTimelineItemContainer(
-        { renderer, item, selected, onTimeClick }: SessionTimelineItemContainerProps,
-        ref
-    ): JSX.Element {
-        return (
-            <div ref={ref} className={itemContainer({ selected })} data-item-id={item.id}>
-                <span className="text-xs text-tertiary w-[20px] shrink-0 text-center">
-                    <renderer.sourceIcon item={item} />
-                </span>
-                <span className="text-xs text-tertiary w-[50px] shrink-0 text-center">
-                    <Link className="text-tertiary hover:text-accent" onClick={() => onTimeClick?.(item.timestamp)}>
-                        {item.timestamp.format('HH:mm:ss')}
-                    </Link>
-                </span>
-                <div className="shrink-0 w-[20px] text-center">{renderer.categoryIcon}</div>
-                <div className="flex-grow">
-                    <renderer.render item={item} />
-                </div>
+const SessionTimelineItemContainer = function SessionTimelineItemContainer({
+    ref,
+    renderer,
+    item,
+    selected,
+    onTimeClick,
+}: SessionTimelineItemContainerProps): JSX.Element {
+    return (
+        <div ref={ref} className={itemContainer({ selected })} data-item-id={item.id}>
+            <span className="text-xs text-tertiary w-[20px] shrink-0 text-center">
+                <renderer.sourceIcon item={item} />
+            </span>
+            <span className="text-xs text-tertiary w-[50px] shrink-0 text-center">
+                <Link className="text-tertiary hover:text-accent" onClick={() => onTimeClick?.(item.timestamp)}>
+                    {item.timestamp.format('HH:mm:ss')}
+                </Link>
+            </span>
+            <div className="shrink-0 w-[20px] text-center">{renderer.categoryIcon}</div>
+            <div className="flex-grow">
+                <renderer.render item={item} />
             </div>
-        )
-    }
-)
+        </div>
+    )
+}
 
 const itemCategoryToggle = cva({
     base: 'shrink-0',

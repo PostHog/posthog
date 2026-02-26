@@ -53,23 +53,21 @@ interface LemonTextAreaWithEnterProps extends LemonTextAreaPropsBase {
 export type LemonTextAreaProps = LemonTextAreaWithEnterProps | LemonTextAreaWithCmdEnterProps
 
 /** A `textarea` component for multi-line text. */
-export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function LemonTextArea(
-    {
-        className,
-        onChange,
-        onPressEnter,
-        onPressCmdEnter,
-        minRows = 3,
-        onKeyDown,
-        stopPropagation,
-        actions,
-        rightFooter,
-        autoFocus,
-        hideFocus = false,
-        ...textProps
-    },
-    ref
-): JSX.Element {
+export function LemonTextArea({
+    ref,
+    className,
+    onChange,
+    onPressEnter,
+    onPressCmdEnter,
+    minRows = 3,
+    onKeyDown,
+    stopPropagation,
+    actions,
+    rightFooter,
+    autoFocus,
+    hideFocus = false,
+    ...textProps
+}: LemonTextAreaProps): JSX.Element {
     const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
 
@@ -132,4 +130,4 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
             ) : null}
         </div>
     )
-})
+}

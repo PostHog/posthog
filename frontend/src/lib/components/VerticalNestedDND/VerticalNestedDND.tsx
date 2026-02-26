@@ -28,7 +28,7 @@ import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
 import debounce from 'lodash.debounce'
 import isEqual from 'lodash.isequal'
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 
@@ -445,7 +445,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
             return null
         }
         return (
-            <Container
+            <Container_
                 containerItemId={containerId}
                 renderContainerItem={renderContainerItem}
                 item={item}
@@ -462,7 +462,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                         onRemove={NOOP}
                     />
                 ))}
-            </Container>
+            </Container_>
         )
     }
 
@@ -637,7 +637,7 @@ function DroppableContainer<ChildItem extends VDNDChildItem, ContainerItem exten
     })
 
     return (
-        <Container
+        <Container_
             ref={disabled ? undefined : setNodeRef}
             isDragging={isDragging}
             transform={CSS.Translate.toString(transform)}
@@ -650,7 +650,7 @@ function DroppableContainer<ChildItem extends VDNDChildItem, ContainerItem exten
             {...props}
         >
             {children}
-        </Container>
+        </Container_>
     )
 }
 
@@ -673,29 +673,28 @@ export interface ContainerProps<Item extends VNDNDContainerItem<any>> {
         callbacks: { onAddChild: (containerId: UniqueIdentifier) => void }
     ): JSX.Element | null
     item: Item
+    ref?: React.Ref<HTMLDivElement>
 }
 
-export const Container = forwardRef(function Container_<Item extends VNDNDContainerItem<any>>(
-    {
-        children,
-        handleProps,
-        onClick,
-        onRemove,
-        onAddChild,
-        containerItemId,
-        placeholder,
-        style,
-        isDragging,
-        transform,
-        transition,
-        renderContainerItem,
-        updateContainerItem,
-        item,
-        renderAddChildItem,
-        ...props
-    }: ContainerProps<Item>,
-    ref: React.ForwardedRef<HTMLDivElement>
-) {
+export function Container_<Item extends VNDNDContainerItem<any>>({
+    ref,
+    children,
+    handleProps,
+    onClick,
+    onRemove,
+    onAddChild,
+    containerItemId,
+    placeholder,
+    style,
+    isDragging,
+    transform,
+    transition,
+    renderContainerItem,
+    updateContainerItem,
+    item,
+    renderAddChildItem,
+    ...props
+}: ContainerProps<Item>): JSX.Element {
     const Component = onClick ? 'button' : 'div'
 
     return (
@@ -714,7 +713,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
             tabIndex={onClick ? 0 : undefined}
         >
             <div className="flex flex-row justify-between px-2 deprecated-space-x-2 items-start">
-                <Handle {...handleProps} />
+                <Handle_ {...handleProps} />
                 <div className="flex-1 self-stretch">
                     {renderContainerItem ? (
                         renderContainerItem(item, { updateContainerItem })
@@ -742,7 +741,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
             </div>
         </Component>
     )
-})
+}
 
 export interface ChildItemProps<Item extends VDNDChildItem> {
     dragOverlay?: boolean
@@ -818,7 +817,7 @@ export const ChildItem = React.memo(
                     tabIndex={!handle ? 0 : undefined}
                     className="flex flex-row justify-between w-full deprecated-space-x-2 items-start"
                 >
-                    <Handle {...handleProps} {...listeners} />
+                    <Handle_ {...handleProps} {...listeners} />
                     <div className="flex-1 self-stretch">
                         {renderChildItem ? (
                             renderChildItem(item, { updateChildItem })
@@ -843,7 +842,7 @@ export function Remove(props: LemonButtonProps): JSX.Element {
     )
 }
 
-export const Handle = forwardRef<HTMLButtonElement, LemonButtonProps>(function Handle_(props, ref) {
+export function Handle_({ ref, ...props }: LemonButtonProps): JSX.Element {
     return (
         <LemonButton type="tertiary" fullWidth={false} ref={ref} size="small" {...props} className="self-start">
             <div>
@@ -851,4 +850,4 @@ export const Handle = forwardRef<HTMLButtonElement, LemonButtonProps>(function H
             </div>
         </LemonButton>
     )
-})
+}

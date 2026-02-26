@@ -1,7 +1,7 @@
 import './PropertyKeyInfo.scss'
 
 import clsx from 'clsx'
-import { forwardRef, cloneElement, useState } from 'react'
+import { cloneElement, useState } from 'react'
 
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
@@ -22,20 +22,19 @@ interface PropertyKeyInfoProps {
     /** @default true */
     ellipsis?: boolean
     className?: string
+    ref?: React.RefObject<HTMLSpanElement>
 }
 
-export const PropertyKeyInfo = forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(function PropertyKeyInfo(
-    {
-        value,
-        type = TaxonomicFilterGroupType.EventProperties,
-        disablePopover = false,
-        disableIcon = false,
-        ellipsis = true,
-        className = '',
-        displayText,
-    },
-    ref
-): JSX.Element {
+export function PropertyKeyInfo({
+    ref,
+    value,
+    type = TaxonomicFilterGroupType.EventProperties,
+    disablePopover = false,
+    disableIcon = false,
+    ellipsis = true,
+    className = '',
+    displayText,
+}: PropertyKeyInfoProps): JSX.Element {
     const [popoverVisible, setPopoverVisible] = useState(false)
 
     value = value?.toString() ?? '' // convert to string
@@ -114,4 +113,4 @@ export const PropertyKeyInfo = forwardRef<HTMLSpanElement, PropertyKeyInfoProps>
             })}
         </Popover>
     )
-})
+}

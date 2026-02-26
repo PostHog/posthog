@@ -89,7 +89,7 @@ export type TextInputBaseProps = {
 
 export interface TextInputPrimitiveProps
     extends TextInputBaseProps, Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
-    ref?: React.RefObject<HTMLInputElement>
+    ref?: React.Ref<HTMLInputElement>
 }
 
 export const TextInputPrimitive = ({ ref, ...props }: TextInputPrimitiveProps): JSX.Element => {
@@ -112,11 +112,11 @@ export const TextInputPrimitive = ({ ref, ...props }: TextInputPrimitiveProps): 
             // Update internal ref
             ;(internalRef as React.MutableRefObject<HTMLInputElement | null>).current = node
 
-            // Update forwarded ref
+            // Update external ref
             if (typeof ref === 'function') {
                 ref(node)
             } else if (ref) {
-                ref.current = node
+                ;(ref as React.MutableRefObject<HTMLInputElement | null>).current = node
             }
         },
         [ref]

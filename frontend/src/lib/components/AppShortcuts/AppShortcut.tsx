@@ -1,5 +1,5 @@
 import { useMergeRefs } from '@floating-ui/react'
-import { ReactElement, cloneElement, forwardRef, isValidElement } from 'react'
+import { ReactElement, cloneElement, isValidElement } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -21,12 +21,20 @@ interface AppShortcutProps extends Omit<AppShortcutType, 'ref' | 'keybind' | 'in
     interaction: 'click' | 'focus'
     /** If true, the keyboard shortcut will not be registered and tooltip keyboard shortcut will not be added to the childs tooltip */
     disabled?: boolean
+    ref?: React.RefObject<HTMLElement>
 }
 
-export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(function AppShortcut(
-    { children, name, keybind, intent, interaction, scope = 'global', disabled = false, priority = 0 },
-    forwardedRef
-): ReactElement {
+export function AppShortcut({
+    ref: forwardedRef,
+    children,
+    name,
+    keybind,
+    intent,
+    interaction,
+    scope = 'global',
+    disabled = false,
+    priority = 0,
+}: AppShortcutProps): ReactElement {
     const { callbackRef } = useAppShortcut({
         name,
         keybind,
@@ -71,4 +79,4 @@ export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(function Ap
         tooltip: finalTooltip,
         className: cn(childProps.className as string | undefined),
     } as Record<string, unknown>)
-})
+}

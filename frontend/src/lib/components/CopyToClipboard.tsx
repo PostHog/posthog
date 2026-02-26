@@ -24,6 +24,7 @@ interface InlinePropsBase {
     style?: React.CSSProperties
     /** @default true */
     iconMargin?: boolean
+    ref?: React.RefObject<HTMLSpanElement>
 }
 interface InlinePropsWithStringInside extends InlinePropsBase {
     children: string
@@ -35,24 +36,22 @@ interface InlinePropsWithJSXInside extends InlinePropsBase {
 }
 type InlineProps = InlinePropsWithStringInside | InlinePropsWithJSXInside
 
-export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlineProps>(function CopyToClipboardInline(
-    {
-        children,
-        explicitValue,
-        description,
-        selectable = false,
-        isValueSensitive = false,
-        tooltipMessage = null,
-        iconStyle,
-        iconPosition = 'end',
-        iconSize = 'small',
-        className,
-        style,
-        iconMargin = true,
-        ...props
-    },
-    ref
-) {
+export function CopyToClipboardInline({
+    ref,
+    children,
+    explicitValue,
+    description,
+    selectable = false,
+    isValueSensitive = false,
+    tooltipMessage = null,
+    iconStyle,
+    iconPosition = 'end',
+    iconSize = 'small',
+    className,
+    style,
+    iconMargin = true,
+    ...props
+}: InlineProps): JSX.Element {
     const copy = (): void => void copyToClipboard((explicitValue ?? children) as string, description)
 
     let content = (
@@ -92,4 +91,4 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
     ) : (
         <>{content}</>
     )
-})
+}

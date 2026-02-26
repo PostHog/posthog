@@ -14,6 +14,7 @@ export interface AccessControlActionProps<P extends AccessControlActionChildrenP
     resourceType: AccessControlResourceType
     minAccessLevel: AccessControlLevel
     userAccessLevel?: AccessControlLevel
+    ref?: React.RefObject<unknown>
 }
 
 // This is a wrapper around a component that checks if the user has access to the resource
@@ -23,33 +24,34 @@ export interface AccessControlActionProps<P extends AccessControlActionChildrenP
 // the `disabled` and `disabledReason` props. This means we are accepting any component and
 // then setting the props at runtime even in case they "shouldn't" receive them.
 // This is not problematic during runtime but it's admitedly slightly confusing
-export const AccessControlAction = React.forwardRef(function AccessControlActionInner<
-    P extends AccessControlActionChildrenProps,
->(
-    { children, resourceType, minAccessLevel, userAccessLevel }: AccessControlActionProps<P>,
-    ref: React.ForwardedRef<unknown>
-): JSX.Element {
+export function AccessControlActionInner<P extends AccessControlActionChildrenProps>({
+    ref,
+    children,
+    resourceType,
+    minAccessLevel,
+    userAccessLevel,
+}: AccessControlActionProps<P>): JSX.Element {
     const disabledReason = getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
 
     // Check if children is a component function or a rendered element
     // If it's a component function, we need to render it with the props
     if (typeof children === 'function') {
-        const Component = children as React.ComponentType<P>
+        const Component = children
         const componentProps = {
             disabled: !!disabledReason,
             disabledReason: disabledReason,
             ref,
-        } as P & { ref: React.ForwardedRef<unknown> }
+        } as P & { ref: React.RefObject<unknown> }
 
         return <Component {...componentProps} />
     }
 
     // If it's a rendered element, we need to clone it overloading the props.
     // Forward ref to support wrappers used as popover/dropdown triggers.
-    const element = children as React.ReactElement<P>
+    const element = children
     return React.cloneElement<P>(element, {
         disabled: element.props.disabled ?? !!disabledReason,
         disabledReason: element.props.disabledReason ?? disabledReason,
         ref,
-    } as Partial<P> & { ref: React.ForwardedRef<unknown> })
-})
+    } as Partial<P> & { ref: React.RefObject<unknown> })
+}

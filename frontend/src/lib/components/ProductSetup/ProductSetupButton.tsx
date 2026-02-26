@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { forwardRef } from 'react'
 
 import { IconTarget } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -81,12 +80,15 @@ interface MinimizedButtonProps {
     remainingCount: number
     isActive: boolean
     onClick: () => void
+    ref?: React.RefObject<HTMLButtonElement>
 }
 
-const MinimizedButton = forwardRef<HTMLButtonElement, MinimizedButtonProps>(function MinimizedButton(
-    { remainingCount, isActive, onClick },
-    ref
-) {
+const MinimizedButton = function MinimizedButton({
+    ref,
+    remainingCount,
+    isActive,
+    onClick,
+}: MinimizedButtonProps): JSX.Element {
     return (
         <LemonButton
             ref={ref}
@@ -106,19 +108,23 @@ const MinimizedButton = forwardRef<HTMLButtonElement, MinimizedButtonProps>(func
             data-attr="global-product-setup-button-minimized"
         />
     )
-})
+}
 
 interface ExpandedButtonProps {
     remainingCount: number
     showBadge: boolean
     isActive: boolean
     onClick: () => void
+    ref?: React.RefObject<HTMLButtonElement>
 }
 
-const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(function ExpandedButton(
-    { remainingCount, showBadge, isActive, onClick },
-    ref
-) {
+const ExpandedButton = function ExpandedButton({
+    ref,
+    remainingCount,
+    showBadge,
+    isActive,
+    onClick,
+}: ExpandedButtonProps): JSX.Element {
     return (
         <LemonButton
             ref={ref}
@@ -137,4 +143,4 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
             Quick start
         </LemonButton>
     )
-})
+}

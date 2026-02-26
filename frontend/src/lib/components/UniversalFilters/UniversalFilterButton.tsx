@@ -26,60 +26,69 @@ export interface UniversalFilterButtonProps {
     filter: UniversalFilterValue
     disabledReason?: string
     className?: string
+    ref?: React.RefObject<HTMLElement>
 }
 
-export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilterButtonProps>(
-    function UniversalFilterButton({ onClick, onClose, filter, className }, ref): JSX.Element {
-        const closable = onClose !== undefined
+export function UniversalFilterButton({
+    ref,
+    onClick,
+    onClose,
+    filter,
+    className,
+}: UniversalFilterButtonProps): JSX.Element {
+    const closable = onClose !== undefined
 
-        const isEditable = isEditableFilter(filter)
-        const isAction = isActionFilter(filter)
-        const isEvent = isEventFilter(filter)
-        const isFeatureFlag = isFeatureFlagFilter(filter)
-        const button = (
-            <div
-                ref={ref as any}
-                onClick={isEditable ? onClick : undefined}
-                className={clsx('UniversalFilterButton inline-flex items-center', className, {
-                    'UniversalFilterButton--clickable': isEditable,
-                    'UniversalFilterButton--closeable': closable,
-                    'ph-no-capture': true,
-                })}
-            >
-                <div className="flex items-center flex-1 truncate gap-1">
-                    {isEvent ? (
-                        <EventLabel filter={filter} onClick={onClick} />
-                    ) : isAction ? (
-                        <EntityFilterInfo filter={filter} />
-                    ) : isFeatureFlag ? (
-                        <FeatureFlagLabel filter={filter} />
-                    ) : (
-                        <PropertyLabel filter={filter} />
-                    )}
-                </div>
-
-                {closable && (
-                    // The context below prevents close button from going into active status when filter popover is open
-                    <PopoverReferenceContext.Provider value={null}>
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconX className="w-3 h-3" />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                onClose()
-                            }}
-                            className="p-0.5"
-                        />
-                    </PopoverReferenceContext.Provider>
+    const isEditable = isEditableFilter(filter)
+    const isAction = isActionFilter(filter)
+    const isEvent = isEventFilter(filter)
+    const isFeatureFlag = isFeatureFlagFilter(filter)
+    const button = (
+        <div
+            ref={ref as any}
+            onClick={isEditable ? onClick : undefined}
+            className={clsx('UniversalFilterButton inline-flex items-center', className, {
+                'UniversalFilterButton--clickable': isEditable,
+                'UniversalFilterButton--closeable': closable,
+                'ph-no-capture': true,
+            })}
+        >
+            <div className="flex items-center flex-1 truncate gap-1">
+                {isEvent ? (
+                    <EventLabel filter={filter} onClick={onClick} />
+                ) : isAction ? (
+                    <EntityFilterInfo filter={filter} />
+                ) : isFeatureFlag ? (
+                    <FeatureFlagLabel filter={filter} />
+                ) : (
+                    <PropertyLabel filter={filter} />
                 )}
             </div>
-        )
 
-        return button
-    }
-)
+            {closable && (
+                // The context below prevents close button from going into active status when filter popover is open
+                <PopoverReferenceContext.Provider value={null}>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX className="w-3 h-3" />}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onClose()
+                        }}
+                        className="p-0.5"
+                    />
+                </PopoverReferenceContext.Provider>
+            )}
+        </div>
+    )
 
-const PropertyLabel = ({ filter }: { filter: AnyPropertyFilter }): JSX.Element => {
+    return button
+}
+
+interface PropertyLabelProps {
+    filter: AnyPropertyFilter
+}
+
+const PropertyLabel = ({ filter }: PropertyLabelProps): JSX.Element => {
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 

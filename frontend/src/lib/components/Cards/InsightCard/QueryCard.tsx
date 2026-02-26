@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { forwardRef, useState } from 'react'
+import { useState } from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { LemonMenuItemList } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -29,26 +29,25 @@ export interface QueryCardProps extends Pick<InsightCardProps, 'highlighted' | '
     uniqueKey?: string | number
     /** Additional controls to show in the top controls area */
     extraControls?: JSX.Element | null
+    ref?: React.RefObject<HTMLDivElement>
 }
 
 /** This is like InsightCard, except for presentation of queries that aren't saved insights. */
-export const QueryCard = forwardRef<HTMLDivElement, QueryCardProps>(function QueryCard(
-    {
-        query,
-        title,
-        description,
-        context,
-        highlighted,
-        ribbonColor,
-        className,
-        sceneSource,
-        attachTo,
-        uniqueKey,
-        extraControls,
-        ...divProps
-    },
-    ref
-): JSX.Element {
+export function QueryCard({
+    ref,
+    query,
+    title,
+    description,
+    context,
+    highlighted,
+    ribbonColor,
+    className,
+    sceneSource,
+    attachTo,
+    uniqueKey,
+    extraControls,
+    ...divProps
+}: QueryCardProps): JSX.Element {
     const { theme } = useValues(themeLogic)
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
@@ -101,4 +100,4 @@ export const QueryCard = forwardRef<HTMLDivElement, QueryCardProps>(function Que
             </ErrorBoundary>
         </div>
     )
-})
+}

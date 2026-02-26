@@ -2,7 +2,7 @@ import './TaxonomicFilter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconKeyboard } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -139,17 +139,25 @@ export function TaxonomicFilter({
     )
 }
 
-export const TaxonomicFilterSearchInput = forwardRef<
-    HTMLInputElement,
-    {
+type TaxonomicFilterSearchInputProps = Pick<
+    LemonInputPropsText,
+    'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus'
+> &
+    Pick<TooltipProps, 'docLink'> & {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
-    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus'> &
-        Pick<TooltipProps, 'docLink'>
->(function UniversalSearchInput(
-    { searchInputRef, onClose, onChange, docLink, autoFocus = true, ...props },
-    ref
-): JSX.Element {
+        ref?: React.RefObject<HTMLInputElement>
+    }
+
+export function TaxonomicFilterSearchInput({
+    ref,
+    searchInputRef,
+    onClose,
+    onChange,
+    docLink,
+    autoFocus = true,
+    ...props
+}: TaxonomicFilterSearchInputProps): JSX.Element {
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
@@ -236,4 +244,4 @@ export const TaxonomicFilterSearchInput = forwardRef<
             autoFocus={autoFocus}
         />
     )
-})
+}

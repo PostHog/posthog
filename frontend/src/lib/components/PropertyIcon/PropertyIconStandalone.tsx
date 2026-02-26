@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { Ref, forwardRef } from 'react'
 
 import { IconGearFilled, IconHeadset, IconPhone, IconTabletPortrait } from '@posthog/icons'
 
@@ -84,10 +83,7 @@ export const PROPERTIES_ICON_MAP: Record<string, Record<string, JSX.Element>> = 
     },
 }
 
-export const PropertyIconStandalone = forwardRef(function PropertyIconBase(
-    { property, value, className }: PropertyIconProps,
-    ref: Ref<HTMLDivElement>
-): JSX.Element {
+export function PropertyIconStandalone({ ref, property, value, className }: PropertyIconProps): JSX.Element {
     if (!property || !(property in PROPERTIES_ICON_MAP)) {
         return <></>
     }
@@ -106,4 +102,4 @@ export const PropertyIconStandalone = forwardRef(function PropertyIconBase(
             {icon}
         </div>
     )
-})
+}

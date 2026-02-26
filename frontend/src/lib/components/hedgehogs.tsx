@@ -1,5 +1,5 @@
 // Loads custom icons (some icons may come from a third-party library)
-import { forwardRef, ImgHTMLAttributes } from 'react'
+import { ImgHTMLAttributes } from 'react'
 
 import threeBearsHogs from 'public/hedgehog/3-bears-hogs.png'
 import bigLeaguesHog from 'public/hedgehog/big-leagues.png'
@@ -49,20 +49,22 @@ import xRayHog from 'public/hedgehog/x-ray-hog.png'
 import xRayHog2 from 'public/hedgehog/x-ray-hogs-02.png'
 import ycHog from 'public/hedgehog/yc-hog.png'
 
-type HedgehogProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>
+interface BaseHedgehogProps extends ImgHTMLAttributes<HTMLImageElement> {
+    ref?: React.RefObject<HTMLImageElement>
+}
 
 // w400 x h400
-const SquaredHedgehog = forwardRef<HTMLImageElement, ImgHTMLAttributes<HTMLImageElement>>(
-    function SquaredHedgehog(props, ref): JSX.Element {
-        return <img src={props.src} width={400} height={400} alt="PostHog hedgehog" {...props} ref={ref} />
-    }
-)
+const SquaredHedgehog = function SquaredHedgehog({ ref, ...props }: BaseHedgehogProps): JSX.Element {
+    return <img src={props.src} width={400} height={400} alt="PostHog hedgehog" {...props} ref={ref} />
+}
 // any width x h400
-const RectangularHedgehog = forwardRef<HTMLImageElement, ImgHTMLAttributes<HTMLImageElement>>(
-    function RectangularHedgehog(props, ref): JSX.Element {
-        return <img src={props.src} height={400} alt="PostHog hedgehog" {...props} ref={ref} />
-    }
-)
+const RectangularHedgehog = function RectangularHedgehog({ ref, ...props }: BaseHedgehogProps): JSX.Element {
+    return <img src={props.src} height={400} alt="PostHog hedgehog" {...props} ref={ref} />
+}
+
+interface HedgehogProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> {
+    ref?: React.RefObject<HTMLImageElement>
+}
 
 export const SurprisedHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={surprisedHog} {...props} />
@@ -196,14 +198,12 @@ export const StopSignHog = (props: HedgehogProps): JSX.Element => {
 export const ThreeBearsHogs = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={threeBearsHogs} {...props} />
 }
-export const PopUpBinocularsHog = forwardRef<HTMLImageElement, HedgehogProps>(
-    function PopUpBinocularsHog(props, ref): JSX.Element {
-        return <RectangularHedgehog src={popUpBinocularsHog} {...props} ref={ref} />
-    }
-)
-export const DeskHog = forwardRef<HTMLImageElement, HedgehogProps>(function DeskHog(props, ref): JSX.Element {
+export function PopUpBinocularsHog({ ref, ...props }: HedgehogProps): JSX.Element {
+    return <RectangularHedgehog src={popUpBinocularsHog} {...props} ref={ref} />
+}
+export function DeskHog({ ref, ...props }: HedgehogProps): JSX.Element {
     return <RectangularHedgehog src={deskHog} {...props} ref={ref} />
-})
-export const GraphsHog = forwardRef<HTMLImageElement, HedgehogProps>(function GraphsHog(props, ref): JSX.Element {
+}
+export function GraphsHog({ ref, ...props }: HedgehogProps): JSX.Element {
     return <RectangularHedgehog src={graphsHog} {...props} ref={ref} />
-})
+}

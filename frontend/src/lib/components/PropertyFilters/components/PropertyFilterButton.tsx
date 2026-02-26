@@ -2,7 +2,6 @@ import './PropertyFilterButton.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { forwardRef } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
@@ -23,12 +22,18 @@ export interface PropertyFilterButtonProps {
     item: AnyPropertyFilter
     disabledReason?: string
     compact?: boolean
+    ref?: React.RefObject<HTMLElement>
 }
 
-export const PropertyFilterButton = forwardRef<HTMLElement, PropertyFilterButtonProps>(function PropertyFilterButton(
-    { onClick, onClose, children, item, disabledReason, compact = false },
-    ref
-): JSX.Element {
+export function PropertyFilterButton({
+    ref,
+    onClick,
+    onClose,
+    children,
+    item,
+    disabledReason,
+    compact = false,
+}: PropertyFilterButtonProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -90,4 +95,4 @@ export const PropertyFilterButton = forwardRef<HTMLElement, PropertyFilterButton
     }
 
     return button
-})
+}

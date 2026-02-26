@@ -2,7 +2,7 @@ import './index.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as React from 'react'
 
 import { IconClock, IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
@@ -38,6 +38,7 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     /** Timezone to display the time in (e.g., 'UTC', 'America/New_York'). If not set, uses local timezone.
      * Note: When set, forces timestampStyle to 'absolute' to avoid broken relative date comparisons. */
     displayTimezone?: string
+    ref?: React.RefObject<HTMLElement>
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -169,23 +170,21 @@ const TZLabelPopoverRow = React.memo(function TZLabelPopoverRow({
 
 /** Return a simple label component with timezone conversion UI. */
 
-const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
-    {
-        time,
-        showSeconds,
-        timestampStyle = 'relative',
-        formatDate,
-        formatTime,
-        showPopover = true,
-        noStyles = false,
-        title,
-        className,
-        children,
-        displayTimezone,
-        ...dropdownProps
-    },
-    ref
-): JSX.Element {
+const TZLabelRaw = function TZLabelRaw({
+    ref,
+    time,
+    showSeconds,
+    timestampStyle = 'relative',
+    formatDate,
+    formatTime,
+    showPopover = true,
+    noStyles = false,
+    title,
+    className,
+    children,
+    displayTimezone,
+    ...dropdownProps
+}: TZLabelProps): JSX.Element {
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
     const displayTime = useMemo(() => {
         if (!displayTimezone) {
@@ -263,6 +262,6 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     }
 
     return innerContent
-})
+}
 // Timezone calculations are quite expensive, so the component is memoized to reduce them.
 export const TZLabel = React.memo(TZLabelRaw) as typeof TZLabelRaw

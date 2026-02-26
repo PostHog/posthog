@@ -88,6 +88,7 @@ export interface LemonButtonPropsBase
     tooltipForceMount?: boolean
     /** Whether to stop event propagation on click */
     stopPropagation?: boolean
+    ref?: React.RefObject<HTMLButtonElement>
 }
 
 export type SideAction = Pick<
@@ -132,206 +133,202 @@ export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
 export type LemonButtonProps = LemonButtonWithoutSideActionProps | LemonButtonWithSideActionProps
 
 /** Styled button. */
-export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAttributes<HTMLButtonElement>> =
-    React.forwardRef(
-        (
-            {
-                children,
-                active = false,
-                className,
-                disabled,
-                disabledReason,
-                disabledReasonInteractive,
-                loading,
-                type = 'tertiary',
-                status = 'default',
-                icon,
-                sideIcon,
-                sideAction,
-                fullWidth,
-                center,
-                size,
-                tooltip,
-                tooltipPlacement,
-                tooltipArrowOffset,
-                htmlType = 'button',
-                noPadding,
-                to,
-                targetBlank,
-                hideExternalLinkIcon,
-                disableClientSideRouting,
-                onClick,
-                truncate = false,
-                buttonWrapper,
-                tooltipDocLink,
-                tooltipForceMount,
-                stopPropagation,
-                ...buttonProps
-            },
-            ref
-        ): JSX.Element => {
-            const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
-            const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
-            const within3000PageHeader = useContext(WithinPageHeaderContext)
+export const LemonButton = ({
+    ref,
+    children,
+    active = false,
+    className,
+    disabled,
+    disabledReason,
+    disabledReasonInteractive,
+    loading,
+    type = 'tertiary',
+    status = 'default',
+    icon,
+    sideIcon,
+    sideAction,
+    fullWidth,
+    center,
+    size,
+    tooltip,
+    tooltipPlacement,
+    tooltipArrowOffset,
+    htmlType = 'button',
+    noPadding,
+    to,
+    targetBlank,
+    hideExternalLinkIcon,
+    disableClientSideRouting,
+    onClick,
+    truncate = false,
+    buttonWrapper,
+    tooltipDocLink,
+    tooltipForceMount,
+    stopPropagation,
+    ...buttonProps
+}: LemonButtonProps): JSX.Element => {
+    const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
+    const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
+    const within3000PageHeader = useContext(WithinPageHeaderContext)
 
-            if (!active && popoverVisibility) {
-                active = true
+    if (!active && popoverVisibility) {
+        active = true
+    }
+
+    const usingSideActionDivider = sideAction && (sideAction.divider ?? !fullWidth)
+    if (sideAction) {
+        // Bogus `sideIcon` div prevents overflow under the side button.
+        sideIcon = (
+            <span
+                className={clsx(
+                    'LemonButtonWithSideAction__spacer',
+                    usingSideActionDivider && 'LemonButtonWithSideAction__spacer--divider'
+                )}
+            />
+        )
+    } else if (popoverPlacement) {
+        if (!children) {
+            if (icon === undefined) {
+                icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
             }
-
-            const usingSideActionDivider = sideAction && (sideAction.divider ?? !fullWidth)
-            if (sideAction) {
-                // Bogus `sideIcon` div prevents overflow under the side button.
-                sideIcon = (
-                    <span
-                        className={clsx(
-                            'LemonButtonWithSideAction__spacer',
-                            usingSideActionDivider && 'LemonButtonWithSideAction__spacer--divider'
-                        )}
-                    />
-                )
-            } else if (popoverPlacement) {
-                if (!children) {
-                    if (icon === undefined) {
-                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
-                    }
-                } else if (sideIcon === undefined) {
-                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
-                }
-            }
-            if (loading) {
-                icon = <Spinner textColored />
-                disabled = true // Cannot interact with a loading button
-            }
-            if (within3000PageHeader && parentPopoverLevel === -1) {
-                size = 'small' // Ensure that buttons in the page header are small (but NOT inside dropdowns!)
-            }
-
-            let tooltipContent: TooltipProps['title']
-            if (disabledReason) {
-                disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
-                if (tooltip) {
-                    tooltipContent = (
-                        <>
-                            {tooltip}
-                            <div className="mt-1 italic">{disabledReason}</div>
-                        </>
-                    )
-                } else {
-                    tooltipContent = <span className="italic">{disabledReason}</span>
-                }
-            } else {
-                tooltipContent = tooltip
-            }
-
-            const ButtonComponent = to ? Link : 'button'
-            const linkDependentProps = to
-                ? {
-                      disableClientSideRouting,
-                      target: targetBlank ? '_blank' : undefined,
-                      to: !disabled ? to : undefined,
-                  }
-                : { type: htmlType }
-
-            if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
-                buttonProps['aria-label'] = tooltip
-            }
-
-            let workingButton: JSX.Element = (
-                <ButtonComponent
-                    ref={ref as any}
-                    className={clsx(
-                        `LemonButton LemonButton--${type} LemonButton--status-${status}`,
-                        loading && `LemonButton--loading`,
-                        noPadding && `LemonButton--no-padding`,
-                        size && `LemonButton--${size}`,
-                        active && 'LemonButton--active',
-                        fullWidth && 'LemonButton--full-width',
-                        center && 'LemonButton--centered',
-                        !children && 'LemonButton--no-content',
-                        !!icon && `LemonButton--has-icon`,
-                        !!sideIcon && `LemonButton--has-side-icon`,
-                        truncate && 'LemonButton--truncate',
-                        className
-                    )}
-                    onClick={
-                        !disabled
-                            ? (event) => {
-                                  if (stopPropagation) {
-                                      event.stopPropagation()
-                                  }
-                                  onClick?.(event)
-                              }
-                            : undefined
-                    }
-                    // We are using the ARIA disabled instead of native HTML because of this:
-                    // https://css-tricks.com/making-disabled-buttons-more-inclusive/
-                    aria-disabled={disabled}
-                    {...linkDependentProps}
-                    {...buttonProps}
-                >
-                    <span className="LemonButton__chrome">
-                        {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-                        {children ? <span className="LemonButton__content">{children}</span> : null}
-                        {sideIcon ? (
-                            <span className="LemonButton__icon">{sideIcon}</span>
-                        ) : targetBlank && !hideExternalLinkIcon && !icon ? (
-                            <IconExternal />
-                        ) : null}
-                    </span>
-                </ButtonComponent>
-            )
-
-            if (buttonWrapper) {
-                workingButton = buttonWrapper(workingButton)
-            }
-
-            if (tooltipContent || tooltipDocLink) {
-                workingButton = (
-                    <Tooltip
-                        title={tooltipContent}
-                        placement={tooltipPlacement}
-                        arrowOffset={tooltipArrowOffset}
-                        docLink={tooltipDocLink}
-                        visible={tooltipForceMount}
-                        interactive={disabledReasonInteractive}
-                        closeDelayMs={disabledReasonInteractive ? INTERACTIVE_CLOSE_DELAY_MS : undefined}
-                    >
-                        {workingButton}
-                    </Tooltip>
-                )
-            }
-
-            if (sideAction) {
-                const { dropdown: sideDropdown, divider: _, ...sideActionRest } = sideAction
-                const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
-
-                workingButton = (
-                    <div
-                        onMouseEnter={buttonProps.onMouseEnter}
-                        className={clsx(
-                            `LemonButtonWithSideAction LemonButtonWithSideAction--${type}`,
-                            fullWidth && 'LemonButtonWithSideAction--full-width'
-                        )}
-                    >
-                        {workingButton}
-                        <div className="LemonButtonWithSideAction__side-button">
-                            <SideComponent
-                                type={type}
-                                size={size}
-                                status={status}
-                                dropdown={sideDropdown as LemonButtonDropdown}
-                                noPadding
-                                active={active}
-                                {...sideActionRest}
-                            />
-                        </div>
-                    </div>
-                )
-            }
-
-            return workingButton
+        } else if (sideIcon === undefined) {
+            sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
         }
+    }
+    if (loading) {
+        icon = <Spinner textColored />
+        disabled = true // Cannot interact with a loading button
+    }
+    if (within3000PageHeader && parentPopoverLevel === -1) {
+        size = 'small' // Ensure that buttons in the page header are small (but NOT inside dropdowns!)
+    }
+
+    let tooltipContent: TooltipProps['title']
+    if (disabledReason) {
+        disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
+        if (tooltip) {
+            tooltipContent = (
+                <>
+                    {tooltip}
+                    <div className="mt-1 italic">{disabledReason}</div>
+                </>
+            )
+        } else {
+            tooltipContent = <span className="italic">{disabledReason}</span>
+        }
+    } else {
+        tooltipContent = tooltip
+    }
+
+    const ButtonComponent = to ? Link : 'button'
+    const linkDependentProps = to
+        ? {
+              disableClientSideRouting,
+              target: targetBlank ? '_blank' : undefined,
+              to: !disabled ? to : undefined,
+          }
+        : { type: htmlType }
+
+    if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
+        buttonProps['aria-label'] = tooltip
+    }
+
+    let workingButton: JSX.Element = (
+        <ButtonComponent
+            ref={ref as any}
+            className={clsx(
+                `LemonButton LemonButton--${type} LemonButton--status-${status}`,
+                loading && `LemonButton--loading`,
+                noPadding && `LemonButton--no-padding`,
+                size && `LemonButton--${size}`,
+                active && 'LemonButton--active',
+                fullWidth && 'LemonButton--full-width',
+                center && 'LemonButton--centered',
+                !children && 'LemonButton--no-content',
+                !!icon && `LemonButton--has-icon`,
+                !!sideIcon && `LemonButton--has-side-icon`,
+                truncate && 'LemonButton--truncate',
+                className
+            )}
+            onClick={
+                !disabled
+                    ? (event) => {
+                          if (stopPropagation) {
+                              event.stopPropagation()
+                          }
+                          onClick?.(event)
+                      }
+                    : undefined
+            }
+            // We are using the ARIA disabled instead of native HTML because of this:
+            // https://css-tricks.com/making-disabled-buttons-more-inclusive/
+            aria-disabled={disabled}
+            {...linkDependentProps}
+            {...buttonProps}
+        >
+            <span className="LemonButton__chrome">
+                {icon ? <span className="LemonButton__icon">{icon}</span> : null}
+                {children ? <span className="LemonButton__content">{children}</span> : null}
+                {sideIcon ? (
+                    <span className="LemonButton__icon">{sideIcon}</span>
+                ) : targetBlank && !hideExternalLinkIcon && !icon ? (
+                    <IconExternal />
+                ) : null}
+            </span>
+        </ButtonComponent>
     )
+
+    if (buttonWrapper) {
+        workingButton = buttonWrapper(workingButton)
+    }
+
+    if (tooltipContent || tooltipDocLink) {
+        workingButton = (
+            <Tooltip
+                title={tooltipContent}
+                placement={tooltipPlacement}
+                arrowOffset={tooltipArrowOffset}
+                docLink={tooltipDocLink}
+                visible={tooltipForceMount}
+                interactive={disabledReasonInteractive}
+                closeDelayMs={disabledReasonInteractive ? INTERACTIVE_CLOSE_DELAY_MS : undefined}
+            >
+                {workingButton}
+            </Tooltip>
+        )
+    }
+
+    if (sideAction) {
+        const { dropdown: sideDropdown, divider: _, ...sideActionRest } = sideAction
+        const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
+
+        workingButton = (
+            <div
+                onMouseEnter={buttonProps.onMouseEnter}
+                className={clsx(
+                    `LemonButtonWithSideAction LemonButtonWithSideAction--${type}`,
+                    fullWidth && 'LemonButtonWithSideAction--full-width'
+                )}
+            >
+                {workingButton}
+                <div className="LemonButtonWithSideAction__side-button">
+                    <SideComponent
+                        type={type}
+                        size={size}
+                        status={status}
+                        dropdown={sideDropdown as LemonButtonDropdown}
+                        noPadding
+                        active={active}
+                        {...sideActionRest}
+                    />
+                </div>
+            </div>
+        )
+    }
+
+    return workingButton
+}
+
 LemonButton.displayName = 'LemonButton'
 
 export const WithinPageHeaderContext = React.createContext<boolean>(false)
@@ -346,13 +343,15 @@ export interface LemonButtonWithDropdownProps extends LemonButtonPropsBase {
  * The difference vs. plain `LemonButton` is dropdown visibility being controlled internally, which is more convenient.
  * @deprecated In almost all cases you should use the newer `LemonMenu` with a `LemonButton` child.
  */
-export const LemonButtonWithDropdown: React.FunctionComponent<
-    LemonButtonWithDropdownProps & React.RefAttributes<HTMLButtonElement>
-> = React.forwardRef(({ dropdown: dropdownProps, ...buttonProps }, ref): JSX.Element => {
+export const LemonButtonWithDropdown = ({
+    ref,
+    dropdown: dropdownProps,
+    ...buttonProps
+}: LemonButtonWithDropdownProps): JSX.Element => {
     return (
         <LemonDropdown {...dropdownProps}>
             <LemonButton ref={ref} {...buttonProps} />
         </LemonDropdown>
     )
-})
+}
 LemonButtonWithDropdown.displayName = 'LemonButtonWithDropdown'

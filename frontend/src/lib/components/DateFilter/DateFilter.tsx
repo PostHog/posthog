@@ -1,7 +1,7 @@
 import { Placement } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { forwardRef, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
@@ -69,39 +69,38 @@ interface RawDateFilterProps extends DateFilterProps {
     use24HourFormat?: boolean
     explicitDate?: boolean
     showExplicitDateToggle?: boolean
+    ref?: React.RefObject<HTMLButtonElement>
 }
 
-export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(function DateFilter(
-    {
-        showCustom,
-        showRollingRangePicker = true,
-        className,
-        disabledReason,
-        makeLabel,
-        onChange,
-        dateFrom,
-        dateTo,
-        dateOptions = dateMapping,
-        isDateFormatted = true,
-        size,
-        type,
-        dropdownPlacement = 'bottom-start',
-        max,
-        isFixedDateMode = false,
-        allowedRollingDateOptions,
-        allowTimePrecision = false,
-        allowFixedRangeWithTime = false,
-        placeholder,
-        fullWidth = false,
-        forceGranularity,
-        use24HourFormat = false,
-        explicitDate,
-        showExplicitDateToggle = false,
-        resolvedDateRange,
-        showJumpToTimestamp = false,
-    },
-    ref
-) {
+export function DateFilter({
+    ref,
+    showCustom,
+    showRollingRangePicker = true,
+    className,
+    disabledReason,
+    makeLabel,
+    onChange,
+    dateFrom,
+    dateTo,
+    dateOptions = dateMapping,
+    isDateFormatted = true,
+    size,
+    type,
+    dropdownPlacement = 'bottom-start',
+    max,
+    isFixedDateMode = false,
+    allowedRollingDateOptions,
+    allowTimePrecision = false,
+    allowFixedRangeWithTime = false,
+    placeholder,
+    fullWidth = false,
+    forceGranularity,
+    use24HourFormat = false,
+    explicitDate,
+    showExplicitDateToggle = false,
+    resolvedDateRange,
+    showJumpToTimestamp = false,
+}: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
         key,
@@ -366,4 +365,4 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             </LemonButton>
         </Popover>
     )
-})
+}

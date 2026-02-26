@@ -449,54 +449,53 @@ interface InsightDetailsProps {
         last_refresh: string | null
     }
     variablesOverride?: Record<string, HogQLVariable>
+    ref?: React.RefObject<HTMLDivElement>
 }
 
-export const InsightDetails = React.memo(
-    React.forwardRef<HTMLDivElement, InsightDetailsProps>(function InsightDetailsInternal(
-        { query, footerInfo, variablesOverride },
-        ref
-    ): JSX.Element {
-        return (
-            <div className="InsightDetails space-y-2" ref={ref}>
-                {(isInsightVizNode(query) ||
-                    isDataVisualizationNode(query) ||
-                    isDataTableNodeWithHogQLQuery(query)) && (
-                    <>
-                        <SeriesSummary query={query.source} />
-                        <VariablesSummary
-                            variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
-                            variablesOverride={variablesOverride}
-                        />
-                        <PropertiesSummary
-                            properties={
-                                isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties
-                            }
-                        />
-                        <InsightBreakdownSummary query={query.source} />
-                    </>
-                )}
-                {footerInfo && (
-                    <>
-                        <InsightDetailSectionDisplay icon={<IconUser />} label="Created by">
-                            <div className="flex items-center py-px gap-1.5">
-                                <ProfilePicture user={footerInfo.created_by} showName size="sm" />
-                                <TZLabel time={footerInfo.created_at} />
-                            </div>
+export const InsightDetails = React.memo(function InsightDetailsInternal({
+    ref,
+    query,
+    footerInfo,
+    variablesOverride,
+}: InsightDetailsProps): JSX.Element {
+    return (
+        <div className="InsightDetails space-y-2" ref={ref}>
+            {(isInsightVizNode(query) || isDataVisualizationNode(query) || isDataTableNodeWithHogQLQuery(query)) && (
+                <>
+                    <SeriesSummary query={query.source} />
+                    <VariablesSummary
+                        variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
+                        variablesOverride={variablesOverride}
+                    />
+                    <PropertiesSummary
+                        properties={
+                            isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties
+                        }
+                    />
+                    <InsightBreakdownSummary query={query.source} />
+                </>
+            )}
+            {footerInfo && (
+                <>
+                    <InsightDetailSectionDisplay icon={<IconUser />} label="Created by">
+                        <div className="flex items-center py-px gap-1.5">
+                            <ProfilePicture user={footerInfo.created_by} showName size="sm" />
+                            <TZLabel time={footerInfo.created_at} />
+                        </div>
+                    </InsightDetailSectionDisplay>
+                    <InsightDetailSectionDisplay icon={<IconPencil />} label="Last modified by">
+                        <div className="flex items-center py-px gap-1.5">
+                            <ProfilePicture user={footerInfo.last_modified_by} showName size="sm" />
+                            <TZLabel time={footerInfo.last_modified_at} />
+                        </div>
+                    </InsightDetailSectionDisplay>
+                    {footerInfo.last_refresh && (
+                        <InsightDetailSectionDisplay icon={<IconCalculator />} label="Last computed">
+                            <TZLabel time={footerInfo.last_refresh} />
                         </InsightDetailSectionDisplay>
-                        <InsightDetailSectionDisplay icon={<IconPencil />} label="Last modified by">
-                            <div className="flex items-center py-px gap-1.5">
-                                <ProfilePicture user={footerInfo.last_modified_by} showName size="sm" />
-                                <TZLabel time={footerInfo.last_modified_at} />
-                            </div>
-                        </InsightDetailSectionDisplay>
-                        {footerInfo.last_refresh && (
-                            <InsightDetailSectionDisplay icon={<IconCalculator />} label="Last computed">
-                                <TZLabel time={footerInfo.last_refresh} />
-                            </InsightDetailSectionDisplay>
-                        )}
-                    </>
-                )}
-            </div>
-        )
-    })
-)
+                    )}
+                </>
+            )}
+        </div>
+    )
+})

@@ -682,7 +682,7 @@ export interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> 
     focusKey?: string
     // Index within a group (when inside ListBox.Group)
     index?: number
-    ref?: React.RefObject<HTMLLIElement>
+    ref?: React.Ref<HTMLLIElement>
 }
 
 const ListBoxItem = ({
