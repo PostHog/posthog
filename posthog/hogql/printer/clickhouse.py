@@ -8,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
@@ -924,6 +925,7 @@ class ClickHousePrinter(HogQLPrinter):
         # Skip warehouse tables and tables with an explicit skip.
         if (
             not isinstance(table_type.table, DataWarehouseTable)
+            and not isinstance(table_type.table, DirectPostgresTable)
             and not isinstance(table_type.table, SavedQuery)
             and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
             and node_type is not None

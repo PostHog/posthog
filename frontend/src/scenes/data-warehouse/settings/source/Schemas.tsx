@@ -347,7 +347,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         key: 'rows_synced',
                         render: function Render(_, schema) {
                             if (schema.table) {
-                                return schema.table.row_count.toLocaleString()
+                                return schema.table.row_count?.toLocaleString() ?? 0
                             }
 
                             // Synced but no rows
