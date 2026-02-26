@@ -191,7 +191,8 @@ function LLMAnalyticsGenerations(): JSX.Element {
             generationsQuery.source.select ||
             getDefaultGenerationsColumns(
                 !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
-                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
             )
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
@@ -225,7 +226,8 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 showSavedFilters: true,
                 defaultColumns: getDefaultGenerationsColumns(
                     !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
-                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
                 ),
             }}
             setQuery={(query) => {
@@ -286,6 +288,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                     },
                     person: llmAnalyticsColumnRenderers.person,
                     "'' -- Sentiment": llmAnalyticsColumnRenderers["'' -- Sentiment"],
+                    'properties.$ai_tools_called': llmAnalyticsColumnRenderers['properties.$ai_tools_called'],
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
                     },
