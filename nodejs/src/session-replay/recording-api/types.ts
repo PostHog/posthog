@@ -8,7 +8,9 @@ import { Hub } from '../../types'
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
+    DecryptResult,
     DeleteKeyResult,
+    EncryptResult,
     KeyStore,
     RecordingDecryptor,
     RecordingEncryptor,

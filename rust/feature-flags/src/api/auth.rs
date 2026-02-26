@@ -214,6 +214,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
                 if let Some(orgs) = scoped_organizations.as_ref() {
                     if !orgs.is_empty() && !orgs.contains(&team_organization_id_str) {
                         warn!(
+                            user_id = user_id,
                             team_organization_id = %team_organization_id_str,
                             scoped_organizations = ?orgs,
                             "Personal API key scope does not include this organization"

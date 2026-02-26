@@ -169,7 +169,6 @@ export const FEATURE_FLAGS = {
 
     // UX flags, used to control the UX of the app
     AI_FIRST: 'ai-first', // this a larger change, not released to team yet
-    UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // used to remove the sidepanel from the experience
     SEARCH_AI_PREVIEW: 'search-ai-preview', // used to show AI preview on search when no results are found
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
@@ -346,7 +345,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_CONVERSATIONS: 'product-conversations', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT: 'product-support', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
-    PRODUCT_SUPPORT_SLACK: 'product-support-slack', // owner: @veryayskiy #team-conversations
     ONBOARDING_AI_PRODUCT_RECOMMENDATIONS: 'onboarding-ai-product-recommendations', // owner: @rafaeelaudibert #team-growth, AI-powered product recommendations in onboarding multivariate=control,test,chat
     ONBOARDING_REVERSE_PROXY: 'onboarding-reverse-proxy', // owner: @rafaeelaudibert #team-growth
     ONBOARDING_SESSION_REPLAY_MEDIA: 'onboarding-session-replay-media', // owner: @fercgomes #team-growth multivariate=control,screenshot,demo
@@ -434,7 +432,7 @@ export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.AI_ONLY_MODE && flag !== FEATURE_FLAGS.UX_REMOVE_SIDEPANEL
+    (flag) => flag !== FEATURE_FLAGS.AI_ONLY_MODE
 )
 
 export const INSIGHT_VISUAL_ORDER = {
