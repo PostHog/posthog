@@ -1485,7 +1485,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str, team_ids_filter: list
     if "*" not in allowed_emails:
         memberships = [m for m in memberships if m.user.email in allowed_emails]
 
-    date_suffix = timezone.now().strftime("%Y-%W")
+    date_suffix = timezone.now().strftime("%Y-%W-%d-%H")
     sent_count = 0
 
     for membership in memberships:
