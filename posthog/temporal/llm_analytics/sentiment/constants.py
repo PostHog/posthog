@@ -17,13 +17,13 @@ MAX_MESSAGE_CHARS = 2000
 CLASSIFY_BATCH_SIZE = 32  # texts per ONNX forward pass
 MAX_CLASSIFICATIONS_PER_TRACE = 200
 MAX_GENERATIONS_PER_TRACE = 10  # per-trace cap enforced by window function in ClickHouse
-MAX_INPUT_CHARS = 50_000  # skip $ai_input longer than this (accumulated conversation histories)
+MAX_INPUT_CHARS = 300_000  # skip $ai_input longer than this (covers p99; extraction truncates before inference)
 QUERY_LOOKBACK_DAYS = 30  # timestamp filter to enable partition pruning
 
 # Temporal workflow/activity config
 WORKFLOW_NAME = "llma-sentiment-classify"
-ACTIVITY_TIMEOUT_SECONDS = 60  # start-to-close timeout for classify activity
-WORKFLOW_TIMEOUT_BATCH_SECONDS = 60  # task timeout for sentiment workflow
+ACTIVITY_TIMEOUT_SECONDS = 120  # start-to-close timeout for classify activity
+WORKFLOW_TIMEOUT_BATCH_SECONDS = 120  # task timeout for sentiment workflow
 MAX_RETRY_ATTEMPTS = 2  # retry policy for both workflow and activity
 
 # API config
