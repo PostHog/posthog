@@ -1,9 +1,18 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 from uuid import uuid4
+
+import structlog
+
+if TYPE_CHECKING:
+    from posthog.models import Organization
 
 from django.conf import settings
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from langchain_core.messages import (
     AIMessage,
     HumanMessage as LangchainHumanMessage,
@@ -11,14 +20,19 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, MaxBillingContextSubscriptionLevel
+from posthog.schema import AssistantMessage, HumanMessage
 
+from posthog.cloud_utils import get_cached_instance_license
+
+from ee.billing.billing_manager import BillingManager
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.core.agent_modes.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
 from .prompts import SUPPORT_SUMMARIZER_SYSTEM_PROMPT, SUPPORT_SUMMARIZER_USER_PROMPT
+
+logger = structlog.get_logger(__name__)
 
 
 class TicketCommand(SlashCommand):
@@ -37,31 +51,31 @@ class TicketCommand(SlashCommand):
         months_since_creation = (timezone.now() - org_created_at).days / 30
         return months_since_creation < 3
 
-    def _can_create_ticket(self, config: RunnableConfig) -> bool:
-        """Check if user's subscription allows ticket creation."""
-        # Enable ticket creation in local dev
+    async def _can_create_ticket(self) -> bool:
+        """Check if user's subscription allows ticket creation using server-side billing data."""
         if settings.DEBUG:
             return True
 
         if self._is_organization_new():
             return True
 
-        billing_context_data = config.get("configurable", {}).get("billing_context")
-        if not billing_context_data:
+        org = self._team.organization
+        if not org.customer_id:
             return False
 
-        billing_context = MaxBillingContext.model_validate(billing_context_data)
+        try:
+            return await sync_to_async(self._check_billing_subscription, thread_sensitive=False)(org)
+        except Exception:
+            logger.exception("failed_to_fetch_billing_for_ticket_command")
+            return False
 
-        has_paid_subscription = billing_context.subscription_level in (
-            MaxBillingContextSubscriptionLevel.PAID,
-            MaxBillingContextSubscriptionLevel.CUSTOM,
-        )
-        has_active_trial = billing_context.trial is not None and billing_context.trial.is_active
-
-        return has_paid_subscription or has_active_trial
+    def _check_billing_subscription(self, org: Organization) -> bool:
+        billing_manager = BillingManager(get_cached_instance_license())
+        billing = billing_manager.get_billing(org)
+        return billing.get("has_active_subscription", False)
 
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
-        if not self._can_create_ticket(config):
+        if not await self._can_create_ticket():
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
