@@ -193,10 +193,14 @@ describe('accessControlsLogic', () => {
                 resourceLabel: 'Dashboards',
             })
 
-            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).not.toBeUndefined()
+            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
+                'Minimum level for Dashboards is Viewer'
+            )
             expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.disabledReason).toBeUndefined()
             expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toBeUndefined()
-            expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).not.toBeUndefined()
+            expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toBe(
+                'Maximum level for Dashboards is Editor'
+            )
         })
     })
 })

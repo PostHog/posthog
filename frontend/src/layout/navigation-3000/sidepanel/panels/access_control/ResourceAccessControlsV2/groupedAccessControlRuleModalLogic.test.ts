@@ -79,7 +79,7 @@ describe('groupedAccessControlRuleModalLogic', () => {
                     inheritedLevel: AccessControlLevel.Viewer,
                     inheritedReason: 'project_default' as const,
                 },
-                expect.stringContaining('Project default'),
+                'Project default is Viewer',
             ],
             [
                 'below min with role override',
@@ -90,24 +90,24 @@ describe('groupedAccessControlRuleModalLogic', () => {
                     inheritedLevel: AccessControlLevel.Editor,
                     inheritedReason: 'role_override' as const,
                 },
-                expect.stringContaining('role'),
+                'User has a role with Editor access',
             ],
             [
                 'below min with minimum level',
                 AccessControlLevel.None,
                 { ...defaults, minimum: AccessControlLevel.Viewer },
-                expect.stringContaining('Minimum'),
+                'Minimum level for Dashboards is Viewer',
             ],
             [
                 'above max',
                 AccessControlLevel.Editor,
                 { ...defaults, maximum: AccessControlLevel.Viewer, resourceLabel: 'Activity Logs' },
-                expect.stringContaining('Maximum'),
+                'Maximum level for Activity Logs is Viewer',
             ],
             ['within range', AccessControlLevel.Viewer, { ...defaults }, undefined],
         ])('%s', (_label, level, opts, expected) => {
             const result = getLevelOptionsForResource(resourceLevels, opts)
-            expect(result.find((o) => o.value === level)?.disabledReason).toEqual(expected)
+            expect(result.find((o) => o.value === level)?.disabledReason).toBe(expected)
         })
     })
 
@@ -199,7 +199,9 @@ describe('groupedAccessControlRuleModalLogic', () => {
             }
             const result = computeProjectLevelOptions(entry)
 
-            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).not.toBeUndefined()
+            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
+                'Project default is Member'
+            )
             expect(result.find((o) => o.value === AccessControlLevel.Member)?.disabledReason).toBeUndefined()
             expect(result.find((o) => o.value === AccessControlLevel.Admin)?.disabledReason).toBeUndefined()
         })
@@ -212,8 +214,8 @@ describe('groupedAccessControlRuleModalLogic', () => {
             }
             const result = computeProjectLevelOptions(entry)
 
-            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toEqual(
-                expect.stringContaining('Minimum')
+            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
+                'Minimum level for project is Member'
             )
         })
     })
@@ -263,8 +265,12 @@ describe('groupedAccessControlRuleModalLogic', () => {
                 'Dashboards'
             )
 
-            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).not.toBeUndefined()
-            expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).not.toBeUndefined()
+            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
+                'Project default is Viewer'
+            )
+            expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toBe(
+                'Maximum level for Dashboards is Editor'
+            )
             expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.disabledReason).toBeUndefined()
             expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toBeUndefined()
         })
@@ -289,11 +295,11 @@ describe('groupedAccessControlRuleModalLogic', () => {
 
             expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBeUndefined()
             expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.disabledReason).toBeUndefined()
-            expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toEqual(
-                expect.stringContaining('Maximum')
+            expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toBe(
+                'Maximum level for Activity Logs is Viewer'
             )
-            expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toEqual(
-                expect.stringContaining('Maximum')
+            expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toBe(
+                'Maximum level for Activity Logs is Viewer'
             )
         })
 
