@@ -206,6 +206,10 @@ class TestPropertyTypes(BaseTest):
 
         assert printed == self.snapshot
 
+    def test_numeric_property_trims_whitespace_before_conversion(self):
+        printed = self._print_select("select properties.$screen_width from events where properties.$screen_width > 100")
+        assert "accurateCastOrNull(trim(" in printed
+
     def _print_select(self, select: str):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
