@@ -28,6 +28,9 @@ def CUSTOM_METRICS_VIEW(
     UNION ALL
     SELECT * REPLACE (toFloat64(value) as value)
     FROM custom_metrics_events_recent_lag
+    UNION ALL
+    SELECT * REPLACE (toFloat64(value) as value)
+    FROM custom_metrics_merge_failures
     """
     if include_counters:
         statement += "UNION ALL SELECT * FROM custom_metrics_counters\n"
@@ -97,6 +100,23 @@ def CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW():
         AND timestamp < now() + toIntervalMinute(3) AND inserted_at > now() - toIntervalHour(3)
     GROUP BY event;
     """ % {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS}
+
+
+def CUSTOM_METRICS_MERGE_FAILURES_VIEW():
+    return """
+    CREATE OR REPLACE VIEW custom_metrics_merge_failures
+    AS
+    SELECT
+        'ClickHouseCustomMetric_MergeFailures15m' AS name,
+        map('instance', hostName()) AS labels,
+        count() AS value,
+        'Number of failed merge operations in the last 15 minutes' AS help,
+        'gauge' AS type
+    FROM system.part_log
+    WHERE event_time >= now() - INTERVAL 15 MINUTE
+      AND event_type = 'MergeParts'
+      AND error > 0
+    """
 
 
 def CUSTOM_METRICS_SERVER_CRASH_VIEW():
