@@ -22,7 +22,7 @@ import {
     SchemaPropertyGroupProperty,
     schemaManagementLogic,
 } from './schemaManagementLogic'
-import { ValidationRulesEditor } from './ValidationRulesEditor'
+import { ValidationRulesEditor, validationRulesSummary } from './ValidationRulesEditor'
 
 function hasPropertyName(name: string): boolean {
     return Boolean(name && name.trim())
@@ -209,6 +209,9 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                                 columns={columns}
                                 dataSource={propertyGroupForm.properties}
                                 pagination={undefined}
+                                rowRibbonColor={(property) =>
+                                    validationRulesSummary(property) ? 'var(--muted)' : null
+                                }
                                 expandable={{
                                     expandedRowRender: (property, index) => (
                                         <ValidationRulesEditor
