@@ -12,6 +12,7 @@ from posthog.models import OrganizationMembership
 class TestAccessControlSystemTables(BaseTest):
     """Test resource-level access control for system tables."""
 
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_org_admin_gets_all_system_tables(self):
         """Org admins should have access to all system tables."""
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -26,6 +27,7 @@ class TestAccessControlSystemTables(BaseTest):
         for table_name in fresh_system.children:
             assert table_name in system_node.children, f"{table_name} missing for admin"
 
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_regular_user_with_full_access_gets_all_tables(self):
         """Regular users with default full access should see all tables."""
         # Default setup - user has no restrictions
@@ -136,6 +138,7 @@ class TestAccessControlIntegration(BaseTest):
         assert prepared is not None
         return print_prepared_ast(prepared, context=context, dialect="clickhouse")
 
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_admin_can_query_system_dashboards(self):
         """Admin users should be able to query system.dashboards without restrictions."""
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
