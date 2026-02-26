@@ -1,16 +1,16 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+import { HogFunctionTemplate } from '~/cdp/types'
 
-template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
-    free=False,
-    type="destination",
-    id="template-klime",
-    name="Klime",
-    description="Send events to Klime",
-    icon_url="/static/services/klime.png",
-    category=["Analytics"],
-    code_language="hog",
-    code="""
+export const template: HogFunctionTemplate = {
+    status: 'beta',
+    free: false,
+    type: 'destination',
+    id: 'template-klime',
+    name: 'Klime',
+    description: 'Send events to Klime',
+    icon_url: '/static/services/klime.png',
+    category: ['Analytics'],
+    code_language: 'hog',
+    code: `
 let action := inputs.action
 
 if (action == 'automatic') {
@@ -122,72 +122,76 @@ let res := fetch('https://i.klime.com/v1/batch', {
 
 if (res.status >= 400) {
     throw Error(f'Error from Klime API: {res.status}: {res.body}')
-}""",
-    inputs_schema=[
+}
+`,
+    inputs_schema: [
         {
-            "key": "writeKey",
-            "type": "string",
-            "label": "Klime Write Key",
-            "description": "Your Klime write key for authentication. Find it in your Klime dashboard.",
-            "default": "",
-            "secret": True,
-            "required": True,
+            key: 'writeKey',
+            type: 'string',
+            label: 'Klime Write Key',
+            description: 'Your Klime write key for authentication. Find it in your Klime dashboard.',
+            default: '',
+            secret: true,
+            required: true,
         },
         {
-            "key": "action",
-            "type": "choice",
-            "label": "Action",
-            "description": "How to map PostHog events to Klime event types. Automatic converts $identify/$set to identify, $group_identify to group, and everything else to track.",
-            "default": "automatic",
-            "choices": [
-                {"label": "Automatic", "value": "automatic"},
-                {"label": "Track", "value": "track"},
-                {"label": "Identify", "value": "identify"},
-                {"label": "Group", "value": "group"},
+            key: 'action',
+            type: 'choice',
+            label: 'Action',
+            description:
+                'How to map PostHog events to Klime event types. Automatic converts $identify/$set to identify, $group_identify to group, and everything else to track.',
+            default: 'automatic',
+            choices: [
+                { label: 'Automatic', value: 'automatic' },
+                { label: 'Track', value: 'track' },
+                { label: 'Identify', value: 'identify' },
+                { label: 'Group', value: 'group' },
             ],
-            "secret": False,
-            "required": True,
+            secret: false,
+            required: true,
         },
         {
-            "key": "userId",
-            "type": "string",
-            "label": "User ID",
-            "description": "User identifier to send to Klime. Required for identify events.",
-            "default": "{event.distinct_id}",
-            "secret": False,
-            "required": False,
+            key: 'userId',
+            type: 'string',
+            label: 'User ID',
+            description: 'User identifier to send to Klime. Required for identify events.',
+            default: '{event.distinct_id}',
+            secret: false,
+            required: false,
         },
         {
-            "key": "groupId",
-            "type": "string",
-            "label": "Group ID",
-            "description": "Organization or account identifier. Required for group events.",
-            "default": "",
-            "secret": False,
-            "required": False,
+            key: 'groupId',
+            type: 'string',
+            label: 'Group ID',
+            description: 'Organization or account identifier. Required for group events.',
+            default: '',
+            secret: false,
+            required: false,
         },
         {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all properties",
-            "description": "If set, all event properties (for track), person properties (for identify), or group properties (for group) will be included. Individual properties can be overridden below.",
-            "default": False,
-            "secret": False,
-            "required": True,
+            key: 'include_all_properties',
+            type: 'boolean',
+            label: 'Include all properties',
+            description:
+                'If set, all event properties (for track), person properties (for identify), or group properties (for group) will be included. Individual properties can be overridden below.',
+            default: false,
+            secret: false,
+            required: true,
         },
         {
-            "key": "properties",
-            "type": "dictionary",
-            "label": "Property mapping",
-            "description": "Map of property names to values. These are sent as properties (track) or traits (identify/group).",
-            "default": {},
-            "secret": False,
-            "required": False,
+            key: 'properties',
+            type: 'dictionary',
+            label: 'Property mapping',
+            description:
+                'Map of property names to values. These are sent as properties (track) or traits (identify/group).',
+            default: {},
+            secret: false,
+            required: false,
         },
     ],
-    filters={
-        "events": [],
-        "actions": [],
-        "filter_test_accounts": True,
+    filters: {
+        events: [],
+        actions: [],
+        filter_test_accounts: true,
     },
-)
+}
