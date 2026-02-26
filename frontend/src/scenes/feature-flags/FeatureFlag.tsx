@@ -56,7 +56,6 @@ import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
-import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -392,15 +391,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     help={
                                         hasKeyChanged && id !== 'new' ? (
                                             <span className="text-warning">
-                                                <b>Warning! </b>Changing this key will
-                                                <Link
-                                                    to={`https://posthog.com/docs/feature-flags${UTM_TAGS}#feature-flag-persistence`}
-                                                    target="_blank"
-                                                    targetBlankIcon
-                                                >
-                                                    {' '}
-                                                    affect the persistence of your flag
-                                                </Link>
+                                                <b>Warning! </b>Changing this key will break any existing code that
+                                                references it (e.g. <code>getFeatureFlag('{featureFlag.key}')</code>).
+                                                Make sure to update all SDK calls and integrations.
                                             </span>
                                         ) : undefined
                                     }
@@ -885,7 +878,31 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 }
                                 saveOnBlur
                                 onNameChange={(newKey) => {
-                                    submitFeatureFlagWithValidation({ ...featureFlag, key: newKey })
+                                    if (newKey === featureFlag.key) {
+                                        return
+                                    }
+                                    LemonDialog.open({
+                                        title: 'Change flag key?',
+                                        description: (
+                                            <>
+                                                Renaming this key will break any existing code that references it (e.g.{' '}
+                                                <code>getFeatureFlag('{featureFlag.key}')</code>). Make sure to update
+                                                all SDK calls and integrations.
+                                            </>
+                                        ),
+                                        primaryButton: {
+                                            children: 'Change key',
+                                            status: 'danger',
+                                            onClick: () =>
+                                                submitFeatureFlagWithValidation({
+                                                    ...featureFlag,
+                                                    key: newKey,
+                                                }),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
                                 }}
                                 onDescriptionChange={(newName) => {
                                     submitFeatureFlagWithValidation({ ...featureFlag, name: newName })
