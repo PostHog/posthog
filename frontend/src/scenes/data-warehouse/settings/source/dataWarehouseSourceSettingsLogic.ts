@@ -40,6 +40,8 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
+        syncNow: true,
+        setSyncingNow: (syncing: boolean) => ({ syncing }),
         refreshSchemas: true,
         setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
     }),
@@ -143,6 +145,13 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             false as boolean,
             {
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
+            },
+        ],
+        syncingNow: [
+            false as boolean,
+            {
+                setSyncingNow: (_, { syncing }) => syncing,
+                syncNow: () => true,
             },
         ],
         refreshingSchemas: [
@@ -303,6 +312,19 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 }, REFRESH_INTERVAL)
                 return () => clearTimeout(timerId)
             }, 'jobsRefreshTimeout')
+        },
+        syncNow: async () => {
+            try {
+                await api.externalDataSources.reload(values.sourceId)
+                actions.loadSource()
+                actions.loadJobs()
+                lemonToast.success('Sync started')
+                posthog.capture('sync now triggered', { sourceType: values.source?.source_type })
+            } catch (e: any) {
+                lemonToast.error(e.message || "Can't start sync at this time")
+            } finally {
+                actions.setSyncingNow(false)
+            }
         },
         reloadSchema: async ({ schema }) => {
             // Optimistic UI updates before sending updates to the backend

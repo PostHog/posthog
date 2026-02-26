@@ -637,6 +637,16 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 return null
             },
         ],
+
+        recordingDeletedBy: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): string | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedBy
+                }
+                return null
+            },
+        ],
     })),
     afterMount(({ actions, cache, values }) => {
         cache.playerActive = true
