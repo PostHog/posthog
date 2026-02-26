@@ -1,9 +1,14 @@
 import { editor as monacoEditor } from 'monaco-editor'
 import { VimMode, initVimMode } from 'monaco-vim'
 
-interface VimModeHandle {
+export interface VimModeHandle {
     vimMode: VimMode
     dispose: () => void
+}
+
+export interface VimModeProps {
+    initialHistory?: string[]
+    onCommandExecuted?: (command: string) => void
 }
 
 function extractPatternBeforeSeparator(str: string, separator: string): string | null {
@@ -197,7 +202,49 @@ function setupClipboardSync(editor: monacoEditor.IStandaloneCodeEditor, statusBa
     return () => cleanups.forEach((fn) => fn())
 }
 
-export function setupVimMode(editor: monacoEditor.IStandaloneCodeEditor, statusBarEl: HTMLElement): VimModeHandle {
+// The pushInput patch is applied once globally since exCommandHistoryController
+// lives on vimGlobalState (shared across all vim instances). The callback ref
+// lets us swap listeners without re-patching.
+let commandHistoryCallbackRef: ((command: string) => void) | null = null
+let pushInputPatched = false
+
+function setupCommandHistoryPersistence(
+    initialHistory: string[],
+    onCommandExecuted: (command: string) => void
+): () => void {
+    const globalState = (VimMode as any).Vim.getVimGlobalState_()
+    const controller = globalState.exCommandHistoryController
+
+    if (!controller.historyBuffer.length && initialHistory.length) {
+        controller.historyBuffer = [...initialHistory]
+        controller.iterator = controller.historyBuffer.length
+    }
+
+    commandHistoryCallbackRef = onCommandExecuted
+
+    if (!pushInputPatched) {
+        const origPushInput = controller.pushInput.bind(controller)
+        controller.pushInput = function (input: string): void {
+            origPushInput(input)
+            if (input && commandHistoryCallbackRef) {
+                commandHistoryCallbackRef(input)
+            }
+        }
+        pushInputPatched = true
+    }
+
+    return () => {
+        if (commandHistoryCallbackRef === onCommandExecuted) {
+            commandHistoryCallbackRef = null
+        }
+    }
+}
+
+export function setupVimMode(
+    editor: monacoEditor.IStandaloneCodeEditor,
+    statusBarEl: HTMLElement,
+    options?: VimModeProps
+): VimModeHandle {
     const vimMode = initVimMode(editor, statusBarEl)
     const cmAdapter = vimMode as any
 
@@ -207,9 +254,18 @@ export function setupVimMode(editor: monacoEditor.IStandaloneCodeEditor, statusB
     const restoreSetSec = patchSubstituteHighlight(cmAdapter, cmAdapter.statusBar)
     const cleanupClipboard = setupClipboardSync(editor, statusBarEl)
 
+    let cleanupHistoryPersistence: (() => void) | undefined
+    if (options?.onCommandExecuted) {
+        cleanupHistoryPersistence = setupCommandHistoryPersistence(
+            options.initialHistory ?? [],
+            options.onCommandExecuted
+        )
+    }
+
     return {
         vimMode,
         dispose: () => {
+            cleanupHistoryPersistence?.()
             cleanupClipboard()
             restoreSetSec()
             restoreArrowKeys()

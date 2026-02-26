@@ -1,7 +1,7 @@
 import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
-import { BuiltLogic, useMountedLogic, useValues } from 'kea'
+import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -167,6 +167,9 @@ export function CodeEditor({
     })
     useMountedLogic(builtCodeEditorLogic)
 
+    const { vimCommandHistory } = useValues(builtCodeEditorLogic)
+    const { appendVimCommand } = useActions(builtCodeEditorLogic)
+
     const { isVisible } = usePageVisibility()
 
     // Create DIV with .monaco-editor inside <body> for monaco's popups.
@@ -248,7 +251,10 @@ export function CodeEditor({
         }
 
         if (enableVimMode && vimStatusBarRef.current) {
-            vimModeRef.current = setupVimMode(editor, vimStatusBarRef.current)
+            vimModeRef.current = setupVimMode(editor, vimStatusBarRef.current, {
+                initialHistory: vimCommandHistory,
+                onCommandExecuted: appendVimCommand,
+            })
         } else if (vimModeRef.current) {
             vimModeRef.current.dispose()
             vimModeRef.current = null
