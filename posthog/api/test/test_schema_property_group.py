@@ -305,6 +305,41 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         prop = get_resp.json()["properties"][0]
         assert prop["validation_rules"] == rules
 
+    def test_create_with_empty_object_validation_rules(self):
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": "Empty Rules Group",
+                "properties": [
+                    {"name": "prop", "property_type": "String", "validation_rules": {}},
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        prop = response.json()["properties"][0]
+        assert prop["validation_rules"] is None or prop["validation_rules"] == {}
+
+    @parameterized.expand(
+        [
+            ("boolean_as_minimum", "Numeric", {"minimum": True}, "must be a number"),
+            ("enum_too_large", "String", {"enum": [f"v{i}" for i in range(1001)]}, "must not exceed"),
+        ]
+    )
+    def test_create_with_invalid_edge_case_rules(self, _name, property_type, validation_rules, expected_error):
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": f"Group {_name}",
+                "properties": [
+                    {"name": "prop", "property_type": property_type, "validation_rules": validation_rules},
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in str(response.json())
+
     def test_update_with_validation_rules(self):
         property_group = SchemaPropertyGroup.objects.create(
             team=self.team, project=self.project, name="Update Rules Group"
@@ -330,6 +365,31 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         updated_prop = response.json()["properties"][0]
         assert updated_prop["validation_rules"] == {"enum": ["a", "b"]}
+
+    def test_update_rejects_invalid_validation_rules(self):
+        property_group = SchemaPropertyGroup.objects.create(
+            team=self.team, project=self.project, name="Update Invalid Rules Group"
+        )
+        prop = SchemaPropertyGroupProperty.objects.create(
+            property_group=property_group, name="count", property_type="Numeric"
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/schema_property_groups/{property_group.id}/",
+            {
+                "properties": [
+                    {
+                        "id": str(prop.id),
+                        "name": "count",
+                        "property_type": "Numeric",
+                        "validation_rules": {"minimum": 100, "maximum": 50},
+                    },
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "must be less than" in str(response.json())
 
     def test_list_includes_events(self):
         # Create property group
