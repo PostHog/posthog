@@ -1244,15 +1244,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             # Build point-in-time properties using the pre-fetched distinct_ids
             # If debug mode is enabled, get raw events to avoid duplicate query
-            debug_rows = []
+            debug_rows: list[Any] = []
             if debug and settings.DEBUG:
-                point_in_time_properties, debug_rows = build_person_properties_at_time(
+                result = build_person_properties_at_time(
                     team_id=self.team_id,
                     timestamp=timestamp,
                     distinct_ids=distinct_ids_queried,
                     include_set_once=include_set_once,
                     return_raw_events=True,
                 )
+                point_in_time_properties, debug_rows = result
             else:
                 point_in_time_properties = build_person_properties_at_time(
                     team_id=self.team_id,
