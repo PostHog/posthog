@@ -8,7 +8,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { mcpStoreLogic } from './mcpStoreLogic'
 
 const AUTH_TYPE_OPTIONS = [
-    { value: 'none', label: 'None' },
     { value: 'api_key', label: 'API key' },
     { value: 'oauth', label: 'OAuth' },
 ]

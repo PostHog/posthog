@@ -58,7 +58,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             server=server,
             display_name=server.name,
             url=server.url,
-            auth_type="none",
+            auth_type="api_key",
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
@@ -75,7 +75,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             server=server,
             display_name=server.name,
             url=server.url,
-            auth_type="none",
+            auth_type="api_key",
         )
 
         response = self.client.delete(f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/")
@@ -110,7 +110,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             server=server,
             display_name=server.name,
             url=server.url,
-            auth_type="none",
+            auth_type="api_key",
         )
 
         from posthog.models import User
@@ -122,7 +122,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             server=server,
             display_name=server.name,
             url="https://mcp2.example.com",
-            auth_type="none",
+            auth_type="api_key",
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
@@ -137,7 +137,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             user=self.user,
             display_name="Custom",
             url="https://mcp.custom.com",
-            auth_type="none",
+            auth_type="api_key",
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
@@ -168,26 +168,34 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert not MCPServer.objects.filter(url="https://mcp.custom.com").exists()
 
     @ALLOW_URL
-    def test_install_custom_no_auth_server(self, _mock):
+    def test_install_custom_api_key_server_without_key(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
-            data={"name": "Open Server", "url": "https://mcp.open.com", "auth_type": "none"},
+            data={"name": "Open Server", "url": "https://mcp.open.com", "auth_type": "api_key"},
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["auth_type"] == "none"
+        assert response.json()["auth_type"] == "api_key"
         assert response.json()["server_id"] is None
+
+    def test_install_custom_none_auth_type_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Server", "url": "https://mcp.example.com", "auth_type": "none"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @ALLOW_URL
     def test_install_custom_duplicate_url_rejected(self, _mock):
         self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
-            data={"name": "Server", "url": "https://mcp.dup.com", "auth_type": "none"},
+            data={"name": "Server", "url": "https://mcp.dup.com", "auth_type": "api_key"},
             format="json",
         )
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
-            data={"name": "Server Again", "url": "https://mcp.dup.com", "auth_type": "none"},
+            data={"name": "Server Again", "url": "https://mcp.dup.com", "auth_type": "api_key"},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -196,7 +204,7 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_install_custom_ssrf_blocked(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
-            data={"name": "Evil", "url": "http://192.168.1.1/mcp", "auth_type": "none"},
+            data={"name": "Evil", "url": "http://192.168.1.1/mcp", "auth_type": "api_key"},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -205,7 +213,7 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_installation_name_field(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
-            data={"name": "Custom Name", "url": "https://mcp.named.com", "auth_type": "none"},
+            data={"name": "Custom Name", "url": "https://mcp.named.com", "auth_type": "api_key"},
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED

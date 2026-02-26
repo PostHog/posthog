@@ -88,7 +88,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     url = serializers.URLField(max_length=2048)
-    auth_type = serializers.ChoiceField(choices=["none", "api_key", "oauth"])
+    auth_type = serializers.ChoiceField(choices=["api_key", "oauth"])
     api_key = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
     oauth_provider_kind = serializers.CharField(required=False, allow_blank=True, default="")

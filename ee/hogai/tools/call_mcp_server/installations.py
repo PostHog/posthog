@@ -97,7 +97,7 @@ def _build_server_headers(installations: list[dict]) -> dict[str, dict[str, str]
     headers: dict[str, dict[str, str]] = {}
     for inst in installations:
         url = inst["url"]
-        auth_type = inst.get("auth_type", "none")
+        auth_type = inst.get("auth_type", "api_key")
         sensitive = inst.get("sensitive_configuration") or {}
 
         if auth_type == "api_key":
