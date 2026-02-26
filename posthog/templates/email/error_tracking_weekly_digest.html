@@ -15,13 +15,19 @@
 
 {% for section in project_sections %}
 <!-- Project section: {{ section.team.name }} -->
-<div style="background-color: #eceee8; border-radius: 10px; padding: 4px; margin-bottom: 20px;">
-    <div style="padding: 16px 16px 8px 16px;">
-        <h2 style="margin: 0 0 4px 0; font-size: 1.15em; color: #111827;">{{ section.team.name }}</h2>
-    </div>
+<div style="margin-bottom: 20px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
+        <tr>
+            <td style="width: 50%; vertical-align: middle;"><div style="height: 1px; background-color: #d1d5db;"></div></td>
+            <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle;">
+                <a href="{{ section.error_tracking_url }}" target="_blank" style="font-size: 1.15em; font-weight: 600; color: #111827; text-decoration: none;">{{ section.team.name }}</a>
+            </td>
+            <td style="width: 50%; vertical-align: middle;"><div style="height: 1px; background-color: #d1d5db;"></div></td>
+        </tr>
+    </table>
 
     <!-- Total -->
-    <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin: 0 4px 4px 4px;">
+    <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 8px;">
         <h3 style="margin: 0 0 4px 0; text-align: left;">Total</h3>
         <p style="margin: 0 0 16px 0; font-size: 0.85em; color: #6b7280; text-align: left;">All exceptions captured across <strong>{{ section.team.name }}</strong> in the last 7 days.</p>
         <div style="text-align: center;">
@@ -75,9 +81,9 @@
 
     <!-- Top issues -->
     {% if section.top_issues %}
-    <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin: 0 4px 4px 4px;">
-        <h3 style="margin: 0 0 4px 0; text-align: left;">Top issues this week</h3>
-        <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues ranked by occurrence count this week.</p>
+    <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 8px;">
+        <h3 style="margin: 0 0 4px 0; text-align: left;">Highest volume issues</h3>
+        <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues sorted by occurrence count this week</p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
             <thead>
                 <tr style="border-bottom: 1px solid #e1e5e9;">
@@ -121,9 +127,9 @@
 
     <!-- New issues -->
     {% if section.new_issues %}
-    <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin: 0 4px 4px 4px;">
-        <h3 style="margin: 0 0 4px 0; text-align: left;">Top issues first seen this week</h3>
-        <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues first seen this week ranked by occurrence count.</p>
+    <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 8px;">
+        <h3 style="margin: 0 0 4px 0; text-align: left;">New issues</h3>
+        <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues first seen this week sorted by occurrence count</p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
             <thead>
                 <tr style="border-bottom: 1px solid #e1e5e9;">
@@ -167,7 +173,7 @@
 
     <!-- Ingestion failures -->
     {% if section.ingestion_failure_count > 0 %}
-    <div style="background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px; margin: 0 4px 4px 4px;">
+    <div style="background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px; margin-bottom: 8px;">
         <p style="margin: 0 0 8px 0; font-weight: 700; color: #856404; font-size: 1em;">
             &#9888; {{ section.ingestion_failure_count|compact_number }} exceptions failed to ingest
         </p>
@@ -185,13 +191,19 @@
     </div>
     {% endif %}
 
-    <div style="padding: 8px 4px 12px 4px; text-align: center;">
-        <a href="{{ section.error_tracking_url }}" style="display: inline-block; padding: 10px 24px; background-color: #f54e00; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 0.9em;">Open error tracking</a>
-    </div>
 </div>
 {% endfor %}
 
 {% if disabled_project_names %}
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
+    <tr>
+        <td style="width: 50%; vertical-align: middle;"><div style="height: 1px; background-color: #d1d5db;"></div></td>
+        <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle;">
+            <span style="font-size: 0.9em; font-weight: 600; color: #6b7280;">Note</span>
+        </td>
+        <td style="width: 50%; vertical-align: middle;"><div style="height: 1px; background-color: #d1d5db;"></div></td>
+    </tr>
+</table>
 <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
     <p style="margin: 0 0 8px 0; font-size: 0.9em; color: #6b7280;">This report did not include the following projects because they are disabled in your settings:</p>
     <ul style="margin: 0 0 12px 0; padding-left: 20px; color: #6b7280; font-size: 0.9em;">
@@ -208,13 +220,4 @@
 </div>
 {% endblock %}
 
-{% block footer %}
-You can <a href="{% absolute_uri '/settings/user-notifications' %}" style="color: #f54e00;">manage these notifications in PostHog</a>.
-<br /><br />
-Need help?
-<a href="https://posthog.com/questions?{{ utm_tags }}"
-    target="_blank" style="color: #f54e00;"><b>Visit support</b></a>
-or
-<a href="https://posthog.com/docs?{{ utm_tags }}"
-    target="_blank" style="color: #f54e00;"><b>read our documentation</b></a>.
-{% endblock %}
+{% block footer %}{% endblock %}

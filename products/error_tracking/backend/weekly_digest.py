@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 def get_org_ids_with_exceptions(team_ids: list[int] | None = None) -> list[int]:
-    """Return distinct organization IDs that have teams with exceptions in the last 7 days."""
+    """Return distinct organization IDs that have teams with exceptions in the last 7 days"""
     teams_with_exceptions = get_exception_counts(team_ids)
     team_id_set = {row[0] for row in teams_with_exceptions}
     if not team_id_set:
@@ -25,7 +25,7 @@ def get_org_ids_with_exceptions(team_ids: list[int] | None = None) -> list[int]:
 
 
 def get_exception_counts_for_org(org_id: int, team_ids_filter: list[int] | None = None) -> dict[int, dict]:
-    """Get exception counts for all teams in an org, returned as {team_id: {exception_count, ingestion_failure_count, prev_exception_count}}."""
+    """Get exception counts for all teams in an org, returned as {team_id: {exception_count, ingestion_failure_count, prev_exception_count}}"""
     org_teams = list(Team.objects.filter(organization_id=org_id).values_list("id", flat=True))
     if not org_teams:
         return {}
@@ -46,7 +46,7 @@ def get_exception_counts_for_org(org_id: int, team_ids_filter: list[int] | None 
 
 def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[int, dict]) -> None:
     """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
-    and persist the selection to their notification settings."""
+    and persist the selection to their notification settings"""
     from posthog.models.user import User
 
     current_settings = user.partial_notification_settings or {}

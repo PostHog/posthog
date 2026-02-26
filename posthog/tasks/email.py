@@ -1394,8 +1394,8 @@ def send_organization_deleted_email(
 @shared_task(ignore_result=True)
 def send_error_tracking_weekly_digest() -> None:
     """
-    Send weekly digest email per organization.
-    Queries ClickHouse for orgs with exceptions, then fans out per-org email tasks.
+    Send weekly digest email per organization
+    Queries ClickHouse for orgs with exceptions, then fans out per-org email tasks
     """
     from products.error_tracking.backend.weekly_digest import get_org_ids_with_exceptions
 
@@ -1425,7 +1425,7 @@ def send_error_tracking_weekly_digest() -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
 def send_error_tracking_weekly_digest_for_org(org_id: str, team_ids_filter: list[int] | None = None) -> None:
-    """Send one combined weekly error tracking digest email per user in an org."""
+    """Send one combined weekly error tracking digest email per user in an org"""
     from posthog.models.organization import Organization
 
     from products.error_tracking.backend.weekly_digest import (
