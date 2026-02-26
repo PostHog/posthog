@@ -66,6 +66,7 @@ export const scene: SceneExport = {
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmAnalyticsPlaygroundLogic)
 
+    // 300px accounts for the top nav bar, scene title section, tab bar, and surrounding padding
     return (
         <div className="flex flex-col h-[calc(100vh-300px)] min-h-[520px]">
             <PlaygroundLayout />
@@ -252,12 +253,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                         style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                     >
                         {item.response ? (
-                            <div
-                                className="whitespace-pre-wrap break-words"
-                                style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
-                            >
-                                {item.response}
-                            </div>
+                            <div className="whitespace-pre-wrap break-words">{item.response}</div>
                         ) : isStreaming ? (
                             <div className="h-full flex items-center justify-center text-xs text-muted">
                                 <div className="inline-flex items-center gap-2">

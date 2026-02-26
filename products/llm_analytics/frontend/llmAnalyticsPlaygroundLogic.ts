@@ -32,16 +32,6 @@ export interface ProviderModelGroup {
     disabled?: boolean
 }
 
-export interface PlaygroundResponse {
-    text: string
-    model: string
-    usage: {
-        prompt_tokens: number | null
-        completion_tokens: number | null
-        total_tokens: number | null
-    }
-}
-
 enum NormalizedMessageRole {
     User = 'user',
     Assistant = 'assistant',
@@ -297,10 +287,11 @@ function formatToolCalls(toolCalls: Array<{ id: string; name: string; arguments:
         .join('\n\n')
 }
 
-function normalizeUsageFromStreamChunk(data: Record<string, any>): ComparisonItem['usage'] {
-    const promptTokens = data.input_tokens ?? data.prompt_tokens ?? null
-    const completionTokens = data.output_tokens ?? data.completion_tokens ?? null
-    const totalTokens = data.total_tokens ?? null
+function normalizeUsageFromStreamChunk(data: Record<string, unknown>): ComparisonItem['usage'] {
+    const promptTokens = (data.input_tokens as number | undefined) ?? (data.prompt_tokens as number | undefined) ?? null
+    const completionTokens =
+        (data.output_tokens as number | undefined) ?? (data.completion_tokens as number | undefined) ?? null
+    const totalTokens = (data.total_tokens as number | undefined) ?? null
 
     return {
         prompt_tokens: typeof promptTokens === 'number' ? promptTokens : null,
@@ -337,8 +328,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         addToComparison: (item: ComparisonItem) => ({ item }),
         updateComparisonItem: (id: string, payload: Partial<ComparisonItem>) => ({ id, payload }),
-        removeFromComparison: (id: string) => ({ id }),
-        clearComparison: true,
         setupPlaygroundFromEvent: (payload: { model?: string; input?: any; tools?: any }) => ({ payload }),
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
         setSubscriptionRequired: (required: boolean) => ({ required }),
@@ -450,8 +439,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 addToComparison: (state, { item }) => [...state, item],
                 updateComparisonItem: (state, { id, payload }) =>
                     state.map((item) => (item.id === id ? { ...item, ...payload } : item)),
-                removeFromComparison: (state, { id }) => state.filter((item) => item.id !== id),
-                clearComparison: () => [],
             },
         ],
         rateLimitedUntil: [
@@ -573,6 +560,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 return
             }
 
+            const abortController = new AbortController()
             try {
                 const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
                     const liveItemId = uuid()
@@ -644,6 +632,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                             method: 'POST',
                             data: requestData,
                             headers: { 'Content-Type': 'application/json' },
+                            signal: abortController.signal,
                             onMessage: (event) => {
                                 breakpoint()
                                 if (!event.data) {
@@ -736,6 +725,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
 
                 await Promise.allSettled(runs)
             } finally {
+                abortController.abort()
                 actions.finishSubmitPrompt()
             }
         },
@@ -851,13 +841,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         hasRunnablePrompts: [
             (s) => [s.promptConfigs],
             (promptConfigs: PromptConfig[]): boolean =>
-                promptConfigs.some((prompt) =>
-                    prompt.messages.some(
-                        (message) =>
-                            (message.role === 'user' || message.role === 'assistant' || message.role === 'system') &&
-                            message.content.trim().length > 0
-                    )
-                ),
+                promptConfigs.some((prompt) => prompt.messages.some((message) => message.content.trim().length > 0)),
         ],
         effectiveModelOptions: [
             (s) => [s.hasByokKeys, s.byokModels, s.modelOptions],
