@@ -138,7 +138,10 @@ module.exports = {
         const browserContext = page.context()
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
+        // Increase timeout proportional to number of viewport widths since we're effectively running N stories
+        const timeoutMultiplier = viewportWidths?.length || 1
+        jest.setTimeout(JEST_TIMEOUT_MS * timeoutMultiplier)
+        browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS * timeoutMultiplier)
         const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
         if (snapshotBrowsers.includes(currentBrowser)) {
             if (viewportWidths?.length) {
