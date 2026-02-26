@@ -738,6 +738,16 @@ describe('experimentLogic', () => {
             },
         }
 
+        const zeroRolloutShippedVariantFilters = {
+            groups: [{ properties: [], rollout_percentage: 0 }],
+            multivariate: {
+                variants: [
+                    { key: 'control', rollout_percentage: 0 },
+                    { key: 'test', rollout_percentage: 100 },
+                ],
+            },
+        }
+
         const createExperiment = (overrides: Partial<Experiment>): Experiment =>
             ({
                 ...experiment,
@@ -778,6 +788,20 @@ describe('experimentLogic', () => {
                     start_date: '2020-01-01',
                     end_date: undefined,
                     feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                },
+                expected: { key: 'running_but_no_rollout' },
+            },
+            {
+                desc: 'running experiment with zero rollout takes priority over single variant shipped',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: undefined,
+                    feature_flag: {
+                        id: 1,
+                        key: 'flag',
+                        active: true,
+                        filters: zeroRolloutShippedVariantFilters,
+                    } as any,
                 },
                 expected: { key: 'running_but_no_rollout' },
             },
