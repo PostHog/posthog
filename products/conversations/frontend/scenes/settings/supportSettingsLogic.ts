@@ -300,7 +300,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     slack_enabled: false,
-                    slack_team_id: null,
                     slack_channel_id: null,
                     slack_channel_name: null,
                     slack_ticket_emoji: null,

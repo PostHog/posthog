@@ -10,16 +10,20 @@ jest.mock('../../../utils/logger')
 function createMockEncryptor(): jest.Mocked<RecordingEncryptor> {
     return {
         start: jest.fn().mockResolvedValue(undefined),
-        encryptBlock: jest.fn().mockImplementation((_s, _t, buf) => Promise.resolve(buf)),
-        encryptBlockWithKey: jest.fn().mockImplementation((_s, _t, buf) => buf),
+        encryptBlock: jest
+            .fn()
+            .mockImplementation((_s, _t, buf) => Promise.resolve({ data: buf, sessionState: 'ciphertext' })),
+        encryptBlockWithKey: jest.fn().mockImplementation((_s, _t, buf) => ({ data: buf, sessionState: 'ciphertext' })),
     } as unknown as jest.Mocked<RecordingEncryptor>
 }
 
 function createMockDecryptor(): jest.Mocked<RecordingDecryptor> {
     return {
         start: jest.fn().mockResolvedValue(undefined),
-        decryptBlock: jest.fn().mockImplementation((_s, _t, buf) => Promise.resolve(buf)),
-        decryptBlockWithKey: jest.fn().mockImplementation((_s, _t, buf) => buf),
+        decryptBlock: jest
+            .fn()
+            .mockImplementation((_s, _t, buf) => Promise.resolve({ data: buf, sessionState: 'ciphertext' })),
+        decryptBlockWithKey: jest.fn().mockImplementation((_s, _t, buf) => ({ data: buf, sessionState: 'ciphertext' })),
     } as unknown as jest.Mocked<RecordingDecryptor>
 }
 
@@ -65,13 +69,13 @@ describe('VerifyingEncryptor', () => {
     })
 
     it('passes through encrypted data unchanged', () => {
-        const encrypted = Buffer.from('encrypted-output')
-        mockEncryptor.encryptBlockWithKey.mockReturnValue(encrypted)
+        const encryptResult = { data: Buffer.from('encrypted-output'), sessionState: 'ciphertext' as const }
+        mockEncryptor.encryptBlockWithKey.mockReturnValue(encryptResult)
         const verifier = new VerifyingEncryptor(mockEncryptor, mockDecryptor, 0)
 
         const result = verifier.encryptBlockWithKey('s1', 1, makeValidBlock(), ciphertextKey)
 
-        expect(result).toBe(encrypted)
+        expect(result).toBe(encryptResult)
     })
 
     it('does not verify when rate is 0', () => {
@@ -93,7 +97,7 @@ describe('VerifyingEncryptor', () => {
     it('verifies on sampled blocks and increments success counter', () => {
         jest.spyOn(Math, 'random').mockReturnValue(0)
         const block = makeValidBlock()
-        mockDecryptor.decryptBlockWithKey.mockReturnValue(block)
+        mockDecryptor.decryptBlockWithKey.mockReturnValue({ data: block, sessionState: 'ciphertext' })
         const verifier = new VerifyingEncryptor(mockEncryptor, mockDecryptor, 1.0)
 
         verifier.encryptBlockWithKey('s1', 1, block, ciphertextKey)
@@ -111,7 +115,7 @@ describe('VerifyingEncryptor', () => {
             block: makeValidBlock(),
             expectedType: 'mismatch',
             setup: (dec: jest.Mocked<RecordingDecryptor>) => {
-                dec.decryptBlockWithKey.mockReturnValue(Buffer.from('wrong'))
+                dec.decryptBlockWithKey.mockReturnValue({ data: Buffer.from('wrong'), sessionState: 'ciphertext' })
             },
         },
         {

@@ -2,7 +2,7 @@ import asyncio
 import datetime as dt
 
 import pytest
-from posthog.test.base import _create_event
+from posthog.test.base import _create_event, flush_persons_and_events
 
 from django.test.client import Client as HttpClient
 
@@ -111,9 +111,6 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal, org
     batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
     batch_export_id = batch_export["id"]
 
-    start_at = "2023-10-23T00:00:00+00:00"
-    end_at = "2023-10-24T00:00:00+00:00"
-
     # ensure there is data to backfill, otherwise validation will fail
     _create_event(
         team=team,
@@ -121,6 +118,10 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal, org
         distinct_id="person_1",
         timestamp=dt.datetime(2023, 10, 23, 0, 0, 0, tzinfo=dt.UTC),
     )
+    flush_persons_and_events()
+
+    start_at = "2023-10-23T00:00:00+00:00"
+    end_at = "2023-10-24T00:00:00+00:00"
     batch_export_backfill = backfill_batch_export_ok(client, team.pk, batch_export_id, start_at, end_at)
 
     # In order for the backfill to be cancelable, it needs to be running and requesting backfills.

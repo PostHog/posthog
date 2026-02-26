@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import Dashboard, DashboardTile, Insight, PersonalAPIKey, User
+from posthog.models import Dashboard, DashboardTile, Insight, PersonalAPIKey, Team, User
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import mask_key_value
@@ -45,13 +45,22 @@ class PlaywrightSetupDashboard(BaseModel):
     variable_overrides: dict[str, Any] | None = None
 
 
+class PlaywrightSetupEvent(BaseModel):
+    event: str
+    distinct_id: str
+    timestamp: str
+    properties: dict[str, Any] | None = None
+
+
 class PlaywrightWorkspaceSetupData(BaseModel):
     organization_name: str | None = None
     use_current_time: bool | None = None
     skip_onboarding: bool | None = None
+    no_demo_data: bool | None = None
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
+    events: list[PlaywrightSetupEvent] | None = None
 
 
 class PlaywrightSetupCreatedVariable(BaseModel):
@@ -89,55 +98,65 @@ class PlaywrightSetupFunction(Protocol):
 def create_organization_with_team(
     data: PlaywrightWorkspaceSetupData,
 ) -> PlaywrightWorkspaceSetupResult:
-    """Creates PostHog workspace with organization, team, user, API key, and demo data."""
+    """Creates PostHog workspace with organization, team, user, API key, and optionally demo data."""
     org_name = data.organization_name or "Hedgebox Inc."
 
     # Generate unique email to avoid collisions between parallel tests
     unique_suffix = secrets.token_hex(8)  # 16 character hex string
     user_email = f"test-{unique_suffix}@posthog.com"
+    user_password = "12345678"
 
-    # Use the working generate_demo_data command to create workspace with demo data
-    command = GenerateDemoDataCommand()
+    if data.no_demo_data:
+        from posthog.models.organization import Organization
+        from posthog.models.project import Project
 
-    # Determine the reference time for data generation
-    fixed_now = datetime(2024, 11, 3, 12, 0, 0)
-    if data.use_current_time:
-        now = timezone.now()
+        organization = Organization.objects.create(name=org_name)
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
+        team = Team.objects.create(
+            id=project.id,
+            project=project,
+            organization=organization,
+            has_completed_onboarding_for={"product_analytics": True},
+        )
+        user = User.objects.create_and_join(organization, user_email, user_password)
     else:
-        now = fixed_now
+        command = GenerateDemoDataCommand()
 
-    options = {
-        "seed": f"playwright_test",  # constant seed
-        "now": now,
-        "days_past": 30,
-        "days_future": 0,
-        "n_clusters": 3,  # Reduced from 10 for faster test execution
-        "dry_run": False,
-        "team_id": None,
-        "email": user_email,
-        "password": "12345678",
-        "product": "hedgebox",
-        "staff": False,
-        "verbosity": 0,
-        "skip_dagster": True,
-        "say_on_complete": False,
-        "skip_materialization": True,
-        "skip_flag_sync": True,
-        "skip_user_product_list": True,
-    }
+        fixed_now = datetime(2024, 11, 3, 12, 0, 0)
+        if data.use_current_time:
+            now = timezone.now()
+        else:
+            now = fixed_now
 
-    # Call the handle method directly - this creates org, team, user, and demo data
-    command.handle(**options)
+        options = {
+            "seed": f"playwright_test",  # constant seed
+            "now": now,
+            "days_past": 30,
+            "days_future": 0,
+            "n_clusters": 3,  # Reduced from 10 for faster test execution
+            "dry_run": False,
+            "team_id": None,
+            "email": user_email,
+            "password": user_password,
+            "product": "hedgebox",
+            "staff": False,
+            "verbosity": 0,
+            "skip_dagster": True,
+            "say_on_complete": False,
+            "skip_materialization": True,
+            "skip_flag_sync": True,
+            "skip_user_product_list": True,
+        }
 
-    # Get the created user, organization, and team
-    user = User.objects.get(email=user_email)
-    organization = user.organization
-    team = user.team
+        command.handle(**options)
 
-    # Update organization name if custom name was provided
-    if org_name != "Hedgebox Inc.":
-        organization.name = org_name
-        organization.save()
+        user = User.objects.get(email=user_email)
+        organization = user.organization
+        team = user.team
+
+        if org_name != "Hedgebox Inc.":
+            organization.name = org_name
+            organization.save()
 
     # Bypass billing quota limits so insights always compute on CI
     organization.never_drop_data = True
@@ -189,6 +208,7 @@ def create_organization_with_team(
     created_variables = _create_variables(data, team)
     created_insights = _create_insights(data, team, user, created_variables)
     created_dashboards = _create_dashboards(data, team, user, created_variables, created_insights)
+    _create_events_and_persons(data, team)
 
     return PlaywrightWorkspaceSetupResult(
         organization_id=str(organization.id),
@@ -218,7 +238,7 @@ def _derive_code_name(name: str) -> str:
     return "".join(c for c in name if c.isalnum() or c == " " or c == "_").replace(" ", "_").lower()
 
 
-def _create_variables(data: PlaywrightWorkspaceSetupData, team: "Team") -> list[InsightVariable]:  # type: ignore[name-defined] # noqa: F821
+def _create_variables(data: PlaywrightWorkspaceSetupData, team: Team) -> list[InsightVariable]:
     if not data.insight_variables:
         return []
     created: list[InsightVariable] = []
@@ -236,7 +256,7 @@ def _create_variables(data: PlaywrightWorkspaceSetupData, team: "Team") -> list[
 
 def _create_insights(
     data: PlaywrightWorkspaceSetupData,
-    team: "Team",  # type: ignore[name-defined] # noqa: F821
+    team: Team,
     user: User,
     created_variables: list[InsightVariable],
 ) -> list[Insight]:
@@ -270,7 +290,7 @@ def _create_insights(
 
 def _create_dashboards(
     data: PlaywrightWorkspaceSetupData,
-    team: "Team",  # type: ignore[name-defined] # noqa: F821
+    team: Team,
     user: User,
     created_variables: list[InsightVariable],
     created_insights: list[Insight],
@@ -306,6 +326,92 @@ def _create_dashboards(
                 )
         created.append(dashboard)
     return created
+
+
+def _count_events_in_clickhouse(team_id: int) -> int:
+    from posthog.clickhouse.client import sync_execute
+
+    result = sync_execute(
+        "SELECT count() FROM events WHERE team_id = %(team_id)s",
+        {"team_id": team_id},
+    )
+    return int(result[0][0])
+
+
+def _wait_for_events_in_clickhouse(team_id: int, expected_count: int, timeout_seconds: int = 10) -> None:
+    """Poll ClickHouse until the expected number of events appear, or timeout."""
+    import time
+
+    deadline = time.monotonic() + timeout_seconds
+    count = 0
+    while time.monotonic() < deadline:
+        count = _count_events_in_clickhouse(team_id)
+        if count >= expected_count:
+            return
+        time.sleep(0.5)
+    raise TimeoutError(
+        f"Expected {expected_count} events in ClickHouse for team {team_id}, "
+        f"but only found {count} after {timeout_seconds}s"
+    )
+
+
+def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -> None:
+    if not data.events:
+        return
+
+    import uuid as uuid_module
+
+    from posthog.models import Person, PersonDistinctId
+    from posthog.models.event.util import create_event
+    from posthog.models.person.util import create_person, create_person_distinct_id
+    from posthog.models.utils import UUIDT
+
+    # Derive persons from distinct_ids in events
+    distinct_ids = {e.distinct_id for e in data.events}
+    person_uuids: dict[str, str] = {}
+    for distinct_id in distinct_ids:
+        person_uuid = str(UUIDT())
+        person_uuids[distinct_id] = person_uuid
+        create_person(team_id=team.pk, version=0, uuid=person_uuid)
+        create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
+        pg_person = Person.objects.create(team=team, uuid=person_uuid)
+        PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
+
+    # Register event and property definitions so the taxonomic filter works
+    from products.event_definitions.backend.models.event_definition import EventDefinition
+    from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+    event_names = {e.event for e in data.events}
+    for event_name in event_names:
+        EventDefinition.objects.get_or_create(team=team, name=event_name, defaults={"project_id": team.project_id})
+
+    property_names: set[str] = set()
+    for e in data.events:
+        if e.properties:
+            property_names.update(e.properties.keys())
+    for prop_name in property_names:
+        PropertyDefinition.objects.get_or_create(
+            team=team,
+            name=prop_name,
+            type=PropertyDefinition.Type.EVENT,
+            defaults={"project_id": team.project_id},
+        )
+
+    baseline_count = _count_events_in_clickhouse(team.pk)
+
+    for event_spec in data.events:
+        ts = datetime.fromisoformat(event_spec.timestamp.replace("Z", "+00:00"))
+        create_event(
+            event_uuid=UUIDT(unix_time_ms=int(ts.timestamp() * 1000)),
+            event=event_spec.event,
+            distinct_id=event_spec.distinct_id,
+            team=team,
+            timestamp=ts,
+            properties=event_spec.properties or {},
+            person_id=uuid_module.UUID(person_uuids[event_spec.distinct_id]),
+        )
+
+    _wait_for_events_in_clickhouse(team.pk, baseline_count + len(data.events))
 
 
 @dataclass(frozen=True)

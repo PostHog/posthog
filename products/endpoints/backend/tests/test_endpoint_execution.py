@@ -1354,3 +1354,29 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("only supported for HogQL", response.json()["error"])
+
+    # =========================================================================
+    # CALENDAR HEATMAP ENDPOINTS
+    # =========================================================================
+
+    def test_trends_with_calendar_display_create_and_run(self):
+        from posthog.schema import ChartDisplayType, TrendsFilter
+
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.CALENDAR_HEATMAP),
+            dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+        ).model_dump()
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {"name": "calendar-heatmap-test", "query": query},
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        run_response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/calendar-heatmap-test/run/",
+            format="json",
+        )
+        self.assertEqual(run_response.status_code, status.HTTP_200_OK)
