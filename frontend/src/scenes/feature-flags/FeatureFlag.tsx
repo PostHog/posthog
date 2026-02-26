@@ -878,31 +878,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 }
                                 saveOnBlur
                                 onNameChange={(newKey) => {
-                                    if (newKey === featureFlag.key) {
-                                        return
-                                    }
-                                    LemonDialog.open({
-                                        title: 'Change flag key?',
-                                        description: (
-                                            <>
-                                                Renaming this key will break any existing code that references it (e.g.{' '}
-                                                <code>getFeatureFlag('{featureFlag.key}')</code>). Make sure to update
-                                                all SDK calls and integrations.
-                                            </>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Change key',
-                                            status: 'danger',
-                                            onClick: () =>
-                                                submitFeatureFlagWithValidation({
-                                                    ...featureFlag,
-                                                    key: newKey,
-                                                }),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
+                                    submitFeatureFlagWithValidation({ ...featureFlag, key: newKey })
                                 }}
                                 onDescriptionChange={(newName) => {
                                     submitFeatureFlagWithValidation({ ...featureFlag, name: newName })

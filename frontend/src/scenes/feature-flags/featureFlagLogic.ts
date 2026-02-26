@@ -21,6 +21,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -1736,9 +1737,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagWithValidation: async ({ featureFlag }, breakpoint, action, previousState) => {
+            const originalFlag = values.originalFeatureFlag
+            const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
+
+            if (keyChanged) {
+                const confirmed = await new Promise<boolean>((resolve) => {
+                    LemonDialog.open({
+                        title: 'Change flag key?',
+                        description: `Renaming this key will break any existing code that references it (e.g. getFeatureFlag('${originalFlag.key}')). Make sure to update all SDK calls and integrations.`,
+                        primaryButton: {
+                            children: 'Change key',
+                            status: 'danger',
+                            onClick: () => resolve(true),
+                        },
+                        secondaryButton: {
+                            children: 'Cancel',
+                        },
+                        onAfterClose: () => resolve(false),
+                    })
+                })
+                if (!confirmed) {
+                    return
+                }
+            }
+
             await sharedListeners.checkDependentFlagsAndConfirm(
                 {
-                    originalFlag: values.originalFeatureFlag,
+                    originalFlag,
                     updatedFlag: featureFlag,
                     onConfirm: () => {
                         if (featureFlag.id) {
