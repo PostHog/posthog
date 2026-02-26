@@ -308,9 +308,9 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
 
     let replica_url = format!("http://{}", replica_addr);
     let retry_config = RetryConfig {
-        max_retries: 3,
-        initial_backoff_ms: 25,
-        max_backoff_ms: 500,
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
     };
     let backend = ReplicaBackend::new(&replica_url, Duration::from_secs(5), retry_config).unwrap();
     let router = PersonHogRouter::new(Arc::new(backend));

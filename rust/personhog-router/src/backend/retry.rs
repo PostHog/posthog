@@ -73,7 +73,8 @@ where
                     "retrying after transient error"
                 );
 
-                let jittered_ms = rand::thread_rng().gen_range(0..=delay_ms);
+                let base = delay_ms / 2;
+                let jittered_ms = base + rand::thread_rng().gen_range(0..=base);
                 tokio::time::sleep(Duration::from_millis(jittered_ms)).await;
                 delay_ms = (delay_ms * 2).min(config.max_backoff_ms);
             }
@@ -113,21 +114,29 @@ mod tests {
 
     #[tokio::test]
     async fn retries_transient_then_succeeds() {
-        let calls = AtomicU32::new(0);
-        let result = with_retry(&test_config(), "test", || {
-            let attempt = calls.fetch_add(1, Ordering::SeqCst);
-            async move {
-                if attempt < 2 {
-                    Err(Status::unavailable("backend down"))
-                } else {
-                    Ok("recovered")
+        let transient_codes = vec![
+            Code::Unavailable,
+            Code::DeadlineExceeded,
+            Code::Internal,
+        ];
+        for code in transient_codes {
+            let calls = AtomicU32::new(0);
+            let result = with_retry(&test_config(), "test", || {
+                let attempt = calls.fetch_add(1, Ordering::SeqCst);
+                let status = Status::new(code, "transient");
+                async move {
+                    if attempt < 2 {
+                        Err(status)
+                    } else {
+                        Ok("recovered")
+                    }
                 }
-            }
-        })
-        .await;
+            })
+            .await;
 
-        assert_eq!(result.unwrap(), "recovered");
-        assert_eq!(calls.load(Ordering::SeqCst), 3);
+            assert_eq!(result.unwrap(), "recovered", "should recover from {code:?}");
+            assert_eq!(calls.load(Ordering::SeqCst), 3, "should take 3 attempts for {code:?}");
+        }
     }
 
     #[tokio::test]
