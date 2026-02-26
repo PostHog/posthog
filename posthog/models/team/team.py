@@ -476,6 +476,8 @@ class Team(UUIDTClassicModel):
 
     test_account_filters = models.JSONField(default=list)
     test_account_filters_default_checked = models.BooleanField(null=True, blank=True)
+    test_account_filters_bytecode = models.JSONField(null=True, blank=True)
+    test_account_filters_bytecode_error = models.TextField(null=True, blank=True)
 
     path_cleaning_filters = field_access_control(
         models.JSONField(default=list, null=True, blank=True), "web_analytics", "editor"
@@ -600,6 +602,39 @@ class Team(UUIDTClassicModel):
 
     # Before adding new fields here, read posthog/models/team/README.md
     # Domain-specific config should use a Team Extension model instead.
+
+    def save(self, *args, **kwargs):
+        self._compile_test_account_filters_bytecode()
+
+        if kwargs.get("update_fields") is not None:
+            if "test_account_filters" in kwargs["update_fields"]:
+                kwargs["update_fields"] = [
+                    *kwargs["update_fields"],
+                    "test_account_filters_bytecode",
+                    "test_account_filters_bytecode_error",
+                ]
+
+        return super().save(*args, **kwargs)
+
+    def _compile_test_account_filters_bytecode(self) -> None:
+        from posthog.hogql.compiler.bytecode import create_bytecode
+        from posthog.hogql.property import ast, property_to_expr
+
+        filters = self.test_account_filters
+        if not filters:
+            self.test_account_filters_bytecode = None
+            self.test_account_filters_bytecode_error = None
+            return
+        try:
+            exprs = [property_to_expr(prop, self) for prop in filters]
+            combined = ast.And(exprs=exprs) if len(exprs) > 1 else exprs[0]
+            self.test_account_filters_bytecode = create_bytecode(combined).bytecode
+            self.test_account_filters_bytecode_error = None
+        except Exception as e:
+            # TODO: consider compiling a "best effort" bytecode that skips
+            # unsupported filters (e.g. cohorts) rather than failing entirely
+            self.test_account_filters_bytecode = None
+            self.test_account_filters_bytecode_error = str(e)
 
     # TRANSITIONAL: These accessors exist for backward compat with existing
     # `team.<product>_config` call sites. New products should NOT add accessors
