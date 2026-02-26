@@ -70,6 +70,9 @@ from ee.surveys.summaries.headline_summary import generate_survey_headline
 logger = structlog.get_logger(__name__)
 CACHE_TIMEOUT_SECONDS = 300
 
+# TTL for AI-generated survey summaries (7 days in seconds)
+SURVEY_SUMMARY_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -1097,6 +1100,60 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 return feature_flag_serializer.save()
 
 
+def _is_summary_cache_stale(generated_at: str | None, cached_response_count: int, current_response_count: int) -> bool:
+    """
+    Check if a cached summary should be regenerated.
+
+    Returns True if:
+    - The cache is older than SURVEY_SUMMARY_CACHE_TTL_SECONDS (7 days)
+    - The current response count has increased by 20% or more since caching
+    """
+    if not generated_at:
+        return True
+
+    try:
+        cache_time = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+        age_seconds = (datetime.now(UTC) - cache_time).total_seconds()
+        if age_seconds > SURVEY_SUMMARY_CACHE_TTL_SECONDS:
+            return True
+    except (ValueError, TypeError):
+        return True
+
+    # Check if response count has increased significantly (20% or more)
+    if cached_response_count > 0 and current_response_count > cached_response_count:
+        increase_ratio = (current_response_count - cached_response_count) / cached_response_count
+        if increase_ratio >= 0.2:
+            return True
+
+    return False
+
+
+def _get_survey_response_count(survey_id: str, team_id: int, start_date: datetime, end_date: datetime) -> int:
+    """Get the count of unique survey responses efficiently."""
+    data = sync_execute(
+        """
+        SELECT count(DISTINCT
+            if(JSONHas(properties, '$survey_submission_id'),
+               JSONExtractString(properties, '$survey_submission_id'),
+               toString(uuid))
+        ) as unique_responses
+        FROM events
+        WHERE event = 'survey sent'
+              AND team_id = %(team_id)s
+              AND JSONExtractString(properties, '$survey_id') = %(survey_id)s
+              AND timestamp >= %(start_date)s
+              AND timestamp <= %(end_date)s
+        """,
+        {
+            "survey_id": survey_id,
+            "team_id": team_id,
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+    )
+    return data[0][0] if data else 0
+
+
 @extend_schema(tags=[ProductKey.SURVEYS])
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
@@ -1711,15 +1768,25 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if not force_refresh and question_id and survey.question_summaries:
             cached_summary = survey.question_summaries.get(question_id)
             if cached_summary:
-                return Response(
-                    {
-                        "content": cached_summary.get("summary", ""),
-                        "response_count": cached_summary.get("responseCount", 0),
-                        "generated_at": cached_summary.get("generatedAt"),
-                        "trace_id": cached_summary.get("traceId"),
-                        "cached": True,
-                    }
-                )
+                # Check if cache is stale (TTL expired or response count increased significantly)
+                cached_response_count = cached_summary.get("responseCount", 0)
+                generated_at = cached_summary.get("generatedAt")
+                start_date = (survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0)
+                end_date = (survey.end_date or datetime.now()).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ) + timedelta(days=1)
+                current_response_count = _get_survey_response_count(str(survey_id), self.team.pk, start_date, end_date)
+
+                if not _is_summary_cache_stale(generated_at, cached_response_count, current_response_count):
+                    return Response(
+                        {
+                            "content": cached_summary.get("summary", ""),
+                            "response_count": cached_response_count,
+                            "generated_at": generated_at,
+                            "trace_id": cached_summary.get("traceId"),
+                            "cached": True,
+                        }
+                    )
 
         # Short-term Redis cache for rapid repeated requests
         cache_key = f"summarize_survey_responses_{self.team.pk}_{self.kwargs['pk']}_{question_id or question_index}"
@@ -1863,13 +1930,36 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         force_refresh = request.data.get("force_refresh", False)
 
         if not force_refresh and survey.headline_summary and survey.headline_response_count:
-            return Response(
-                {
-                    "headline": survey.headline_summary,
-                    "responses_sampled": survey.headline_response_count,
-                    "has_more": False,
-                }
-            )
+            # Check if response count has increased significantly (20% or more)
+            start_date = (survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = (survey.end_date or datetime.now()).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) + timedelta(days=1)
+            current_response_count = _get_survey_response_count(str(survey_id), self.team.pk, start_date, end_date)
+            cached_response_count = survey.headline_response_count
+
+            # Only return cached if response count hasn't increased significantly
+            if cached_response_count > 0:
+                increase_ratio = (current_response_count - cached_response_count) / cached_response_count
+                if increase_ratio < 0.2:
+                    return Response(
+                        {
+                            "headline": survey.headline_summary,
+                            "responses_sampled": survey.headline_response_count,
+                            "has_more": False,
+                            "cached": True,
+                        }
+                    )
+            elif current_response_count == 0:
+                # No new responses, return cached
+                return Response(
+                    {
+                        "headline": survey.headline_summary,
+                        "responses_sampled": survey.headline_response_count,
+                        "has_more": False,
+                        "cached": True,
+                    }
+                )
 
         if not self.team.organization.is_ai_data_processing_approved:
             return Response(
