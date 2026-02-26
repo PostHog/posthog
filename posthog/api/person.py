@@ -1245,6 +1245,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Build point-in-time properties using the pre-fetched distinct_ids
             # If debug mode is enabled, get raw events to avoid duplicate query
             debug_rows: list[Any] = []
+            debug_query: str = ""
+            debug_params: dict[str, Any] = {}
             point_in_time_properties: dict[str, Any]
             if debug and settings.DEBUG:
                 result = build_person_properties_at_time(
@@ -1252,10 +1254,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     timestamp=timestamp,
                     distinct_ids=distinct_ids_queried,
                     include_set_once=include_set_once,
-                    return_raw_events=True,
+                    return_debug_info=True,
                 )
                 # Type cast to help mypy understand the tuple unpacking
-                point_in_time_properties, debug_rows = cast(tuple[dict[str, Any], list[Any]], result)
+                point_in_time_properties, debug_rows, debug_query, debug_params = cast(
+                    tuple[dict[str, Any], list[Any], str, dict[str, Any]], result
+                )
             else:
                 point_in_time_properties = cast(
                     dict[str, Any],
@@ -1286,8 +1290,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             # Add debug information if requested and in debug mode
             if debug and settings.DEBUG:
-                # Use the raw events that were already fetched to avoid duplicate query
+                # Use the raw events, query, and params that were already fetched to avoid duplicate query
                 person_data["debug"] = {
+                    "query": debug_query,
+                    "params": debug_params,
                     "events_found": len(debug_rows),
                     "events": [
                         {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows

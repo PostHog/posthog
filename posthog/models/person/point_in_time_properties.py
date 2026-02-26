@@ -93,7 +93,8 @@ def build_person_properties_at_time(
     include_set_once: bool = False,
     timeout: Optional[int] = 30,
     return_raw_events: bool = False,
-) -> Union[dict[str, Any], tuple[dict[str, Any], list]]:
+    return_debug_info: bool = False,
+) -> Union[dict[str, Any], tuple[dict[str, Any], list], tuple[dict[str, Any], list, str, dict[str, Any]]]:
     """
     Build person properties as they existed at a specific point in time.
 
@@ -107,10 +108,12 @@ def build_person_properties_at_time(
         include_set_once: If True, also handles $set_once operations (default: False)
         timeout: Query timeout in seconds (default: 30)
         return_raw_events: If True, also returns the raw event rows for debug purposes (default: False)
+        return_debug_info: If True, also returns query and params for debugging (default: False)
 
     Returns:
-        If return_raw_events=False: Dictionary of person properties as they existed at the specified time
-        If return_raw_events=True: Tuple of (properties dict, list of raw event rows)
+        If return_raw_events=False and return_debug_info=False: Dictionary of person properties as they existed at the specified time
+        If return_raw_events=True and return_debug_info=False: Tuple of (properties dict, list of raw event rows)
+        If return_debug_info=True: Tuple of (properties dict, raw_rows, query_string, query_params)
 
     Raises:
         ValueError: If parameters are invalid
@@ -220,7 +223,9 @@ def build_person_properties_at_time(
                 # Skip events with malformed property data
                 continue
 
-    if return_raw_events:
+    if return_debug_info:
+        return person_properties, rows, query, params
+    elif return_raw_events:
         return person_properties, rows
     else:
         return person_properties
