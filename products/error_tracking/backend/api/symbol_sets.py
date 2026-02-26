@@ -366,10 +366,8 @@ def create_symbol_set(
     with transaction.atomic():
         try:
             symbol_set = ErrorTrackingSymbolSet.objects.get(team=team, ref=chunk_id)
-            if symbol_set.release is None:
+            if symbol_set.release is None or (release is not None and symbol_set.release != release):
                 symbol_set.release = release
-            elif symbol_set.release != release:
-                raise ValidationError(f"Symbol set has already been uploaded for a different release")
             symbol_set.storage_ptr = storage_ptr
             symbol_set.content_hash = content_hash
             symbol_set.save()
@@ -450,17 +448,14 @@ def bulk_create_symbol_sets(
             upload = new_symbol_set_map[existing.ref]
             dirty = False
 
-            # Allow adding an "orphan" symbol set to a release, but not
-            # moving symbols sets between releases
+            # Update the release FK to the latest upload's release (last writer wins).
+            # Since release resolution now happens at the event level via
+            # $release_version/$release_name, this FK is best-effort context
+            # for backward compatibility.
             if upload.release_id:
-                if existing.release_id is None:
+                if existing.release_id is None or str(existing.release_id) != upload.release_id:
                     existing.release_id = upload.release_id
                     dirty = True
-                elif str(existing.release_id) != upload.release_id:
-                    raise ValidationError(
-                        code="release_id_mismatch",
-                        detail=f"Symbol set {existing.ref} already has a release ID",
-                    )
 
             if existing.content_hash is not None and existing.content_hash != upload.content_hash:
                 # If this symbol set already has a content hash, and they differ, raise. We do not support changing

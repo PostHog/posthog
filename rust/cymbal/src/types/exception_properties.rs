@@ -40,6 +40,13 @@ pub struct ExceptionProperties {
     )]
     pub exception_releases: HashMap<String, ReleaseInfo>,
 
+    #[serde(
+        rename = "$exception_release",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub exception_release: Option<ReleaseInfo>,
+
     #[serde(rename = "$exception_fingerprint")]
     pub fingerprint: Option<String>,
     #[serde(rename = "$exception_proposed_fingerprint")]
@@ -119,6 +126,7 @@ impl ExceptionProperties {
             other: self.props.clone(),
             handled,
             releases,
+            release: self.exception_release.clone(),
             types,
             values,
             sources,

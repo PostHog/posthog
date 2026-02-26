@@ -184,6 +184,8 @@ pub struct OutputErrProps {
         default
     )]
     pub releases: HashMap<String, ReleaseInfo>,
+    #[serde(rename = "$exception_release", skip_serializing_if = "Option::is_none", default)]
+    pub release: Option<ReleaseInfo>,
     // Search metadata (materialized)
     #[serde(rename = "$exception_types")]
     pub types: Vec<String>,
@@ -195,7 +197,7 @@ pub struct OutputErrProps {
     pub functions: Vec<String>,
 }
 
-const RESERVED_PROPERTIES: [&str; 11] = [
+const RESERVED_PROPERTIES: [&str; 12] = [
     "$exception_list",
     "$exception_fingerprint",
     "$exception_issue_id",
@@ -203,6 +205,7 @@ const RESERVED_PROPERTIES: [&str; 11] = [
     "$exception_proposed_fingerprint",
     "$exception_handled",
     "$exception_releases",
+    "$exception_release",
     "$exception_types",
     "$exception_values",
     "$exception_sources",
@@ -329,6 +332,7 @@ impl FingerprintedErrProps {
             functions,
             handled,
             releases,
+            release: None,
         }
     }
 }

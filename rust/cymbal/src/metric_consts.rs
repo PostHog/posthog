@@ -106,3 +106,4 @@ pub const PROPERTIES_RESOLVER_OPERATOR: &str = "cymbal_exception_properties_reso
 pub const ISSUE_LINKER_OPERATOR: &str = "cymbal_exception_issue_linker_operator";
 pub const ISSUE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_issue_suppression_operator";
 pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_generator_operator";
+pub const RELEASE_RESOLVER_OPERATOR: &str = "cymbal_exception_release_resolver_operator";

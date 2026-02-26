@@ -658,7 +658,7 @@ class TestErrorTracking(APIBaseTest):
         assert symbol_set.storage_ptr != initial_storage_ptr
         assert id_map[str(chunk_id)]["symbol_set_id"] == str(symbol_set.id)
 
-    def test_bulk_start_upload_rejects_release_change(self) -> None:
+    def test_bulk_start_upload_updates_release_on_mismatch(self) -> None:
         chunk_id = str(uuid7())
 
         first_release = ErrorTrackingRelease.objects.create(
@@ -696,10 +696,10 @@ class TestErrorTracking(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_201_CREATED
 
         symbol_set.refresh_from_db()
-        assert symbol_set.release_id == first_release.id
+        assert symbol_set.release_id == second_release.id
 
     @patch("posthog.storage.object_storage.head_object")
     def test_can_finish_bulk_symbol_set_upload(self, patched_object_storage) -> None:

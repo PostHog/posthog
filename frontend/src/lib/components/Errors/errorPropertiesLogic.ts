@@ -100,8 +100,55 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
         release: [
-            (s) => [s.frames, s.stackFrameRecords],
-            (frames: ErrorTrackingStackFrame[], stackFrameRecords: KeyedStackFrameRecords) => {
+            (s) => [s.properties, s.frames, s.stackFrameRecords],
+            (
+                properties: ErrorEventProperties,
+                frames: ErrorTrackingStackFrame[],
+                stackFrameRecords: KeyedStackFrameRecords
+            ): ErrorTrackingRelease | undefined => {
+                // Primary: $release set by Cymbal from event's $release_version/$release_name
+                const release = properties?.$exception_release as
+                    | {
+                          id: string
+                          version: string
+                          project?: string
+                          timestamp: string
+                          metadata?: Record<string, unknown>
+                      }
+                    | undefined
+                if (release) {
+                    return {
+                        id: release.id,
+                        version: release.version,
+                        project: release.project,
+                        created_at: release.timestamp,
+                        metadata: release.metadata as ErrorTrackingRelease['metadata'],
+                    }
+                }
+
+                // Second: $exception_releases from frame-level resolution
+                const exceptionReleases = properties?.$exception_releases
+                if (exceptionReleases && typeof exceptionReleases === 'object') {
+                    const entries = Object.values(exceptionReleases) as Array<{
+                        id: string
+                        version: string
+                        project?: string
+                        timestamp: string
+                        metadata?: Record<string, unknown>
+                    }>
+                    if (entries.length > 0) {
+                        const entry = entries[0]
+                        return {
+                            id: entry.id,
+                            version: entry.version,
+                            project: entry.project,
+                            created_at: entry.timestamp,
+                            metadata: entry.metadata as ErrorTrackingRelease['metadata'],
+                        }
+                    }
+                }
+
+                // Fallback: release from stack frame records (existing path)
                 if (!frames.length || Object.keys(stackFrameRecords).length === 0) {
                     return undefined
                 }
