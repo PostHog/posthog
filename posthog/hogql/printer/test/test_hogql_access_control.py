@@ -26,12 +26,15 @@ class TestAccessControlSystemTables(BaseTest):
         system_node = database.tables.children.get("system")
         assert system_node is not None
         assert hasattr(system_node, "children")
-        # All system tables should be present for admin
+        # All scoped system tables should be present for admin
         assert "dashboards" in system_node.children
         assert "insights" in system_node.children
         assert "experiments" in system_node.children
         assert "feature_flags" in system_node.children
         assert "surveys" in system_node.children
+        assert "actions" in system_node.children
+        assert "notebooks" in system_node.children
+        assert "error_tracking_issues" in system_node.children
 
     def test_regular_user_with_full_access_gets_all_tables(self):
         """Regular users with default full access should see all tables."""
@@ -60,6 +63,9 @@ class TestAccessControlSystemTables(BaseTest):
         assert "feature_flags" not in system_node.children
         assert "surveys" not in system_node.children
         assert "data_warehouse_sources" not in system_node.children
+        assert "actions" not in system_node.children
+        assert "notebooks" not in system_node.children
+        assert "error_tracking_issues" not in system_node.children
         # But tracked in denied list for clear error messages
         assert "system.dashboards" in database._denied_tables
         assert "system.insights" in database._denied_tables
@@ -67,9 +73,11 @@ class TestAccessControlSystemTables(BaseTest):
         assert "system.feature_flags" in database._denied_tables
         assert "system.surveys" in database._denied_tables
         assert "system.data_warehouse_sources" in database._denied_tables
+        assert "system.actions" in database._denied_tables
+        assert "system.notebooks" in database._denied_tables
+        assert "system.error_tracking_issues" in database._denied_tables
         # Unscoped tables remain
         assert "cohorts" in system_node.children
-        assert "actions" in system_node.children
         assert "teams" in system_node.children
 
 
@@ -379,6 +387,9 @@ class TestAccessControlIntegration(BaseTest):
         assert "experiments" in system_node.children
         assert "feature_flags" in system_node.children
         assert "surveys" in system_node.children
+        assert "actions" in system_node.children
+        assert "notebooks" in system_node.children
+        assert "error_tracking_issues" in system_node.children
         assert len(database._denied_tables) == 0
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
