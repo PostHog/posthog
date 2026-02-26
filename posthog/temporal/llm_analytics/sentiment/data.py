@@ -12,6 +12,7 @@ from posthog.temporal.llm_analytics.sentiment.constants import (
     GENERATIONS_QUERY,
     MAX_GENERATIONS_PER_TRACE,
     MAX_INPUT_CHARS,
+    MAX_INPUT_CHARS_GENERATION,
 )
 
 
@@ -97,7 +98,7 @@ def fetch_generations_by_uuid(
             "date_from": ast.Constant(value=date_from),
             "date_to": ast.Constant(value=date_to),
             "uuids": ast.Tuple(exprs=[ast.Constant(value=uid) for uid in generation_ids]),
-            "max_input_chars": ast.Constant(value=MAX_INPUT_CHARS),
+            "max_input_chars": ast.Constant(value=MAX_INPUT_CHARS_GENERATION),
         },
         team=team,
         limit_context=LimitContext.QUERY_ASYNC,

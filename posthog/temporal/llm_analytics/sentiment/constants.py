@@ -18,6 +18,7 @@ CLASSIFY_BATCH_SIZE = 32  # texts per ONNX forward pass
 MAX_CLASSIFICATIONS_PER_TRACE = 200
 MAX_GENERATIONS_PER_TRACE = 10  # per-trace cap enforced by window function in ClickHouse
 MAX_INPUT_CHARS = 300_000  # skip $ai_input longer than this (covers p99; extraction truncates before inference)
+MAX_INPUT_CHARS_GENERATION = 1_000_000  # higher limit for generation-level — user asked for specific UUIDs
 QUERY_LOOKBACK_DAYS = 30  # timestamp filter to enable partition pruning
 
 # Temporal workflow/activity config
@@ -62,19 +63,17 @@ GENERATIONS_QUERY = """
     ORDER BY trace_id, rn
 """
 
-# Simpler query — fetch specific generation events by UUID, no window function needed
+# Fetch specific generation events by UUID — no window function needed.
+# Uses a higher size limit than the trace query since the user asked for
+# these specific generations (extraction + truncation caps inference cost).
 GENERATIONS_BY_UUID_QUERY = """
-    SELECT uuid, ai_input
-    FROM (
-        SELECT
-            uuid,
-            properties.$ai_input AS ai_input
-        FROM events
-        WHERE event = '$ai_generation'
-          AND timestamp >= toDateTime({date_from}, 'UTC')
-          AND timestamp <= toDateTime({date_to}, 'UTC')
-          AND uuid IN {uuids}
-          AND length(properties.$ai_input) <= {max_input_chars}
-    )
-    ORDER BY uuid
+    SELECT
+        uuid,
+        properties.$ai_input AS ai_input
+    FROM events
+    WHERE event = '$ai_generation'
+      AND timestamp >= toDateTime({date_from}, 'UTC')
+      AND timestamp <= toDateTime({date_to}, 'UTC')
+      AND uuid IN {uuids}
+      AND length(properties.$ai_input) <= {max_input_chars}
 """
