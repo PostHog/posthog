@@ -32,25 +32,27 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
-def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def filter_mysql_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type == "datetime":
-            results.append((column_name, IncrementalFieldType.DateTime))
+            results.append((column_name, IncrementalFieldType.DateTime, nullable))
         elif type == "tinyint" or type == "smallint" or type == "mediumint" or type == "int" or type == "bigint":
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
 
 def get_schemas(
     host: str, user: str, password: str, database: str, schema: str, port: int, using_ssl: bool = True
-) -> dict[str, list[tuple[str, str]]]:
+) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from MySQL source schemas to sync."""
 
     ssl_ca: str | None = None
@@ -70,14 +72,14 @@ def get_schemas(
 
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+            "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
             {"schema": schema},
         )
         result = cursor.fetchall()
 
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for row in result:
-            schema_list[row[0]].append((row[1], row[2]))
+            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     connection.close()
 

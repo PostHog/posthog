@@ -7,6 +7,7 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, Lemo
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,7 +26,7 @@ import {
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { type Ticket, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
+import { type Ticket, channelOptions, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
@@ -40,6 +41,7 @@ export function SupportTicketsScene(): JSX.Element {
         filteredTickets,
         statusFilter,
         priorityFilter,
+        channelFilter,
         assigneeFilter,
         dateFrom,
         dateTo,
@@ -47,8 +49,15 @@ export function SupportTicketsScene(): JSX.Element {
         currentPage,
         totalCount,
     } = useValues(logic)
-    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, setCurrentPage, loadTickets } =
-        useActions(logic)
+    const {
+        setStatusFilter,
+        setPriorityFilter,
+        setChannelFilter,
+        setAssigneeFilter,
+        setDateRange,
+        setCurrentPage,
+        loadTickets,
+    } = useActions(logic)
     const { push } = useActions(router)
 
     return (
@@ -142,6 +151,29 @@ export function SupportTicketsScene(): JSX.Element {
                                   : `${priorityFilter.length} priorities`}
                         </LemonButton>
                     </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {channelOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.value}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        onClick={() => setChannelFilter(option.value)}
+                                        active={channelFilter === option.value}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {channelOptions.find((o) => o.value === channelFilter)?.label ?? 'All channels'}
+                        </LemonButton>
+                    </LemonDropdown>
                     <AssigneeSelect
                         assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
                         onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
@@ -193,9 +225,27 @@ export function SupportTicketsScene(): JSX.Element {
                             ? () => setCurrentPage(currentPage + 1)
                             : undefined,
                 }}
-                onRow={(ticket) => ({
-                    onClick: () => push(urls.supportTicketDetail(ticket.id)),
-                })}
+                onRow={(ticket) => {
+                    const ticketUrl = urls.supportTicketDetail(ticket.id)
+                    return {
+                        onClick: (e: React.MouseEvent) => {
+                            if (e.metaKey || e.ctrlKey) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            } else {
+                                push(ticketUrl)
+                            }
+                        },
+                        onAuxClick: (e: React.MouseEvent) => {
+                            if (e.button === 1) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            }
+                        },
+                    }
+                }}
                 rowClassName={(ticket) =>
                     clsx({
                         'bg-primary-alt-highlight': ticket.unread_team_count > 0,

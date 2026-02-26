@@ -1089,7 +1089,7 @@ describe('Hog Executor', () => {
                 method: 'GET',
             })
 
-            const maxRetries = hub.CDP_FETCH_RETRIES
+            const maxRetries = executor['config'].fetchRetries
             let result = await executor.executeFetch(invocation)
 
             for (let attempt = 1; attempt < maxRetries; attempt++) {
@@ -1156,9 +1156,6 @@ describe('Hog Executor', () => {
                 url: `${baseUrl}/test`,
                 method: 'GET',
             })
-
-            // Set a very short timeout
-            hub.EXTERNAL_REQUEST_TIMEOUT_MS = 100
 
             const result = await executor.executeFetch(invocation)
 
@@ -1291,7 +1288,7 @@ describe('Hog Executor', () => {
                 })
             })
 
-            hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
+            executor['config'].googleAdwordsDeveloperToken = 'ADWORDS_TOKEN'
 
             let invocation = await createFetchInvocation({
                 url: 'https://googleads.googleapis.com/1234',

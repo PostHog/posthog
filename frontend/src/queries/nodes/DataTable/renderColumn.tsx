@@ -4,8 +4,9 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -45,7 +46,7 @@ import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llm
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
-const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'session_start', 'session_end']
+const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
 
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
@@ -81,7 +82,14 @@ export function renderColumn(
     context?: QueryContext<DataTableNode>
 ): JSX.Element | string {
     const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
+    const originalKey = key
     key = isGroupsQuery(query.source) ? extractExpressionComment(key) : removeExpressionComment(key)
+
+    // Look up context/product renderers using both the stripped key and the original key,
+    // since renderers may be registered with the full expression (e.g. "'' -- Sentiment")
+    const contextColumn = context?.columns?.[key] ?? (key !== originalKey ? context?.columns?.[originalKey] : undefined)
+    const productColumn =
+        productColumnRenderers[key] ?? (key !== originalKey ? productColumnRenderers[originalKey] : undefined)
 
     if (value === loadingColumn) {
         return <Spinner />
@@ -100,9 +108,9 @@ export function renderColumn(
                 context={context}
             />
         )
-    } else if (context?.columns?.[key] && context?.columns?.[key].render) {
-        const Component = context?.columns?.[key]?.render
-        return Component ? (
+    } else if (contextColumn?.render) {
+        const Component = contextColumn.render
+        return (
             <Component
                 record={record}
                 columnName={key}
@@ -112,11 +120,9 @@ export function renderColumn(
                 rowCount={rowCount}
                 context={context}
             />
-        ) : (
-            String(value)
         )
-    } else if (productColumnRenderers[key]?.render) {
-        const Component = productColumnRenderers[key].render!
+    } else if (productColumn?.render) {
+        const Component = productColumn.render
         return (
             <Component
                 record={record}
@@ -193,6 +199,15 @@ export function renderColumn(
             </Link>
         ) : (
             content
+        )
+    } else if ((isActorsQuery(query.source) || isActorsQuery(query)) && key === 'last_seen_at') {
+        const isWithinLastHour = dayjs().diff(dayjs(value), 'hour', true) < 1
+        return (
+            <TZLabel time={value} showSeconds>
+                {isWithinLastHour ? (
+                    <span className="whitespace-nowrap align-middle border-dotted border-b">last hour</span>
+                ) : undefined}
+            </TZLabel>
         )
     } else if (DATETIME_KEYS.includes(key)) {
         return <TZLabel time={value} showSeconds />

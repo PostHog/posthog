@@ -58,13 +58,16 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         body = record["body"]
     except KeyError as e:
         msg = f"GitHub issue record missing required field {e}"
-        logger.exception(msg, record=record, team_id=team_id)
+        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg) from e
     if not issue_id or not title:
         msg = f"GitHub issue record has empty required field: id={issue_id!r}, title={title!r}"
-        logger.exception(msg, record=record, team_id=team_id)
+        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
     if not body:
+        logger.info(
+            "Ignoring GitHub issue without a body", record=record, team_id=team_id, signals_type="data-import-signals"
+        )
         return None
     return SignalEmitterOutput(
         source_product="github",
@@ -82,8 +85,8 @@ GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,
     where_clause=f"state NOT IN ({', '.join(repr(s) for s in GITHUB_IGNORED_STATES)})",
-    max_records=100,
-    first_sync_lookback_days=7,
+    max_records=1000,
+    first_sync_lookback_days=90,
     actionability_prompt=GITHUB_ACTIONABILITY_PROMPT,
     summarization_prompt=GITHUB_SUMMARIZATION_PROMPT,
     description_summarization_threshold_chars=2000,

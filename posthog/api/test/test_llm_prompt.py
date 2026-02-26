@@ -222,6 +222,100 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["id"] == str(prompt.id)
         assert response.json()["name"] == "test-prompt"
         assert response.json()["prompt"] == "You are a helpful assistant."
+        assert "created_by" not in response.json()
+
+    def test_fetch_prompt_by_name_uses_cached_result_after_first_load(self, mock_feature_enabled):
+        LLMPrompt.objects.create(
+            team=self.team,
+            name="cached-prompt",
+            prompt="You are a helpful assistant.",
+            created_by=self.user,
+        )
+        from posthog.storage.llm_prompt_cache import llm_prompts_hypercache
+
+        with patch.object(llm_prompts_hypercache, "load_fn", wraps=llm_prompts_hypercache.load_fn) as mock_load_fn:
+            first_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/cached-prompt/")
+            second_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/cached-prompt/")
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_200_OK
+        assert mock_load_fn.call_count == 1
+
+    def test_create_prompt_invalidates_cached_not_found_result(self, mock_feature_enabled):
+        first_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/new-cached-prompt/")
+        assert first_response.status_code == status.HTTP_404_NOT_FOUND
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "new-cached-prompt", "prompt": "Created after cache miss"},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        second_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/new-cached-prompt/")
+        assert second_response.status_code == status.HTTP_200_OK
+        assert second_response.json()["prompt"] == "Created after cache miss"
+
+    def test_model_save_invalidates_cached_not_found_result(self, mock_feature_enabled):
+        first_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/model-saved-prompt/")
+        assert first_response.status_code == status.HTTP_404_NOT_FOUND
+
+        LLMPrompt.objects.create(
+            team=self.team,
+            name="model-saved-prompt",
+            prompt="Created via model save",
+            created_by=self.user,
+        )
+
+        second_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/model-saved-prompt/")
+        assert second_response.status_code == status.HTTP_200_OK
+        assert second_response.json()["prompt"] == "Created via model save"
+
+    @patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: callback())
+    def test_update_prompt_invalidates_cached_prompt_by_name_result(self, mock_on_commit, mock_feature_enabled):
+        prompt = LLMPrompt.objects.create(
+            team=self.team,
+            name="update-cached-prompt",
+            prompt="Original content",
+            created_by=self.user,
+        )
+
+        first_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/update-cached-prompt/")
+        assert first_response.status_code == status.HTTP_200_OK
+        assert first_response.json()["prompt"] == "Original content"
+
+        update_response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/{prompt.id}/",
+            data={"prompt": "Updated content"},
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+        second_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/update-cached-prompt/")
+        assert second_response.status_code == status.HTTP_200_OK
+        assert second_response.json()["prompt"] == "Updated content"
+
+    @patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: callback())
+    def test_soft_delete_invalidates_cached_prompt_by_name_result(self, mock_on_commit, mock_feature_enabled):
+        prompt = LLMPrompt.objects.create(
+            team=self.team,
+            name="delete-cached-prompt",
+            prompt="To be deleted",
+            created_by=self.user,
+        )
+
+        first_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/delete-cached-prompt/")
+        assert first_response.status_code == status.HTTP_200_OK
+
+        delete_response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/{prompt.id}/",
+            data={"deleted": True},
+            format="json",
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+
+        second_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/delete-cached-prompt/")
+        assert second_response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_resolve_prompt_by_name_succeeds_for_session_auth(self, mock_feature_enabled):
         prompt = LLMPrompt.objects.create(
@@ -237,6 +331,21 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["id"] == str(prompt.id)
         assert response.json()["name"] == "test-prompt"
         assert response.json()["prompt"] == "You are a helpful assistant."
+        assert "created_by" in response.json()
+
+    def test_resolve_prompt_by_name_does_not_use_hypercache(self, mock_feature_enabled):
+        LLMPrompt.objects.create(
+            team=self.team,
+            name="test-prompt",
+            prompt="You are a helpful assistant.",
+            created_by=self.user,
+        )
+
+        with patch("posthog.api.llm_prompt.get_prompt_by_name_from_cache") as mock_get_from_cache:
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/test-prompt/")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_get_from_cache.assert_not_called()
 
     def test_resolve_prompt_by_name_forbidden_for_personal_api_key_auth(self, mock_feature_enabled):
         LLMPrompt.objects.create(

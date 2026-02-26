@@ -1,4 +1,4 @@
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { ProjectId, TeamId } from '../../types'
 import { GroupTypeManager } from './group-type-manager'

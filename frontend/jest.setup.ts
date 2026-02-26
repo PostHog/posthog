@@ -1,7 +1,8 @@
-import { configure } from '@testing-library/react'
 import 'jest-canvas-mock'
-import { TextDecoder, TextEncoder } from 'util'
 import 'whatwg-fetch'
+
+import { configure } from '@testing-library/react'
+import { TextDecoder, TextEncoder } from 'util'
 
 // Jest/JSDom don't know about TextEncoder but the browsers we support do
 // https://github.com/jsdom/jsdom/issues/2524

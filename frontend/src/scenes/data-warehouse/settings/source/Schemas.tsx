@@ -74,20 +74,30 @@ const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     const logicProps = { id, availableSources: {} }
     const logic = dataWarehouseSourceSettingsLogic(logicProps)
-    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly } = useValues(logic)
-    const { setShowEnabledSchemasOnly } = useActions(logic)
+    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly, refreshingSchemas } = useValues(logic)
+    const { setShowEnabledSchemasOnly, refreshSchemas } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <BindLogic logic={dataWarehouseSourceSettingsLogic} props={logicProps}>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center justify-between gap-2 mb-2">
                 <LemonSwitch
                     checked={showEnabledSchemasOnly}
                     onChange={setShowEnabledSchemasOnly}
                     label="Show enabled only"
                 />
+                <SourceEditorAction source={source}>
+                    <LemonButton
+                        type="secondary"
+                        loading={refreshingSchemas}
+                        onClick={() => refreshSchemas()}
+                        disabled={sourceLoading || refreshingSchemas}
+                    >
+                        Pull new schemas
+                    </LemonButton>
+                </SourceEditorAction>
             </div>
             <SchemaTable schemas={filteredSchemas} isLoading={sourceLoading} />
             {source?.source_type &&

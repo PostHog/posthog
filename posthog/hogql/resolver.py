@@ -24,6 +24,13 @@ from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
+from posthog.hogql.functions.traffic_type import (
+    get_bot_name,
+    get_bot_type,
+    get_traffic_category,
+    get_traffic_type,
+    is_bot,
+)
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_field_by_name, lookup_table_by_name
@@ -620,6 +627,16 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
+            if node.name == "__preview_getTrafficType":
+                return self.visit(get_traffic_type(node=node, args=node.args))
+            if node.name == "__preview_getTrafficCategory":
+                return self.visit(get_traffic_category(node=node, args=node.args))
+            if node.name == "__preview_isBot":
+                return self.visit(is_bot(node=node, args=node.args))
+            if node.name == "__preview_getBotType":
+                return self.visit(get_bot_type(node=node, args=node.args))
+            if node.name == "__preview_getBotName":
+                return self.visit(get_bot_name(node=node, args=node.args))
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []

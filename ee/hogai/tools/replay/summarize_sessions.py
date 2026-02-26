@@ -1,13 +1,12 @@
 import asyncio
 from textwrap import dedent
 from typing import Any, Literal
-from uuid import uuid4
 
 import structlog
 import posthoganalytics
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, MaxRecordingUniversalFilters, RecordingsQuery
+from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.sync import database_sync_to_async
@@ -33,7 +32,7 @@ from ee.hogai.session_summaries.tracking import (
     capture_session_summary_started,
     generate_tracking_id,
 )
-from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 
 logger = structlog.get_logger(__name__)
@@ -86,7 +85,7 @@ class SummarizeSessionsTool(MaxTool):
         self,
         recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str],
         summary_title: str,
-    ) -> tuple[str, ToolMessagesArtifact | None]:
+    ) -> tuple[str, dict | None]:
         # If filters - convert filters to recordings query and get session IDs
         if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters):
             recordings_query = convert_filters_to_recordings_query(
@@ -162,33 +161,14 @@ class SummarizeSessionsTool(MaxTool):
                 summary_title=summary_title,
                 session_ids_source=llm_provided_session_ids_source,
             )
-            # Build messages artifact for group summaries (with "Open report" button)
-            content, artifact = None, None
+            content: str | None = None
+            artifact: dict | None = None
             if session_group_summary_id:
-                messages = [
-                    AssistantMessage(
-                        meta={
-                            "form": {
-                                "options": [
-                                    {
-                                        "value": "Open report",
-                                        "href": f"/session-summaries/{session_group_summary_id}",
-                                        "variant": "primary",
-                                    }
-                                ]
-                            }
-                        },
-                        content=f"Report complete: {summary_title or 'Sessions summary'}",
-                        id=str(uuid4()),
-                    ),
-                    AssistantToolCallMessage(
-                        content=summaries_content,
-                        tool_call_id=self._state.root_tool_call_id or "unknown",
-                        id=str(uuid4()),
-                    ),
-                ]
-                # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
-                content, artifact = "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
+                content = summaries_content
+                artifact = {
+                    "title": summary_title or "Sessions summary",
+                    "session_group_summary_id": session_group_summary_id,
+                }
             else:
                 content, artifact = summaries_content, None
         except Exception as err:
