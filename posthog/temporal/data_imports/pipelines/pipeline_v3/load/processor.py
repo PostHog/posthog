@@ -15,6 +15,12 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import
     is_batch_already_processed,
     mark_batch_as_processed,
 )
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    DELTA_ROWS_WRITTEN_TOTAL,
+    DELTA_WRITE_DURATION_SECONDS,
+    IDEMPOTENCY_HIT_TOTAL,
+    PARQUET_READ_DURATION_SECONDS,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
@@ -230,11 +236,15 @@ def process_message(message: Any) -> None:
     export_signal = ExportSignalMessage.from_dict(message)
 
     try:
+        team_id_str = str(export_signal.team_id)
+        schema_id_str = str(export_signal.schema_id)
+
         already_processed = is_batch_already_processed(
             export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
         )
 
         if already_processed and not export_signal.is_final_batch:
+            IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc()
             logger.info(
                 "batch_already_processed",
                 team_id=export_signal.team_id,
@@ -281,7 +291,8 @@ def process_message(message: Any) -> None:
             logger=logger,
         )
 
-        pa_table = read_parquet(export_signal.s3_path)
+        with PARQUET_READ_DURATION_SECONDS.time():
+            pa_table = read_parquet(export_signal.s3_path)
 
         logger.debug(
             "parquet_file_read",
@@ -312,12 +323,17 @@ def process_message(message: Any) -> None:
             batch_index=export_signal.batch_index,
         )
 
-        delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
-            data=pa_table,
-            write_type=write_type,
-            should_overwrite_table=should_overwrite_table,
-            primary_keys=primary_keys,
-        )
+        with DELTA_WRITE_DURATION_SECONDS.labels(
+            team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
+        ).time():
+            delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
+                data=pa_table,
+                write_type=write_type,
+                should_overwrite_table=should_overwrite_table,
+                primary_keys=primary_keys,
+            )
+
+        DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
         internal_schema = HogQLSchema()
         internal_schema.add_pyarrow_table(pa_table)

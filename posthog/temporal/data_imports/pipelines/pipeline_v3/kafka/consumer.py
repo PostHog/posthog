@@ -17,6 +17,15 @@ from confluent_kafka import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import _KafkaProducer, _KafkaSecurityProtocol
+from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.metrics import (
+    BATCH_PROCESSING_DURATION_SECONDS,
+    BATCH_RETRY_EXHAUSTED_TOTAL,
+    BATCH_RETRY_TOTAL,
+    BATCH_SIZE,
+    DLQ_MESSAGES_TOTAL,
+    MESSAGES_PROCESSED_TOTAL,
+    OFFSET_COMMITS_TOTAL,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.config import ConsumerConfig
 
 logger = structlog.get_logger(__name__)
@@ -188,6 +197,8 @@ class KafkaConsumerService:
                 if not messages:
                     continue
 
+                BATCH_SIZE.observe(len(messages))
+
                 logger.debug("batch_received", message_count=len(messages))
 
                 self._process_batch_with_retry(messages, health_reporter=health_reporter)
@@ -218,8 +229,14 @@ class KafkaConsumerService:
                 for i, message in enumerate(messages):
                     if i in dlq_indices:
                         continue
+
+                    team_id = str(message.get("team_id", "unknown"))
+                    schema_id = str(message.get("schema_id", "unknown"))
+
                     try:
-                        self._process_message(message)
+                        with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
+                            self._process_message(message)
+                        MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
                         if health_reporter:
                             health_reporter()
                     except TRANSIENT_ERRORS:
@@ -233,15 +250,27 @@ class KafkaConsumerService:
                         try:
                             self._send_to_dlq(message, e)
                             dlq_indices.add(i)
+                            MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="dlq").inc()
+                            DLQ_MESSAGES_TOTAL.labels(
+                                team_id=team_id, schema_id=schema_id, error_type=type(e).__name__
+                            ).inc()
                         except Exception:
                             raise e
 
-                self._consumer.commit()
+                try:
+                    self._consumer.commit()
+                    OFFSET_COMMITS_TOTAL.labels(status="success").inc()
+                except Exception:
+                    OFFSET_COMMITS_TOTAL.labels(status="failure").inc()
+                    raise
                 processed = len(messages) - len(dlq_indices)
                 logger.debug("batch_committed", message_count=processed, dlq_count=len(dlq_indices))
                 return
             except TRANSIENT_ERRORS as e:
+                BATCH_RETRY_TOTAL.labels(attempt=str(attempt + 1), error_type=type(e).__name__).inc()
+
                 if attempt == self._config.max_retries - 1:
+                    BATCH_RETRY_EXHAUSTED_TOTAL.labels(error_type=type(e).__name__).inc()
                     logger.exception(
                         "batch_processing_failed_after_retries",
                         attempts=self._config.max_retries,

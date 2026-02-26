@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
 import structlog
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +49,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self._handle_liveness()
         elif self.path == "/_readiness":
             self._handle_readiness()
+        elif self.path == "/_metrics":
+            self._handle_metrics()
         else:
             self.send_error(404)
 
@@ -68,6 +71,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
         self.wfile.write(b"OK")
+
+    def _handle_metrics(self) -> None:
+        output = generate_latest()
+        self.send_response(200)
+        self.send_header("Content-Type", CONTENT_TYPE_LATEST)
+        self.end_headers()
+        self.wfile.write(output)
 
 
 def start_health_server(port: int, health_state: HealthState) -> threading.Thread:

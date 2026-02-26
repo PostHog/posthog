@@ -4,6 +4,7 @@ from typing import Any, Generic
 
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
+from temporalio import activity
 
 from posthog.models import DataWarehouseTable
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -33,6 +34,11 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     normalize_table_column_names,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka import KafkaBatchProducer, SyncTypeLiteral
+from posthog.temporal.data_imports.pipelines.pipeline_v3.metrics import (
+    get_batches_produced_metric,
+    get_pipeline_run_duration_metric,
+    get_rows_extracted_metric,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult, S3BatchWriter
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -156,6 +162,14 @@ class PipelineV3(Generic[ResumableData]):
         if should_resume:
             await self._logger.ainfo("V3 Pipeline: Resumable source detected - attempting to resume previous import")
 
+        team_id_str = str(self._job.team_id)
+        schema_id_str = str(self._schema.id)
+        source_type = self._source.source_type if self._source else "unknown"
+        sync_type = self._kafka_producer._sync_type
+
+        start_time = time.perf_counter()
+        status = "success"
+
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
 
@@ -196,6 +210,10 @@ class PipelineV3(Generic[ResumableData]):
                     row_count=row_count,
                 )
 
+                if activity.in_activity():
+                    get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
+                    get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+
                 chunk_index += 1
 
                 cleanup_memory(pa_memory_pool, py_table)
@@ -213,6 +231,10 @@ class PipelineV3(Generic[ResumableData]):
                     row_count=row_count,
                 )
 
+                if activity.in_activity():
+                    get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
+                    get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+
             await self._finalize(row_count=row_count)
 
             return {
@@ -220,12 +242,17 @@ class PipelineV3(Generic[ResumableData]):
                 "consumer_manages_job_status": len(self._batch_results) > 0,
             }
         except Exception:
+            status = "error"
             try:
                 self._s3_batch_writer.cleanup()
             except Exception:
                 self._logger.exception("V3 Pipeline: Failed to clean up S3 resources")
             raise
         finally:
+            duration = time.perf_counter() - start_time
+            if activity.in_activity():
+                get_pipeline_run_duration_metric(team_id_str, source_type, sync_type, status).record(int(duration))
+
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
             del self._s3_batch_writer
