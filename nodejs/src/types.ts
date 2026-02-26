@@ -501,7 +501,9 @@ export interface PluginsServerConfig
     // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
     OTEL_SERVICE_NAME: string | null
     OTEL_SERVICE_ENVIRONMENT: string | null
+
     // Internal API authentication
+    INTERNAL_API_BASE_URL: string
     INTERNAL_API_SECRET: string
 
     // Destination Migration Diffing

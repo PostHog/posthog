@@ -946,7 +946,7 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}"
+        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}{usable_user.password}"
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()

@@ -90,10 +90,15 @@ pub struct Config {
     /// for particular keys.
     pub global_rate_limit_overrides_csv: Option<String>,
 
-    /// Optional dedicated Redis URL for global rate limiter.
+    /// Optional dedicated Redis URL for global rate limiter (primary/writer).
     /// If set, creates a separate Redis client for the limiter.
     /// Falls back to the shared redis_url if unset.
     pub global_rate_limit_redis_url: Option<String>,
+
+    /// Optional Redis reader URL for global rate limiter (replica).
+    /// When set alongside global_rate_limit_redis_url, creates a ReadWriteClient
+    /// that routes reads to replicas and writes to the primary.
+    pub global_rate_limit_redis_reader_url: Option<String>,
 
     /// Response timeout for dedicated global rate limiter Redis (milliseconds).
     /// Defaults to redis_response_timeout_ms if unset.

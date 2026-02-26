@@ -396,6 +396,7 @@ export const ErrorTrackingExternalReferencesListResponse = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -442,6 +443,7 @@ export const ErrorTrackingExternalReferencesCreateBody = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -487,6 +489,7 @@ export const ErrorTrackingExternalReferencesRetrieveResponse = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -532,6 +535,7 @@ export const ErrorTrackingExternalReferencesUpdateBody = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -568,6 +572,7 @@ export const ErrorTrackingExternalReferencesUpdateResponse = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -619,6 +624,7 @@ export const ErrorTrackingExternalReferencesPartialUpdateResponse = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -948,6 +954,7 @@ export const ErrorTrackingIssuesListResponse = zod.object({
                             'azure-blob',
                             'firebase',
                             'jira',
+                            'pinterest-ads',
                         ]),
                     }),
                 })
@@ -1012,6 +1019,7 @@ export const ErrorTrackingIssuesCreateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1075,6 +1083,7 @@ export const ErrorTrackingIssuesRetrieveResponse = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1138,6 +1147,7 @@ export const ErrorTrackingIssuesUpdateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1192,6 +1202,7 @@ export const ErrorTrackingIssuesUpdateResponse = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1258,6 +1269,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = zod.object({
                         'azure-blob',
                         'firebase',
                         'jira',
+                        'pinterest-ads',
                     ]),
                 }),
             })
@@ -1313,6 +1325,7 @@ export const ErrorTrackingIssuesPartialUpdateResponse = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1391,6 +1404,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = zod.object({
                         'azure-blob',
                         'firebase',
                         'jira',
+                        'pinterest-ads',
                     ]),
                 }),
             })
@@ -1454,6 +1468,7 @@ export const ErrorTrackingIssuesCohortUpdateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1516,6 +1531,7 @@ export const ErrorTrackingIssuesMergeCreateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1578,6 +1594,7 @@ export const ErrorTrackingIssuesSplitCreateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1647,6 +1664,7 @@ export const ErrorTrackingIssuesBulkCreateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })

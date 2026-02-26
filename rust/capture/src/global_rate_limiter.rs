@@ -9,7 +9,7 @@ use limiters::global_rate_limiter::{
     EvalResult, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiter,
     GlobalRateLimiterConfig, GlobalRateLimiterImpl as CommonGlobalRateLimiterImpl,
 };
-use tracing::error;
+use tracing::{error, info};
 
 #[cfg(test)]
 use chrono::DateTime;
@@ -19,7 +19,18 @@ pub struct GlobalRateLimiter {
 }
 
 impl GlobalRateLimiter {
-    pub fn new(
+    /// Build a GlobalRateLimiter from the capture config. If a dedicated Redis URL is
+    /// configured, creates a separate client (optionally with read/write split). Falls
+    /// back to `shared_redis` when no dedicated URL is set.
+    pub async fn try_from_config(
+        config: &Config,
+        shared_redis: Arc<dyn Client + Send + Sync>,
+    ) -> anyhow::Result<Self> {
+        let redis_client = Self::build_redis_client(config, shared_redis).await?;
+        Self::new(config, vec![redis_client])
+    }
+
+    fn new(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
@@ -90,6 +101,56 @@ impl GlobalRateLimiter {
     // trigger shutdown and stop pushing updates to global cache
     pub fn shutdown(&mut self) {
         self.limiter.shutdown();
+    }
+
+    async fn build_redis_client(
+        config: &Config,
+        shared_redis: Arc<dyn Client + Send + Sync>,
+    ) -> anyhow::Result<Arc<dyn Client + Send + Sync>> {
+        let Some(ref writer_url) = config.global_rate_limit_redis_url else {
+            return Ok(shared_redis);
+        };
+
+        let response_timeout = config
+            .global_rate_limit_redis_response_timeout_ms
+            .unwrap_or(config.redis_response_timeout_ms);
+        let connection_timeout = config
+            .global_rate_limit_redis_connection_timeout_ms
+            .unwrap_or(config.redis_connection_timeout_ms);
+        let response_timeout = if response_timeout == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(response_timeout))
+        };
+        let connection_timeout = if connection_timeout == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(connection_timeout))
+        };
+
+        if let Some(ref reader_url) = config.global_rate_limit_redis_reader_url {
+            info!("Global rate limiter using read/write split Redis client");
+            let rw_config = common_redis::ReadWriteClientConfig::new(
+                writer_url.clone(),
+                reader_url.clone(),
+                common_redis::CompressionConfig::disabled(),
+                common_redis::RedisValueFormat::default(),
+                response_timeout,
+                connection_timeout,
+            );
+            Ok(Arc::new(rw_config.build().await?))
+        } else {
+            Ok(Arc::new(
+                common_redis::RedisClient::with_config(
+                    writer_url.clone(),
+                    common_redis::CompressionConfig::disabled(),
+                    common_redis::RedisValueFormat::default(),
+                    response_timeout,
+                    connection_timeout,
+                )
+                .await?,
+            ))
+        }
     }
 
     #[cfg(test)]

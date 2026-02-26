@@ -44,6 +44,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     global_rate_limit_bucket_interval_secs: 10,
     global_rate_limit_overrides_csv: None,
     global_rate_limit_redis_url: None,
+    global_rate_limit_redis_reader_url: None,
     global_rate_limit_redis_response_timeout_ms: None,
     global_rate_limit_redis_connection_timeout_ms: None,
     event_restrictions_enabled: false,
