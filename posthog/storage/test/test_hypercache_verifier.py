@@ -854,7 +854,7 @@ class TestVerifyEmptyCacheTeam(BaseTest):
     def test_cache_miss_triggers_fix(self):
         """Teams with no cache entry should be fixed via set_cache_value with empty data."""
         mock_config = MagicMock()
-        empty_value = {"flags": []}
+        empty_value: dict = {"flags": []}
         mock_config.empty_cache_value = empty_value
         mock_config.update_fn.return_value = True
 
@@ -901,7 +901,7 @@ class TestVerifyEmptyCacheTeam(BaseTest):
     def test_cache_mismatch_triggers_fix(self):
         """Teams with cached flags but expected empty should be fixed via set_cache_value with empty data."""
         mock_config = MagicMock()
-        empty_value = {"flags": []}
+        empty_value: dict = {"flags": []}
         mock_config.empty_cache_value = empty_value
         mock_config.update_fn.return_value = True
 
