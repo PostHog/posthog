@@ -979,6 +979,45 @@ class TestOAuthAPI(APIBaseTest):
 
             refresh_token = refresh_response.json()["refresh_token"]
 
+    def test_refresh_with_injected_code_does_not_escalate_scopes(self):
+        """A refresh request that includes a `code` parameter from a broader-scope
+        grant must NOT override the scopes inherited from the refresh token."""
+        # Step 1: authorize with team-scoped access
+        team_scoped_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": [self.team.id],
+        }
+        response = self.client.post("/oauth/authorize/", team_scoped_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        refresh_token = token_response.json()["refresh_token"]
+
+        # Step 2: create a separate "all" scoped grant (simulating a broader authorization)
+        all_scoped_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_teams": [],
+        }
+        response2 = self.client.post("/oauth/authorize/", all_scoped_data)
+        broad_code = response2.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        # Step 3: refresh the team-scoped token but inject the broad-scope code
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+            "code": broad_code,
+        }
+        refresh_response = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+
+        new_access_token = refresh_response.json()["access_token"]
+        db_token = OAuthAccessToken.objects.get(token=new_access_token)
+        self.assertEqual(db_token.scoped_teams, [self.team.id])
+
     def test_revoked_refresh_token_invalidates_access_tokens(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
