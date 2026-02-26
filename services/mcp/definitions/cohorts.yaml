@@ -42,6 +42,8 @@ tools:
             Create a new cohort. For dynamic cohorts, provide 'filters' with AND/OR groups of property conditions
             (person properties, behavioral filters, or cohort references). For static cohorts, set 'is_static: true'
             then use the 'cohorts-add-persons-to-static-cohort-partial-update' tool to add person UUIDs.
+        inject_body_fields:
+            _create_static_person_ids: []
         exclude_params:
             - groups
             - deleted
