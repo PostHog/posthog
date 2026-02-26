@@ -883,7 +883,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
             },
         ],
-<<<<<<< HEAD
         refreshAnalysisCacheKey: [
             null as string | null,
             {

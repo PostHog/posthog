@@ -786,6 +786,7 @@ class DashboardsViewSet(
             try:
                 query = InsightVizNode.model_validate(insight.query)
             except Exception:
+                logger.warning("dashboard_refresh_analysis_query_validation_failed", tile_id=tile.id)
                 continue
 
             try:
@@ -809,6 +810,7 @@ class DashboardsViewSet(
                         "data": summarize_insight_result(result_data),
                     }
             except Exception:
+                logger.warning("dashboard_refresh_analysis_query_processing_failed", tile_id=tile.id)
                 continue
 
         return results
