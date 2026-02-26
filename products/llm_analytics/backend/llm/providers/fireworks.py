@@ -68,6 +68,10 @@ class FireworksAdapter(OpenAIAdapter):
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
+    def recommended_models() -> set[str]:
+        return set()
+
+    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
         """List available Fireworks models. Returns empty list without a key (BYOKEY-only)."""
         if not api_key:
@@ -79,7 +83,7 @@ class FireworksAdapter(OpenAIAdapter):
                 base_url=FIREWORKS_BASE_URL,
                 timeout=OpenAIConfig.TIMEOUT,
             )
-            return sorted(m.id for m in client.models.list())
+            return [m.id for m in sorted(client.models.list(), key=lambda m: m.created, reverse=True)]
         except Exception:
             logger.exception("Error listing Fireworks models")
             return []

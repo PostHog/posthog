@@ -392,6 +392,7 @@ products/signals/
 │   │   └── 0008_alter_signalsourceconfig_source_product_and_more.py
 │   └── temporal/
 │       ├── __init__.py             # Registers all workflows and activities (WORKFLOWS + ACTIVITIES lists)
+│       ├── emit_eval_signal.py     # EmitEvalSignalWorkflow + activity — LLMA eval → signal (fire-and-forget from evals queue)
 │       ├── grouping.py             # TeamSignalGroupingWorkflow, EmitSignalWorkflow (legacy) + grouping activities
 │       ├── llm.py                  # call_llm() helper + shared LLM config + grouping LLM calls
 │       ├── summary.py              # SignalReportSummaryWorkflow + state management activities

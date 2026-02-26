@@ -737,9 +737,11 @@ class TestVerifyEmptyCacheTeam(BaseTest):
     """Test _verify_empty_cache_team fast-path verification."""
 
     def test_cache_miss_triggers_fix(self):
-        """Teams with no cache entry should be fixed with empty_cache_value."""
+        """Teams with no cache entry should be fixed via set_cache_value with empty data."""
         mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
+        empty_value: dict = {"flags": []}
+        mock_config.empty_cache_value = empty_value
+        mock_config.update_fn.return_value = True
 
         result = VerificationResult()
         # Cache batch data has no entry for this team (cache miss)
@@ -755,9 +757,10 @@ class TestVerifyEmptyCacheTeam(BaseTest):
             team_ids_to_skip_fix=set(),
         )
 
-        # Should trigger cache_miss fix with empty_cache_value
         assert result.cache_miss_fixed == 1
-        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, {"flags": []})
+        # Empty cache value is passed as db_data, so set_cache_value is used directly
+        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, empty_value)
+        mock_config.update_fn.assert_not_called()
 
     def test_cached_data_none_triggers_fix(self):
         """Teams with cached_data=None should be fixed."""
@@ -781,9 +784,11 @@ class TestVerifyEmptyCacheTeam(BaseTest):
         assert result.cache_miss_fixed == 1
 
     def test_cache_mismatch_triggers_fix(self):
-        """Teams with cached flags but expected empty should be fixed."""
+        """Teams with cached flags but expected empty should be fixed via set_cache_value with empty data."""
         mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
+        empty_value: dict = {"flags": []}
+        mock_config.empty_cache_value = empty_value
+        mock_config.update_fn.return_value = True
 
         result = VerificationResult()
         # Cache has stale data (team used to have flags)
@@ -799,9 +804,10 @@ class TestVerifyEmptyCacheTeam(BaseTest):
             team_ids_to_skip_fix=set(),
         )
 
-        # Should trigger cache_mismatch fix
         assert result.cache_mismatch_fixed == 1
-        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, {"flags": []})
+        # Empty cache value is passed as db_data, so set_cache_value is used directly
+        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, empty_value)
+        mock_config.update_fn.assert_not_called()
 
     def test_cache_match_no_fix(self):
         """Teams with correct empty cache should not trigger fix."""

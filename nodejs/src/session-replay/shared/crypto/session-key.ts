@@ -7,6 +7,7 @@ export function serializeSessionKey(key: SessionKey): string {
         encryptedKey: key.encryptedKey.toString('base64'),
         sessionState: key.sessionState,
         deletedAt: key.deletedAt,
+        deletedBy: key.deletedBy,
     }
     return JSON.stringify(serialized)
 }
@@ -18,5 +19,6 @@ export function deserializeSessionKey(json: string): SessionKey {
         encryptedKey: Buffer.from(parsed.encryptedKey, 'base64'),
         sessionState: parsed.sessionState,
         deletedAt: parsed.deletedAt,
+        deletedBy: parsed.deletedBy,
     }
 }

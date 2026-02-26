@@ -196,7 +196,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 properties.$ai_trace_id AS id,
                 any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
-                argMin(distinct_id, timestamp) AS first_distinct_id,
+                ifNull(
+                    nullIf(argMinIf(distinct_id, timestamp, event = '$ai_trace'), ''),
+                    argMin(distinct_id, timestamp)
+                ) AS first_distinct_id,
                 round(
                     CASE
                         -- If all events with latency are generations, sum them all
