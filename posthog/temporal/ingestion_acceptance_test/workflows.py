@@ -9,6 +9,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.ingestion_acceptance_test.activities import run_ingestion_acceptance_tests
+    from posthog.temporal.ingestion_acceptance_test.types import IngestionAcceptanceTestInput
 
 
 @temporalio.workflow.defn(name="ingestion-acceptance-test")
@@ -20,11 +21,11 @@ class IngestionAcceptanceTestWorkflow(PostHogWorkflow):
     """
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> None:
-        return None
+    def parse_inputs(inputs: list[str]) -> IngestionAcceptanceTestInput:
+        return IngestionAcceptanceTestInput.model_validate_json(inputs[0]) if inputs else IngestionAcceptanceTestInput()
 
     @temporalio.workflow.run
-    async def run(self, inputs: None) -> dict:
+    async def run(self, inputs: IngestionAcceptanceTestInput) -> dict:
         """Execute ingestion acceptance tests.
 
         Returns:

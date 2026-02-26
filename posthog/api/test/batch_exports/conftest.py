@@ -58,7 +58,7 @@ def temporal():
     yield client
 
 
-@pytest.fixture(scope="package", autouse=True)
+@pytest.fixture(scope="package")
 def temporal_worker(temporal):
     """Use a package scoped fixture to start a Temporal Worker.
 
@@ -68,7 +68,7 @@ def temporal_worker(temporal):
         yield
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def cleanup(temporal):
     yield
     cleanup_temporal_schedules(temporal)

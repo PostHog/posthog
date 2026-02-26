@@ -26,21 +26,21 @@ Duckling RDS Catalog (PostgreSQL)
 
 ### Events Backfill
 
-| Component                            | Description                                         |
-| ------------------------------------ | --------------------------------------------------- |
-| `duckling_events_backfill`           | Asset that exports events for a team/date partition |
-| `duckling_events_backfill_job`       | Job wrapping the asset                              |
-| `duckling_backfill_discovery_sensor` | Hourly sensor for yesterday's data (top-up)         |
-| `duckling_full_backfill_sensor`      | Daily sensor for historical backfill                |
+| Component                               | Description                                         |
+| --------------------------------------- | --------------------------------------------------- |
+| `duckling_events_backfill`              | Asset that exports events for a team/date partition |
+| `duckling_events_backfill_job`          | Job wrapping the asset                              |
+| `duckling_events_daily_backfill_sensor` | Hourly sensor for yesterday's data (top-up)         |
+| `duckling_events_full_backfill_sensor`  | Sensor for historical backfill (monthly batches)    |
 
 ### Persons Backfill
 
-| Component                               | Description                                          |
-| --------------------------------------- | ---------------------------------------------------- |
-| `duckling_persons_backfill`             | Asset that exports persons for a team/date partition |
-| `duckling_persons_backfill_job`         | Job wrapping the asset                               |
-| `duckling_persons_discovery_sensor`     | Hourly sensor for yesterday's data (top-up)          |
-| `duckling_persons_full_backfill_sensor` | Daily sensor for historical backfill                 |
+| Component                                | Description                                          |
+| ---------------------------------------- | ---------------------------------------------------- |
+| `duckling_persons_backfill`              | Asset that exports persons for a team/date partition |
+| `duckling_persons_backfill_job`          | Job wrapping the asset                               |
+| `duckling_persons_daily_backfill_sensor` | Hourly sensor for yesterday's data (top-up)          |
+| `duckling_persons_full_backfill_sensor`  | Sensor for historical backfill (full export)         |
 
 ## Partition Strategy
 
@@ -71,7 +71,7 @@ Example: `12345_2024-01-15` for team 12345's data on January 15, 2024.
 To run the full backfill immediately (without waiting for tomorrow):
 
 1. Go to Dagster UI → Sensors
-2. Find `duckling_full_backfill_sensor` (or `duckling_persons_full_backfill_sensor`)
+2. Find the relevant sensor (e.g., `duckling_events_full_backfill_sensor` or `duckling_persons_full_backfill_sensor`)
 3. Click "Reset cursor"
 4. The sensor will run on its next tick (within 60 seconds)
 
@@ -100,7 +100,7 @@ class DucklingBackfillConfig:
     clickhouse_settings: dict | None = None  # Custom ClickHouse settings
     skip_ducklake_registration: bool = False  # Export to S3 only
     skip_schema_validation: bool = False      # Skip pre-flight schema check
-    cleanup_prior_run_files: bool = True      # Remove orphaned files from failed runs
+    cleanup_existing_partition_data: bool = True  # Delete existing DuckLake data before re-processing
     create_tables_if_missing: bool = True     # Auto-create events/persons tables
     delete_tables: bool = False               # DANGER: Drop and recreate tables
     dry_run: bool = False                     # Preview mode, no writes
@@ -137,7 +137,7 @@ The job logs warnings if the duckling table schema differs from expected columns
 
 ### Orphaned files in S3
 
-Failed runs may leave orphaned Parquet files. The `cleanup_prior_run_files` option (enabled by default) removes these on the next successful run for that partition.
+Failed runs may leave orphaned Parquet files in S3. These files are harmless - each run writes to a unique path based on the run ID, and the `cleanup_existing_partition_data` option ensures DuckLake data is cleaned up via DELETE before re-processing. Do NOT delete S3 files that may have been registered with DuckLake, as this causes catalog corruption.
 
 ### Table creation race condition
 

@@ -1,31 +1,38 @@
 {
-  "$exception_list": [
-    {
-      "type": "CustomError",
-      "value": "Custom error message",
-      "stacktrace": {
-        "type": "raw",
-        "frames": [
-          {
-            "filename": "main.py",
-            "module": "testing",
-            "function": "create_database",
-            "in_app": false,
-            "lineno": 14,
-            "synthetic": false,
-            "platform": "python"
-          },
-          {
-            "filename": "main.py",
-            "module": "testing",
-            "function": "migrate_database",
-            "in_app": false,
-            "lineno": 14,
-            "synthetic": false,
-            "platform": "python"
-          }
-        ]
+  "uuid": "123e4567-e89b-12d3-a456-426614174001",
+  "event": "$exception",
+  "team_id": 1,
+  "timestamp": "2024-01-01T00:00:00Z",
+  "properties": {
+    "$exception_list": [
+      {
+        "type": "CustomError",
+        "value": "Custom error message",
+        "stacktrace": {
+          "type": "raw",
+          "frames": [
+            {
+              "filename": "main.py",
+              "module": "testing",
+              "function": "create_database",
+              "in_app": false,
+              "lineno": 14,
+              "synthetic": false,
+              "platform": "python"
+            },
+            {
+              "filename": "main.py",
+              "module": "testing",
+              "function": "migrate_database",
+              "in_app": false,
+              "lineno": 14,
+              "synthetic": false,
+              "platform": "python"
+            }
+          ]
+        }
       }
-    }
-  ]
+    ],
+    "$exception_handled": false
+  }
 }

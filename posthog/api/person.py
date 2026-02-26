@@ -1,4 +1,3 @@
-import json
 import uuid
 import asyncio
 import builtins
@@ -14,6 +13,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
 from requests import HTTPError
 from rest_framework import request, response, serializers, viewsets
@@ -23,7 +23,6 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from statshog.defaults.django import statsd
 from temporalio import common
 
 from posthog.schema import ProductKey
@@ -38,7 +37,6 @@ from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
-from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Cohort, Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -53,7 +51,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import delete_person
+from posthog.models.person.util import delete_person, get_persons_by_distinct_ids
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -61,7 +59,6 @@ from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUno
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
-from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
@@ -72,22 +69,26 @@ from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+from posthog.utils import format_query_params_absolute_url, is_anonymous_id
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
-# Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
-# and make sure that they are materialized on prod!
+# Sync with .../lib/constants.tsx and .../cdp/utils.ts
+# It's almost certainly wrong to add more properties to this list, instead convince the user to send data to use with
+# these properties, or use e.g. a CDP transformation to rewrite their events.
+#
+# If you do want to add new columns
+# * add it to the places linked above
+# * ensure it is materialized on US and EU prod
+# * ensure the materialized columns have case-insensitive skip indexes
+# * ensure that the text box search in the Persons scene is searching this column (using the Actors query)
+
 PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "email",
-    "Email",
-    "$email",
     "name",
-    "Name",
     "username",
-    "Username",
-    "UserName",
 ]
 
 API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
@@ -172,8 +173,9 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "properties",
             "created_at",
             "uuid",
+            "last_seen_at",
         ]
-        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
+        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid", "last_seen_at")
 
     def get_name(self, person: Person) -> str:
         team = self.context["get_team"]()
@@ -192,6 +194,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
                 "properties": instance.properties,
                 "created_at": None,
                 "uuid": instance.uuid,
+                "last_seen_at": None,
             }
 
 
@@ -505,46 +508,42 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        key = request.GET.get("key")
-        value = request.GET.get("value")
-        flattened = []
-        if key and not key.startswith("$virt"):
-            result = self._get_person_property_values_for_key(key, value)
+        from posthog.hogql_queries.property_values_query_runner import (
+            CachedPropertyValuesQueryResponse,
+            PropertyType,
+            PropertyValuesQuery,
+            PropertyValuesQueryResponse,
+            PropertyValuesQueryRunner,
+        )
+        from posthog.hogql_queries.query_runner import ExecutionMode
 
-            for value, count in result:
-                try:
-                    # Try loading as json for dicts or arrays
-                    flattened.append(
-                        {
-                            "name": convert_property_value(json.loads(value)),
-                            "count": count,
-                        }
-                    )
-                except json.decoder.JSONDecodeError:
-                    flattened.append({"name": convert_property_value(value), "count": count})
-        return response.Response(flattened)
+        with tracer.start_as_current_span("person_api_property_values") as span:
+            key = request.GET.get("key")
+            value = request.GET.get("value")
 
-    @timed("get_person_property_values_for_key_timer")
-    def _get_person_property_values_for_key(self, key, value):
-        try:
-            result = get_person_property_values_for_key(key, self.team, value)
-            statsd.incr(
-                "get_person_property_values_for_key_success",
-                tags={"team_id": self.team.id},
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("has_value_filter", value is not None)
+
+            if not key or key.startswith("$virt"):
+                span.set_attribute("result_count", 0)
+                return response.Response([])
+
+            runner = PropertyValuesQueryRunner(
+                team=self.team,
+                query=PropertyValuesQuery(
+                    property_type=PropertyType.PERSON,
+                    property_key=key,
+                    search_value=value,
+                ),
             )
-        except Exception as e:
-            statsd.incr(
-                "get_person_property_values_for_key_error",
-                tags={
-                    "error": str(e),
-                    "key": key,
-                    "value": value,
-                    "team_id": self.team.id,
-                },
-            )
-            raise
-
-        return result
+            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            results = [item.model_dump(exclude_none=True) for item in result.results]
+            span.set_attribute("result_count", len(results))
+            resp = response.Response(results)
+            resp["Cache-Control"] = "max-age=10"
+            return resp
 
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
@@ -712,6 +711,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person = get_pk_or_uuid(self.get_queryset(), request.GET["person_id"]).get()
         cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
 
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
 
         return response.Response({"results": CohortMinimalSerializer(cohorts, many=True).data})
@@ -1006,6 +1006,34 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(status=202)
 
+    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids")
+    def batch_by_distinct_ids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        distinct_ids = request.data.get("distinct_ids", [])
+
+        if not isinstance(distinct_ids, list) or len(distinct_ids) == 0:
+            return response.Response({"results": {}})
+
+        MAX_BATCH_SIZE = 200
+        distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
+
+        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids).prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
+
+        results: dict[str, Any] = {}
+        for person in persons:
+            person_data = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+
+            for did in getattr(person, "distinct_ids_cache", []):
+                if did.distinct_id in distinct_ids:
+                    results[did.distinct_id] = person_data
+
+        return response.Response({"results": results})
+
     def _queue_event_deletion(self, persons: builtins.list[Person]) -> None:
         """Helper to queue deletion of all events for a person."""
         AsyncDeletion.objects.bulk_create(
@@ -1034,7 +1062,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     distinct_ids=person.distinct_ids,
                     team_id=self.team_id,
                 )
-                workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
+                workflow_id = f"delete-recordings-{self.team_id}-person-{person.uuid}-{uuid.uuid4()}"
                 tasks.append(
                     temporal.start_workflow(
                         "delete-recordings-with-person",

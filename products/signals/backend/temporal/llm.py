@@ -1,127 +1,165 @@
 import os
-import json
-from typing import Annotated, Literal
+from collections.abc import Callable
+from typing import Optional, TypeVar
 
+from django.conf import settings
+
+import tiktoken
 import structlog
-from pydantic import BaseModel, Field, TypeAdapter, ValidationError
-
-from products.signals.backend.temporal.types import ExistingReportMatch, MatchResult, NewReportMatch, SignalCandidate
-
-from ee.hogai.session_summaries.llm.call import get_async_openai_client
+import posthoganalytics
+from anthropic.types import MessageParam
+from posthoganalytics.ai.anthropic import AsyncAnthropic
 
 logger = structlog.get_logger(__name__)
 
-MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "gpt-4o-mini")
+MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-4-5")
+
+# Models that support Anthropic extended thinking. Keep in sync with the models we actually use.
+ANTHROPIC_THINKING_MODELS = {
+    "claude-haiku-4-5",
+    "claude-sonnet-4-5",
+    "claude-opus-4-5",
+    "claude-opus-4-1",
+    "claude-sonnet-4-0",
+    "claude-opus-4-0",
+    "claude-3-7-sonnet-latest",
+}
 MAX_RETRIES = 3
+MAX_RESPONSE_TOKENS = 4096
+MAX_QUERY_TOKENS = 2048
+TIMEOUT = 100.0
 
 
-class LLMMatchFound(BaseModel):
-    match_index: int
+def get_async_anthropic_client() -> AsyncAnthropic:
+    """Get configured AsyncAnthropic client with PostHog analytics."""
+    posthog_client = posthoganalytics.default_client
+    if not posthog_client:
+        raise ValueError("PostHog analytics client not configured")
+
+    api_key = settings.ANTHROPIC_API_KEY
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY is not configured")
+
+    return AsyncAnthropic(
+        api_key=api_key,
+        posthog_client=posthog_client,
+        timeout=TIMEOUT,
+    )
 
 
-class LLMNewGroup(BaseModel):
-    match_index: Literal[None] = None
-    title: str
-    summary: str
+def truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
+    """Truncate a query string to fit within token limit for embedding."""
+    try:
+        enc = tiktoken.get_encoding("cl100k_base")
+        tokens = enc.encode(query)
+        if len(tokens) <= max_tokens:
+            return query
+        truncated_tokens = tokens[:max_tokens]
+        return enc.decode(truncated_tokens)
+    except Exception as e:
+        logger.warning(f"Failed to truncate with tiktoken, falling back to char limit: {e}")
+        char_limit = max_tokens * 4
+        return query[:char_limit]
 
 
-LLMMatchResponse = Annotated[LLMMatchFound | LLMNewGroup, Field(discriminator="match_index")]
+def _extract_text_content(response) -> str:
+    """Extract text content from Anthropic response."""
+    for block in reversed(response.content):
+        if block.type == "text":
+            return block.text
+    raise ValueError("No text content in response")
 
 
-SYSTEM_PROMPT = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals, or if it should start a new group.
-
-Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more. Your task is to identify signals that are RELATED - they may be different signal types but connected by the same underlying cause, feature, or user journey.
-
-IMPORTANT: Signals should be grouped if they are meaningfully related, not just superficially similar:
-- An experiment reaching significance AND an error spike on the same feature SHOULD match (related by feature)
-- A session behaviour anomaly AND an insight alert about the same user flow SHOULD match (related by user journey)
-- Two "experiment reached significance" signals from DIFFERENT, unrelated experiments should NOT match
-- Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match
-
-You will receive:
-1. A new signal with its description and source information
-2. A list of candidate signals (may be empty) with their descriptions, sources, and cosine distances
-
-If a candidate signal is related to the new signal, respond with:
-{"match_index": <0-based index of the matching candidate>}
-
-If no candidate is related (or the list is empty), respond with:
-{"match_index": null, "title": "<short title for a new report>", "summary": "<1-2 sentence summary of what this signal group is about>"}
-
-Respond ONLY with valid JSON, no other text."""
+# I could not for the life of me get thinking claude to stop outputting markdown.
+def _strip_markdown_json_fences(text: str) -> str:
+    """Strip ```json ... ``` markdown fences that Claude sometimes wraps around JSON output."""
+    stripped = text.strip()
+    if stripped.startswith("```json") and stripped.endswith("```"):
+        return stripped[len("```json") : -len("```")].strip()
+    if stripped.startswith("```") and stripped.endswith("```"):
+        return stripped[len("```") : -len("```")].strip()
+    return text
 
 
-def _build_user_prompt(
-    description: str,
-    source_product: str,
-    source_type: str,
-    candidates: list[SignalCandidate],
-) -> str:
-    prompt = f"""NEW SIGNAL:
-- Source: {source_product} / {source_type}
-- Description: {description}
-
-"""
-    if not candidates:
-        prompt += "CANDIDATES: (none - this is the first signal of its kind)\n"
-    else:
-        prompt += "CANDIDATES:\n"
-        for i, c in enumerate(candidates):
-            prompt += f"""
-{i}. [distance: {c.distance:.4f}]
-   Source: {c.source_product} / {c.source_type}
-   Description: {c.content}
-   Report ID: {c.report_id}
-"""
-
-    return prompt
+T = TypeVar("T")
 
 
-async def match_signal_with_llm(
-    description: str,
-    source_product: str,
-    source_type: str,
-    candidates: list[SignalCandidate],
-) -> MatchResult:
-    user_prompt = _build_user_prompt(description, source_product, source_type, candidates)
-    client = get_async_openai_client()
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+# I reached doing ~the same thing in 3 or 4 places and decided to abstract it.
+async def call_llm(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    validate: Callable[[str], T],
+    thinking: bool = False,
+    temperature: Optional[float] = 0.2,
+    retries: int = MAX_RETRIES,
+) -> T:
+    # Worth noting a lot of this code only really works for the Anthropic API, I think (prefilling and thinking in particular). Haven't
+    # looked into the OpenAI SDK yet - that'll be for the switch to the LLM gateway.
+    thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
+    client = get_async_anthropic_client()
+
+    messages: list[MessageParam] = [
         {"role": "user", "content": user_prompt},
     ]
 
-    last_error: Exception | None = None
+    # For non-thinking calls, pre-fill the assistant response with `{` to prevent markdown fences. Pre-filling seems to work
+    # well, but isn't supported for thinking modes.
+    if not thinking:
+        messages.append({"role": "assistant", "content": "{"})
 
-    for attempt in range(MAX_RETRIES):
+    create_kwargs: dict = {
+        "model": MATCHING_MODEL,
+        "system": system_prompt,
+        "messages": messages,
+        "max_tokens": MAX_RESPONSE_TOKENS,
+        "temperature": temperature,
+    }
+
+    # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
+    if thinking:
+        create_kwargs["max_tokens"] = MAX_RESPONSE_TOKENS * 3
+        create_kwargs["thinking"] = {"type": "enabled", "budget_tokens": MAX_RESPONSE_TOKENS * 2}
+        create_kwargs["temperature"] = 1  # Required for thinking
+
+    last_exception: Exception | None = None
+    for attempt in range(retries):
+        response = None
+        # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
+        # only if we fail to validate the response.
+        response = await client.messages.create(**create_kwargs)
+        text_content = _extract_text_content(response)
+        text_content = _strip_markdown_json_fences(text_content)
+        if not thinking:
+            # Prepend the `{` we pre-filled
+            text_content = "{" + text_content
         try:
-            response = await client.chat.completions.create(  # type: ignore[call-overload]
-                model=MATCHING_MODEL,
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=0,
-            )
-
-            content = response.choices[0].message.content
-            if not content:
-                raise ValueError("Empty response from LLM")
-
-            parsed: LLMMatchFound | LLMNewGroup = TypeAdapter(LLMMatchResponse).validate_json(content)
-
-            if isinstance(parsed, LLMMatchFound):
-                if parsed.match_index < 0 or parsed.match_index >= len(candidates):
-                    raise ValueError(f"match_index {parsed.match_index} out of range")
-                matched = candidates[parsed.match_index]
-                return ExistingReportMatch(report_id=matched.report_id)
-
-            return NewReportMatch(title=parsed.title, summary=parsed.summary)
-
-        except (json.JSONDecodeError, ValidationError, ValueError) as e:
-            last_error = e
+            return validate(text_content)
+        except Exception as e:
             logger.warning(
-                f"Invalid LLM response (attempt {attempt + 1}/{MAX_RETRIES}): {e}",
+                f"LLM call failed (attempt {attempt + 1}/{retries}): {e}",
                 attempt=attempt + 1,
-                max_retries=MAX_RETRIES,
+                retries=retries,
             )
+            # This is expected to contain pretty sensitive and/or large amounts of data, so for real only
+            # log it in local dev
+            if settings.DEBUG:
+                logger.warning(
+                    f"LLM response that failed validation:\n{text_content}",
+                )
+            if response:
+                messages.append({"role": "assistant", "content": response.content})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid JSON response.",
+                }
+            )
+            # Re-add assistant pre-fill for non-thinking calls so the LLM
+            # continues from `{` on the next attempt (matching the prepend above).
+            if not thinking:
+                messages.append({"role": "assistant", "content": "{"})
+            last_exception = e
             continue
 
-    raise ValueError(f"Failed to get valid LLM response after {MAX_RETRIES} attempts: {last_error}")
+    raise last_exception or ValueError(f"LLM call failed after {retries} attempts")

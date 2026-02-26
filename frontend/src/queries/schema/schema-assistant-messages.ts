@@ -1,8 +1,7 @@
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
-import type { Category, NotebookInfo } from '~/types'
-import type { InsightShortId } from '~/types'
+import type { Category, InsightShortId, NotebookInfo } from '~/types'
 
 import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
@@ -372,7 +371,7 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
      * Payload passed through to the frontend - specifically for calls of contextual tool.
      * Tool call messages without a ui_payload are not passed through to the frontend.
      */
-    ui_payload?: Record<string, any>
+    ui_payload?: Record<string, any> | null
     content: string
     tool_call_id: string
 }
@@ -405,11 +404,10 @@ export type AssistantTool =
     | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
+    | 'experiment_session_replays_summary'
     | 'create_survey'
     | 'edit_survey'
     | 'analyze_survey_responses'
-    | 'create_dashboard'
-    | 'edit_current_dashboard'
     | 'read_taxonomy'
     | 'search'
     | 'read_data'
@@ -438,6 +436,7 @@ export type AssistantTool =
     | 'create_notebook'
     | 'list_data'
     | 'finalize_plan'
+    | 'recommend_products'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -447,7 +446,9 @@ export enum AgentMode {
     Plan = 'plan',
     Execution = 'execution',
     Survey = 'survey',
+    Onboarding = 'onboarding',
     Research = 'research',
+    Flags = 'flags',
 }
 
 export enum SlashCommandName {

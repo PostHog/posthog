@@ -477,7 +477,7 @@ describe('insightLogic', () => {
         })
 
         await expectLogic(logic, () => {
-            logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
+            logic.actions.setInsightMetadataLocal({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
         }).toMatchValues({
             insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             savedInsight: partial({ name: '', description: '', tags: [] }),
@@ -566,6 +566,24 @@ describe('insightLogic', () => {
 
         logic.actions.updateInsight({ name: 'updated name' })
         await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
+    })
+
+    test('updateInsight resolves id from short_id when id is missing', async () => {
+        // Simulates the race condition where updateInsight fires before loadInsight
+        // completes: the insight has a short_id but no numeric id yet (e.g. when
+        // adding to a dashboard immediately after saving a new insight).
+        logic = insightLogic({
+            dashboardItemId: Insight42,
+            cachedInsight: {
+                short_id: Insight42,
+                // no `id` field — mirrors createEmptyInsight output
+            },
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.updateInsight({ dashboards: [MOCK_DASHBOARD_ID] })
+        }).toDispatchActions(['updateInsightSuccess'])
     })
 
     test('save as new insight', async () => {
@@ -719,6 +737,52 @@ describe('insightLogic', () => {
                 .toMatchValues({
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
+        })
+    })
+
+    describe('setInsight name preservation', () => {
+        it('preserves user-edited name when loading new data for the same insight', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsight']).toFinishAllListeners()
+
+            // simulate user editing the name locally
+            logic.actions.setInsightMetadataLocal({ name: 'User Edited Name' })
+
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: 'User Edited Name', short_id: Insight42 }),
+            })
+
+            // simulate reloading data for the same insight (e.g. query refresh) — name should be preserved
+            logic.actions.setInsight(
+                { ...logic.values.insight, name: '', short_id: Insight42 },
+                { fromPersistentApi: false, overrideQuery: false }
+            )
+
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: 'User Edited Name' }),
+            })
+        })
+
+        it('does not preserve name when switching to a new insight', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsight']).toFinishAllListeners()
+
+            // confirm the loaded insight has a name
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: 'original name', short_id: Insight42 }),
+            })
+
+            // simulate switching to a brand new insight (no short_id)
+            logic.actions.setInsight(
+                { ...createEmptyInsight('new'), query: logic.values.insight.query },
+                { fromPersistentApi: false, overrideQuery: true }
+            )
+
+            await expectLogic(logic).toMatchValues({
+                insight: partial({ name: '' }),
+            })
         })
     })
 

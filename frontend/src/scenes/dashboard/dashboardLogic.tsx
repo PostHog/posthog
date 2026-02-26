@@ -75,7 +75,6 @@ import {
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
-import { TileFiltersOverride } from './TileFiltersOverride'
 import type { dashboardLogicType } from './dashboardLogicType'
 import {
     AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
@@ -94,6 +93,7 @@ import {
     parseURLVariables,
     runWithLimit,
 } from './dashboardUtils'
+import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
 
 export interface DashboardLogicProps {
@@ -239,6 +239,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAccessDeniedToDashboard: true,
         /** Update the dashboard in dashboardsModel with given payload. */
         triggerDashboardUpdate: (payload) => ({ payload }),
+        updateDashboardTags: (tags: string[]) => ({ tags }),
         /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
@@ -363,9 +364,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.abortAnyRunningQuery()
 
                     try {
+                        // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
                             id: tile.id,
-                            layouts: tile.layouts,
+                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
                         }))
 
                         breakpoint()
@@ -574,9 +576,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts = layoutsByTile(layouts)
 
+                    // Only persist sm layouts; xs layouts are derived on the fly
                     return {
                         ...state,
-                        tiles: state?.tiles?.map((tile) => ({ ...tile, layouts: itemLayouts[tile.id] })),
+                        tiles: state?.tiles?.map((tile) => ({
+                            ...tile,
+                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
+                        })),
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
@@ -877,6 +883,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
             },
         ],
+<<<<<<< HEAD
         refreshAnalysisCacheKey: [
             null as string | null,
             {
@@ -889,6 +896,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 setRefreshAnalysisResult: (_, { result }) => result,
                 analyzeDashboardRefresh: () => null,
+            },
+        ],
+        isSavingTags: [
+            false,
+            {
+                updateDashboardTags: () => true,
+                [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
+                    return dashboard && dashboard.id === props.id ? false : state
+                },
+                [dashboardsModel.actionTypes.updateDashboardFailure]: () => false,
             },
         ],
     })),
@@ -1765,8 +1782,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     action: RefreshDashboardItemsAction.Refresh,
                     forceRefresh: false,
                 })
-            } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
-                // save edit mode changes
+            } else if (
+                mode === null &&
+                (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
+                    source === DashboardEventSource.SceneCommonButtons)
+            ) {
+                // save edit mode changes when exiting via Save button or E key/Edit layout button
                 actions.saveEditModeChanges()
             }
 
@@ -1953,7 +1974,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 id: props.id,
                 last_refresh: lastDashboardRefresh.toISOString(),
                 discardResult: true,
+                allowUndo: false,
             })
+        },
+        updateDashboardTags: ({ tags }: { tags: string[] }) => {
+            actions.triggerDashboardUpdate({ tags })
         },
         setTileOverride: ({ tile }) => {
             const tileLogicProps = { dashboardId: props.id, tileId: tile.id, filtersOverrides: tile.filters_overrides }

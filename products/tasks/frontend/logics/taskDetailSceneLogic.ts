@@ -27,8 +27,6 @@ const LOG_POLL_INTERVAL_MS = 1000
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
 
-let logPollingInterval: number | null = null
-
 export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     path(['products', 'tasks', 'taskDetailSceneLogic']),
     props({} as TaskDetailSceneLogicProps),
@@ -182,7 +180,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setSelectedRunId: ({ taskId }) => {
             if (taskId !== props.taskId) {
                 return
@@ -233,18 +231,15 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             }
         },
         startPolling: () => {
-            if (logPollingInterval) {
-                clearInterval(logPollingInterval)
-            }
-            logPollingInterval = window.setInterval(() => {
-                actions.loadSelectedRun()
-            }, LOG_POLL_INTERVAL_MS)
+            cache.disposables.add(() => {
+                const intervalId = window.setInterval(() => {
+                    actions.loadSelectedRun()
+                }, LOG_POLL_INTERVAL_MS)
+                return () => clearInterval(intervalId)
+            }, 'logPolling')
         },
         stopPolling: () => {
-            if (logPollingInterval) {
-                clearInterval(logPollingInterval)
-                logPollingInterval = null
-            }
+            cache.disposables.dispose('logPolling')
         },
     })),
 

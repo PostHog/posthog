@@ -14,8 +14,7 @@
 
 <!-- Briefly describe the steps you took. -->
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
-
-<!-- Docs reminder: If this change requires updated docs, please do that! Engineers are the primary people responsible for their documentation. 🙌 -->
+<!-- If you are an agent writing this, do NOT include manual tasks you have NOT completed. You can clearly outline you're simply an agent and you haven't tested this manually except for code-based unit/integration tests -->
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 

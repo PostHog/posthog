@@ -12,8 +12,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
@@ -33,6 +33,7 @@ import {
 } from '~/types'
 
 import { actionsLogic } from '../logics/actionsLogic'
+import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter } from '../utils/screenName'
 import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
@@ -134,6 +135,22 @@ export function ActionsTable(): JSX.Element {
                                                             </>
                                                         )
                                                 }
+                                            case '$screen': {
+                                                const screenFilter = step.properties?.find(isScreenNameFilter)
+                                                if (screenFilter && 'value' in screenFilter && screenFilter.value) {
+                                                    const operator =
+                                                        'operator' in screenFilter
+                                                            ? (screenFilter.operator as ScreenNameMatching)
+                                                            : 'icontains'
+                                                    return (
+                                                        <>
+                                                            Screen name {SCREEN_NAME_MATCHING_LABEL[operator]}{' '}
+                                                            <strong>{String(screenFilter.value)}</strong>
+                                                        </>
+                                                    )
+                                                }
+                                                return 'Screen'
+                                            }
                                             case '':
                                             case null:
                                             case undefined:

@@ -5,8 +5,10 @@ import TextareaAutosize from 'react-textarea-autosize'
 
 import { cn } from 'lib/utils/css-classes'
 
-interface LemonTextAreaPropsBase
-    extends Pick<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'> {
+interface LemonTextAreaPropsBase extends Pick<
+    React.TextareaHTMLAttributes<HTMLTextAreaElement>,
+    'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'
+> {
     id?: string
     value?: string
     defaultValue?: string
@@ -82,7 +84,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
             <TextareaAutosize
                 minRows={minRows}
                 ref={textRef}
-                className={cn('LemonTextArea border w-full', hasFooter ? 'rounded-t' : 'rounded', className)}
+                className={cn('LemonTextArea w-full', hasFooter ? 'rounded-t' : 'rounded', className)}
                 onKeyDown={(e) => {
                     if (stopPropagation) {
                         e.stopPropagation()

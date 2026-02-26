@@ -11,7 +11,7 @@ from unittest.mock import patch
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
@@ -79,22 +79,29 @@ async def failing_activity_with_properties_to_log(inputs: OptionallyFailingInput
         raise ValueError("Activity failed!")
 
 
+@workflow.defn
+class DirectlyFailingWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        if inputs.fail:
+            raise ApplicationError("Workflow failed!")
+
+
 @pytest.mark.parametrize("fail", [True, False])
 @pytest.mark.parametrize("capture_additional_properties", [True, False])
 @pytest.mark.asyncio
 async def test_exception_capture(fail: bool, capture_additional_properties: bool, temporal_client: Client):
     if not fail and capture_additional_properties:
-        # skip unnecessary test
         pytest.skip("Skipping test because fail is False and capture_additional_properties is True")
 
     task_queue = "TEST-TASK-QUEUE"
     workflow_id = str(uuid.uuid4())
 
     if capture_additional_properties:
-        workflow = "OptionallyFailingWorkflowWithPropertiesToLog"
+        workflow_name = "OptionallyFailingWorkflowWithPropertiesToLog"
         workflow_inputs = OptionallyFailingInputsWithPropertiesToLog(fail=fail)
     else:
-        workflow = "OptionallyFailingWorkflow"
+        workflow_name = "OptionallyFailingWorkflow"
         workflow_inputs = OptionallyFailingInputs(fail=fail)
 
     with (
@@ -111,7 +118,7 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
             if fail:
                 with pytest.raises(WorkflowFailureError):
                     await temporal_client.execute_workflow(
-                        workflow,
+                        workflow_name,
                         workflow_inputs,
                         id=workflow_id,
                         task_queue=task_queue,
@@ -119,7 +126,7 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
                     )
             else:
                 await temporal_client.execute_workflow(
-                    workflow,
+                    workflow_name,
                     workflow_inputs,
                     id=workflow_id,
                     task_queue=task_queue,
@@ -127,12 +134,12 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
                 )
 
         if fail:
-            # Verify capture_exception was called with correct properties
-            assert mock_ph_capture.call_count == 2  # Once for activity, once for workflow
+            assert mock_ph_capture.call_count == 1
 
-            # Verify activity exception capture
             activity_call = mock_ph_capture.call_args_list[0]
-            assert isinstance(activity_call[0][0], ValueError)
+            captured_exc = activity_call[0][0]
+            assert isinstance(captured_exc, ValueError)
+            assert captured_exc.__traceback__ is not None
             assert activity_call[1]["properties"]["temporal.execution_type"] == "activity"
             assert activity_call[1]["properties"]["temporal.workflow.id"] == workflow_id
             if capture_additional_properties:
@@ -140,15 +147,42 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
             else:
                 assert "fail" not in activity_call[1]["properties"]
 
-            # Verify workflow exception capture
-            workflow_call = mock_ph_capture.call_args_list[1]
-            assert isinstance(workflow_call[0][0], ActivityError)
-            assert workflow_call[1]["properties"]["temporal.execution_type"] == "workflow"
-            assert workflow_call[1]["properties"]["temporal.workflow.id"] == workflow_id
-            if capture_additional_properties:
-                assert workflow_call[1]["properties"]["fail"] == fail
-            else:
-                assert "fail" not in workflow_call[1]["properties"]
+            from posthoganalytics.exception_utils import exceptions_from_error_tuple
+
+            exc_info = (type(captured_exc), captured_exc, captured_exc.__traceback__)
+            formatted = exceptions_from_error_tuple(exc_info)
+            assert len(formatted) > 0
+            assert formatted[0].get("stacktrace", {}).get("frames")
 
         else:
             mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_workflow_only_error_is_captured(temporal_client: Client):
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[DirectlyFailingWorkflow],
+            activities=[],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "DirectlyFailingWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        assert mock_ph_capture.call_count == 1
+        workflow_call = mock_ph_capture.call_args_list[0]
+        assert isinstance(workflow_call[0][0], ApplicationError)
+        assert workflow_call[1]["properties"]["temporal.execution_type"] == "workflow"
+        assert workflow_call[1]["properties"]["temporal.workflow.id"] == workflow_id

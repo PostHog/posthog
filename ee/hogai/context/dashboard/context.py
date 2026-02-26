@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from posthog.models import Team
 
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.utils.helpers import build_dashboard_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AnyPydanticModelQuery
 
@@ -24,6 +25,7 @@ class DashboardInsightContext(BaseModel, Generic[AnyPydanticModelQuery]):
     filters_override: dict | None = None
     variables_override: dict | None = None
     layout: dict | None = None
+    result: object | None = None
 
 
 class DashboardContext:
@@ -60,6 +62,7 @@ class DashboardContext:
         self.name = name
         self.description = description
         self.dashboard_id = dashboard_id
+        self.dashboard_url = build_dashboard_url(team, int(dashboard_id)) if dashboard_id else None
         self.dashboard_filters = dashboard_filters
         self._semaphore = asyncio.Semaphore(max_concurrent_queries)
 
@@ -87,6 +90,7 @@ class DashboardContext:
                 prompt_template,
                 dashboard_name=self.name or "Dashboard",
                 dashboard_id=self.dashboard_id,
+                dashboard_url=self.dashboard_url,
                 description=self.description,
                 insights="",
             )
@@ -99,6 +103,7 @@ class DashboardContext:
             prompt_template,
             dashboard_name=self.name or "Dashboard",
             dashboard_id=self.dashboard_id,
+            dashboard_url=self.dashboard_url,
             description=self.description,
             insights="\n\n".join(insight_results),
         )
@@ -110,6 +115,7 @@ class DashboardContext:
                 prompt_template,
                 dashboard_name=self.name or "Dashboard",
                 dashboard_id=self.dashboard_id,
+                dashboard_url=self.dashboard_url,
                 description=self.description,
             )
 
@@ -125,6 +131,7 @@ class DashboardContext:
             name=self.name or "Dashboard",
             dashboard_name=self.name or "Dashboard",
             dashboard_id=self.dashboard_id,
+            dashboard_url=self.dashboard_url,
             description=self.description,
             insights=insights_text,
         )
@@ -147,4 +154,5 @@ class DashboardContext:
             dashboard_filters=self.dashboard_filters,
             filters_override=data.filters_override,
             variables_override=data.variables_override,
+            result=data.result,
         )

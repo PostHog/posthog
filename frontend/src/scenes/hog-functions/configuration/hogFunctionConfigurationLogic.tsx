@@ -2,7 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -444,11 +444,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
     })),
-    loaders(({ actions, props, values }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
                 loadTemplate: async () => {
+                    cache.configFromUrl = router.values.hashParams.configuration
                     if (!props.templateId) {
                         return null
                     }
@@ -505,22 +506,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    // Capture error tracking specific alert event
-                    if (
-                        res.template?.id === 'error-tracking-issue-created' ||
-                        res.template?.id === 'error-tracking-issue-reopened' ||
-                        res.template?.id === 'error-tracking-issue-spiking'
-                    ) {
-                        const triggerEventMap: Record<string, string> = {
-                            'error-tracking-issue-created': '$error_tracking_issue_created',
-                            'error-tracking-issue-reopened': '$error_tracking_issue_reopened',
-                            'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
-                        }
-                        const triggerEvent = triggerEventMap[res.template.id]
-
+                    const errorTrackingTriggerEvent = res.filters?.events
+                        ?.map((event) => event.id)
+                        ?.find((id) =>
+                            [
+                                '$error_tracking_issue_created',
+                                '$error_tracking_issue_reopened',
+                                '$error_tracking_issue_spiking',
+                            ].includes(id)
+                        )
+                    if (isNew && errorTrackingTriggerEvent) {
                         posthog.capture('error_tracking_alert_created', {
-                            trigger_event: triggerEvent,
-                            subtemplate_id: res.template.id,
+                            source: 'traditional',
+                            trigger_event: errorTrackingTriggerEvent,
+                            subtemplate_id: res.template?.id,
                             has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
                             enabled: res.enabled,
                         })
@@ -714,7 +713,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const type = values.type
                     const typeFolder =
                         type === 'site_app'
-                            ? 'Site apps'
+                            ? 'Web scripts'
                             : type === 'transformation'
                               ? 'Transformations'
                               : type === 'source_webhook'
@@ -1453,7 +1452,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(urls.hogFunction(hogFunction.id))
+                // Preserve existing search params (integration params, returnTo, etc.) on redirect
+                router.actions.replace(urls.hogFunction(hogFunction.id), router.values.searchParams)
             }
         },
         sparklineQuery: async (sparklineQuery) => {
@@ -1473,6 +1473,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     actions: [],
                     data_warehouse: [],
                 })
+            }
+        },
+    })),
+
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.hogFunctionNew(':templateId')]: (_, __, hashParams) => {
+            const newConfig = hashParams?.configuration
+            if (values.template && !equal(newConfig, cache.configFromUrl)) {
+                cache.configFromUrl = newConfig
+                actions.resetForm()
             }
         },
     })),

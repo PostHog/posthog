@@ -10,6 +10,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { getCellLabel } from './components/NotebookNodeTitle'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
 import { buildMediaSource, renderAnsiText } from './utils'
@@ -60,7 +61,7 @@ const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | n
             <div className="text-[10px] uppercase tracking-wide text-muted">Image</div>
             <img
                 src={source}
-                alt="SQL (duckdb) output"
+                alt="SQL (DuckDB) output"
                 className="mt-2 max-w-full border border-border rounded bg-bg-light"
             />
         </div>
@@ -163,12 +164,12 @@ const Component = ({
     const showReturnVariableRow = expanded || isSettingsVisible
     const showDataframeTable = !!dataframeVariableName
 
-    const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number, title: string): string => {
+    const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number | undefined, title: string): string => {
         const trimmedTitle = title.trim()
         if (trimmedTitle) {
             return trimmedTitle
         }
-        return nodeType === NotebookNodeType.Python ? `Python ${nodeIndex}` : `SQL (duckdb) ${nodeIndex}`
+        return getCellLabel(nodeIndex, nodeType) ?? 'SQL'
     }
 
     if (!expanded && !showReturnVariableRow) {
@@ -176,7 +177,7 @@ const Component = ({
     }
 
     return (
-        <div data-attr="notebook-node-duck-sql" className="flex h-full flex-col gap-2">
+        <div data-attr="notebook-node-duck-sql" className="flex h-full flex-col">
             {expanded ? (
                 <div
                     ref={outputRef}
@@ -234,7 +235,7 @@ const Component = ({
                             ) : null}
                         </>
                     ) : (
-                        <div className="text-xs text-muted font-mono">Run the query to see execution results.</div>
+                        <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                     )}
                 </div>
             ) : null}
@@ -302,7 +303,7 @@ const Settings = ({
 
 export const NotebookNodeDuckSQL = createPostHogWidgetNode<NotebookNodeDuckSQLAttributes>({
     nodeType: NotebookNodeType.DuckSQL,
-    titlePlaceholder: 'SQL (duckdb)',
+    titlePlaceholder: 'SQL (DuckDB)',
     Component,
     heightEstimate: 120,
     minHeight: 80,

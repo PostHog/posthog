@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonInputSelect, LemonSelect, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
 
@@ -12,6 +12,7 @@ import {
     parseCommaSeparatedValues,
     removeCampaignFromMappings,
 } from '../NonIntegratedConversionsTable/mappingUtils'
+import { CampaignSuggestion, findCampaignSuggestions } from './stringSimilarity'
 
 export interface CampaignNameMappingsConfigurationProps {
     sourceFilter?: string
@@ -80,6 +81,17 @@ export function CampaignNameMappingsConfiguration({
     }, [newRawValues, marketingAnalyticsConfig])
 
     const hasAlreadyMappedValues = alreadyMappedValues.length > 0
+
+    const campaignSuggestions = useMemo((): CampaignSuggestion[] => {
+        if (!newRawValues.trim() || campaigns.length === 0) {
+            return []
+        }
+        const firstValue = parseCommaSeparatedValues(newRawValues)[0]
+        if (!firstValue) {
+            return []
+        }
+        return findCampaignSuggestions(firstValue, campaigns, 3)
+    }, [newRawValues, campaigns])
 
     const addMapping = (): void => {
         if (!selectedSource || !newCleanName.trim() || !newRawValues.trim()) {
@@ -208,28 +220,94 @@ export function CampaignNameMappingsConfiguration({
                                     />
                                 </td>
                             )}
-                            <td className="p-2 align-top">
-                                <LemonInputSelect
-                                    value={newCleanName ? [newCleanName] : []}
-                                    onChange={(values) => setNewCleanName(values[0] || '')}
-                                    options={campaignOptions}
-                                    placeholder={
-                                        integrationCampaignsLoading[currentIntegration] ? 'Loading...' : columnHeader
-                                    }
-                                    mode="single"
-                                    allowCustomValues
-                                    size="small"
-                                    loading={integrationCampaignsLoading[currentIntegration]}
-                                />
-                            </td>
-                            <td className="p-2 align-top">
+                            <td className="p-2 align-top min-w-[200px]">
                                 <div className="flex flex-col gap-1">
-                                    <LemonInput
+                                    <LemonInputSelect
+                                        value={newCleanName ? [newCleanName] : []}
+                                        onChange={(values) => setNewCleanName(values[0] || '')}
+                                        options={campaignOptions}
+                                        placeholder={
+                                            integrationCampaignsLoading[currentIntegration]
+                                                ? 'Loading...'
+                                                : columnHeader
+                                        }
+                                        mode="single"
+                                        allowCustomValues
+                                        size="small"
+                                        loading={integrationCampaignsLoading[currentIntegration]}
+                                    />
+                                    {newCleanName && (
+                                        <div className="text-xs text-muted break-all">
+                                            {matchField === MatchField.CAMPAIGN_ID ? (
+                                                <>
+                                                    <div>ID: {newCleanName}</div>
+                                                    <div>
+                                                        Name:{' '}
+                                                        {campaigns.find((c) => c.id === newCleanName)?.name ||
+                                                            '(custom)'}
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <div>Name: {newCleanName}</div>
+                                                    <div>
+                                                        ID:{' '}
+                                                        {campaigns.find((c) => c.name === newCleanName)?.id ||
+                                                            '(custom)'}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                    {campaignSuggestions.length > 0 && (
+                                        <div className="flex flex-col gap-1 mt-1">
+                                            <div className="flex items-center gap-1 text-muted text-xs">
+                                                <span>Suggested matches:</span>
+                                                <Tooltip
+                                                    title="Suggestions are based on string similarity (Levenshtein distance) between your utm_campaign value and campaign names from the integration."
+                                                    placement="top"
+                                                >
+                                                    <IconInfo className="w-3 h-3 cursor-help" />
+                                                </Tooltip>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1">
+                                                {campaignSuggestions.map((suggestion) => (
+                                                    <LemonButton
+                                                        key={suggestion.id}
+                                                        type="secondary"
+                                                        size="xsmall"
+                                                        onClick={() =>
+                                                            setNewCleanName(
+                                                                matchField === MatchField.CAMPAIGN_ID
+                                                                    ? suggestion.id
+                                                                    : suggestion.name
+                                                            )
+                                                        }
+                                                        tooltip={
+                                                            matchField === MatchField.CAMPAIGN_ID
+                                                                ? `${suggestion.name} (${Math.round(suggestion.score * 100)}% match)`
+                                                                : `ID: ${suggestion.id} (${Math.round(suggestion.score * 100)}% match)`
+                                                        }
+                                                    >
+                                                        {matchField === MatchField.CAMPAIGN_ID
+                                                            ? `${suggestion.id} (${suggestion.name})`
+                                                            : `${suggestion.name} (${suggestion.id})`}
+                                                    </LemonButton>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </td>
+                            <td className="p-2 align-top min-w-[200px]">
+                                <div className="flex flex-col gap-1">
+                                    <LemonTextArea
                                         value={newRawValues}
                                         onChange={setNewRawValues}
                                         placeholder="utm_campaign values (comma-separated)"
-                                        size="small"
-                                        fullWidth
+                                        minRows={1}
+                                        maxRows={4}
+                                        className="text-sm"
                                     />
                                     {hasAlreadyMappedValues && (
                                         <div className="flex items-start gap-1 text-warning text-xs">

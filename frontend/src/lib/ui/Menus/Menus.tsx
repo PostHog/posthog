@@ -19,13 +19,27 @@ MenuSeparator.displayName = 'MenuSeparator'
 /* -------------------------------------------------------------------------- */
 interface MenuOpenIndicatorProps extends React.HTMLAttributes<HTMLOrSVGElement> {
     intent?: 'default' | 'sub'
+    direction?: 'up' | 'down' | 'left' | 'right'
 }
-export const MenuOpenIndicator = ({ className, intent = 'default', ...props }: MenuOpenIndicatorProps): JSX.Element => {
+export const MenuOpenIndicator = ({
+    className,
+    intent = 'default',
+    direction = 'down',
+    ...props
+}: MenuOpenIndicatorProps): JSX.Element => {
+    const computedDirection = intent === 'sub' || direction === 'right' ? 'right' : direction
     return (
         <IconChevronRight
             className={cn(
-                'ml-auto size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none',
-                intent === 'sub' && 'rotate-0 group-data-[state=open]/button-primitive:rotate-0',
+                'ml-auto size-3 text-secondary transition-transform duration-200 prefers-reduced-motion:transition-none',
+                computedDirection === 'up' &&
+                    '-rotate-90 group-data-[state=open]/button-primitive:rotate-90 group-data-[popup-open]/button-primitive:rotate-90',
+                computedDirection === 'down' &&
+                    'rotate-90 group-data-[state=open]/button-primitive:-rotate-90 group-data-[popup-open]/button-primitive:-rotate-90',
+                computedDirection === 'left' &&
+                    'rotate-180 group-data-[state=open]/button-primitive:rotate-0 group-data-[popup-open]/button-primitive:rotate-0',
+                computedDirection === 'right' &&
+                    'rotate-0 group-data-[state=open]/button-primitive:rotate-180 group-data-[popup-open]/button-primitive:rotate-180',
                 className
             )}
             {...props}

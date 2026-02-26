@@ -3,8 +3,10 @@ import posthog from 'posthog-js'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { stripMarkdown } from 'lib/utils/stripMarkdown'
 
 import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
@@ -40,7 +42,12 @@ export function TicketsList(): JSX.Element {
             >
                 Create new ticket
             </LemonButton>
-
+            <p className="text-center text-xs text-muted-alt m-0">
+                Switched browsers?{' '}
+                <Link className="cursor-pointer" onClick={() => setView('restore')} data-attr="sidebar-recover-tickets">
+                    Recover your tickets
+                </Link>
+            </p>
             {tickets.length === 0 ? (
                 <div className="text-center text-muted-alt py-8">
                     <p>No tickets yet.</p>
@@ -61,7 +68,9 @@ export function TicketsList(): JSX.Element {
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
                                     {ticket.ticket_number && (
-                                        <span className="text-xs font-mono text-muted-alt">{ticket.ticket_number}</span>
+                                        <span className="text-xs font-mono text-muted-alt">
+                                            #{ticket.ticket_number}
+                                        </span>
                                     )}
                                     <LemonTag
                                         type={
@@ -84,7 +93,9 @@ export function TicketsList(): JSX.Element {
                                     )}
                                 </div>
                                 {ticket.last_message && (
-                                    <p className="text-sm text-primary truncate m-0">{ticket.last_message}</p>
+                                    <p className="text-sm text-primary truncate m-0">
+                                        {stripMarkdown(ticket.last_message)}
+                                    </p>
                                 )}
                                 <p className="text-xs text-muted-alt m-0 mt-1">
                                     <TZLabel time={ticket.created_at} />

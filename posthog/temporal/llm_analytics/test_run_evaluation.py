@@ -7,14 +7,18 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import sync_to_async
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
 
+from products.llm_analytics.backend.llm.errors import StructuredOutputParseError
 from products.llm_analytics.backend.models.evaluations import Evaluation
 
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
+    EmitEvaluationEventInputs,
+    ExecuteLLMJudgeInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     disable_evaluation_activity,
@@ -112,18 +116,8 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        mock_heartbeater = MagicMock()
-        mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
-        mock_heartbeater.__exit__ = MagicMock(return_value=False)
-
         # Mock unified Client response
-        with (
-            patch(
-                "posthog.temporal.llm_analytics.run_evaluation.HeartbeaterSync",
-                MagicMock(return_value=mock_heartbeater),
-            ),
-            patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class,
-        ):
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -134,7 +128,9 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(evaluation, event_data)
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
 
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
@@ -164,7 +160,14 @@ class TestRunEvaluationWorkflow:
             with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
                 mock_team_get.return_value = team
 
-                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+                await emit_evaluation_event_activity(
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=event_data,
+                        result=result,
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
+                    )
+                )
 
                 mock_create.assert_called_once()
                 call_kwargs = mock_create.call_args[1]
@@ -206,17 +209,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        mock_heartbeater = MagicMock()
-        mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
-        mock_heartbeater.__exit__ = MagicMock(return_value=False)
-
-        with (
-            patch(
-                "posthog.temporal.llm_analytics.run_evaluation.HeartbeaterSync",
-                MagicMock(return_value=mock_heartbeater),
-            ),
-            patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class,
-        ):
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -227,7 +220,9 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(evaluation, event_data)
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
 
             assert result["verdict"] is True
             assert result["applicable"] is True
@@ -259,17 +254,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        mock_heartbeater = MagicMock()
-        mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
-        mock_heartbeater.__exit__ = MagicMock(return_value=False)
-
-        with (
-            patch(
-                "posthog.temporal.llm_analytics.run_evaluation.HeartbeaterSync",
-                MagicMock(return_value=mock_heartbeater),
-            ),
-            patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class,
-        ):
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -282,7 +267,9 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(evaluation, event_data)
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
 
             assert result["verdict"] is None
             assert result["applicable"] is False
@@ -318,7 +305,14 @@ class TestRunEvaluationWorkflow:
             with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
                 mock_team_get.return_value = team
 
-                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+                await emit_evaluation_event_activity(
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=event_data,
+                        result=result,
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
+                    )
+                )
 
                 mock_create.assert_called_once()
                 call_kwargs = mock_create.call_args[1]
@@ -356,7 +350,14 @@ class TestRunEvaluationWorkflow:
             with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
                 mock_team_get.return_value = team
 
-                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+                await emit_evaluation_event_activity(
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=event_data,
+                        result=result,
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
+                    )
+                )
 
                 mock_create.assert_called_once()
                 call_kwargs = mock_create.call_args[1]
@@ -403,17 +404,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        mock_heartbeater = MagicMock()
-        mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
-        mock_heartbeater.__exit__ = MagicMock(return_value=False)
-
-        with (
-            patch(
-                "posthog.temporal.llm_analytics.run_evaluation.HeartbeaterSync",
-                MagicMock(return_value=mock_heartbeater),
-            ),
-            patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class,
-        ):
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -422,10 +413,47 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            await execute_llm_judge_activity(evaluation_dict, event_data)
+            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation_dict, event_data=event_data))
 
         await sync_to_async(evaluation.refresh_from_db)()
         assert evaluation.enabled is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_parse_error_raises_non_retryable(self, setup_data):
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = StructuredOutputParseError(
+                "Failed to parse structured output: I need to fetch your bundles..."
+            )
+
+            with pytest.raises(ApplicationError, match="Failed to parse structured output") as exc_info:
+                await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+            assert exc_info.value.non_retryable is True
+            assert exc_info.value.details[0] == {"error_type": "parse_error"}
 
 
 class TestEvalResultModels:

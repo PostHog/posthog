@@ -135,6 +135,7 @@ class BaseAgentRunner(ABC):
         stream_processor: AssistantStreamProcessorProtocol,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         is_agent_billable: bool = True,
+        is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
     ):
         self._team = team
@@ -165,8 +166,8 @@ class BaseAgentRunner(ABC):
                     "$session_id": self._session_id,
                     "is_subagent": not self._use_checkpointer,
                     "$groups": event_usage.groups(team=team),
-                    "ai_support_impersonated": not is_agent_billable,
-                    "ai_product": "posthog_ai",
+                    "ai_support_impersonated": is_impersonated,
+                    "ai_product": "mcp" if self._conversation.type == Conversation.Type.TOOL_CALL else "posthog_ai",
                     "conversation_type": self._conversation.type,
                 }
                 # Use SubagentCallbackHandler when parent_span_id is provided to nest all events under the parent

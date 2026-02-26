@@ -26,7 +26,7 @@ export interface LogAttributesProps {
 }
 
 export function LogAttributes({ attributes, type, logUuid, title }: LogAttributesProps): JSX.Element {
-    const { expandedAttributeBreakdowns, tabId, isAttributeColumn } = useValues(logsViewerLogic)
+    const { expandedAttributeBreakdowns, id, isAttributeColumn } = useValues(logsViewerLogic)
     const { addFilter, toggleAttributeColumn, toggleAttributeBreakdown } = useActions(logsViewerLogic)
 
     const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[logUuid] || []
@@ -157,12 +157,7 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                     showRowExpansionToggle: false,
                     isRowExpanded: (record) => expandedBreakdownsForThisLog.includes(record.key),
                     expandedRowRender: (record) => (
-                        <AttributeBreakdowns
-                            attribute={record.key}
-                            addFilter={addFilter}
-                            tabId={tabId}
-                            type={record.type}
-                        />
+                        <AttributeBreakdowns attribute={record.key} addFilter={addFilter} id={id} type={record.type} />
                     ),
                 }}
             />

@@ -21,12 +21,22 @@ class VideoSummarySingleSessionInputs(BaseModel):
     extra_summary_context: ExtraSummaryContext | None = None
 
 
+class PrepSessionVideoAssetResult(BaseModel):
+    """Result from preparing the session video ExportedAsset."""
+
+    model_config = ConfigDict(frozen=True)
+
+    asset_id: int
+    needs_export: bool
+
+
 class UploadedVideo(BaseModel):
     """Reference to a video uploaded to Gemini for analysis"""
 
     model_config = ConfigDict(frozen=True)
 
     file_uri: str
+    gemini_file_name: str = Field(description="Gemini file identifier for deletion (e.g. 'files/abc123')")
     mime_type: str
     duration: int = Field(description="Duration in seconds")
 
@@ -46,13 +56,17 @@ class VideoSegmentSpec(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     segment_index: int
-    start_time: float = Field(description="Seconds from start of video")
-    end_time: float = Field(description="Seconds from start of video")
+    start_time: float = Field(description="Seconds from start of session")
+    end_time: float = Field(description="Seconds from start of session")
+    recording_start_time: float = Field(description="Seconds from start of video")
+    recording_end_time: float = Field(description="Seconds from start of video")
 
     @model_validator(mode="after")
     def validate_time_range(self):
         if self.end_time <= self.start_time:
             raise ValueError("end_time must be greater than start_time")
+        if self.recording_end_time <= self.recording_start_time:
+            raise ValueError("recording_end_time must be greater than recording_start_time")
         return self
 
 

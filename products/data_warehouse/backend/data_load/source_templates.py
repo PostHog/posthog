@@ -61,6 +61,7 @@ def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
     logger = LOGGER.bind(team_id=team_id)
     close_old_connections()
 
+    # nosemgrep: idor-lookup-without-team (internal Temporal activity, not API-exposed)
     job: ExternalDataJob = ExternalDataJob.objects.get(pk=run_id)
     last_successful_job: ExternalDataJob | None = (
         ExternalDataJob.objects.filter(

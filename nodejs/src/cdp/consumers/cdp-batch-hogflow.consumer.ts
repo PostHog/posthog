@@ -7,11 +7,11 @@ import { parseJSON } from '~/utils/json-parse'
 import { captureException } from '~/utils/posthog'
 
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub, PersonPropertyFilter, Team } from '../../types'
+import { HealthCheckResult, Hub, Team } from '../../types'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
+import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -23,6 +23,7 @@ export interface BatchHogFlowRequest {
     hogFlowId: HogFlow['id']
     parentRunId: string
     filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>
+    group_type_index?: number
 }
 
 export interface BatchHogFlowRequestMessage {
@@ -35,8 +36,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
     protected name = 'CdpBatchHogFlowRequestsConsumer'
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumer
-
-    private hogRateLimiter: HogRateLimiterService
+    private hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
 
     constructor(
         hub: Hub,
@@ -46,7 +46,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hogflow')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.hogRateLimiter = new HogRateLimiterService(hub, this.redis)
+        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(hub.SITE_URL, hub.internalFetchService)
     }
 
     private createHogFlowInvocation({
@@ -54,20 +54,17 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         hogFlow,
         team,
         personId,
-        distinctId,
         defaultVariables,
     }: {
         parentRunId: string
         hogFlow: HogFlow
         team: Team
         personId: string
-        distinctId: string
         defaultVariables: Record<string, any>
     }): CyclotronJobInvocation {
         const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             team: team,
             personId: personId,
-            distinctId: distinctId,
             siteUrl: this.hub.SITE_URL,
         })
 
@@ -108,21 +105,6 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             return []
         }
 
-        const matchingPersonsCount = await instrumentFn(
-            'cdpProducer.generateBatch.queueMatchingPersons.matchingPersonsCount',
-            async () => {
-                return await this.personsManager.countMany({
-                    teamId: team.id,
-                    properties: (filters.properties as PersonPropertyFilter[]) || [],
-                })
-            }
-        )
-
-        logger.info(
-            '📝',
-            `Found ${matchingPersonsCount} matching persons for batch HogFlow run ${batchHogFlowRequest.parentRunId}`
-        )
-
         // Build default variables from hogFlow
         const defaultVariables =
             hogFlow.variables?.reduce(
@@ -133,32 +115,60 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                 {} as Record<string, any>
             ) || {}
 
-        const invocations: CyclotronJobInvocation[] = []
-        await instrumentFn('cdpProducer.generateBatch.queueMatchingPersons.paginatePersons', async () => {
-            await this.personsManager.streamMany({
-                filters: {
-                    teamId: team.id,
-                    properties: (filters.properties as PersonPropertyFilter[]) || [],
-                },
-                onPersonBatch: async (persons: { personId: string; distinctId: string }[]) => {
-                    const batchInvocations = persons.map(({ personId, distinctId }) =>
-                        this.createHogFlowInvocation({
-                            parentRunId: batchHogFlowRequest.parentRunId,
-                            hogFlow,
-                            team,
-                            personId,
-                            distinctId,
-                            defaultVariables,
-                        })
+        const allInvocations: CyclotronJobInvocation[] = []
+        let cursor: string | null = null
+        let totalPersonsProcessed = 0
+
+        // Fetch persons in batches using cursor-based pagination
+        do {
+            const blastRadiusPersons = await instrumentFn(
+                'cdpProducer.generateBatch.queueMatchingPersons.getBlastRadiusPersons',
+                async () => {
+                    return await this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
+                        team,
+                        filters,
+                        batchHogFlowRequest.group_type_index,
+                        cursor
                     )
+                }
+            )
 
-                    invocations.push(...batchInvocations)
-                    return Promise.resolve()
-                },
-            })
-        })
+            const batchPersonsCount = blastRadiusPersons.users_affected.length
+            totalPersonsProcessed += batchPersonsCount
 
-        return invocations
+            logger.info(
+                '📝',
+                `Fetched ${batchPersonsCount} persons (${totalPersonsProcessed} total) for batch HogFlow run ${batchHogFlowRequest.parentRunId}`
+            )
+
+            // Create invocations for this batch of persons
+            const batchInvocations = blastRadiusPersons.users_affected.map((personId) =>
+                this.createHogFlowInvocation({
+                    parentRunId: batchHogFlowRequest.parentRunId,
+                    hogFlow,
+                    team,
+                    personId,
+                    defaultVariables,
+                })
+            )
+
+            allInvocations.push(...batchInvocations)
+
+            // Update cursor for next iteration
+            cursor = blastRadiusPersons.cursor
+
+            // Continue if there are more persons to fetch
+            if (!blastRadiusPersons.has_more) {
+                break
+            }
+        } while (cursor)
+
+        logger.info(
+            '✅',
+            `Created ${allInvocations.length} invocations for batch HogFlow run ${batchHogFlowRequest.parentRunId}`
+        )
+
+        return allInvocations
     }
 
     private async processBatchHogFlowRequest(

@@ -13,6 +13,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
 use feature_flags::config::Config;
+use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::serve;
 
 pub struct ServerHandle {
@@ -27,8 +28,12 @@ impl ServerHandle {
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
+        let rayon_dispatcher = RayonDispatcher::new(2);
         tokio::spawn(async move {
-            serve(config, listener, async move { notify.notified().await }).await
+            serve(config, listener, rayon_dispatcher, async move {
+                notify.notified().await
+            })
+            .await
         });
         ServerHandle { addr, shutdown }
     }
@@ -107,9 +112,7 @@ impl ServerHandle {
                 let persons_reader = match get_pool(
                     &config.get_persons_read_database_url(),
                     config.max_pg_connections,
-                )
-                .await
-                {
+                ) {
                     Ok(client) => Arc::new(client),
                     Err(e) => {
                         tracing::error!("Failed to create persons read Postgres client: {}", e);
@@ -119,9 +122,7 @@ impl ServerHandle {
                 let persons_writer = match get_pool(
                     &config.get_persons_write_database_url(),
                     config.max_pg_connections,
-                )
-                .await
-                {
+                ) {
                     Ok(client) => Arc::new(client),
                     Err(e) => {
                         tracing::error!("Failed to create persons write Postgres client: {}", e);
@@ -129,7 +130,7 @@ impl ServerHandle {
                     }
                 };
                 let non_persons_reader =
-                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
+                    match get_pool(&config.read_database_url, config.max_pg_connections) {
                         Ok(client) => Arc::new(client),
                         Err(e) => {
                             tracing::error!(
@@ -140,7 +141,7 @@ impl ServerHandle {
                         }
                     };
                 let non_persons_writer =
-                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
+                    match get_pool(&config.write_database_url, config.max_pg_connections) {
                         Ok(client) => Arc::new(client),
                         Err(e) => {
                             tracing::error!(
@@ -158,22 +159,20 @@ impl ServerHandle {
                 )
             } else {
                 // Same database for both persons and non-persons tables
-                let reader =
-                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
-                        Ok(client) => Arc::new(client),
-                        Err(e) => {
-                            tracing::error!("Failed to create read Postgres client: {}", e);
-                            return;
-                        }
-                    };
-                let writer =
-                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
-                        Ok(client) => Arc::new(client),
-                        Err(e) => {
-                            tracing::error!("Failed to create write Postgres client: {}", e);
-                            return;
-                        }
-                    };
+                let reader = match get_pool(&config.read_database_url, config.max_pg_connections) {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create read Postgres client: {}", e);
+                        return;
+                    }
+                };
+                let writer = match get_pool(&config.write_database_url, config.max_pg_connections) {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create write Postgres client: {}", e);
+                        return;
+                    }
+                };
                 (
                     reader.clone(),
                     writer.clone(),
@@ -328,6 +327,7 @@ impl ServerHandle {
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,
+                RayonDispatcher::new(2),
                 config,
             );
 

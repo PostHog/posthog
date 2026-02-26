@@ -1,6 +1,7 @@
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
 import { Placeholder } from '@tiptap/extensions'
 import StarterKit, { StarterKitOptions } from '@tiptap/starter-kit'
@@ -30,10 +31,11 @@ import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeGroupProperties } from '../Nodes/NotebookNodeGroupProperties'
+import { NotebookNodeHogQL } from '../Nodes/NotebookNodeHogQL'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
-import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
 import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
+import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
@@ -55,8 +57,9 @@ import { textContent } from '../utils'
 import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
-import { SlashCommandsExtension } from './SlashCommands'
 import { notebookLogic } from './notebookLogic'
+import { SlashCommandsExtension } from './SlashCommands'
+import { TableMenu } from './TableMenu'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -112,6 +115,10 @@ export function Editor(): JSX.Element {
                 resetSuggestions()
             },
         }),
+        Table,
+        TableRow,
+        TableHeader,
+        TableCell,
         DropAndPasteHandlerExtension,
         TaskList,
         TaskItem.configure({ nested: true }),
@@ -122,6 +129,7 @@ export function Editor(): JSX.Element {
         NotebookNodeQuery,
         NotebookNodePython,
         NotebookNodeDuckSQL,
+        NotebookNodeHogQL,
         NotebookNodeRecording,
         NotebookNodeReplayTimestamp,
         NotebookNodePlaylist,
@@ -174,6 +182,7 @@ export function Editor(): JSX.Element {
             }}
         >
             <FloatingSuggestions />
+            {isEditable && <TableMenu />}
             <InlineMenu
                 extra={(editor) =>
                     !editor.isActive('comment') ? (

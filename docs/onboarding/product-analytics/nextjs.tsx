@@ -56,7 +56,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 language: 'bash',
                                 file: '.env.local',
                                 code: dedent`
-                                    NEXT_PUBLIC_POSTHOG_KEY=<ph_project_api_key>
+                                    NEXT_PUBLIC_POSTHOG_KEY=<ph_project_token>
                                     NEXT_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
@@ -94,7 +94,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                                                 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
                                                     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                    defaults: '2025-11-30'
+                                                    defaults: '2026-01-30'
                                                 })
                                             `,
                                         },
@@ -125,7 +125,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                   useEffect(() => {
                                                     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
                                                       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                      defaults: '2025-11-30'
+                                                      defaults: '2026-01-30'
                                                     })
                                                   }, [])
 
@@ -189,7 +189,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                   useEffect(() => {
                                                     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
                                                       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                      defaults: '2025-11-30',
+                                                      defaults: '2026-01-30',
                                                       loaded: (posthog) => {
                                                         if (process.env.NODE_ENV === 'development') posthog.debug()
                                                       }

@@ -6,13 +6,11 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
-import MaxTool from 'scenes/max/MaxTool'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryPaneProps {
     queryInput: string
@@ -21,30 +19,27 @@ interface QueryPaneProps {
     sourceQuery: HogQLQuery
     originalValue?: string
     onRun?: () => void
+    editorVimModeEnabled?: boolean
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
-    const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
-    const {
-        setSuggestedQueryInput,
-        onAcceptSuggestedQueryInput,
-        onRejectSuggestedQueryInput,
-        reportAIQueryPromptOpen,
-    } = useActions(multitabEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton } = useValues(multitabEditorLogic)
+    const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
+    const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton } = useValues(sqlEditorLogic)
 
     return (
         <>
             <div
-                className="relative flex flex-row w-full bg-primary overflow-hidden"
+                className="relative flex flex-row w-full bg-primary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     height: `${queryPaneHeight}px`,
+                    maxHeight: queryPaneDesiredSize === null ? '35%' : undefined,
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
                 <div className="relative flex flex-col w-full min-h-0">
-                    <div className="flex-1 min-h-0 overflow-hidden" data-attr="hogql-query-editor">
+                    <div className="flex-1 min-h-0" data-attr="hogql-query-editor">
                         <AutoSizer
                             renderProp={({ height, width }) =>
                                 height && width ? (
@@ -55,7 +50,9 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         height={height}
                                         width={width}
                                         originalValue={props.originalValue}
+                                        enableVimMode={props.editorVimModeEnabled}
                                         {...props.codeEditorProps}
+                                        autoFocus={true}
                                         options={{
                                             minimap: {
                                                 enabled: false,
@@ -73,31 +70,6 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                 ) : null
                             }
                         />
-                    </div>
-                    <div className="absolute bottom-6 right-4">
-                        <MaxTool
-                            identifier="execute_sql"
-                            context={{
-                                current_query: props.queryInput,
-                            }}
-                            contextDescription={{
-                                text: 'Current query',
-                                icon: iconForType('sql_editor'),
-                            }}
-                            callback={(toolOutput: string) => {
-                                setSuggestedQueryInput(toolOutput, 'max_ai')
-                            }}
-                            suggestions={[]}
-                            onMaxOpen={() => {
-                                reportAIQueryPromptOpen()
-                            }}
-                            introOverride={{
-                                headline: 'What data do you want to analyze?',
-                                description: 'Let me help you quickly write SQL, and tweak it.',
-                            }}
-                        >
-                            <div className="relative" />
-                        </MaxTool>
                     </div>
                     {props.originalValue && (
                         <div

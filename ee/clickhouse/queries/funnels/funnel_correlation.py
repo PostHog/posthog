@@ -556,7 +556,7 @@ class FunnelCorrelation:
         events: set[Union[int, str]] = set()
         for entity in self._filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                action = entity.get_action()
+                action = entity.get_action(self._team.pk)
                 events.update([x for x in action.get_step_events() if x])
             elif entity.id is not None:
                 events.add(entity.id)

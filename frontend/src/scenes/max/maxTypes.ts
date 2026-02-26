@@ -21,13 +21,14 @@ export interface MaxInsightContext {
     name?: string | null
     description?: string | null
     query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
+    result?: any // Pre-calculated query results, avoids re-execution on the backend
     filtersOverride?: DashboardFilter
     variablesOverride?: Record<string, HogQLVariable>
 }
 
 export interface MaxDashboardContext {
     type: MaxContextType.DASHBOARD
-    id: number
+    id: integer
     name?: string | null
     description?: string | null
     insights: MaxInsightContext[]
@@ -43,7 +44,7 @@ export interface MaxEventContext {
 
 export interface MaxActionContext {
     type: MaxContextType.ACTION
-    id: number
+    id: integer
     name: string
     description?: string | null
 }
@@ -69,7 +70,7 @@ export interface MaxContextTaxonomicFilterOption {
     id: string
     value: string | integer
     name: string
-    icon: React.ReactNode
+    icon: React.ComponentType
     type?: MaxContextType
 }
 

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDatabase, IconPlug, IconRefresh, IconServer } from '@posthog/icons'
+import { IconDatabase, IconPlug, IconRefresh, IconRevert, IconServer, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { IconWithBadge } from 'lib/lemon-ui/icons'
@@ -30,6 +30,8 @@ export const SidePanelHealthIcon = (props: { className?: string }): JSX.Element 
 export function SidePanelHealth(): JSX.Element {
     const { issues, healthIssuesLoading, hasErrors, issueCount } = useValues(sidePanelHealthLogic)
     const { loadHealthIssues } = useActions(sidePanelHealthLogic)
+
+    // PLEASE NOTE IVE REBUILLT THIS COMPONENT INTO pipelineStatusScene.tsx, any developement here should be done there also/instead. @ux-platform
 
     return (
         <div className="flex flex-col h-full">
@@ -150,7 +152,7 @@ function getErrorLabelForMaterializedView(error: string | null): JSX.Element | n
                     configured Revenue Analytics
                 </Link>{' '}
                 properly (missing subscription properties) or the{' '}
-                <Link to={urls.dataPipelines('sources')} target="_blank" targetBlankIcon={false}>
+                <Link to={urls.dataPipelinesNew('source')} target="_blank" targetBlankIcon={false}>
                     underlying source of data
                 </Link>{' '}
                 isn't correctly set-up.
@@ -169,7 +171,17 @@ function getErrorLabelForMaterializedView(error: string | null): JSX.Element | n
     )
 }
 
-function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
+export function HealthIssueCard({
+    issue,
+    isDismissed,
+    onDismiss,
+    onUndismiss,
+}: {
+    issue: DataHealthIssue
+    isDismissed?: boolean
+    onDismiss?: () => void
+    onUndismiss?: () => void
+}): JSX.Element {
     const typeLabel = getTypeLabel(issue)
     const statusLabel = getStatusLabel(issue.status)
     const statusTagType = getStatusTagType(issue.status)
@@ -178,7 +190,7 @@ function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
     const showLink = issue.url && issue.type !== 'materialized_view'
 
     return (
-        <div className="border rounded p-3 bg-surface-primary">
+        <div className={`border rounded p-3 bg-surface-primary${isDismissed ? ' opacity-60' : ''}`}>
             <div className="flex items-start gap-2">
                 <div className="mt-0.5">{getIssueIcon(issue.type)}</div>
                 <div className="flex-1 min-w-0">
@@ -193,6 +205,16 @@ function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
                         <LemonTag type={statusTagType} size="small">
                             {statusLabel}
                         </LemonTag>
+                        {(onDismiss || onUndismiss) && (
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={isDismissed ? <IconRevert /> : <IconX />}
+                                tooltip={isDismissed ? 'Undismiss' : 'Dismiss'}
+                                onClick={() => (isDismissed ? onUndismiss?.() : onDismiss?.())}
+                                className="shrink-0 ml-auto"
+                            />
+                        )}
                     </div>
                     <div className="text-xs text-muted mb-2">{typeLabel}</div>
                     {issue.error && (

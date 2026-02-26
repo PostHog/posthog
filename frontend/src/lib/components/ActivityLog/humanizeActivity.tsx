@@ -6,7 +6,7 @@ import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/type
 
 export interface ActivityChange {
     type: ActivityScope
-    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split'
+    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'copied'
     field?: string
     before?: string | number | any[] | Record<string, any> | boolean | null
     after?: string | number | any[] | Record<string, any> | boolean | null
@@ -138,6 +138,7 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
 
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
 
+// Keep in sync with SCOPE_DISPLAY_NAMES in ee/hogai/context/activity_log/context.py
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
@@ -211,6 +212,17 @@ export function defaultDescriber(
             description: (
                 <>
                     <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'copied_to_project') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> copied <b>{resource}</b> to
+                    another project
                 </>
             ),
         }

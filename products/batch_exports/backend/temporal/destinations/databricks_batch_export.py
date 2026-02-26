@@ -939,8 +939,9 @@ class DatabricksConsumer(Consumer):
         self,
         client: DatabricksClient,
         volume_path: str,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.client = client
         self.volume_path = volume_path
@@ -1107,6 +1108,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 consumer = DatabricksConsumer(
                     client=databricks_client,
                     volume_path=volume_path,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
                 transformer: ChunkTransformerProtocol = ParquetStreamTransformer(

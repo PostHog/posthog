@@ -1,6 +1,10 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
+from posthog.hogql.errors import QueryError
+
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.services.saved_query_dag_sync import (
@@ -41,7 +45,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert node is not None
         self.assertEqual(node.name, "test_view")
         self.assertEqual(node.team, self.team)
-        self.assertEqual(node.dag_id, get_dag_id(self.team.id))
+        self.assertEqual(node.dag_id_text, get_dag_id(self.team.id))
         self.assertEqual(node.type, NodeType.VIEW)
         self.assertEqual(node.saved_query, saved_query)
 
@@ -56,7 +60,7 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         events_node = Node.objects.filter(
             team=self.team,
-            dag_id=get_dag_id(self.team.id),
+            dag_id_text=get_dag_id(self.team.id),
             name="events",
         ).first()
 
@@ -72,7 +76,10 @@ class TestSyncSavedQueryToDag(BaseTest):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
             team=self.team,
-            query={"query": "SELECT * FROM events e JOIN persons p ON e.person_id = p.id", "kind": "HogQLQuery"},
+            query={
+                "query": "SELECT e.*, p.* FROM events e JOIN persons p ON e.person_id = p.id",
+                "kind": "HogQLQuery",
+            },
         )
 
         node = sync_saved_query_to_dag(saved_query)
@@ -168,7 +175,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         query_a.save()
         sync_saved_query_to_dag(query_a)
 
-        conflict_edges = Edge.objects.filter(dag_id__startswith="conflict_", target=node_a)
+        conflict_edges = Edge.objects.filter(dag_id_text__startswith="conflict_", target=node_a)
         self.assertEqual(conflict_edges.count(), 1)
 
         conflict_edge = conflict_edges.first()
@@ -196,18 +203,22 @@ class TestSyncSavedQueryToDag(BaseTest):
         with self.assertRaises(ValueError):
             sync_saved_query_to_dag(null_query)
 
-    def test_sync_stores_unresolved_dependencies_in_properties(self):
+    @parameterized.expand(
+        [
+            ("select * from nonexistent_table",),
+            ("select nonexistent_alias.* from events",),
+            ("select * from events, persons",),  # ambiguous
+        ]
+    )
+    def test_sync_raises_for_query_errors(self, query):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
             team=self.team,
-            query={"query": "SELECT * FROM nonexistent_table", "kind": "HogQLQuery"},
+            query={"query": query, "kind": "HogQLQuery"},
         )
 
-        node = sync_saved_query_to_dag(saved_query)
-        assert node is not None
-        unresolved = node.properties.get("unresolved_dependencies", [])
-        self.assertEqual(len(unresolved), 1)
-        self.assertEqual(unresolved[0]["name"], "nonexistent_table")
+        with pytest.raises(QueryError):
+            sync_saved_query_to_dag(saved_query)
 
 
 @pytest.mark.django_db
@@ -386,7 +397,7 @@ class TestSkipValidation(BaseTest):
         )
         node_a = Node.objects.create(
             team=self.team,
-            dag_id=get_dag_id(self.team.id),
+            dag_id_text=get_dag_id(self.team.id),
             name="view_a",
             saved_query=query_a,
             type=NodeType.VIEW,
@@ -398,7 +409,7 @@ class TestSkipValidation(BaseTest):
         )
         node_b = Node.objects.create(
             team=self.team,
-            dag_id=get_dag_id(self.team.id),
+            dag_id_text=get_dag_id(self.team.id),
             name="view_b",
             saved_query=query_b,
             type=NodeType.VIEW,
@@ -406,7 +417,7 @@ class TestSkipValidation(BaseTest):
         # a -> b
         Edge.objects.create(
             team=self.team,
-            dag_id=get_dag_id(self.team.id),
+            dag_id_text=get_dag_id(self.team.id),
             source=node_a,
             target=node_b,
         )
@@ -414,7 +425,7 @@ class TestSkipValidation(BaseTest):
         # shouldn't raise
         conflict_edge = Edge(
             team=self.team,
-            dag_id=get_conflict_dag_id(self.team.id),
+            dag_id_text=get_conflict_dag_id(self.team.id),
             source=node_b,
             target=node_a,
             properties={"error_type": "cycle"},
@@ -431,7 +442,7 @@ class TestSkipValidation(BaseTest):
         )
         node_a = Node.objects.create(
             team=self.team,
-            dag_id="dag_1",
+            dag_id_text="dag_1",
             name="node_a",
             saved_query=query,
             type=NodeType.VIEW,
@@ -444,7 +455,7 @@ class TestSkipValidation(BaseTest):
         )
         node_b = Node.objects.create(
             team=self.team,
-            dag_id="dag_2",
+            dag_id_text="dag_2",
             name="node_b",
             saved_query=query_b,
             type=NodeType.VIEW,
@@ -453,7 +464,7 @@ class TestSkipValidation(BaseTest):
         # shouldn't raise
         conflict_edge = Edge(
             team=self.team,
-            dag_id=get_conflict_dag_id(self.team.id),
+            dag_id_text=get_conflict_dag_id(self.team.id),
             source=node_a,
             target=node_b,
         )
