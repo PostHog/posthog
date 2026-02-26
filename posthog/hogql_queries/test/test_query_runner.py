@@ -488,6 +488,225 @@ class TestQueryRunner(BaseTest):
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
 
 
+class TestQueryCoalescing(BaseTest):
+    maxDiff = None
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def setup_test_query_runner_class(self):
+        """Setup required methods and attributes of the abstract base class."""
+
+        class _TestQueryRunner(QueryRunner):
+            query: TheTestQuery
+            cached_response: TheTestCachedBasicQueryResponse
+
+            def calculate(self):
+                return TheTestBasicQueryResponse(
+                    results=[
+                        ["row", 1, 2, 3],
+                        (i for i in range(10)),
+                    ]
+                )
+
+            def _refresh_frequency(self) -> timedelta:
+                return timedelta(minutes=4)
+
+            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False, *args, **kwargs) -> bool:
+                if not last_refresh:
+                    raise ValueError("Cached results require a last_refresh")
+                if lazy:
+                    return last_refresh + timedelta(days=1) <= datetime.now(tz=ZoneInfo("UTC"))
+                return last_refresh + timedelta(minutes=10) <= datetime.now(tz=ZoneInfo("UTC"))
+
+        _TestQueryRunner.__abstractmethods__ = frozenset()
+        return _TestQueryRunner
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_concurrent_blocking_requests_coalesce(self, _mock_ff):
+        """When cache is empty, concurrent blocking requests should coalesce:
+        only 1 calls calculate(), the rest get the cached result."""
+        import threading
+
+        Runner = self.setup_test_query_runner_class()
+        calculate_call_count = 0
+        calculate_lock = threading.Lock()
+        original_calculate = Runner.calculate
+
+        def counting_calculate(self_inner):
+            nonlocal calculate_call_count
+            with calculate_lock:
+                calculate_call_count += 1
+            import time
+
+            time.sleep(0.5)
+            return original_calculate(self_inner)
+
+        Runner.calculate = counting_calculate
+
+        runner = Runner(query={"some_attr": "bla"}, team=self.team)
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        self.assertIsInstance(response, CacheMissResponse)
+        calculate_call_count = 0
+
+        results = [None] * 5
+        exceptions = [None] * 5
+
+        def run_query(idx):
+            try:
+                r = Runner(query={"some_attr": "bla"}, team=self.team)
+                results[idx] = r.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            except Exception as e:
+                exceptions[idx] = e
+
+        threads = [threading.Thread(target=run_query, args=(i,)) for i in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        for i, exc in enumerate(exceptions):
+            if exc is not None:
+                raise AssertionError(f"Thread {i} raised: {exc}")
+
+        for r in results:
+            self.assertIsNotNone(r)
+            self.assertIsInstance(r, TheTestCachedBasicQueryResponse)
+
+        self.assertEqual(calculate_call_count, 1)
+
+    def test_dry_run_emits_metrics_but_all_execute(self):
+        """In dry-run mode (feature flag off), all requests execute independently
+        but metrics are emitted to measure what could be coalesced."""
+        import threading
+
+        Runner = self.setup_test_query_runner_class()
+        calculate_call_count = 0
+        calculate_lock = threading.Lock()
+        original_calculate = Runner.calculate
+
+        def counting_calculate(self_inner):
+            nonlocal calculate_call_count
+            with calculate_lock:
+                calculate_call_count += 1
+            import time
+
+            time.sleep(0.3)
+            return original_calculate(self_inner)
+
+        Runner.calculate = counting_calculate
+
+        runner = Runner(query={"some_attr": "bla"}, team=self.team)
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        self.assertIsInstance(response, CacheMissResponse)
+        calculate_call_count = 0
+
+        results = [None] * 3
+        exceptions = [None] * 3
+
+        def run_query(idx):
+            try:
+                r = Runner(query={"some_attr": "bla"}, team=self.team)
+                results[idx] = r.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            except Exception as e:
+                exceptions[idx] = e
+
+        threads = [threading.Thread(target=run_query, args=(i,)) for i in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        for i, exc in enumerate(exceptions):
+            if exc is not None:
+                raise AssertionError(f"Thread {i} raised: {exc}")
+
+        # Feature flag defaults to off (dry run) — all requests execute independently
+        self.assertEqual(calculate_call_count, 3)
+
+    def test_coalescing_skipped_for_force_blocking(self):
+        """CALCULATE_BLOCKING_ALWAYS should skip coalescing — each request calculates independently."""
+        import threading
+
+        Runner = self.setup_test_query_runner_class()
+        calculate_call_count = 0
+        calculate_lock = threading.Lock()
+        original_calculate = Runner.calculate
+
+        def counting_calculate(self_inner):
+            nonlocal calculate_call_count
+            with calculate_lock:
+                calculate_call_count += 1
+            import time
+
+            time.sleep(0.3)
+            return original_calculate(self_inner)
+
+        Runner.calculate = counting_calculate
+
+        results = [None] * 3
+        exceptions = [None] * 3
+
+        def run_query(idx):
+            try:
+                r = Runner(query={"some_attr": "bla"}, team=self.team)
+                results[idx] = r.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            except Exception as e:
+                exceptions[idx] = e
+
+        threads = [threading.Thread(target=run_query, args=(i,)) for i in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        for i, exc in enumerate(exceptions):
+            if exc is not None:
+                raise AssertionError(f"Thread {i} raised: {exc}")
+
+        self.assertEqual(calculate_call_count, 3)
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_coalescing_leader_exception_releases_lock(self, _mock_ff):
+        """If the leader's calculate() raises, the lock should be released
+        so followers fall back to their own calculation."""
+
+        Runner = self.setup_test_query_runner_class()
+
+        def failing_calculate(self_inner):
+            raise ValueError("boom")
+
+        Runner.calculate = failing_calculate
+
+        with self.assertRaises(Exception):
+            runner = Runner(query={"some_attr": "bla"}, team=self.team)
+            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        # Lock should be released — a second request should be able to acquire it
+        from posthog.hogql_queries.query_coalescing import QueryCoalescer
+
+        runner2 = Runner(query={"some_attr": "bla"}, team=self.team)
+        cache_key = runner2.get_cache_key()
+        coalescer = QueryCoalescer(cache_key, "test-query-id")
+        self.assertTrue(coalescer._try_acquire())
+
+    def test_coalescing_redis_failure_degrades_gracefully(self):
+        """If Redis is down, coalescing should be skipped and the query executes normally."""
+
+        Runner = self.setup_test_query_runner_class()
+        runner = Runner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch(
+            "posthog.hogql_queries.query_coalescing.QueryCoalescer._try_acquire",
+            side_effect=Exception("Redis connection refused"),
+        ):
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+        self.assertEqual(response.is_cached, False)
+
+
 class TestSeriesCustomNameCaching(BaseTest):
     @parameterized.expand(
         [
