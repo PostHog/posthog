@@ -723,7 +723,7 @@ export class CdpApi {
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
                 const { team_id, id, hog_function_id } = req.params
-                const { clickhouse_event, invocation_id } = req.body
+                const { clickhouse_event, mock_async_functions, invocation_id } = req.body
 
                 logger.info('⚡️', 'Received batch export invocation', { team_id, batch_export_id: id })
 
@@ -781,7 +781,10 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(false, logs)
+                    const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
+                        mock_async_functions,
+                        logs
+                    )
 
                     let response: any = null
                     if (isNativeHogFunction(hogFunction)) {

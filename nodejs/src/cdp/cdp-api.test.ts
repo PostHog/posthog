@@ -877,5 +877,18 @@ describe('CDP API', () => {
             expect(res.status).toEqual(400)
             expect(res.body.error).toEqual('Invalid invocation ID')
         })
+
+        it('can invoke a batch export hog function mocked', async () => {
+            const res = await supertest(app)
+                .post(
+                    `/api/projects/${team.id}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
+                )
+                .send({ clickhouse_event: clickhouseEvent, mock_async_functions: true })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.errors).toEqual([])
+            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`...`)
+        })
     })
 })
