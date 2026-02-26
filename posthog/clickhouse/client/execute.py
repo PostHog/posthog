@@ -220,7 +220,7 @@ def sync_execute(
     if not workload:
         workload = Workload.DEFAULT
         # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
-        logger.warning(f"workload is None", stacktrace=traceback.format_stack())
+        logger.warning("workload is None", stacktrace=traceback.format_stack())
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
