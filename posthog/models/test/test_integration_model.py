@@ -1072,6 +1072,20 @@ class TestStripeIntegrationModel(BaseTest):
         mock_stripe_client.assert_not_called()
 
     @patch("posthog.models.integration.stripe_lib.StripeClient")
+    @patch("posthog.models.integration.generate_token")
+    def test_write_posthog_secrets_returns_when_oauth_app_not_found(self, mock_generate_token, mock_stripe_client):
+        integration = self._create_stripe_integration()
+        settings_with_bad_client_id = {**self.mock_settings, "STRIPE_POSTHOG_OAUTH_CLIENT_ID": "nonexistent-client-id"}
+
+        with self.settings(**settings_with_bad_client_id):
+            StripeIntegration(integration).write_posthog_secrets(self.user)
+
+        mock_generate_token.assert_not_called()
+        mock_stripe_client.assert_not_called()
+        integration.refresh_from_db()
+        assert "posthog_oauth_app_id" not in integration.config
+
+    @patch("posthog.models.integration.stripe_lib.StripeClient")
     def test_clear_posthog_secrets_deletes_tokens_and_stripe_secrets(self, mock_stripe_client):
         mock_stripe_instance = MagicMock()
         mock_stripe_client.return_value = mock_stripe_instance

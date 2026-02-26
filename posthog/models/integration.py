@@ -2651,7 +2651,16 @@ class StripeIntegration:
             logger.warning("STRIPE_POSTHOG_OAUTH_CLIENT_ID not configured, skipping PostHog secret writing")
             return
 
-        oauth_app = OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
+        try:
+            oauth_app = OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
+        except OAuthApplication.DoesNotExist as e:
+            capture_exception(e, {"client_id": settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID})
+            logger.exception(
+                "OAuthApplication with client_id=%s not found, cannot write PostHog secrets",
+                settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
+            )
+            return
+
         self.integration.config["posthog_oauth_app_id"] = str(oauth_app.pk)
         self.integration.save(update_fields=["config"])
 
