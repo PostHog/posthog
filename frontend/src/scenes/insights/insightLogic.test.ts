@@ -237,6 +237,10 @@ describe('insightLogic', () => {
                     )
                     return [200, response]
                 },
+                '/api/projects/:team/insights/:id': async (req) => {
+                    const payload = await req.json()
+                    return [200, { ...payload, id: req.params['id'] }]
+                },
             },
         })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
@@ -800,7 +804,12 @@ describe('insightLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setInsight(
-                    { query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                    {
+                        query: {
+                            kind: NodeKind.DataTableNode,
+                            source: { kind: NodeKind.EventsQuery, select: ['*'] },
+                        } as DataTableNode,
+                    },
                     { overrideQuery: true }
                 )
                 logic.actions.saveInsight()
@@ -811,23 +820,87 @@ describe('insightLogic', () => {
                 [
                     `api/environments/${MOCK_TEAM_ID}/insights`,
                     expect.objectContaining({
-                        derived_name: 'DataTableNode query',
+                        derived_name: '* from events',
                         query: {
                             kind: 'DataTableNode',
+                            source: { kind: 'EventsQuery', select: ['*'] },
                         },
                         saved: true,
                     }),
                     expect.objectContaining({
-                        data: {
-                            derived_name: 'DataTableNode query',
+                        data: expect.objectContaining({
+                            derived_name: '* from events',
                             query: {
                                 kind: 'DataTableNode',
+                                source: { kind: 'EventsQuery', select: ['*'] },
                             },
                             saved: true,
-                        },
+                        }),
                     }),
                 ],
             ])
+        })
+    })
+
+    describe('confirmDeleteInsight', () => {
+        beforeEach(async () => {
+            const insightProps: InsightLogicProps = { dashboardItemId: Insight42 }
+            logic = insightLogic(insightProps)
+            logic.mount()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: partial({ id: 42 }),
+                })
+        })
+
+        it.each([
+            { scenario: 'with dashboardId', dashboardId: 5 },
+            { scenario: 'without dashboardId', dashboardId: null },
+        ])('$scenario navigates immediately and deletes via API', async ({ dashboardId }) => {
+            jest.spyOn(api, 'update')
+
+            logic.actions.confirmDeleteInsight(dashboardId)
+
+            const expectedUrl = dashboardId ? urls.dashboard(dashboardId) : urls.savedInsights()
+            await expectLogic(router).toDispatchActions([router.actionCreators.push(expectedUrl)])
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/insights/42'),
+                expect.objectContaining({ deleted: true })
+            )
+        })
+
+        it('optimistically removes insight from dashboard', async () => {
+            await expectLogic(dashboardsModel, () => {
+                logic.actions.confirmDeleteInsight(5)
+            }).toDispatchActions([
+                (action: any) =>
+                    action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                    action.payload.insight.deleted === true &&
+                    action.payload.extraDashboardIds?.[0] === 5,
+            ])
+        })
+
+        it('restores insight on dashboard when API fails', async () => {
+            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('Network error'))
+
+            await expectLogic(dashboardsModel, () => {
+                logic.actions.confirmDeleteInsight(5)
+            })
+                .toDispatchActions([
+                    (action: any) =>
+                        action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                        action.payload.insight.deleted === true,
+                ])
+                .toDispatchActions([
+                    (action: any) =>
+                        action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                        action.payload.insight.deleted === false,
+                ])
         })
     })
 })
