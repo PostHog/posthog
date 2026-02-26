@@ -203,10 +203,6 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 selected_series_result = _pick_series_result(config, calculation_result)
                 results_to_evaluate.append(selected_series_result)
 
-            if not results_to_evaluate:
-                breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, query.interval, "")
-                return AlertEvaluationResult(value=0, breaches=breaches)
-
             # if we don't have breakdown, we'll have to evaluate just one result
             # and increase will be the evaluated value of that result
             increase = None
