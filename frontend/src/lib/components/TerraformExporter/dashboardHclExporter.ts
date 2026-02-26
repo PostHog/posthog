@@ -106,7 +106,7 @@ export function generateDashboardHCL(
     const insightIdReplacements = new Map<number, string>()
     if (options.insights && options.insights.length > 0) {
         const dashboardIdReplacements = new Map<number, string>()
-        if (dashboardTfReference) {
+        if (dashboard.id && dashboardTfReference) {
             dashboardIdReplacements.set(dashboard.id, dashboardTfReference)
         }
 
