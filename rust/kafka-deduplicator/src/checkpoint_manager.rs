@@ -805,7 +805,7 @@ mod tests {
         assert!(health_reporter.is_some());
 
         // Wait for a few flush cycles
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(800)).await;
 
         // Stop the manager
         manager.stop().await;

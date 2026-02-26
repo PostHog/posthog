@@ -93,6 +93,7 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     )
     host = models.CharField(max_length=255)
     port = models.IntegerField(default=5432)
+    flight_port = models.IntegerField(default=8815)
     database = models.CharField(max_length=255, default="ducklake")
     username = models.CharField(max_length=255)
     password = EncryptedTextField(max_length=500)

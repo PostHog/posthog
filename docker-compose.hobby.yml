@@ -77,6 +77,7 @@ services:
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
@@ -113,6 +114,7 @@ services:
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://plugins:6738
@@ -148,6 +150,7 @@ services:
             SESSION_RECORDING_API_REDIS_HOST: redis7
             SESSION_RECORDING_API_REDIS_PORT: 6379
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7

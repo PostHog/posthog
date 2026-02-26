@@ -109,8 +109,9 @@ class HogQLPrinter(Visitor[str]):
 
     def visit_cte(self, node: ast.CTE):
         if node.cte_type == "subquery":
+            if node.columns is not None:
+                raise NotImplementedError("CTE column name lists are not supported in this dialect")
             return f"{node.name} AS {self.visit(node.expr)}"
-
         return f"{self.visit(node.expr)} AS {node.name}"
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):

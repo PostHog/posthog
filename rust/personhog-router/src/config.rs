@@ -17,10 +17,37 @@ pub struct Config {
 
     #[envconfig(default = "9101")]
     pub metrics_port: u16,
+
+    /// Maximum number of retry attempts for transient backend errors (0 = no retries)
+    #[envconfig(default = "3")]
+    pub max_retries: u32,
+
+    /// Initial backoff delay in milliseconds before the first retry
+    #[envconfig(default = "25")]
+    pub initial_backoff_ms: u64,
+
+    /// Maximum backoff delay in milliseconds (caps exponential growth)
+    #[envconfig(default = "500")]
+    pub max_backoff_ms: u64,
 }
 
 impl Config {
     pub fn backend_timeout(&self) -> Duration {
         Duration::from_millis(self.backend_timeout_ms)
     }
+
+    pub fn retry_config(&self) -> RetryConfig {
+        RetryConfig {
+            max_retries: self.max_retries,
+            initial_backoff_ms: self.initial_backoff_ms,
+            max_backoff_ms: self.max_backoff_ms,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RetryConfig {
+    pub max_retries: u32,
+    pub initial_backoff_ms: u64,
+    pub max_backoff_ms: u64,
 }

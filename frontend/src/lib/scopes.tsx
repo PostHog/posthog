@@ -38,6 +38,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
     { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
+    { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },

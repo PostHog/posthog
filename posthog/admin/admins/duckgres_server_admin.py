@@ -7,6 +7,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         "team_id",
         "host",
         "port",
+        "flight_port",
         "database",
         "created_at",
         "updated_at",
@@ -25,7 +26,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         (
             "Connection",
             {
-                "fields": ("host", "port", "database", "username", "password"),
+                "fields": ("host", "port", "flight_port", "database", "username", "password"),
             },
         ),
         (

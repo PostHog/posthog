@@ -1697,6 +1697,7 @@ export const DetailedResultsAggregationTypeApi = {
 export type ChartDisplayTypeApi = (typeof ChartDisplayTypeApi)[keyof typeof ChartDisplayTypeApi]
 
 export const ChartDisplayTypeApi = {
+    Auto: 'Auto',
     ActionsLineGraph: 'ActionsLineGraph',
     ActionsBar: 'ActionsBar',
     ActionsUnstackedBar: 'ActionsUnstackedBar',
@@ -3502,6 +3503,11 @@ export interface EndpointRunRequestApi {
      * @nullable
      */
     limit?: number | null
+    /**
+     * Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints.
+     * @nullable
+     */
+    offset?: number | null
     refresh?: EndpointRefreshModeApi | null
     /**
    * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
