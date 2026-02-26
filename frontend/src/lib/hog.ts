@@ -6,6 +6,7 @@ import {
     ExecResult,
     HogQLPrinter,
     VMState,
+    ASTNode,
     exec as hogExec,
     execAsync as hogExecAsync,
 } from '@posthog/hogvm'
@@ -59,7 +60,10 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
                 const queryNode: HogQLQuery = setLatestVersionsOnQuery(
                     {
                         kind: NodeKind.HogQLQuery,
-                        query: typeof queryInput === 'object' ? new HogQLPrinter(false).print(queryInput) : queryInput,
+                        query:
+                            typeof queryInput === 'object'
+                                ? new HogQLPrinter(false).print(queryInput as ASTNode)
+                                : queryInput,
                     },
                     { recursion: false }
                 )
