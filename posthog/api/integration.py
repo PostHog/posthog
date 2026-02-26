@@ -201,11 +201,15 @@ class IntegrationSerializer(serializers.ModelSerializer):
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
 
-            # Custom handling for Stripe to write secrets to Stripe after creation
-            # to guarantee Stripe has access to our secrets too
+            # Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App
+            # can authenticate with PostHog APIs. Non-fatal: the integration is still
+            # usable for data imports even if the secret write fails.
             if validated_data["kind"] == "stripe":
-                stripe_integration = StripeIntegration(instance)
-                stripe_integration.write_posthog_secrets(request.user)
+                try:
+                    stripe_integration = StripeIntegration(instance)
+                    stripe_integration.write_posthog_secrets(request.user)
+                except Exception as e:
+                    capture_exception(e, {"integration_id": instance.id})
 
             return instance
 
