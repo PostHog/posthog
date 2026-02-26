@@ -15789,6 +15789,7 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
+                "visual_review",
                 "settings",
                 "health",
                 "inbox",
@@ -21506,6 +21507,7 @@
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
                 },
+                "result": {},
                 "type": {
                     "const": "insight",
                     "type": "string"

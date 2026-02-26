@@ -1858,6 +1858,7 @@ class FileSystemIconType(StrEnum):
     FOLDER_OPEN = "folder_open"
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
+    VISUAL_REVIEW = "visual_review"
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
@@ -18978,6 +18979,7 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
     ) = Field(..., discriminator="kind")
+    result: Any | None = None
     type: Literal["insight"] = "insight"
     variablesOverride: dict[str, HogQLVariable] | None = None
 

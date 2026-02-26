@@ -2918,6 +2918,7 @@ export type FileSystemIconType =
     | 'folder_open'
     | 'conversations'
     | 'toolbar'
+    | 'visual_review'
     | 'settings'
     | 'health'
     | 'inbox'

@@ -130,7 +130,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 snapshots: approvableSnapshots.map(
                     (s): ApproveSnapshotInputApi => ({
                         identifier: s.identifier,
-                        new_hash: s.current_artifact.content_hash,
+                        new_hash: s.current_artifact!.content_hash,
                     })
                 ),
             }

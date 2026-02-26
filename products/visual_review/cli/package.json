@@ -2,10 +2,10 @@
     "name": "@posthog/visual-review-cli",
     "version": "0.0.1",
     "private": true,
-    "type": "module",
     "bin": {
         "vr": "./dist/cli/src/index.js"
     },
+    "type": "module",
     "scripts": {
         "build": "tsc",
         "dev": "tsx src/index.ts"
