@@ -41,7 +41,9 @@ impl RayonDispatcher {
     /// 1. Acquires a semaphore permit (suspends if the pool is saturated).
     /// 2. Sends the closure to Rayon via `rayon::spawn`.
     /// 3. Returns the result through a `tokio::sync::oneshot` channel.
-    /// 4. Releases the permit **after** the Rayon work completes.
+    /// 4. Releases the permit **before** signalling completion, so that
+    ///    `handle.await` is a reliable synchronisation point for permit
+    ///    availability.
     ///
     /// Returns `None` if the Rayon task panicked (dropped the oneshot sender).
     pub async fn spawn<F, R>(&self, work: F) -> Option<R>
@@ -85,11 +87,16 @@ impl RayonDispatcher {
 
             INFLIGHT_TASKS.fetch_sub(1, Ordering::Relaxed);
 
+            // Release the permit BEFORE sending the result so that
+            // `rx.await` is a reliable synchronisation point for permit
+            // availability (avoids a race where the caller observes the
+            // result but the semaphore hasn't been incremented yet).
+            drop(permit);
+
             if let Ok(value) = result {
                 drop(tx.send(value));
             }
             // On panic: tx is dropped without sending → rx yields None via .ok()
-            drop(permit);
         });
 
         rx.await.ok()
