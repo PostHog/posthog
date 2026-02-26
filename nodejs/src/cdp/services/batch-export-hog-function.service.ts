@@ -1,11 +1,14 @@
+import { DateTime } from 'luxon'
+
 import { TeamManager } from '~/utils/team-manager'
 
 import { RawClickHouseEvent, Team } from '../../types'
+import { parseJSON } from '../../utils/json-parse'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { UUID, UUIDT } from '../../utils/utils'
+import { UUID, UUIDT, clickHouseTimestampToISO } from '../../utils/utils'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { convertToHogFunctionInvocationGlobals } from '../utils'
+import { getPersonDisplayName } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
 import { HogExecutorService } from './hog-executor.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
@@ -62,22 +65,28 @@ export class BatchExportHogFunctionService {
             throw new NotFoundError('Missing team with id: ' + params.team_id)
         }
 
-        let globals: HogFunctionInvocationGlobals
-        try {
-            globals = convertToHogFunctionInvocationGlobals(body.clickhouse_event as RawClickHouseEvent, team, siteUrl)
-        } catch (e) {
-            throw new ParseError('Invalid event')
-        }
-        if (!globals.event) {
-            throw new ParseError('Empty event')
-        }
-
         const hogFunction = await this.hogFunctionManager.getHogFunction(params.hog_function_id)
         if (!hogFunction) {
             throw new NotFoundError('Missing hog function with id: ' + params.hog_function_id)
         }
         if (hogFunction.team_id !== team.id || hogFunction.batch_export_id !== params.batch_export_id) {
             throw new NotFoundError('Missing hog function with id: ' + params.hog_function_id)
+        }
+
+        let globals: HogFunctionInvocationGlobals
+        try {
+            globals = this.buildRequestGlobals(
+                body.clickhouse_event as RawClickHouseEvent,
+                hogFunction,
+                params.batch_export_id,
+                team,
+                siteUrl
+            )
+        } catch (e) {
+            throw new ParseError('Invalid event')
+        }
+        if (!globals.event) {
+            throw new ParseError('Empty event')
         }
 
         return {
@@ -87,6 +96,67 @@ export class BatchExportHogFunctionService {
             invocationId,
             team,
         }
+    }
+
+    private buildRequestGlobals(
+        event: RawClickHouseEvent,
+        hogFunction: HogFunctionType,
+        batchExportId: string,
+        team: Team,
+        siteUrl: string
+    ) {
+        const properties = event.properties ? parseJSON(event.properties) : {}
+        const projectUrl = `${siteUrl}/project/${team.id}`
+
+        let person: HogFunctionInvocationGlobals['person']
+
+        if (event.person_id) {
+            const personProperties = event.person_properties ? parseJSON(event.person_properties) : {}
+            const personDisplayName = getPersonDisplayName(team, event.distinct_id, personProperties)
+
+            person = {
+                id: event.person_id,
+                properties: personProperties,
+                name: personDisplayName,
+                url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
+            }
+        }
+        const eventTimestamp = DateTime.fromISO(event.timestamp).isValid
+            ? event.timestamp
+            : clickHouseTimestampToISO(event.timestamp)
+
+        const eventCapturedAt = event.captured_at
+            ? DateTime.fromISO(event.captured_at).isValid
+                ? event.captured_at
+                : clickHouseTimestampToISO(event.captured_at)
+            : null
+
+        const context: HogFunctionInvocationGlobals = {
+            project: {
+                id: team.id,
+                name: team.name,
+                url: projectUrl,
+            },
+            source: {
+                name: `Batch export: ${batchExportId}`,
+                url: `${projectUrl}/batch_exports/${batchExportId}/hog_functions/${hogFunction.id}`,
+            },
+            event: {
+                uuid: event.uuid,
+                event: event.event!,
+                elements_chain: event.elements_chain,
+                distinct_id: event.distinct_id,
+                properties,
+                timestamp: eventTimestamp,
+                captured_at: eventCapturedAt,
+                url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
+            },
+            // TODO: Should this be set or not?
+            groups: {},
+            person,
+        }
+
+        return context
     }
 
     /**
