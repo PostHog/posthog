@@ -566,8 +566,11 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
             let baseline_cache_miss =
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
-            let baseline_cache_stale =
-                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
+            let baseline_cache_sync_queued = get_counter_value(
+                "global_rate_limiter_cache_counts_total",
+                "result",
+                "sync_queued",
+            );
             let baseline_eval_allowed =
                 get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
             let baseline_eval_limited =
@@ -625,9 +628,11 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
             let cache_miss =
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
                     - baseline_cache_miss;
-            let cache_stale =
-                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
-                    - baseline_cache_stale;
+            let cache_sync_queued = get_counter_value(
+                "global_rate_limiter_cache_counts_total",
+                "result",
+                "sync_queued",
+            ) - baseline_cache_sync_queued;
             let eval_allowed =
                 get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
                     - baseline_eval_allowed;
@@ -640,20 +645,20 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 "fail_open",
             ) - baseline_eval_fail_open;
 
-            let total_cache = cache_hit + cache_miss + cache_stale;
+            let total_cache = cache_hit + cache_miss + cache_sync_queued;
             let total_eval = eval_allowed + eval_limited + eval_fail_open;
 
             if total_cache > 0 || total_eval > 0 {
                 eprintln!("\n=== {scenario_name} Results ===");
                 if total_cache > 0 {
                     eprintln!(
-                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) stale={} ({:.1}%)",
+                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) sync_queued={} ({:.1}%)",
                         cache_hit,
                         cache_hit as f64 / total_cache as f64 * 100.0,
                         cache_miss,
                         cache_miss as f64 / total_cache as f64 * 100.0,
-                        cache_stale,
-                        cache_stale as f64 / total_cache as f64 * 100.0
+                        cache_sync_queued,
+                        cache_sync_queued as f64 / total_cache as f64 * 100.0
                     );
                 }
                 if total_eval > 0 {
@@ -702,8 +707,11 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
             let baseline_cache_miss =
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
-            let baseline_cache_stale =
-                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
+            let baseline_cache_sync_queued = get_counter_value(
+                "global_rate_limiter_cache_counts_total",
+                "result",
+                "sync_queued",
+            );
             let baseline_eval_allowed =
                 get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
             let baseline_eval_limited =
@@ -750,9 +758,11 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
             let cache_miss =
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
                     - baseline_cache_miss;
-            let cache_stale =
-                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
-                    - baseline_cache_stale;
+            let cache_sync_queued = get_counter_value(
+                "global_rate_limiter_cache_counts_total",
+                "result",
+                "sync_queued",
+            ) - baseline_cache_sync_queued;
             let eval_allowed =
                 get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
                     - baseline_eval_allowed;
@@ -765,20 +775,20 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 "fail_open",
             ) - baseline_eval_fail_open;
 
-            let total_cache = cache_hit + cache_miss + cache_stale;
+            let total_cache = cache_hit + cache_miss + cache_sync_queued;
             let total_eval = eval_allowed + eval_limited + eval_fail_open;
 
             if total_cache > 0 || total_eval > 0 {
                 eprintln!("\n=== {scenario_name} Results ===");
                 if total_cache > 0 {
                     eprintln!(
-                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) stale={} ({:.1}%)",
+                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) sync_queued={} ({:.1}%)",
                         cache_hit,
                         cache_hit as f64 / total_cache as f64 * 100.0,
                         cache_miss,
                         cache_miss as f64 / total_cache as f64 * 100.0,
-                        cache_stale,
-                        cache_stale as f64 / total_cache as f64 * 100.0
+                        cache_sync_queued,
+                        cache_sync_queued as f64 / total_cache as f64 * 100.0
                     );
                 }
                 if total_eval > 0 {
