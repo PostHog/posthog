@@ -349,6 +349,24 @@ export const conversationsTicketsDestroy = async (
     })
 }
 
+export const getConversationsTicketsSuggestReplyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/suggest_reply/`
+}
+
+export const conversationsTicketsSuggestReplyCreate = async (
+    projectId: string,
+    id: string,
+    ticketApi: NonReadonly<TicketApi>,
+    options?: RequestInit
+): Promise<TicketApi> => {
+    return apiMutator<TicketApi>(getConversationsTicketsSuggestReplyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketApi),
+    })
+}
+
 /**
  * Get total unread ticket count for the team.
 
