@@ -257,8 +257,16 @@ def test_snowflake_config():
     assert config.auth_type.passphrase == ""
 
 
-def test_stripe_config():
+def test_stripe_config_oauth():
+    config = StripeSourceConfig.from_dict({"stripe_integration_id": "42"})
+    assert config.stripe_integration_id == 42
+    assert config.stripe_secret_key == ""
+    assert config.stripe_account_id is None
+
+
+def test_stripe_config_api_key():
     config = StripeSourceConfig.from_dict({"stripe_account_id": "acct_id", "stripe_secret_key": "api_key"})
+    assert config.stripe_integration_id is None
     assert config.stripe_account_id == "acct_id"
     assert config.stripe_secret_key == "api_key"
 

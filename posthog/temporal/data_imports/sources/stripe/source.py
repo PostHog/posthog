@@ -13,7 +13,6 @@ from posthog.schema import (
 
 from posthog.models.integration import OauthIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common import config
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource, WebhookSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -60,12 +59,6 @@ PERMISSIONS = [
     "rak_payment_method_read",
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
-
-
-@config.config
-class StripeSourceOldConfig(config.Config):
-    stripe_secret_key: str
-    stripe_account_id: str | None = None
 
 
 @SourceRegistry.register
@@ -156,16 +149,9 @@ These permissions are automatically pre-filled in the API key creation form if y
             "PermissionError": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
         }
 
-    def parse_config(self, job_inputs: dict) -> StripeSourceConfig | StripeSourceOldConfig:
-        if "stripe_integration_id" in job_inputs:
-            return self._config_class.from_dict(job_inputs)
-        return StripeSourceOldConfig.from_dict(job_inputs)
-
-    def _get_api_key(
-        self, source_config: StripeSourceConfig | StripeSourceOldConfig, team_id: int
-    ) -> tuple[str, str | None]:
+    def _get_api_key(self, source_config: StripeSourceConfig, team_id: int) -> tuple[str, str | None]:
         """Returns (api_key, account_id) tuple."""
-        if isinstance(source_config, StripeSourceOldConfig):
+        if not source_config.stripe_integration_id:
             return source_config.stripe_secret_key, source_config.stripe_account_id
 
         integration = self.get_oauth_integration(source_config.stripe_integration_id, team_id)
@@ -176,9 +162,7 @@ These permissions are automatically pre-filled in the API key creation form if y
             raise ValueError("Stripe access token not found")
         return integration.access_token, integration.integration_id
 
-    def get_schemas(
-        self, config: StripeSourceConfig | StripeSourceOldConfig, team_id: int, with_counts: bool = False
-    ) -> list[SourceSchema]:
+    def get_schemas(self, config: StripeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -191,7 +175,7 @@ These permissions are automatically pre-filled in the API key creation form if y
         ]
 
     def validate_credentials(
-        self, config: StripeSourceConfig | StripeSourceOldConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: StripeSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         try:
             api_key, _ = self._get_api_key(config, team_id)
@@ -210,7 +194,7 @@ These permissions are automatically pre-filled in the API key creation form if y
 
     def source_for_pipeline(
         self,
-        config: StripeSourceConfig | StripeSourceOldConfig,
+        config: StripeSourceConfig,
         resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
