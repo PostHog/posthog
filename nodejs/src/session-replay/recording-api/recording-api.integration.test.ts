@@ -44,13 +44,14 @@ import snappy from 'snappy'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { PostgresRouter } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '../shared/crypto'
 import { DynamoDBKeyStore, MemoryKeyStore } from '../shared/keystore'
 import { MemoryCachedKeyStore } from '../shared/keystore/cache'
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
-import { KeyStore, RecordingApiHub, SessionKey, SessionKeyDeletedError } from './types'
+import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from './types'
 
 // Localstack configuration
 const LOCALSTACK_ENDPOINT = 'http://localhost:4566'
@@ -774,7 +775,7 @@ describe('Recording API encryption integration', () => {
                 decryptor
             )
 
-            const recordingApi = new RecordingApi({} as RecordingApiHub)
+            const recordingApi = new RecordingApi({} as RecordingApiConfig, {} as PostgresRouter)
             await recordingApi.start(recordingService)
 
             app = express()

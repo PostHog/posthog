@@ -47,8 +47,12 @@ import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
 
-/** Narrowed Hub type for SessionRecordingIngester */
-export type SessionRecordingIngesterHub = SessionRecordingConfig &
+/**
+ * Configuration for SessionRecordingIngester.
+ * All service instances (postgres, kafka producers) are passed as explicit constructor params.
+ * This type covers SessionRecordingConfig plus infra config needed for Redis pools and encryption.
+ */
+export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     Pick<
         PluginsServerConfig,
         // For KafkaProducerWrapper.create
@@ -99,16 +103,16 @@ export class SessionRecordingIngester {
     private readonly encryptor: RecordingEncryptor
 
     constructor(
-        private hub: SessionRecordingIngesterHub,
+        private config: SessionRecordingIngesterConfig,
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         kafkaMetadataProducer: KafkaProducerWrapper,
         kafkaMessageProducer: KafkaProducerWrapper
     ) {
-        this.topic = hub.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic = hub.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC
-        this.consumerGroupId = hub.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID
-        this.isDebugLoggingEnabled = buildIntegerMatcher(hub.SESSION_RECORDING_DEBUG_PARTITION, true)
+        this.topic = config.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
+        this.overflowTopic = config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC
+        this.consumerGroupId = config.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID
+        this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
         this.promiseScheduler = new PromiseScheduler()
 
@@ -125,21 +129,21 @@ export class SessionRecordingIngester {
 
         let s3Client: S3Client | null = null
         if (
-            hub.SESSION_RECORDING_V2_S3_ENDPOINT &&
-            hub.SESSION_RECORDING_V2_S3_REGION &&
-            hub.SESSION_RECORDING_V2_S3_BUCKET &&
-            hub.SESSION_RECORDING_V2_S3_PREFIX
+            config.SESSION_RECORDING_V2_S3_ENDPOINT &&
+            config.SESSION_RECORDING_V2_S3_REGION &&
+            config.SESSION_RECORDING_V2_S3_BUCKET &&
+            config.SESSION_RECORDING_V2_S3_PREFIX
         ) {
             const s3Config: S3ClientConfig = {
-                region: hub.SESSION_RECORDING_V2_S3_REGION,
-                endpoint: hub.SESSION_RECORDING_V2_S3_ENDPOINT,
+                region: config.SESSION_RECORDING_V2_S3_REGION,
+                endpoint: config.SESSION_RECORDING_V2_S3_ENDPOINT,
                 forcePathStyle: true,
             }
 
-            if (hub.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID && hub.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY) {
+            if (config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID && config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY) {
                 s3Config.credentials = {
-                    accessKeyId: hub.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
-                    secretAccessKey: hub.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
+                    accessKeyId: config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
+                    secretAccessKey: config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
                 }
             }
 
@@ -149,41 +153,41 @@ export class SessionRecordingIngester {
         this.topHog = new TopHog({
             kafkaProducer: kafkaMetadataProducer,
             topic: KAFKA_CLICKHOUSE_TOPHOG,
-            pipeline: hub.INGESTION_PIPELINE ?? 'unknown',
-            lane: hub.INGESTION_LANE ?? 'unknown',
+            pipeline: config.INGESTION_PIPELINE ?? 'unknown',
+            lane: config.INGESTION_LANE ?? 'unknown',
         })
 
         // Session recording uses its own Redis instance with fallback to default
         this.redisPool = createRedisPoolFromConfig({
-            connection: hub.POSTHOG_SESSION_RECORDING_REDIS_HOST
+            connection: config.POSTHOG_SESSION_RECORDING_REDIS_HOST
                 ? {
-                      url: hub.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-                      options: { port: hub.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
+                      url: config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
+                      options: { port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
                       name: 'session-recording-redis',
                   }
-                : { url: hub.REDIS_URL, name: 'session-recording-redis-fallback' },
-            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+                : { url: config.REDIS_URL, name: 'session-recording-redis-fallback' },
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
 
         // Restriction manager needs to read from the same Redis as Django writes to
         // This must match the ingestion redis fallback chain from hub.ts
         this.restrictionRedisPool = createRedisPoolFromConfig({
-            connection: hub.INGESTION_REDIS_HOST
+            connection: config.INGESTION_REDIS_HOST
                 ? {
-                      url: hub.INGESTION_REDIS_HOST,
-                      options: { port: hub.INGESTION_REDIS_PORT },
+                      url: config.INGESTION_REDIS_HOST,
+                      options: { port: config.INGESTION_REDIS_PORT },
                       name: 'ingestion-redis',
                   }
-                : hub.POSTHOG_REDIS_HOST
+                : config.POSTHOG_REDIS_HOST
                   ? {
-                        url: hub.POSTHOG_REDIS_HOST,
-                        options: { port: hub.POSTHOG_REDIS_PORT, password: hub.POSTHOG_REDIS_PASSWORD },
+                        url: config.POSTHOG_REDIS_HOST,
+                        options: { port: config.POSTHOG_REDIS_PORT, password: config.POSTHOG_REDIS_PASSWORD },
                         name: 'ingestion-redis',
                     }
-                  : { url: hub.REDIS_URL, name: 'ingestion-redis' },
-            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+                  : { url: config.REDIS_URL, name: 'ingestion-redis' },
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
 
         this.teamService = new TeamService(postgres)
@@ -197,50 +201,54 @@ export class SessionRecordingIngester {
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(
             this.kafkaMetadataProducer,
-            this.hub.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC
+            this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC
         )
         const consoleLogStore = new SessionConsoleLogStore(
             this.kafkaMetadataProducer,
-            this.hub.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
-            { messageLimit: this.hub.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
+            this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
+            { messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
         )
         this.fileStorage = s3Client
             ? new RetentionAwareStorage(
                   s3Client,
-                  this.hub.SESSION_RECORDING_V2_S3_BUCKET,
-                  this.hub.SESSION_RECORDING_V2_S3_PREFIX,
-                  this.hub.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
                   retentionService
               )
             : new BlackholeSessionBatchFileStorage()
 
         const sessionTracker = new SessionTracker(
             this.redisPool,
-            this.hub.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
+            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
         )
         const sessionFilter = new SessionFilter({
             redisPool: this.redisPool,
-            bucketCapacity: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
-            bucketReplenishRate: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
-            blockingEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
-            filterEnabled: this.hub.SESSION_RECORDING_SESSION_FILTER_ENABLED,
-            localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
+            bucketCapacity: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
+            bucketReplenishRate: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
+            blockingEnabled: this.config.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
+            filterEnabled: this.config.SESSION_RECORDING_SESSION_FILTER_ENABLED,
+            localCacheTtlMs: this.config.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
         })
 
-        const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        const region = config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
         const keyStore = getKeyStore(retentionService, region, {
-            kmsEndpoint: hub.SESSION_RECORDING_KMS_ENDPOINT,
-            dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+            kmsEndpoint: config.SESSION_RECORDING_KMS_ENDPOINT,
+            dynamoDBEndpoint: config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
         this.keyStore = new MemoryCachedKeyStore(keyStore)
         const encryptor = getBlockEncryptor(this.keyStore)
         const decryptor = getBlockDecryptor(this.keyStore)
-        this.encryptor = new VerifyingEncryptor(encryptor, decryptor, hub.SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE)
+        this.encryptor = new VerifyingEncryptor(
+            encryptor,
+            decryptor,
+            config.SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE
+        )
 
         this.sessionBatchManager = new SessionBatchManager({
-            maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
-            maxBatchAgeMs: this.hub.SESSION_RECORDING_MAX_BATCH_AGE_MS,
-            maxEventsPerSessionPerBatch: this.hub.SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH,
+            maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
+            maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
+            maxEventsPerSessionPerBatch: this.config.SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH,
             offsetManager,
             fileStorage: this.fileStorage,
             metadataStore,
@@ -256,7 +264,7 @@ export class SessionRecordingIngester {
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: !this.consumeOverflow,
             overflowTopic: this.overflowTopic,
-            dlqTopic: this.hub.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
+            dlqTopic: this.config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
             promiseScheduler: this.promiseScheduler,
             teamService: this.teamService,
             topHog: this.topHog,
@@ -384,9 +392,8 @@ export class SessionRecordingIngester {
 
         // Clean up resources owned by this ingester
         this.keyStore.stop()
-        // Note: kafkaMetadataProducer may be shared (e.g., hub.kafkaProducer in production),
-        // so callers are responsible for disconnecting it. We only disconnect kafkaMessageProducer
-        // which we always own.
+        // Note: kafkaMetadataProducer may be shared (e.g., config.kafkaProducer in production),
+        // so callers are responsible for disconnecting it if they created it
         await this.kafkaMessageProducer.disconnect()
         await this.redisPool.drain()
         await this.redisPool.clear()

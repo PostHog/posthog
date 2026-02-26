@@ -70,6 +70,8 @@ product_analytics_agent = AgentModeDefinition(
 class ReadOnlyProductAnalyticsAgentToolkit(AgentToolkit):
     """Product analytics toolkit for readonly operations — excludes UpsertDashboardTool (dangerous operation)."""
 
+    POSITIVE_TODO_EXAMPLES = POSITIVE_TODO_EXAMPLES
+
     @property
     def tools(self) -> list[type["MaxTool"]]:
         return [CreateInsightTool]
