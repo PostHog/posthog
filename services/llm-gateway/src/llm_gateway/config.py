@@ -17,6 +17,13 @@ class UserCostLimit(BaseModel):
     sustained_window_seconds: int
 
 
+DEFAULT_USER_COST_LIMIT = UserCostLimit(
+    burst_limit_usd=100.0,
+    burst_window_seconds=86400,
+    sustained_limit_usd=1000.0,
+    sustained_window_seconds=2592000,
+)
+
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
