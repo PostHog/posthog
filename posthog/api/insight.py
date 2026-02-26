@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -1088,6 +1089,65 @@ class InsightViewSet(
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=False)
+    def trending(self, request: request.Request, *args, **kwargs) -> Response:
+        """
+        Returns trending insights based on view count in the last 24 hours.
+        Defaults to returning top 10 insights.
+        """
+        try:
+            days = int(request.GET.get("days", "1"))
+            limit = min(int(request.GET.get("limit", "10")), 100)
+        except (ValueError, TypeError):
+            raise ValidationError("days and limit must be valid integers")
+
+        cutoff_date = now() - timedelta(days=days)
+
+        queryset = (
+            Insight.objects.filter(team__project_id=self.team.project_id)
+            .annotate(
+                view_count=Count(
+                    "insightviewed",
+                    filter=Q(insightviewed__last_viewed_at__gte=cutoff_date),
+                )
+            )
+            .filter(view_count__gt=0)
+            .order_by("-view_count", "-last_modified_at")
+        )
+
+        queryset = self._filter_queryset_by_access_level(queryset)
+        queryset = queryset[:limit]
+        queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
+
+        response = InsightBasicSerializer(queryset, many=True)
+        data = response.data
+
+        # Batch fetch all viewers to avoid N+1 queries
+        insight_ids = [item["id"] for item in data]
+        all_viewers = (
+            InsightViewed.objects.filter(
+                team=self.team,
+                insight_id__in=insight_ids,
+                last_viewed_at__gte=cutoff_date,
+                user__isnull=False,
+            )
+            .select_related("user")
+            .order_by("insight_id", "-last_viewed_at")
+        )
+
+        viewers_by_insight: dict[int, list] = {}
+        for viewer in all_viewers:
+            iid = viewer.insight_id
+            if iid not in viewers_by_insight:
+                viewers_by_insight[iid] = []
+            if len(viewers_by_insight[iid]) < 3:
+                viewers_by_insight[iid].append(viewer.user)
+
+        for item in data:
+            item["viewers"] = UserBasicSerializer(viewers_by_insight.get(item["id"], []), many=True).data
+
+        return Response(data=data, status=status.HTTP_200_OK)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()

@@ -147,12 +147,10 @@ export const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
         key: UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
         label: 'UTM Campaign Name',
         type: 'string',
-        optional: true,
     },
     {
         key: UTM_SOURCE_NAME_SCHEMA_FIELD,
         label: 'UTM Source Name',
         type: 'string',
-        optional: true,
     },
 ]
