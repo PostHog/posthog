@@ -194,24 +194,3 @@ python products/signals/grouping-iterations/data/prepare_test_set.py --input /tm
 
 # 3. Commit the updated fixture
 ```
-
-## File map
-
-```text
-products/signals/grouping-iterations/
-├── README.md                  # This file
-├── .gitignore                 # Ignores cache/, runs/, __pycache__/
-├── run.py                     # Main entry point
-├── harness.py                 # Core: EmbeddingCache, InMemorySignalStore, GroupingStrategy protocol
-├── current_strategy.py        # Production grouping logic (in-memory)
-├── group_aware_strategy.py    # Shows full report context to LLM (too conservative)
-├── verification_gate_strategy.py  # Current + verification gate for 2+ signal reports
-├── multilink_strategy.py      # Current + multi-link transitive verification
-├── pr_specificity_strategy.py # Current + PR-title specificity gate
-├── pr_specificity_and_group_aware.py  # PR-specificity v2 + group context + title feedback
-├── evaluate.py                # LLM-based evaluation
-├── data/
-│   ├── prepare_test_set.py    # Regeneration script (only needed to refresh fixture)
-│   └── test_signals.json      # Committed fixture — 42 curated signals
-└── runs/                      # Gitignored — run logs saved here automatically
-```
