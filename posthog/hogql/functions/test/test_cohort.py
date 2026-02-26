@@ -5,13 +5,10 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
-from parameterized import parameterized
-
 from posthog.schema import HogQLQueryModifiers, InlineCohortCalculation
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
-from posthog.hogql.functions.cohort import should_inline_based_on_durations
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
@@ -24,25 +21,6 @@ from posthog.models.utils import UUIDT
 
 elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
-
-
-class TestShouldInlineBasedOnDurations:
-    @parameterized.expand(
-        [
-            ("empty", [], False),
-            ("single_fast", [1.0], True),
-            ("single_slow", [15.0], False),
-            ("single_at_threshold", [10.0], False),
-            ("single_just_under", [9.9], True),
-            ("median_of_three_fast", [1.0, 2.0, 3.0], True),
-            ("median_of_three_slow", [1.0, 15.0, 20.0], False),
-            ("median_of_five_fast_majority", [1.0, 2.0, 3.0, 15.0, 20.0], True),
-            ("median_of_five_slow_majority", [1.0, 11.0, 12.0, 13.0, 14.0], False),
-            ("unsorted_input", [20.0, 1.0, 3.0], True),
-        ]
-    )
-    def test_should_inline(self, _name, durations, expected):
-        assert should_inline_based_on_durations(durations) == expected
 
 
 class TestCohort(BaseTest):
