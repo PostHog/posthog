@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest, _create_event, _create_person, flush_per
 
 from django.test import override_settings
 
-from posthog.schema import HogQLQueryModifiers, InCohortVia
+from posthog.schema import HogQLQueryModifiers, InCohortVia, InlineCohortCalculation
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -200,3 +200,86 @@ class TestInCohort(BaseTest):
                 pretty=False,
             )
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
+
+
+class TestInlineCohortLeftjoin(BaseTest):
+    """Tests for inlineCohortCalculation modifier via the leftjoin path."""
+
+    def _setup_cohort_with_new_person_after_calculation(self):
+        """Create a cohort, calculate it, then add a new person who matches but isn't in cohortpeople."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        distinct_id1 = f"p1_{random_uuid}"
+        distinct_id2 = f"p2_{random_uuid}"
+        _create_person(
+            properties={"test_prop": random_uuid},
+            team=self.team,
+            distinct_ids=[distinct_id1],
+            is_identified=True,
+        )
+        _create_event(distinct_id=distinct_id1, event=random_uuid, team=self.team)
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "test_prop", "value": random_uuid, "type": "person"}]}],
+        )
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
+
+        _create_person(
+            properties={"test_prop": random_uuid},
+            team=self.team,
+            distinct_ids=[distinct_id2],
+            is_identified=True,
+        )
+        _create_event(distinct_id=distinct_id2, event=random_uuid, team=self.team)
+        flush_persons_and_events()
+
+        return cohort, random_uuid
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_inline_cohort_leftjoin_off_vs_always(self):
+        cohort, random_uuid = self._setup_cohort_with_new_person_after_calculation()
+        query = f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'"
+
+        off_response = execute_hogql_query(
+            query,
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                inCohortVia=InCohortVia.LEFTJOIN, inlineCohortCalculation=InlineCohortCalculation.OFF
+            ),
+            pretty=False,
+        )
+        self.assertEqual(len(off_response.results or []), 1)
+
+        always_response = execute_hogql_query(
+            query,
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                inCohortVia=InCohortVia.LEFTJOIN, inlineCohortCalculation=InlineCohortCalculation.ALWAYS
+            ),
+            pretty=False,
+        )
+        self.assertEqual(len(always_response.results or []), 2)
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_inline_cohort_leftjoin_static_always_uses_cohortpeople(self):
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_person(
+            properties={"$os": "Chrome"},
+            team=self.team,
+            distinct_ids=["person1"],
+            is_identified=True,
+        )
+        _create_event(distinct_id="person1", event=random_uuid, team=self.team)
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+        response = execute_hogql_query(
+            f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'",
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                inCohortVia=InCohortVia.LEFTJOIN, inlineCohortCalculation=InlineCohortCalculation.ALWAYS
+            ),
+            pretty=False,
+        )
+        self.assertEqual(len(response.results or []), 0)

@@ -360,17 +360,35 @@ class InCohortResolver(TraversingVisitor):
                 break
 
         if must_add_join:
-            if is_static:
+            from posthog.hogql.functions.cohort import get_cohort_subquery_or_inline
+
+            inline_ast = get_cohort_subquery_or_inline(cohort_id, is_static, version, self.context)
+            if inline_ast is not None:
+                subquery = parse_select(
+                    "SELECT id as person_id, 1 as matched FROM {inline_query}",
+                    {"inline_query": inline_ast},
+                )
+            elif is_static:
                 sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+                subquery = parse_expr(
+                    sql,
+                    {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
+                    start=None,
+                )
             elif version is not None:
                 sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
+                subquery = parse_expr(
+                    sql,
+                    {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
+                    start=None,
+                )
             else:
                 sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
-            subquery = parse_expr(
-                sql,
-                {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
-                start=None,  # clear the source start position
-            )
+                subquery = parse_expr(
+                    sql,
+                    {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
+                    start=None,
+                )
 
             new_join = ast.JoinExpr(
                 alias=f"in_cohort__{cohort_id}",
@@ -390,6 +408,26 @@ class InCohortResolver(TraversingVisitor):
                 ast.JoinExpr,
                 resolve_types(new_join, self.context, self.dialect, [self.stack[-1].type]),
             )
+            # The inline query AST may contain lazy table references (e.g., persons)
+            # that need resolving. resolve_in_cohorts runs after resolve_lazy_tables
+            # in the pipeline, so we resolve lazy tables on the new join here.
+            if inline_ast is not None:
+                from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+                from posthog.hogql.transforms.property_types import PropertySwapper
+
+                resolve_lazy_tables(new_join, self.dialect, [self.stack[-1]], self.context)
+                if self.context.property_swapper:
+                    new_join = cast(
+                        ast.JoinExpr,
+                        PropertySwapper(
+                            timezone=self.context.property_swapper.timezone,
+                            group_properties={},
+                            person_properties=self.context.property_swapper.person_properties,
+                            event_properties=self.context.property_swapper.event_properties,
+                            context=self.context,
+                            setTimeZones=self.context.modifiers.convertToProjectTimezone is not False,
+                        ).visit(new_join),
+                    )
             new_join.constraint.expr.left = resolve_types(
                 ast.Field(chain=[f"in_cohort__{cohort_id}", "person_id"]),
                 self.context,

@@ -1,10 +1,87 @@
 from typing import Optional
 
+from posthog.schema import InlineCohortCalculation
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr
+
+
+def get_cohort_subquery_or_inline(
+    cohort_id: int,
+    is_static: bool,
+    version: Optional[int],
+    context: HogQLContext,
+) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
+    if is_static:
+        return None
+
+    mode = context.modifiers.inlineCohortCalculation
+    if mode == InlineCohortCalculation.OFF:
+        return None
+
+    if mode is None or mode == InlineCohortCalculation.AUTO:
+        import posthoganalytics
+
+        from posthog.models import Team
+
+        team = context.team or Team.objects.get(id=context.team_id)
+        flag_enabled = posthoganalytics.feature_enabled(
+            "inline-cohort-calculation",
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        if not flag_enabled:
+            return None
+
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+
+        # Check the most recent completed calculation (successful or not)
+        newest_calc = (
+            CohortCalculationHistory.objects.filter(
+                cohort_id=cohort_id,
+                finished_at__isnull=False,
+            )
+            .order_by("-started_at")
+            .first()
+        )
+        if newest_calc is None:
+            return None
+        # If the newest calculation failed, don't inline — the cohort query
+        # is likely to fail too.
+        # TODO: surface a warning to the user that their cohort calculation is failing
+        if newest_calc.error is not None:
+            return None
+        duration = newest_calc.duration_seconds
+        if duration is None or duration >= 10:
+            return None
+
+    from posthog.models import Cohort
+
+    cohort = Cohort.objects.get(id=cohort_id)
+    if not cohort.properties.flat:
+        return None
+
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+    team = context.team
+    if team is None:
+        from posthog.models import Team
+
+        team = Team.objects.get(id=context.team_id)
+
+    return HogQLCohortQuery(cohort=cohort, team=team).get_query()
 
 
 def cohort_subquery(cohort_id, is_static, version: Optional[int] = None) -> ast.Expr:
@@ -41,6 +118,9 @@ def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.E
                 message=f"Cohort #{cohorts1[0][0]} can also be specified as {escape_clickhouse_string(cohorts1[0][3])}",
                 fix=escape_clickhouse_string(cohorts1[0][3]),
             )
+            inline_ast = get_cohort_subquery_or_inline(cohorts1[0][0], cohorts1[0][1], cohorts1[0][2], context)
+            if inline_ast is not None:
+                return inline_ast
             return cohort_subquery(cohorts1[0][0], cohorts1[0][1], cohorts1[0][2])
         raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
@@ -55,6 +135,9 @@ def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.E
                 message=f"Searching for cohort by name. Replace with numeric ID {cohorts2[0][0]} to protect against renaming.",
                 fix=str(cohorts2[0][0]),
             )
+            inline_ast = get_cohort_subquery_or_inline(cohorts2[0][0], cohorts2[0][1], cohorts2[0][2], context)
+            if inline_ast is not None:
+                return inline_ast
             return cohort_subquery(cohorts2[0][0], cohorts2[0][1], cohorts2[0][2])
         elif len(cohorts2) > 1:
             raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
