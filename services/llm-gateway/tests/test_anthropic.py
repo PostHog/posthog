@@ -55,7 +55,7 @@ class TestExtractPosthogPropertiesFromHeaders:
             ("Content-Type", "application/json"),
         ]
         result = extract_posthog_properties_from_headers(request)
-        assert result == {"posthog-property-variant": "memes", "posthog-property-foo": "bar"}
+        assert result == {"variant": "memes", "foo": "bar"}
 
     def test_extract_case_insensitive(self) -> None:
         request = MagicMock()
@@ -64,7 +64,7 @@ class TestExtractPosthogPropertiesFromHeaders:
             ("x-posthog-property-key", "value"),
         ]
         result = extract_posthog_properties_from_headers(request)
-        assert result == {"posthog-property-key": "value"}
+        assert result == {"key": "value"}
 
     def test_extract_ignores_non_matching_headers(self) -> None:
         request = MagicMock()
