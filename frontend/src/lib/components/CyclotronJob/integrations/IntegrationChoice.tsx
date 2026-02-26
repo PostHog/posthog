@@ -42,7 +42,7 @@ export function IntegrationChoice({
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
 
     useEffect(() => {
-        if (!integrationsLoading && !value && integrationsOfKind?.length === 1) {
+        if (!integrationsLoading && !value && integrationsOfKind?.length) {
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading])
