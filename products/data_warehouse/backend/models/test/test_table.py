@@ -1,13 +1,52 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestTable(BaseTest):
+    @parameterized.expand(
+        [
+            ("with_joining_underscore", "_postgres_", "_postgres_posthog_dashboard", "posthog_dashboard"),
+            ("with_source_type_segment", "ph3", "ph3_postgres_posthog_dashboard", "posthog_dashboard"),
+            ("without_joining_underscore", "postgres", "postgres_posthog_dashboard", "_posthog_dashboard"),
+        ]
+    )
+    def test_direct_postgres_table_name_normalization(
+        self, _name: str, prefix: str, table_name: str, expected_postgres_table_name: str
+    ):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=prefix,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        table = DataWarehouseTable.objects.create(
+            name=table_name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectPostgresTable)
+        assert definition.postgres_table_name == expected_postgres_table_name
+
     def test_get_columns(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         table = DataWarehouseTable.objects.create(

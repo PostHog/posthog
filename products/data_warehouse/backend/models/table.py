@@ -172,6 +172,19 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         except:
             return False
 
+    def _direct_postgres_table_name(self) -> str:
+        if self.external_data_source is None:
+            return self.table_name_without_prefix()
+
+        source_type = self.external_data_source.source_type.lower()
+        prefix = self.external_data_source.prefix or ""
+        table_prefix = f"{prefix}_{source_type}_" if prefix else f"{source_type}_"
+
+        if self.name.lower().startswith(table_prefix):
+            return self.name[len(table_prefix) :]
+
+        return self.table_name_without_prefix()
+
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
 
@@ -399,7 +412,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.access_method == self.external_data_source.AccessMethod.DIRECT
         ):
             postgres_schema = (self.external_data_source.job_inputs or {}).get("schema", "public")
-            postgres_table_name = self.table_name_without_prefix()
+            postgres_table_name = self._direct_postgres_table_name()
             return DirectPostgresTable(
                 name=self.name,
                 fields=fields,
