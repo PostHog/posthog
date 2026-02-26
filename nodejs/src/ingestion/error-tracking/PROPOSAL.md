@@ -78,37 +78,37 @@ From my attempt to understand everything that Cymbal currently does (with much h
 
 ### Reuse As-Is
 
-| Component | Location | Notes |
-|-----------|----------|-------|
-| Pipeline Framework | `src/ingestion/pipelines/` | Builders, batch handling, result types |
-| Parse Headers | `src/ingestion/event-preprocessing/parse-headers.ts` | Extract token, timestamps |
-| Apply Event Restrictions | `src/ingestion/event-preprocessing/apply-event-restrictions.ts` | Billing limits, drop/overflow |
-| Parse Kafka Message | `src/ingestion/event-preprocessing/parse-kafka-message.ts` | Raw capture format parsing |
-| Resolve Team | `src/ingestion/event-preprocessing/resolve-team.ts` | Team lookup with caching |
-| TeamService | `src/session-replay/shared/teams/team-service.ts` | Team lookup service |
-| Ingestion Warnings | `handleIngestionWarnings()` | Emit warnings to Kafka |
-| Result Handling | `handleResults()` | DLQ routing |
-| GeoIP Service | `src/cdp/services/geoip-service.ts` | MaxMind lookup |
-| GroupTypeManager | `src/worker/ingestion/group-type-manager.ts` | Group type resolution |
+| Component                | Location                                                        | Notes                                  |
+| ------------------------ | --------------------------------------------------------------- | -------------------------------------- |
+| Pipeline Framework       | `src/ingestion/pipelines/`                                      | Builders, batch handling, result types |
+| Parse Headers            | `src/ingestion/event-preprocessing/parse-headers.ts`            | Extract token, timestamps              |
+| Apply Event Restrictions | `src/ingestion/event-preprocessing/apply-event-restrictions.ts` | Billing limits, drop/overflow          |
+| Parse Kafka Message      | `src/ingestion/event-preprocessing/parse-kafka-message.ts`      | Raw capture format parsing             |
+| Resolve Team             | `src/ingestion/event-preprocessing/resolve-team.ts`             | Team lookup with caching               |
+| TeamService              | `src/session-replay/shared/teams/team-service.ts`               | Team lookup service                    |
+| Ingestion Warnings       | `handleIngestionWarnings()`                                     | Emit warnings to Kafka                 |
+| Result Handling          | `handleResults()`                                               | DLQ routing                            |
+| GeoIP Service            | `src/cdp/services/geoip-service.ts`                             | MaxMind lookup                         |
+| GroupTypeManager         | `src/worker/ingestion/group-type-manager.ts`                    | Group type resolution                  |
 
 ### New Steps (Wrap Existing Services)
 
-| Component | Description | Effort |
-|-----------|-------------|--------|
-| `createPersonPropertiesReadOnlyStep()` | Fetch person by distinct_id, attach to event. No updates/merges. | Small |
-| `createGeoIPEnrichmentStep()` | Wrap `GeoIPService` as pipeline step | Small |
-| `createGroupTypeMappingStep()` | Wrap `GroupTypeManager` as pipeline step | Small |
+| Component                              | Description                                                      | Effort |
+| -------------------------------------- | ---------------------------------------------------------------- | ------ |
+| `createPersonPropertiesReadOnlyStep()` | Fetch person by distinct_id, attach to event. No updates/merges. | Small  |
+| `createGeoIPEnrichmentStep()`          | Wrap `GeoIPService` as pipeline step                             | Small  |
+| `createGroupTypeMappingStep()`         | Wrap `GroupTypeManager` as pipeline step                         | Small  |
 
 Note: No filtering step needed - the `exceptions_ingestion` topic only contains `$exception` events (routed by capture service).
 
 ### New Components
 
-| Component | Description | Effort |
-|-----------|-------------|--------|
+| Component                        | Description                                           | Effort |
+| -------------------------------- | ----------------------------------------------------- | ------ |
 | `ErrorTrackingIngestionConsumer` | Kafka consumer (based on `IngestionConsumer` pattern) | Medium |
-| `createErrorTrackingPipeline()` | Wire up all steps using pipeline builders | Small |
-| `createCymbalProcessingStep()` | HTTP client calling Cymbal `/process` endpoint | Medium |
-| `CymbalClient` | HTTP client wrapper with retry/timeout handling | Small |
+| `createErrorTrackingPipeline()`  | Wire up all steps using pipeline builders             | Small  |
+| `createCymbalProcessingStep()`   | HTTP client calling Cymbal `/process` endpoint        | Medium |
+| `CymbalClient`                   | HTTP client wrapper with retry/timeout handling       | Small  |
 
 ## Pipeline Structure
 
@@ -117,32 +117,38 @@ This is what the pipeline will look like at a high level - it won't be exactly t
 ```typescript
 // Consumer reads from "exceptions_ingestion" topic (only contains $exception events)
 const pipeline = newBatchPipelineBuilder<ErrorTrackingPipelineInput, ErrorTrackingPipelineContext>()
-    .messageAware((b) => b
-        .sequentially((b) => b
-            // Parse and validate
-            .pipe(createParseHeadersStep())
-            .pipe(createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                overflowEnabled,
-                overflowTopic,
-            }))
-            .pipe(createParseKafkaMessageStep())
-            .pipe(createResolveTeamStep(teamService))
-        )
-        .teamAware((b) => b
-            .sequentially((b) => b
-                // Enrich
-                .pipe(createPersonPropertiesReadOnlyStep(personService))
-                .pipe(createGeoIPEnrichmentStep(geoipService))
-                .pipe(createGroupTypeMappingStep(groupTypeManager))
-            )
-            .gather()
-            // Call Cymbal for error-specific processing
-            .pipeBatch(createCymbalProcessingStep(cymbalClient))
-        )
-        .handleIngestionWarnings(ingestionWarningProducer)
-    )
-    .handleResults(pipelineConfig)
-    .build()
+  .messageAware((b) =>
+    b
+      .sequentially((b) =>
+        b
+          // Parse and validate
+          .pipe(createParseHeadersStep())
+          .pipe(
+            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+              overflowEnabled,
+              overflowTopic,
+            })
+          )
+          .pipe(createParseKafkaMessageStep())
+          .pipe(createResolveTeamStep(teamService))
+      )
+      .teamAware((b) =>
+        b
+          .sequentially((b) =>
+            b
+              // Enrich
+              .pipe(createPersonPropertiesReadOnlyStep(personService))
+              .pipe(createGeoIPEnrichmentStep(geoipService))
+              .pipe(createGroupTypeMappingStep(groupTypeManager))
+          )
+          .gather()
+          // Call Cymbal for error-specific processing
+          .pipeBatch(createCymbalProcessingStep(cymbalClient))
+      )
+      .handleIngestionWarnings(ingestionWarningProducer)
+  )
+  .handleResults(pipelineConfig)
+  .build()
 ```
 
 ## Cymbal HTTP API Contract
