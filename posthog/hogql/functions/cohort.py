@@ -10,6 +10,17 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr
 
+INLINE_COHORT_DURATION_THRESHOLD = 10
+
+
+def should_inline_based_on_durations(
+    durations: list[float], threshold: float = INLINE_COHORT_DURATION_THRESHOLD
+) -> bool:
+    if not durations:
+        return False
+    sorted_durations = sorted(durations)
+    return sorted_durations[len(sorted_durations) // 2] < threshold
+
 
 def get_cohort_subquery_or_inline(
     cohort_id: int,
@@ -61,15 +72,12 @@ def get_cohort_subquery_or_inline(
         if recent_calcs[0][0] is not None:
             return None
 
-        durations = sorted(
+        durations = [
             (finished_at - started_at).total_seconds()
             for error, started_at, finished_at in recent_calcs
             if error is None
-        )
-        if not durations:
-            return None
-        median_duration = durations[len(durations) // 2]
-        if median_duration >= 10:
+        ]
+        if not should_inline_based_on_durations(durations):
             return None
 
     cohort = Cohort.objects.get(id=cohort_id)

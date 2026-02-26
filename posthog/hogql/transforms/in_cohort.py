@@ -352,6 +352,8 @@ class InCohortResolver(TraversingVisitor):
         from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
         from posthog.hogql.transforms.property_types import PropertySwapper
 
+        assert self.context is not None
+
         must_add_join = True
         last_join = select.select_from
         while last_join:
@@ -365,6 +367,7 @@ class InCohortResolver(TraversingVisitor):
 
         if must_add_join:
             inline_ast = get_cohort_subquery_or_inline(cohort_id, is_static, version, self.context)
+            subquery: ast.Expr
             if inline_ast is not None:
                 subquery = parse_select(
                     "SELECT id as person_id, 1 as matched FROM {inline_query}",
