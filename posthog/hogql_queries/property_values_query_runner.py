@@ -47,9 +47,6 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         return self._calculate_event()
 
     def _calculate_event(self) -> PropertyValuesQueryResponse:
-        import time
-
-        time.sleep(5)  # TEST DELAY: simulate slow query to test frontend polling
         result = execute_hogql_query(
             self._event_query(),
             team=self.team,
@@ -65,9 +62,6 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     def _calculate_person(self) -> PropertyValuesQueryResponse:
-        import time
-
-        time.sleep(5)  # TEST DELAY: simulate slow query to test frontend polling
         # Use the raw SQL person query — the HogQL persons virtual table does full argMax dedup
         # which is correct but much slower (30s vs 4s on large teams). The raw SQL approximates
         # dedup with uniq(id) - uniqIf(id, is_deleted != 0) and caps at 100k rows, which is
