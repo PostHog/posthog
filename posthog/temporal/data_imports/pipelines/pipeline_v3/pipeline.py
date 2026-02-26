@@ -219,6 +219,12 @@ class PipelineV3(Generic[ResumableData]):
                 "should_trigger_cdp_producer": await self._cdp_producer.should_produce_table(),
                 "consumer_manages_job_status": len(self._batch_results) > 0,
             }
+        except Exception:
+            try:
+                self._s3_batch_writer.cleanup()
+            except Exception:
+                self._logger.exception("V3 Pipeline: Failed to clean up S3 resources")
+            raise
         finally:
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
