@@ -12,7 +12,7 @@ import { NotificationSettings, TeamBasicType } from '~/types'
 
 type BooleanNotificationSettings = Omit<
     NotificationSettings,
-    'project_weekly_digest_disabled' | 'error_tracking_weekly_digest_project_disabled'
+    'project_weekly_digest_disabled' | 'error_tracking_weekly_digest_project_enabled'
 >
 
 const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
@@ -237,24 +237,19 @@ export function UpdateEmailPreferences(): JSX.Element {
 
                     {etDigestEnabled && (
                         <>
-                            {!user?.notification_settings.error_tracking_weekly_digest_project_disabled && (
+                            {!user?.notification_settings.error_tracking_weekly_digest_project_enabled && (
                                 <LemonBanner type="info">
-                                    You haven't configured project selection yet. On the first weekly digest run, we'll
-                                    automatically pick the project with the most exceptions and enable the digest just
-                                    for it. Feel free to choose your projects below.
+                                    You haven't selected any projects yet, so on the first digest run we'll
+                                    automatically pick the one with the most exceptions. If you'd prefer to choose
+                                    yourself, just select your projects below and we won't override your choice.
                                 </LemonBanner>
                             )}
                             <ProjectDigestSelector
                                 keyPrefix="et-digest"
                                 dataAttrPrefix="et_weekly_digest"
-                                isTeamDisabled={(teamId) => {
-                                    const projectSettings =
-                                        user?.notification_settings.error_tracking_weekly_digest_project_disabled
-                                    if (!projectSettings) {
-                                        return true
-                                    }
-                                    return !!projectSettings[teamId]
-                                }}
+                                isTeamDisabled={(teamId) =>
+                                    !user?.notification_settings.error_tracking_weekly_digest_project_enabled?.[teamId]
+                                }
                                 onToggleTeam={updateETWeeklyDigestForTeam}
                                 onToggleAllTeams={updateETWeeklyDigestForAllTeams}
                             />

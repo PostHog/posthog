@@ -311,13 +311,13 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         self.user.refresh_from_db()
 
         settings = self.user.notification_settings
-        project_disabled = settings.get("error_tracking_weekly_digest_project_disabled", {})
-        assert project_disabled[str(self.team.pk)] is True
-        assert project_disabled[str(team_b.pk)] is False
+        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
+        assert str(self.team.pk) not in project_enabled
+        assert project_enabled[str(team_b.pk)] is True
 
     def test_auto_select_project_skips_if_already_configured(self):
         self.user.partial_notification_settings = {
-            "error_tracking_weekly_digest_project_disabled": {str(self.team.pk): False},
+            "error_tracking_weekly_digest_project_enabled": {str(self.team.pk): True},
         }
         self.user.save()
 
@@ -329,13 +329,13 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         self.user.refresh_from_db()
 
         settings = self.user.notification_settings
-        assert settings["error_tracking_weekly_digest_project_disabled"] == {str(self.team.pk): False}
+        assert settings["error_tracking_weekly_digest_project_enabled"] == {str(self.team.pk): True}
 
     def test_auto_select_project_noop_when_no_exceptions(self):
         auto_select_project_for_user(self.user, self.organization.id, {})
         self.user.refresh_from_db()
 
-        assert "error_tracking_weekly_digest_project_disabled" not in (self.user.partial_notification_settings or {})
+        assert "error_tracking_weekly_digest_project_enabled" not in (self.user.partial_notification_settings or {})
 
 
 class TestComputeWeekOverWeekChange:

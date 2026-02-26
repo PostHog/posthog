@@ -50,7 +50,7 @@ def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[
     from posthog.models.user import User
 
     current_settings = user.partial_notification_settings or {}
-    if "error_tracking_weekly_digest_project_disabled" in current_settings:
+    if "error_tracking_weekly_digest_project_enabled" in current_settings:
         return
 
     if not team_exception_counts:
@@ -58,12 +58,7 @@ def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[
 
     busiest_team_id = max(team_exception_counts, key=lambda tid: team_exception_counts[tid]["exception_count"])
 
-    project_disabled: dict[str, bool] = {}
-    all_org_team_ids = list(Team.objects.filter(organization_id=org_id).values_list("id", flat=True))
-    for tid in all_org_team_ids:
-        project_disabled[str(tid)] = tid != busiest_team_id
-
-    current_settings["error_tracking_weekly_digest_project_disabled"] = project_disabled
+    current_settings["error_tracking_weekly_digest_project_enabled"] = {str(busiest_team_id): True}
     User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)
 
 

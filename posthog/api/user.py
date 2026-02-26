@@ -286,7 +286,7 @@ class UserSerializer(serializers.ModelSerializer):
 
             expected_type = Notifications.__annotations__[key]
 
-            if key in ("project_weekly_digest_disabled", "error_tracking_weekly_digest_project_disabled"):
+            if key in ("project_weekly_digest_disabled", "error_tracking_weekly_digest_project_enabled"):
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
                         f"{key} must be a dictionary mapping project IDs to boolean values",

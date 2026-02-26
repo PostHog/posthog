@@ -308,9 +308,9 @@ export const userLogic = kea<userLogicType>([
             actions.updateUser({
                 notification_settings: {
                     ...values.user.notification_settings,
-                    error_tracking_weekly_digest_project_disabled: {
-                        ...values.user.notification_settings.error_tracking_weekly_digest_project_disabled,
-                        [teamId]: !enabled,
+                    error_tracking_weekly_digest_project_enabled: {
+                        ...values.user.notification_settings.error_tracking_weekly_digest_project_enabled,
+                        [teamId]: enabled,
                     },
                 },
             })
@@ -321,16 +321,16 @@ export const userLogic = kea<userLogicType>([
             }
 
             const etProjectSettings = {
-                ...values.user.notification_settings.error_tracking_weekly_digest_project_disabled,
+                ...values.user.notification_settings.error_tracking_weekly_digest_project_enabled,
             }
             teamIds?.forEach((teamId) => {
-                etProjectSettings[teamId] = !enabled
+                etProjectSettings[teamId] = enabled
             })
 
             actions.updateUser({
                 notification_settings: {
                     ...values.user.notification_settings,
-                    error_tracking_weekly_digest_project_disabled: etProjectSettings,
+                    error_tracking_weekly_digest_project_enabled: etProjectSettings,
                 },
             })
         },

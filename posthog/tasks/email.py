@@ -154,9 +154,9 @@ def should_send_notification(
             return False
 
         if team_id is not None:
-            project_settings = settings.get("error_tracking_weekly_digest_project_disabled", None)
+            project_settings = settings.get("error_tracking_weekly_digest_project_enabled", None)
             if project_settings is not None:
-                return not project_settings.get(str(team_id), False)
+                return project_settings.get(str(team_id), False)
 
         return True
 
