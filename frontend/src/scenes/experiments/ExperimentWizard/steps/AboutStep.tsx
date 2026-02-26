@@ -6,7 +6,7 @@ import { LemonInput, Link } from '@posthog/lemon-ui'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { slugify } from 'lib/utils'
+import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 
 import { SelectExistingFeatureFlagModal } from '../../ExperimentForm/SelectExistingFeatureFlagModal'
 import { selectExistingFeatureFlagModalLogic } from '../../ExperimentForm/selectExistingFeatureFlagModalLogic'
@@ -53,8 +53,12 @@ export function AboutStep(): JSX.Element {
                     value={experiment.name}
                     onChange={(value) => {
                         setExperimentValue('name', value)
-                        if (!experiment.feature_flag_key || experiment.feature_flag_key === slugify(experiment.name)) {
-                            const newKey = slugify(value)
+                        if (
+                            !experiment.feature_flag_key ||
+                            experiment.feature_flag_key ===
+                                slugifyFeatureFlagKey(experiment.name, { fromTitleInput: true })
+                        ) {
+                            const newKey = slugifyFeatureFlagKey(value, { fromTitleInput: true })
                             setExperimentValue('feature_flag_key', newKey)
                             debouncedValidateFeatureFlagKey(newKey)
                         }
@@ -106,7 +110,7 @@ export function AboutStep(): JSX.Element {
                         placeholder="e.g., new-checkout-flow-test"
                         value={experiment.feature_flag_key ?? ''}
                         onChange={(value) => {
-                            const normalizedValue = slugify(value, { trimBothEnds: false })
+                            const normalizedValue = slugifyFeatureFlagKey(value)
                             setExperimentValue('feature_flag_key', normalizedValue)
                             debouncedValidateFeatureFlagKey(normalizedValue)
                         }}

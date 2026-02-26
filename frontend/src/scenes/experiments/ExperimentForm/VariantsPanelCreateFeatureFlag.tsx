@@ -476,12 +476,13 @@ export const VariantsPanelCreateFeatureFlag = ({
                     }
                 />
                 <div className="text-secondary text-sm pl-6 mt-2">
-                    This is only relevant if your feature flag is shown to both logged out AND logged in users.{' '}
+                    This is only relevant if your feature flag is shown to both logged out AND logged in users. Note
+                    that this feature is not compatible with all setups,{' '}
                     <Link
                         to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                         target="_blank"
                     >
-                        Learn more
+                        learn more
                     </Link>
                 </div>
             </div>
