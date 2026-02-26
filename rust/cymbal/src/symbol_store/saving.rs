@@ -309,7 +309,7 @@ impl SymbolSetRecord {
 
     // Set the last used timestamp. Called on successful symbol set lookups, and also
     // used by retention cleanup jobs to determine which symbol sets are still in use.
-    async fn set_last_used<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
+    pub(crate) async fn set_last_used<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
