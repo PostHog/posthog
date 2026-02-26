@@ -182,4 +182,15 @@ TrendsBarBreakdownEdit.parameters = {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',
     },
 }
+export const TrendsLineMultiEditViewports: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
+    'edit'
+)
+TrendsLineMultiEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+
 /* eslint-enable @typescript-eslint/no-var-requires */

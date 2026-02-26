@@ -8,6 +8,14 @@ import type { Mocks } from '~/mocks/utils'
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
+const VIEWPORT_WIDTHS = {
+    narrow: { width: 568, height: 720 },
+    medium: { width: 960, height: 720 },
+    wide: { width: 1300, height: 720 },
+    superwide: { width: 1920, height: 720 },
+} as const
+type ViewportWidthName = keyof typeof VIEWPORT_WIDTHS
+
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
 type SnapshotTheme = 'light' | 'dark'
@@ -48,6 +56,8 @@ declare module '@storybook/types' {
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
+            /** take snapshots at multiple preset widths, producing one snapshot per width */
+            viewportWidths?: ViewportWidthName[]
             /**
              * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
              * Also skips waiting for networkidle, which is useful for stories with background network activity.
@@ -97,14 +107,20 @@ module.exports = {
 
     async preVisit(page, context) {
         const storyContext = await getStoryContext(page, context)
-        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
-        await page.setViewportSize(viewport)
+        const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
+        const effectiveViewport = viewportWidths?.length
+            ? VIEWPORT_WIDTHS[viewportWidths[0]]
+            : viewport || DEFAULT_VIEWPORT
+        await page.setViewportSize(effectiveViewport)
     },
 
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         const storyContext = await getStoryContext(page, context)
-        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
+        const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
+        const effectiveViewport = viewportWidths?.length
+            ? VIEWPORT_WIDTHS[viewportWidths[0]]
+            : viewport || DEFAULT_VIEWPORT
 
         await page.evaluate(
             // eslint-disable-next-line no-console
@@ -116,7 +132,7 @@ module.exports = {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
             await page.setViewportSize({ width: 1920, height: 1080 })
-            await page.setViewportSize(viewport)
+            await page.setViewportSize(effectiveViewport)
         }
 
         const browserContext = page.context()
@@ -125,7 +141,21 @@ module.exports = {
         browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
         const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
         if (snapshotBrowsers.includes(currentBrowser)) {
-            await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
+            if (viewportWidths?.length) {
+                for (const widthName of viewportWidths) {
+                    await page.setViewportSize(VIEWPORT_WIDTHS[widthName])
+                    await page.evaluate(() => {
+                        void document.body.offsetHeight
+                        window.dispatchEvent(new Event('resize'))
+                    })
+                    await page.waitForTimeout(300)
+
+                    const contextForWidth = { ...context, id: `${context.id}--${widthName}` }
+                    await expectStoryToMatchSnapshot(page, contextForWidth, storyContext, currentBrowser)
+                }
+            } else {
+                await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
+            }
         }
     },
     tags: {

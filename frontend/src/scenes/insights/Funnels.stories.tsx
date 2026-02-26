@@ -88,18 +88,14 @@ export const FunnelTopToBottomBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
 )
 FunnelTopToBottomBreakdown.parameters = {
-    testOptions: {
-        testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
-    },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
 }
 export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
     'edit'
 )
 FunnelTopToBottomBreakdownEdit.parameters = {
-    testOptions: {
-        testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
-    },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
 }
 export const FunnelHistoricalTrends: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
@@ -147,37 +143,14 @@ FunnelWithInlineEventsEdit.play = async ({ canvasElement }) => {
     await userEvent.click(expandFiltersButton)
 }
 
-// Viewport variants to verify the gap between filters and visualization stays consistent
-export const FunnelLeftToRightEditNarrow: Story = createInsightStory(
+export const FunnelLeftToRightEditViewports: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
     'edit'
 )
-FunnelLeftToRightEditNarrow.parameters = {
+FunnelLeftToRightEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
-        viewport: { width: 960, height: 720 },
-    },
-}
-
-export const FunnelLeftToRightEditMedium: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-    'edit'
-)
-FunnelLeftToRightEditMedium.parameters = {
-    testOptions: {
-        waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
-        viewport: { width: 1300, height: 720 },
-    },
-}
-
-export const FunnelLeftToRightEditWide: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-    'edit'
-)
-FunnelLeftToRightEditWide.parameters = {
-    testOptions: {
-        waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
-        viewport: { width: 1920, height: 720 },
+        viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }
 
