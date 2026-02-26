@@ -36,6 +36,7 @@ import {
 } from './config/kafka-topics'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
+import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking-consumer'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
@@ -446,6 +447,14 @@ export class PluginServer {
                         teamManager,
                         quotaLimiting: cdpLogsServices!.quotaLimiting,
                     })
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.errorTrackingIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new ErrorTrackingConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })

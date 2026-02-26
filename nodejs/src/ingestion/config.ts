@@ -101,3 +101,10 @@ export type IngestionConsumerConfig = {
     INGESTION_PIPELINE: string | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null
 }
+
+export type ErrorTrackingConsumerConfig = {
+    ERROR_TRACKING_CONSUMER_GROUP_ID: string
+    ERROR_TRACKING_CONSUMER_CONSUME_TOPIC: string
+    ERROR_TRACKING_CONSUMER_DLQ_TOPIC: string
+    ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC: string
+}

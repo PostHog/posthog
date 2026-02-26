@@ -41,6 +41,7 @@ export {
     stringToPluginServerMode,
 } from './common/config'
 export {
+    ErrorTrackingConsumerConfig,
     IngestionConsumerConfig,
     IngestionLane,
     PersonBatchWritingDbWriteMode,
@@ -115,6 +116,7 @@ export interface PluginsServerConfig
         CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
+        ErrorTrackingConsumerConfig,
         SessionRecordingConfig,
         SessionRecordingApiConfig {}
 
@@ -147,6 +149,7 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     logsIngestion?: boolean
+    errorTrackingIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
