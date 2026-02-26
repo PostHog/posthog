@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db import OperationalError
 
 import structlog
+import posthoganalytics
 from confluent_kafka import (
     Consumer as ConfluentConsumer,
     KafkaError,
@@ -27,6 +28,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.metrics import (
     OFFSET_COMMITS_TOTAL,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.config import ConsumerConfig
+from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
 
@@ -146,6 +148,17 @@ class KafkaConsumerService:
                 dlq_topic=self._config.dlq_topic,
                 error_type=type(error).__name__,
                 error_message=str(error),
+            )
+
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_v3_dlq_message",
+                properties={
+                    "team_id": message.get("team_id") if isinstance(message, dict) else None,
+                    "schema_id": message.get("schema_id") if isinstance(message, dict) else None,
+                    "error_type": type(error).__name__,
+                    "input_topic": self._config.input_topic,
+                },
             )
         except Exception as dlq_error:
             logger.exception(

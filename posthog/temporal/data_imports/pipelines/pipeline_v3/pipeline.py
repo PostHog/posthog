@@ -3,6 +3,7 @@ import asyncio
 from typing import Any, Generic
 
 import pyarrow as pa
+import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
@@ -42,6 +43,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.metrics import (
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult, S3BatchWriter
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
@@ -252,6 +254,21 @@ class PipelineV3(Generic[ResumableData]):
             duration = time.perf_counter() - start_time
             if activity.in_activity():
                 get_pipeline_run_duration_metric(team_id_str, source_type, sync_type, status).record(int(duration))
+
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_v3_extraction_completed",
+                properties={
+                    "team_id": self._job.team_id,
+                    "schema_id": str(self._schema.id),
+                    "source_type": source_type,
+                    "sync_type": sync_type,
+                    "status": status,
+                    "duration_seconds": duration,
+                    "total_batches": len(self._batch_results),
+                    "total_rows": row_count if "row_count" in locals() else 0,
+                },
+            )
 
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource

@@ -2,6 +2,7 @@ import datetime as dt
 from typing import Any, Literal
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 
 from posthog.temporal.data_imports.pipelines.common.load import run_post_load_operations, supports_partial_data_loading
@@ -23,6 +24,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
 from products.data_warehouse.backend.models import ExternalDataJob
@@ -380,6 +382,35 @@ def process_message(message: Any) -> None:
         mark_batch_as_processed(
             export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
         )
+
+        if export_signal.is_final_batch:
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_v3_load_completed",
+                properties={
+                    "team_id": export_signal.team_id,
+                    "schema_id": export_signal.schema_id,
+                    "source_id": export_signal.source_id,
+                    "resource_name": export_signal.resource_name,
+                    "sync_type": export_signal.sync_type,
+                    "total_batches": export_signal.total_batches,
+                    "total_rows": export_signal.total_rows,
+                },
+            )
     except Exception as e:
+        posthoganalytics.capture(
+            distinct_id=get_machine_id(),
+            event="warehouse_v3_load_failed",
+            properties={
+                "team_id": export_signal.team_id,
+                "schema_id": export_signal.schema_id,
+                "source_id": export_signal.source_id,
+                "resource_name": export_signal.resource_name,
+                "sync_type": export_signal.sync_type,
+                "batch_index": export_signal.batch_index,
+                "error_type": type(e).__name__,
+                "error_message": str(e)[:1000],
+            },
+        )
         _mark_job_failed(export_signal, e)
         raise
