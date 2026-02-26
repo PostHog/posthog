@@ -81,6 +81,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setSelectedProvider: (provider: LLMProvider) => ({ provider }),
         setSelectedKeyId: (keyId: string | null) => ({ keyId }),
         setSelectedModel: (model: string) => ({ model }),
+        selectModelFromPicker: (modelId: string, providerKeyId: string) => ({ modelId, providerKeyId }),
 
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
@@ -206,7 +207,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             '' as string,
             {
                 setSelectedModel: (_, { model }) => model,
+                selectModelFromPicker: (_, { modelId }) => modelId,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.model || '',
+            },
+        ],
+        selectedPickerProviderKeyId: [
+            null as string | null,
+            {
+                selectModelFromPicker: (_, { providerKeyId }) => providerKeyId,
+                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
             },
         ],
         isForceRefresh: [
@@ -557,6 +566,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 actions.setModelConfiguration(modelConfig)
             } else {
                 actions.setModelConfiguration(null)
+            }
+        },
+
+        selectModelFromPicker: ({ modelId, providerKeyId }) => {
+            const key = values.providerKeys.find((k: LLMProviderKey) => k.id === providerKeyId)
+            if (key && modelId) {
+                actions.setModelConfiguration({
+                    provider: key.provider,
+                    model: modelId,
+                    provider_key_id: providerKeyId,
+                })
             }
         },
 

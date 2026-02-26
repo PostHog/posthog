@@ -481,7 +481,7 @@ quality:
         cmd: pnpm format
         description: Format both backend and frontend code
     format:yaml:
-        cmd: pnpm exec oxfmt
+        cmd: pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format JSON, YAML files
     format:css:
         cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"

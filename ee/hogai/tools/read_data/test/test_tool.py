@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ArtifactSource,
     AssistantToolCallMessage,
@@ -365,6 +367,76 @@ class TestReadDataTool(BaseTest):
 
             assert insight_ctx.short_id == insight.short_id
             assert insight_ctx.db_id == insight.id
+
+    @parameterized.expand(
+        [
+            ("soft_deleted_insight", True, False),
+            ("deleted_tile", False, True),
+            ("both_deleted", True, True),
+        ]
+    )
+    async def test_read_dashboard_excludes_soft_deleted_insights(
+        self, _name: str, insight_deleted: bool, tile_deleted: bool
+    ):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+        )
+
+        active_insight = await Insight.objects.acreate(
+            team=self.team,
+            name="Active Insight",
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "name": "$pageview"}],
+            },
+        )
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=active_insight)
+
+        deleted_insight = await Insight.objects.acreate(
+            team=self.team,
+            name="Deleted Insight",
+            deleted=insight_deleted,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "name": "$pageview"}],
+            },
+        )
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=deleted_insight, deleted=tile_deleted)
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        with patch("ee.hogai.tools.read_data.tool.DashboardContext") as MockDashboardContext:
+            mock_instance = MagicMock()
+            mock_instance.format_schema = AsyncMock(return_value="Formatted schema")
+            MockDashboardContext.return_value = mock_instance
+
+            tool = await ReadDataTool.create_tool_class(
+                team=self.team,
+                user=user,
+                state=state,
+                context_manager=context_manager,
+            )
+
+            with patch.object(tool, "user_access_control") as mock_uac:
+                mock_uac.check_access_level_for_object.return_value = True
+
+                await tool._arun_impl(
+                    {
+                        "kind": "dashboard",
+                        "dashboard_id": str(dashboard.id),
+                        "execute": False,
+                    }
+                )
+
+            call_kwargs = MockDashboardContext.call_args.kwargs
+            insights_data = call_kwargs["insights_data"]
+            assert len(insights_data) == 1
+            assert insights_data[0].short_id == active_insight.short_id
 
     async def test_list_tables_returns_core_tables_with_schema(self):
         """Test that data_warehouse_schema returns core PostHog tables with their field schemas."""

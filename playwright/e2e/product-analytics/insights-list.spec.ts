@@ -30,16 +30,16 @@ test.describe('Insights list', () => {
         await test.step('search for the insight and navigate to it', async () => {
             await insight.goToList()
             await page.getByPlaceholder('Search').fill(insightName)
-            // Wait for the debounced search to fire (loader appears) then complete (loader gone)
-            await page
-                .locator('.LemonTableLoader')
-                .waitFor({ state: 'visible' })
-                .catch(() => {})
-            await expect(page.locator('.LemonTableLoader')).toHaveCount(0)
-            const link = page.locator('table tbody tr').first().getByRole('link', { name: insightName })
+
+            // Wait for the table to settle with exactly one row containing our insight.
+            // This avoids a race where the search API response arrives mid-click,
+            // re-rendering the table and detaching the link element before navigation fires.
+            const rows = page.locator('table tbody tr')
+            await expect(rows).toHaveCount(1, { timeout: 10_000 })
+
+            const link = rows.first().getByRole('link', { name: insightName })
             await expect(link).toBeVisible()
             await link.click()
-            await page.waitForURL(/\/insights\/\w+/)
 
             await expect(insight.topBarName).toContainText(insightName, { timeout: 15_000 })
         })
