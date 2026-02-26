@@ -737,7 +737,7 @@ export class CdpApi {
                     return res.status(404).json({ error: 'Team not found' })
                 }
 
-                let globals = convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.hub.SITE_URL)
+                const globals = convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.hub.SITE_URL)
                 if (!globals.event) {
                     return res.status(400).json({ error: 'Missing event' })
                 }
