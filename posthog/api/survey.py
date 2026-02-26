@@ -899,6 +899,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 "survey launched",
                 properties,
                 team,
+                request=self.context["request"],
             )
         elif before_update.end_date is None and instance.end_date is not None:
             report_user_action(
@@ -906,6 +907,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 "survey stopped",
                 properties,
                 team,
+                request=self.context["request"],
             )
         elif before_update.start_date is not None and before_update.end_date is not None and instance.end_date is None:
             report_user_action(
@@ -913,6 +915,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 "survey resumed",
                 properties,
                 team,
+                request=self.context["request"],
             )
 
         should_flag_be_active = self._should_survey_flags_be_active(instance)

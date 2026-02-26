@@ -110,6 +110,7 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     "duration_seconds": duration_seconds,
                 },
                 self.team,
+                request=self.request,
             )
 
             return Response(

@@ -2409,6 +2409,7 @@ class TestSurvey(APIBaseTest):
                 "end_date": None,
             },
             self.team,
+            request=ANY,
         )
         mock_report_user_action.reset_mock()
 
@@ -2428,6 +2429,7 @@ class TestSurvey(APIBaseTest):
                 "end_date": end_date,
             },
             self.team,
+            request=ANY,
         )
         mock_report_user_action.reset_mock()
 
@@ -2447,6 +2449,7 @@ class TestSurvey(APIBaseTest):
                 "end_date": None,
             },
             self.team,
+            request=ANY,
         )
 
     @freeze_time("2023-05-01 12:00:00")

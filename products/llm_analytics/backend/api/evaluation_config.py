@@ -95,6 +95,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "old_key_id": str(old_key.id) if old_key else None,
             },
             self.team,
+            request=self.request,
         )
 
         serializer = EvaluationConfigSerializer(config)

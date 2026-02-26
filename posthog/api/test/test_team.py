@@ -1617,6 +1617,7 @@ def team_api_test_factory():
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         @patch("posthog.api.project.report_user_action")
@@ -1673,6 +1674,7 @@ def team_api_test_factory():
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         def _create_other_org_and_team(

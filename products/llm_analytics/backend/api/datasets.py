@@ -164,6 +164,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
                 "has_metadata": bool(instance.metadata),
             },
             self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -191,6 +192,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
                     "dataset_name": instance.name,
                 },
                 self.team,
+                request=self.request,
             )
         elif changed_fields:
             report_user_action(
@@ -201,6 +203,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
                     "changed_fields": changed_fields,
                 },
                 self.team,
+                request=self.request,
             )
 
     @llma_track_latency("llma_datasets_list")
@@ -303,6 +306,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                 "source": source,
             },
             self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -330,6 +334,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                     "dataset_id": str(instance.dataset_id),
                 },
                 self.team,
+                request=self.request,
             )
         elif changed_fields:
             report_user_action(
@@ -341,6 +346,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                     "changed_fields": changed_fields,
                 },
                 self.team,
+                request=self.request,
             )
 
     @llma_track_latency("llma_dataset_items_retrieve")

@@ -152,6 +152,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "trigger_type": "manual",
                 },
                 self.team,
+                request=self.request,
             )
 
             return Response(

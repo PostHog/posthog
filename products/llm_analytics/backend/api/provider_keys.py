@@ -144,6 +144,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 "provider": instance.provider,
             },
             self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -165,6 +166,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     "changed_fields": changed_fields,
                 },
                 self.team,
+                request=self.request,
             )
 
     def perform_destroy(self, instance):
@@ -176,6 +178,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 "provider": instance.provider,
             },
             self.team,
+            request=self.request,
         )
         instance.delete()
 
@@ -206,6 +209,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 "state": instance.state,
             },
             self.team,
+            request=self.request,
         )
 
         serializer = self.get_serializer(instance)

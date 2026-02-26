@@ -375,6 +375,7 @@ The response includes the formatted text and metadata about the rendering.
                     "duration_seconds": duration_seconds,
                 },
                 self.team,
+                request=self.request,
             )
 
             return Response(result, status=status.HTTP_200_OK)

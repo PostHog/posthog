@@ -221,6 +221,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
             "prompt_tokens_total": prompt_tokens_total,
             "completion_tokens_total": completion_tokens_total,
         },
+        request=request,
     )
 
     if candidate_sql:

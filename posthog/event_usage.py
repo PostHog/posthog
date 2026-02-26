@@ -292,11 +292,21 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
     }
 
 
-def report_user_action(user: User, event: str, properties: Optional[dict] = None, team: Optional[Team] = None):
-    if not user.distinct_id:
+def report_user_action(
+    user: Optional[User] = None,
+    event: str = "",
+    properties: Optional[dict] = None,
+    team: Optional[Team] = None,
+    request=None,
+):
+    if user is None and request is not None:
+        user = getattr(request, "user", None)
+    if user is None or not user.distinct_id:
         return
     if properties is None:
         properties = {}
+    if request is not None:
+        properties = {**get_request_analytics_properties(request), **properties}
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event=event,

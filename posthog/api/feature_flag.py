@@ -39,7 +39,7 @@ from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
-from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
@@ -1162,8 +1162,7 @@ class FeatureFlagSerializer(
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
-        analytics_metadata.update(get_request_analytics_properties(request))
-        report_user_action(request.user, "feature flag created", analytics_metadata)
+        report_user_action(request.user, "feature flag created", analytics_metadata, request=request)
 
         return instance
 
@@ -1329,7 +1328,8 @@ class FeatureFlagSerializer(
         report_user_action(
             request.user,
             "feature flag updated",
-            {**instance.get_analytics_metadata(), **get_request_analytics_properties(request)},
+            instance.get_analytics_metadata(),
+            request=request,
         )
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value

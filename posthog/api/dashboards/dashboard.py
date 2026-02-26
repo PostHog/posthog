@@ -40,7 +40,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
-from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -400,12 +400,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "dashboard created",
             {
                 **dashboard.get_analytics_metadata(),
-                **get_request_analytics_properties(request),
                 "from_template": bool(use_template),
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "dashboard_id": use_dashboard,
             },
+            request=request,
         )
 
         return dashboard
@@ -516,10 +516,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
             report_user_action(
                 user,
                 "dashboard updated",
-                {
-                    **instance.get_analytics_metadata(),
-                    **get_request_analytics_properties(self.context["request"]),
-                },
+                instance.get_analytics_metadata(),
+                request=self.context["request"],
             )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
@@ -1066,13 +1064,13 @@ class DashboardsViewSet(
                 "dashboard created",
                 {
                     **dashboard.get_analytics_metadata(),
-                    **get_request_analytics_properties(request),
                     "from_template": True,
                     "template_key": dashboard_template.template_name,
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,
                 },
+                request=request,
             )
         except Exception:
             dashboard.delete()

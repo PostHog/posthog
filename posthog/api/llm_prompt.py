@@ -173,6 +173,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
                 "prompt_name": instance.name,
             },
             self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -189,6 +190,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
                     "prompt_name": instance.name,
                 },
                 self.team,
+                request=self.request,
             )
         else:
             changed_fields = [field for field in serializer.validated_data.keys() if field != "deleted"]
@@ -203,6 +205,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
                         "changed_fields": changed_fields,
                     },
                     self.team,
+                    request=self.request,
                 )
 
     @action(

@@ -728,6 +728,7 @@ class SessionRecordingViewSet(
                     event="recording viewed",
                     properties=event_properties,
                     team=self.team,
+                    request=request,
                 )
 
             if "analyzed" in serializer.validated_data:
@@ -736,6 +737,7 @@ class SessionRecordingViewSet(
                     event="recording analyzed",
                     properties=event_properties,
                     team=self.team,
+                    request=request,
                 )
 
         return Response({"success": True})
@@ -1126,6 +1128,7 @@ class SessionRecordingViewSet(
                 event="recording list filters changed",
                 properties={"$current_url": current_url, "$session_id": session_id, **partial_filters},
                 team=team,
+                request=request,
             )
 
             ProductIntent.register(

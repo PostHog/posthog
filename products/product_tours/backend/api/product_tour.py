@@ -300,6 +300,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             ProductTourEventName.CREATED,
             {**instance.get_analytics_metadata(), "creation_context": creation_context},
             team,
+            request=request,
         )
 
         return instance
@@ -392,12 +393,12 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "creation_context": creation_context,
         }
 
-        report_user_action(user, ProductTourEventName.UPDATED, analytics_metadata, team)
+        report_user_action(user, ProductTourEventName.UPDATED, analytics_metadata, team, request=request)
 
         if before_start_date is None and instance.start_date is not None:
-            report_user_action(user, ProductTourEventName.LAUNCHED, analytics_metadata, team)
+            report_user_action(user, ProductTourEventName.LAUNCHED, analytics_metadata, team, request=request)
         elif before_end_date is None and instance.end_date is not None:
-            report_user_action(user, ProductTourEventName.STOPPED, analytics_metadata, team)
+            report_user_action(user, ProductTourEventName.STOPPED, analytics_metadata, team, request=request)
 
         if instance.draft_content is not None:
             instance.draft_content = None
@@ -793,6 +794,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
             ProductTourEventName.DELETED,
             analytics_metadata,
             self.team,
+            request=self.request,
         )
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -842,6 +844,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
                 ProductTourEventName.AI_CONTENT_GENERATED,
                 tour.get_analytics_metadata(),
                 self.team,
+                request=request,
             )
 
             id_map = result.index_to_step_id

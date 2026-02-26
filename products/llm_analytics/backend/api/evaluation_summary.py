@@ -448,6 +448,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
                     "na_count": result["statistics"]["na_count"],
                 },
                 self.team,
+                request=self.request,
             )
 
             return Response(result, status=status.HTTP_200_OK)

@@ -69,7 +69,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Assert analytics are sent
         patch_capture.assert_called_once_with(
-            self.user,
+            ANY,
             "action created",
             {
                 "post_to_slack": False,
@@ -87,6 +87,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "pinned_at": None,
                 "creation_context": None,
             },
+            request=ANY,
         )
 
     def test_create_action_generates_bytecode(self):
