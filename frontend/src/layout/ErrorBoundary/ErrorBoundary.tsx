@@ -15,14 +15,16 @@ const DOM_MUTATION_PATTERNS = [
     "Failed to execute 'appendChild' on 'Node'",
 ]
 
-// Firefox throws NS_ERROR_FAILURE with an empty message for the same
-// DOM mutation failures that Chrome reports with descriptive messages
-const FIREFOX_ERROR_NAMES = ['NS_ERROR_FAILURE']
+// Firefox's equivalent of the above, thrown with an empty message during React's commit phase
+const FIREFOX_DOM_MUTATION_ERROR_NAMES = ['NS_ERROR_FAILURE']
 
 function isDOMModificationError(error: Error): boolean {
     const message = error.message || ''
     const name = error.name || ''
-    return FIREFOX_ERROR_NAMES.includes(name) || DOM_MUTATION_PATTERNS.some((pattern) => message.includes(pattern))
+    return (
+        FIREFOX_DOM_MUTATION_ERROR_NAMES.includes(name) ||
+        DOM_MUTATION_PATTERNS.some((pattern) => message.includes(pattern))
+    )
 }
 
 interface ErrorBoundaryProps {
