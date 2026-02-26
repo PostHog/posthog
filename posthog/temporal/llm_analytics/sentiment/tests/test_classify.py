@@ -22,7 +22,7 @@ def _mock_hogql_result(rows: list[tuple]) -> MagicMock:
 
 
 def _single_input(trace_id: str = "trace-1", **kwargs) -> ClassifySentimentInput:
-    return ClassifySentimentInput(team_id=1, trace_ids=[trace_id], **kwargs)
+    return ClassifySentimentInput(team_id=1, ids=[trace_id], **kwargs)
 
 
 _PATCH_HOGQL = "posthog.hogql.query.execute_hogql_query"
@@ -195,7 +195,7 @@ class TestClassifySentimentBatch:
     async def test_empty_query_returns_neutral_for_all(self, mock_hogql: MagicMock):
         mock_hogql.return_value = _mock_hogql_result([])
 
-        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, ids=["t1", "t2"]))
 
         assert result["t1"]["label"] == "neutral"
         assert result["t2"]["label"] == "neutral"
@@ -215,7 +215,7 @@ class TestClassifySentimentBatch:
             _make_sentiment_result("negative", 0.8),
         ]
 
-        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, ids=["t1", "t2"]))
 
         # One classify call with all texts
         mock_classify.assert_called_once_with(["hello from t1", "hello from t2"])
@@ -238,7 +238,7 @@ class TestClassifySentimentBatch:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, ids=["t1", "t2"]))
 
         assert result["t1"]["label"] == "positive"
         assert result["t2"]["label"] == "neutral"

@@ -20,6 +20,7 @@ import { SentimentBar } from './components/SentimentTag'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { EventData, useAIData } from './hooks/useAIData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { flattenGenerationMessages } from './sentimentUtils'
@@ -218,22 +219,16 @@ function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element 
     )
 }
 
-function LazyGenerationSentimentCell({
-    traceId,
-    generationEventId,
-}: {
-    traceId: string
-    generationEventId: string
-}): JSX.Element {
-    const { sentimentByTraceId, isTraceLoading, getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
-    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+function LazyGenerationSentimentCell({ generationEventId }: { generationEventId: string }): JSX.Element {
+    const { sentimentByGenerationId, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
+    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
     const { dateFilter } = useValues(llmAnalyticsSharedLogic)
 
-    const cached = sentimentByTraceId[traceId]
-    const loading = isTraceLoading(traceId)
+    const cached = sentimentByGenerationId[generationEventId]
+    const loading = isGenerationLoading(generationEventId)
 
     if (cached === undefined && !loading) {
-        ensureSentimentLoaded(traceId, dateFilter)
+        ensureGenerationSentimentLoaded(generationEventId, dateFilter)
     }
 
     if (loading || cached === undefined) {
@@ -244,19 +239,7 @@ function LazyGenerationSentimentCell({
         return <>–</>
     }
 
-    const generationSentiment = getGenerationSentiment(traceId, generationEventId)
-    if (!generationSentiment) {
-        return <>–</>
-    }
-
-    return (
-        <SentimentBar
-            label={generationSentiment.label}
-            score={generationSentiment.score}
-            size="full"
-            messages={generationSentiment.messages}
-        />
-    )
+    return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
 }
 
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
@@ -460,20 +443,18 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
 
             const select = query.source.select ?? []
             const uuidIdx = select.findIndex((c) => c === 'uuid')
-            const traceIdIdx = select.findIndex((c) => c === 'properties.$ai_trace_id')
 
-            if (uuidIdx < 0 || traceIdIdx < 0) {
+            if (uuidIdx < 0) {
                 return <>–</>
             }
 
             const uuid = record[uuidIdx]
-            const traceId = record[traceIdIdx]
 
-            if (typeof uuid !== 'string' || typeof traceId !== 'string') {
+            if (typeof uuid !== 'string') {
                 return <>–</>
             }
 
-            return <LazyGenerationSentimentCell traceId={traceId} generationEventId={uuid} />
+            return <LazyGenerationSentimentCell generationEventId={uuid} />
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page

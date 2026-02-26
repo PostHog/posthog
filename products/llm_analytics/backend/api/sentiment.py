@@ -1,4 +1,4 @@
-"""On-demand sentiment analysis for LLM traces.
+"""On-demand sentiment analysis for LLM traces and generations.
 
 Triggers a Temporal workflow to classify sentiment on $ai_generation user messages
 and returns the result synchronously (blocks until Temporal completes).
@@ -16,6 +16,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -26,6 +27,7 @@ from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import LLMAnalyticsSentimentBurstThrottle, LLMAnalyticsSentimentSustainedThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.sentiment.constants import (
+    BATCH_MAX_GENERATION_IDS,
     BATCH_MAX_TRACE_IDS,
     CACHE_KEY_PREFIX,
     MAX_RETRY_ATTEMPTS,
@@ -78,6 +80,22 @@ class SentimentBatchResponseSerializer(serializers.Serializer):
     results = serializers.DictField(child=SentimentResponseSerializer())
 
 
+class GenerationSentimentRequestSerializer(serializers.Serializer):
+    generation_ids = serializers.ListField(
+        child=serializers.CharField(),
+        min_length=1,
+        max_length=BATCH_MAX_GENERATION_IDS,
+        required=True,
+    )
+    force_refresh = serializers.BooleanField(default=False, required=False)
+    date_from = serializers.CharField(required=False, default=None, allow_null=True)
+    date_to = serializers.CharField(required=False, default=None, allow_null=True)
+
+
+class GenerationSentimentBatchResponseSerializer(serializers.Serializer):
+    results = serializers.DictField(child=GenerationSentimentSerializer())
+
+
 class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "llm_analytics"
     permission_classes = [AccessControlPermission]
@@ -86,19 +104,21 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         LLMAnalyticsSentimentSustainedThrottle,
     ]
 
-    def _get_cache_key(self, trace_id: str) -> str:
-        return f"{CACHE_KEY_PREFIX}:{self.team_id}:{trace_id}"
+    def _cache_key(self, level: str, id_: str) -> str:
+        return f"{CACHE_KEY_PREFIX}:{level}:{self.team_id}:{id_}"
 
     def _execute_workflow(
         self,
         client,
-        trace_ids: list[str],
+        ids: list[str],
+        analysis_level: str = "trace",
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> dict[str, dict]:
         workflow_input = ClassifySentimentInput(
             team_id=self.team_id,
-            trace_ids=trace_ids,
+            ids=ids,
+            analysis_level=analysis_level,
             date_from=date_from,
             date_to=date_to,
         )
@@ -141,7 +161,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         misses: list[str] = []
 
         if not force_refresh:
-            cache_keys = {tid: self._get_cache_key(tid) for tid in trace_ids}
+            cache_keys = {tid: self._cache_key("trace", tid) for tid in trace_ids}
             cached_values = cache.get_many(list(cache_keys.values()))
 
             for tid in trace_ids:
@@ -159,6 +179,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 batch_results = self._execute_workflow(
                     client,
                     misses,
+                    analysis_level="trace",
                     date_from=date_from,
                     date_to=date_to,
                 )
@@ -179,6 +200,76 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 )
                 return Response(
                     {"error": "Failed to compute sentiment"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=GenerationSentimentRequestSerializer,
+        responses={
+            200: GenerationSentimentBatchResponseSerializer,
+            400: OpenApiTypes.OBJECT,
+            500: OpenApiTypes.OBJECT,
+        },
+        tags=["LLM Analytics"],
+    )
+    @action(detail=False, methods=["post"], url_path="generations")
+    @llma_track_latency("llma_sentiment_generations")
+    @monitor(feature=None, endpoint="llma_sentiment_generations", method="POST")
+    def generations(self, request: Request, **kwargs) -> Response:
+        serializer = GenerationSentimentRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        generation_ids: list[str] = serializer.validated_data["generation_ids"]
+        force_refresh: bool = serializer.validated_data["force_refresh"]
+        date_from: str | None = serializer.validated_data.get("date_from")
+        date_to: str | None = serializer.validated_data.get("date_to")
+
+        results: dict[str, dict] = {}
+        misses: list[str] = []
+
+        if not force_refresh:
+            cache_keys = {gid: self._cache_key("generation", gid) for gid in generation_ids}
+            cached_values = cache.get_many(list(cache_keys.values()))
+
+            for gid in generation_ids:
+                cached = cached_values.get(cache_keys[gid])
+                if cached is not None:
+                    results[gid] = cached
+                else:
+                    misses.append(gid)
+        else:
+            misses = list(generation_ids)
+
+        if misses:
+            try:
+                client = sync_connect()
+                batch_results = self._execute_workflow(
+                    client,
+                    misses,
+                    analysis_level="generation",
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+
+                for gid in misses:
+                    gen_result = batch_results.get(gid)
+                    if gen_result:
+                        results[gid] = gen_result
+                    else:
+                        results[gid] = {"error": "Failed to compute sentiment"}
+
+            except Exception as e:
+                logger.exception(
+                    "Failed to compute generation sentiment",
+                    team_id=self.team_id,
+                    generation_ids=misses,
+                    error=str(e),
+                )
+                return Response(
+                    {"error": "Failed to compute generation sentiment"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 

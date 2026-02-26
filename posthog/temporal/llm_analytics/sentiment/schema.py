@@ -7,7 +7,8 @@ from typing import Any
 @dataclass
 class ClassifySentimentInput:
     team_id: int
-    trace_ids: list[str]
+    ids: list[str]  # trace IDs or generation UUIDs depending on analysis_level
+    analysis_level: str = "trace"  # "trace" or "generation"
     date_from: str | None = None
     date_to: str | None = None
 

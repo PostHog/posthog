@@ -28,10 +28,11 @@ MAX_RETRY_ATTEMPTS = 2  # retry policy for both workflow and activity
 
 # Cache config
 CACHE_TTL = 60 * 60 * 24  # 24 hours — events are immutable once ingested
-CACHE_KEY_PREFIX = "llm_sentiment"  # key format: {prefix}:{team_id}:{trace_id}
+CACHE_KEY_PREFIX = "llma_sentiment"  # key format: {prefix}:{level}:{team_id}:{id}
 
 # API config
 BATCH_MAX_TRACE_IDS = 5
+BATCH_MAX_GENERATION_IDS = 20  # generations tab can send more per batch
 
 # HogQL query template for fetching $ai_generation events.
 # Uses a window function to cap rows per trace at the ClickHouse level,
@@ -59,4 +60,21 @@ GENERATIONS_QUERY = """
     -- last N qualified generations per trace
     WHERE rn <= {max_gens_per_trace}
     ORDER BY trace_id, rn
+"""
+
+# Simpler query — fetch specific generation events by UUID, no window function needed
+GENERATIONS_BY_UUID_QUERY = """
+    SELECT uuid, ai_input
+    FROM (
+        SELECT
+            uuid,
+            properties.$ai_input AS ai_input
+        FROM events
+        WHERE event = '$ai_generation'
+          AND timestamp >= toDateTime({date_from}, 'UTC')
+          AND timestamp <= toDateTime({date_to}, 'UTC')
+          AND uuid IN {uuids}
+          AND length(properties.$ai_input) <= {max_input_chars}
+    )
+    ORDER BY uuid
 """
