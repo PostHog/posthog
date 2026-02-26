@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -41,6 +41,29 @@ export const ExperimentTabContent = ({
     const { relatedExperiments, relatedExperimentsLoading } = useValues(
         featureFlagRelatedExperimentsLogic({ featureFlagId: featureFlag.id! })
     )
+
+    const isValidMultivariateFlag =
+        featureFlag.filters.multivariate &&
+        featureFlag.filters.multivariate.variants.length > 1 &&
+        featureFlag.filters.multivariate.variants.some((variant) => variant.key === 'control')
+
+    if (!isValidMultivariateFlag) {
+        return (
+            <div className="space-y-6">
+                <LemonBanner type="warning">
+                    <div className="flex flex-col gap-3">
+                        <div>
+                            Experiments require a multivariate flag with multiple variants and a control variant.&nbsp;
+                            <Link to="https://posthog.com/docs/experiments/creating-an-experiment">
+                                Learn more in the docs
+                            </Link>
+                            .
+                        </div>
+                    </div>
+                </LemonBanner>
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-6">
