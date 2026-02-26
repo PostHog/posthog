@@ -178,6 +178,7 @@ test.describe('Dashboards', () => {
 
         await test.step('verify the variable control shows the default value', async () => {
             await expect(page).toHaveURL(/\/dashboard\//)
+            await dashboard.closeInfoPanel()
             await expect(dashboard.insightCards).toBeVisible()
             await expect(dashboard.variableButtons.first()).toContainText('5')
         })

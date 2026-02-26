@@ -3580,14 +3580,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(17, 22)):
+        with self.assertNumQueries(FuzzyInt(12, 17)):
             # 1-10: Auth, team, project, membership, and access control queries
             # 11. SELECT surveys (for survey exclusion)
-            # 12. EXISTS check for any flag referencing a cohort
-            # 13. SELECT all feature flags
-            # 14. SELECT cohorts (only loaded because a flag references a cohort)
-            # 15-19. SELECT evaluation tags (one per flag)
-            # 20. SELECT group type mapping
+            # 12. SELECT all feature flags (with evaluation tags via ArrayAgg)
+            # 13. SELECT cohorts (only loaded because a flag references a cohort)
+            # 14. SELECT group type mapping
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -6034,9 +6032,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
         # Clear both Redis and S3 caches
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         # First request should miss cache and populate it
         self.client.logout()
@@ -6404,7 +6402,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_local_evaluation_cache_invalidation_on_feature_flag_delete(self, mock_on_commit):
         """Test that cache invalidates when FeatureFlag is deleted."""
-        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+        from posthog.models.feature_flag.local_evaluation import (
+            flag_definitions_hypercache,
+            flag_definitions_without_cohorts_hypercache,
+        )
 
         # Create two feature flags
         flag1 = FeatureFlag.objects.create(
@@ -6424,8 +6425,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Clear caches to start fresh
-        flags_hypercache.clear_cache(self.team)
-        flags_without_cohorts_hypercache.clear_cache(self.team)
+        flag_definitions_hypercache.clear_cache(self.team)
+        flag_definitions_without_cohorts_hypercache.clear_cache(self.team)
 
         # Populate both cache variants using use_cache parameter
         response1 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
@@ -6476,7 +6477,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_local_evaluation_cache_invalidation_on_cohort_delete(self, mock_on_commit):
         """Test that cache invalidates when Cohort is deleted."""
-        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+        from posthog.models.feature_flag.local_evaluation import (
+            flag_definitions_hypercache,
+            flag_definitions_without_cohorts_hypercache,
+        )
 
         # Create a cohort
         cohort = Cohort.objects.create(
@@ -6502,8 +6506,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Clear caches to start fresh
-        flags_hypercache.clear_cache(self.team)
-        flags_without_cohorts_hypercache.clear_cache(self.team)
+        flag_definitions_hypercache.clear_cache(self.team)
+        flag_definitions_without_cohorts_hypercache.clear_cache(self.team)
 
         # Populate cache with cohorts using use_cache parameter
         response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts")
@@ -6563,9 +6567,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
         response = self.client.get(
@@ -6592,9 +6596,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6630,9 +6634,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6662,9 +6666,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6715,9 +6719,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6763,9 +6767,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6806,9 +6810,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6844,9 +6848,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
