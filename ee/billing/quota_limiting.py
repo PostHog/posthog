@@ -933,6 +933,7 @@ def update_all_orgs_billing_quotas(
         quota_limiting_suspended_orgs,
         {
             "duration_s": round(total_duration_s, 1),
+            "orgs_total": total_orgs,
             "orgs_processed": orgs_processed,
             "orgs_limited": orgs_limited_count,
             "orgs_suspended": orgs_suspended_count,

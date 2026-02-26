@@ -28,6 +28,7 @@ class RunQuotaLimitingAllOrgsInputs:
 @dataclasses.dataclass
 class QuotaLimitingResult:
     duration_s: float = 0.0
+    orgs_total: int = 0
     orgs_processed: int = 0
     orgs_limited: int = 0
     orgs_suspended: int = 0
