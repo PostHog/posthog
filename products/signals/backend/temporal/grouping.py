@@ -4,7 +4,7 @@ import uuid
 import asyncio
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -963,8 +963,8 @@ async def _process_signal_batch(
             for s in batch
         ],
     )
-    signal_embeddings: list[GenerateEmbeddingOutput] = list(step1b_results[: len(batch)])
-    query_gen_results: list[GenerateSearchQueriesOutput] = list(step1b_results[len(batch) :])
+    signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
+    query_gen_results = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
 
     # Step 3: Embed all queries across all signals (flatten → parallel embed)
     all_queries_flat: list[tuple[int, str]] = []
