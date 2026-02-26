@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import {
     IconBalance,
@@ -86,6 +86,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
+    const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
@@ -214,12 +215,26 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <LemonField
                                     name="key"
                                     label="Flag key"
-                                    info="Unique identifier used in your code. Cannot be changed after creation."
+                                    info="Unique identifier used in your code."
+                                    help={
+                                        hasKeyChanged && !isNewFeatureFlag ? (
+                                            <span className="text-warning">
+                                                <b>Warning! </b>Changing this key will break any existing code that
+                                                references it (e.g. <code>getFeatureFlag('{featureFlag.key}')</code>).
+                                                Make sure to update all SDK calls and integrations.
+                                            </span>
+                                        ) : undefined
+                                    }
                                 >
                                     {({ value, onChange }) => (
                                         <LemonInput
                                             value={value}
-                                            onChange={onChange}
+                                            onChange={(v) => {
+                                                if (v !== value) {
+                                                    setHasKeyChanged(true)
+                                                }
+                                                onChange(v)
+                                            }}
                                             data-attr="feature-flag-key"
                                             className="ph-ignore-input"
                                             autoComplete="off"
