@@ -103,13 +103,13 @@ export function LLMAnalyticsTools(): JSX.Element {
                             </Tooltip>
                         ),
                     },
-                    solo_pct: {
+                    single_pct: {
                         renderTitle: () => (
                             <Tooltip title="Percentage of calls where this was the only tool called">
-                                {renderSortableColumnTitle('solo_pct', 'Solo %')}
+                                {renderSortableColumnTitle('single_pct', 'Single %')}
                             </Tooltip>
                         ),
-                        render: function RenderSoloPct(x) {
+                        render: function RenderSinglePct(x) {
                             return <span>{String(x.value)}%</span>
                         },
                     },

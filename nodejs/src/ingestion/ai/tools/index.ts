@@ -46,11 +46,13 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
                 const userTools = String(event.properties['$ai_tools_called'])
                 event.properties['$ai_tool_call_count'] = userTools.split(',').filter((s) => s.trim().length > 0).length
             }
+            aiToolCallExtractionCounter.labels({ status: 'user_provided' }).inc()
             return event
         }
 
         const outputChoices = event.properties['$ai_output_choices']
         if (outputChoices === undefined || outputChoices === null) {
+            aiToolCallExtractionCounter.labels({ status: 'no_output_choices' }).inc()
             return event
         }
 
@@ -84,6 +86,7 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
         const toolNames = extractToolCallNames(parsed, rawString)
 
         if (toolNames.length === 0) {
+            aiToolCallExtractionCounter.labels({ status: 'no_tools_found' }).inc()
             return event
         }
 

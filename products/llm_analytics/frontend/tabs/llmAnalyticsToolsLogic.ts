@@ -69,7 +69,7 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                         'users',
                         'sessions',
                         'days_seen',
-                        'solo_pct',
+                        'single_pct',
                         'first_seen',
                         'last_seen',
                     ],
