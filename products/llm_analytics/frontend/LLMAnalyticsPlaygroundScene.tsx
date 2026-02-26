@@ -128,14 +128,14 @@ function PlaygroundLayout(): JSX.Element {
 }
 
 function PromptConfigsSection(): JSX.Element {
-    const { promptConfigs, activePromptId, displayItems } = useValues(llmAnalyticsPlaygroundLogic)
+    const { promptConfigs, activePromptId, comparisonItems } = useValues(llmAnalyticsPlaygroundLogic)
     const { removePromptConfig, setActivePromptId } = useActions(llmAnalyticsPlaygroundLogic)
 
     const promptCount = promptConfigs.length
     const gridMinWidth = `calc(${promptCount} * 500px + ${Math.max(promptCount - 1, 0)} * 1rem)`
     const latestItemByPromptId = new Map<string, ComparisonItem>()
 
-    for (const item of displayItems) {
+    for (const item of comparisonItems) {
         if (item.promptId) {
             latestItemByPromptId.set(item.promptId, item)
         }

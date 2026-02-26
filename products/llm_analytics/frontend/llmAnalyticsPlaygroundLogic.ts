@@ -331,17 +331,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         clearConversation: (promptId?: string) => ({ promptId }),
         submitPrompt: true,
         finishSubmitPrompt: true,
-        startPromptRun: (promptId: string, model: string) => ({ promptId, model }),
-        stopPromptRun: true,
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
-        addAssistantMessageChunk: (text: string) => ({ text }),
-        addFinalizedContent: (text: string) => ({ text }),
-        addToolCallChunk: (toolCall: { id?: string; function: { name?: string; arguments?: string } }) => ({
-            toolCall,
-        }),
-        clearToolCalls: true,
-        finalizeAssistantMessage: true,
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         addToComparison: (item: ComparisonItem) => ({ item }),
@@ -349,8 +340,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         removeFromComparison: (id: string) => ({ id }),
         clearComparison: true,
         setupPlaygroundFromEvent: (payload: { model?: string; input?: any; tools?: any }) => ({ payload }),
-        setResponseError: (hasError: boolean) => ({ hasError }),
-        clearResponseError: true,
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
         setSubscriptionRequired: (required: boolean) => ({ required }),
         setActiveProviderKeyId: (id: string | null) => ({ id }),
@@ -454,71 +443,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 finishSubmitPrompt: () => false,
             },
         ],
-        currentToolCalls: [
-            [] as Array<{ id: string; name: string; arguments: string }>,
-            {
-                startPromptRun: () => [],
-                stopPromptRun: () => [],
-                clearToolCalls: () => [],
-                addToolCallChunk: (state, { toolCall }) => {
-                    if (toolCall.id && toolCall.id !== 'null') {
-                        const existingIndex = state.findIndex((tc) => tc.id === toolCall.id)
-                        if (existingIndex >= 0) {
-                            const updated = [...state]
-                            updated[existingIndex] = {
-                                ...updated[existingIndex],
-                                name: toolCall.function?.name || updated[existingIndex].name,
-                                arguments: updated[existingIndex].arguments + (toolCall.function?.arguments || ''),
-                            }
-                            return updated
-                        }
-                        return [
-                            ...state,
-                            {
-                                id: toolCall.id,
-                                name: toolCall.function?.name || '',
-                                arguments: toolCall.function?.arguments || '',
-                            },
-                        ]
-                    }
-
-                    if (state.length === 0) {
-                        return state
-                    }
-
-                    const updated = [...state]
-                    const lastIndex = updated.length - 1
-                    updated[lastIndex] = {
-                        ...updated[lastIndex],
-                        arguments: updated[lastIndex].arguments + (toolCall.function?.arguments || ''),
-                    }
-                    return updated
-                },
-            },
-        ],
-        currentResponse: [
-            null as string | null,
-            {
-                startPromptRun: () => '',
-                addAssistantMessageChunk: (state, { text }) => (state ?? '') + text,
-                addFinalizedContent: (state, { text }) => (state ?? '') + text,
-                stopPromptRun: () => null,
-            },
-        ],
-        currentStreamingPromptId: [
-            null as string | null,
-            {
-                startPromptRun: (_, { promptId }) => promptId,
-                stopPromptRun: () => null,
-            },
-        ],
-        currentStreamingModel: [
-            null as string | null,
-            {
-                startPromptRun: (_, { model }) => model,
-                stopPromptRun: () => null,
-            },
-        ],
         comparisonItems: [
             [] as ComparisonItem[],
             {
@@ -528,15 +452,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     state.map((item) => (item.id === id ? { ...item, ...payload } : item)),
                 removeFromComparison: (state, { id }) => state.filter((item) => item.id !== id),
                 clearComparison: () => [],
-            },
-        ],
-        responseHasError: [
-            false as boolean,
-            {
-                startPromptRun: () => false,
-                setResponseError: (_, { hasError }) => hasError,
-                clearResponseError: () => false,
-                stopPromptRun: () => false,
             },
         ],
         rateLimitedUntil: [
@@ -641,22 +556,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             })
 
             actions.setPromptConfigs(normalizedPrompts)
-        },
-
-        finalizeAssistantMessage: () => {
-            const toolCalls = values.currentToolCalls
-            if (toolCalls.length > 0) {
-                const toolCallsText = toolCalls
-                    .map((tc) => JSON.stringify({ id: tc.id, name: tc.name, arguments: tc.arguments }, null, 2))
-                    .join('\n\n')
-
-                if (toolCallsText) {
-                    const separator = values.currentResponse && values.currentResponse.trim() ? '\n\n' : ''
-                    actions.addFinalizedContent(separator + toolCallsText)
-                }
-            }
-
-            actions.clearToolCalls()
         },
 
         submitPrompt: async (_, breakpoint) => {
@@ -998,39 +897,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 modelOptions: ModelOption[],
                 providerKeys: LLMProviderKey[]
             ): LLMProviderKey | null => resolveProviderKeyForPrompt(activePromptConfig, modelOptions, providerKeys),
-        ],
-        displayItems: [
-            (s) => [
-                s.comparisonItems,
-                s.submitting,
-                s.currentResponse,
-                s.responseHasError,
-                s.currentStreamingModel,
-                s.currentStreamingPromptId,
-            ],
-            (
-                comparisonItems: ComparisonItem[],
-                submitting: boolean,
-                currentResponse: string | null,
-                responseHasError: boolean,
-                currentStreamingModel: string | null,
-                currentStreamingPromptId: string | null
-            ): ComparisonItem[] => {
-                if (submitting && currentResponse !== null) {
-                    const streamingItem: ComparisonItem = {
-                        id: '__streaming__',
-                        promptId: currentStreamingPromptId ?? undefined,
-                        promptLabel: 'Running',
-                        model: currentStreamingModel ?? '-',
-                        systemPrompt: '',
-                        requestMessages: [],
-                        response: currentResponse,
-                        error: responseHasError,
-                    }
-                    return [...comparisonItems, streamingItem]
-                }
-                return comparisonItems
-            },
         ],
         hasProviderKey: [(s) => [s.providerKeyForCurrentModel], (key: LLMProviderKey | null): boolean => key !== null],
     }),
