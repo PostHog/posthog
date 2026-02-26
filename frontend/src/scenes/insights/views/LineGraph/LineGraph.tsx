@@ -8,7 +8,7 @@ import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import {
     ActiveElement,
@@ -30,7 +30,6 @@ import {
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -285,58 +284,6 @@ export function LineGraph_({
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
-
-    // Filter out weekend data points when hideWeekends is enabled
-    const hideWeekends = !!trendsFilter?.hideWeekends
-    const weekdayIndices = useMemo(() => {
-        if (!hideWeekends) {
-            return null
-        }
-        // Use the days array from the first dataset to determine which indices are weekdays
-        const daysArray = _datasets[0]?.days
-        if (!daysArray || !Array.isArray(daysArray)) {
-            return null
-        }
-        const indices: number[] = []
-        for (let i = 0; i < daysArray.length; i++) {
-            const day = dayjs(daysArray[i])
-            const dow = day.day() // 0 = Sunday, 6 = Saturday
-            if (dow !== 0 && dow !== 6) {
-                indices.push(i)
-            }
-        }
-        // If no filtering happened, skip
-        if (indices.length === daysArray.length) {
-            return null
-        }
-        return indices
-    }, [hideWeekends, _datasets])
-
-    if (weekdayIndices) {
-        labels = weekdayIndices.map((i) => labels[i])
-        datasets = _datasets.map((dataset) => ({
-            ...dataset,
-            data: Array.isArray(dataset.data) ? weekdayIndices.map((i) => dataset.data[i]) : dataset.data,
-            days: Array.isArray(dataset.days) ? weekdayIndices.map((i) => dataset.days![i]) : dataset.days,
-            labels: Array.isArray(dataset.labels) ? weekdayIndices.map((i) => dataset.labels![i]) : dataset.labels,
-            breakdownLabels: Array.isArray(dataset.breakdownLabels)
-                ? weekdayIndices.map((i) => dataset.breakdownLabels![i])
-                : dataset.breakdownLabels,
-            compareLabels: Array.isArray(dataset.compareLabels)
-                ? weekdayIndices.map((i) => dataset.compareLabels![i])
-                : dataset.compareLabels,
-        }))
-        // Adjust incompleteness offset — the last in-progress data point may have shifted
-        if (isInProgress && incompletenessOffsetFromEnd < 0) {
-            const originalLen = _datasets[0]?.data?.length ?? 0
-            const lastOriginalIndex = originalLen + incompletenessOffsetFromEnd
-            // Find the new index of the last in-progress point
-            const newIndex = weekdayIndices.indexOf(lastOriginalIndex)
-            if (newIndex >= 0) {
-                incompletenessOffsetFromEnd = newIndex - weekdayIndices.length
-            }
-        }
-    }
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
