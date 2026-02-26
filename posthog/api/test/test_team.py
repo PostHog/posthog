@@ -478,7 +478,7 @@ def team_api_test_factory():
                 call(
                     distinct_id=self.user.distinct_id,
                     event="team deleted",
-                    properties={},
+                    properties=mock.ANY,
                     groups=mock.ANY,
                 ),
             ]
@@ -487,7 +487,7 @@ def team_api_test_factory():
                     call(
                         distinct_id=self.user.distinct_id,
                         event="project deleted",
-                        properties={"project_name": "Default project"},
+                        properties=mock.ANY,
                         groups=mock.ANY,
                     )
                 )

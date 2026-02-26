@@ -228,6 +228,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "pinned": True,
                 "pinned_at": "2021-12-12T00:00:00+00:00",
             },
+            request=ANY,
         )
 
         # test queries
