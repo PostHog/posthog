@@ -21,7 +21,8 @@
         "types": ["node", "./worker-configuration.d.ts"],
         "baseUrl": ".",
         "paths": {
-            "@/*": ["src/*", "tests/*"]
+            "@/*": ["src/*", "tests/*"],
+            "@shared/*": ["shared/*"]
         }
     },
     "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],

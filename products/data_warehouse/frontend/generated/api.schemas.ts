@@ -55,19 +55,19 @@ export interface PatchedDataWarehouseSavedQueryDraftApi {
 }
 
 /**
- * * `Running` - Running
+ * * `Cancelled` - Cancelled
  * `Completed` - Completed
  * `Failed` - Failed
- * `Cancelled` - Cancelled
+ * `Running` - Running
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
 
 export const DataModelingJobStatusEnumApi = {
-    Running: 'Running',
+    Cancelled: 'Cancelled',
     Completed: 'Completed',
     Failed: 'Failed',
-    Cancelled: 'Cancelled',
+    Running: 'Running',
 } as const
 
 export interface DataModelingJobApi {
@@ -102,9 +102,9 @@ export interface PaginatedDataModelingJobListApi {
 export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
 
 export const SyncTypeEnumApi = {
-    full_refresh: 'full_refresh',
-    incremental: 'incremental',
-    append: 'append',
+    FullRefresh: 'full_refresh',
+    Incremental: 'incremental',
+    Append: 'append',
 } as const
 
 /**
@@ -286,10 +286,11 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Brevo` - Brevo
  * `Postmark` - Postmark
  * `Granola` - Granola
+ * `BuildBetter` - BuildBetter
  */
-export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
+export type SourceTypeE09EnumApi = (typeof SourceTypeE09EnumApi)[keyof typeof SourceTypeE09EnumApi]
 
-export const SourceTypeEnumApi = {
+export const SourceTypeE09EnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -302,7 +303,7 @@ export const SourceTypeEnumApi = {
     Salesforce: 'Salesforce',
     MySQL: 'MySQL',
     MongoDB: 'MongoDB',
-    MSSQL: 'MSSQL',
+    Mssql: 'MSSQL',
     Vitally: 'Vitally',
     BigQuery: 'BigQuery',
     Chargebee: 'Chargebee',
@@ -405,7 +406,7 @@ export const SourceTypeEnumApi = {
     OneDrive: 'OneDrive',
     SharePoint: 'SharePoint',
     Box: 'Box',
-    SFTP: 'SFTP',
+    Sftp: 'SFTP',
     MicrosoftTeams: 'MicrosoftTeams',
     Aircall: 'Aircall',
     Webflow: 'Webflow',
@@ -429,6 +430,7 @@ export const SourceTypeEnumApi = {
     Brevo: 'Brevo',
     Postmark: 'Postmark',
     Granola: 'Granola',
+    BuildBetter: 'BuildBetter',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -447,7 +449,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeEnumApi
+    readonly source_type: SourceTypeE09EnumApi
     readonly latest_error: string
     /** @nullable */
     readonly prefix: string | null
@@ -487,7 +489,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeEnumApi
+    readonly source_type?: SourceTypeE09EnumApi
     readonly latest_error?: string
     /** @nullable */
     readonly prefix?: string | null
@@ -509,7 +511,7 @@ export interface PatchedExternalDataSourceSerializersApi {
 
 export interface QueryTabStateApi {
     readonly id: string
-    /** 
+    /**
             Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
             and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
@@ -529,7 +531,7 @@ export interface PaginatedQueryTabStateListApi {
 
 export interface PatchedQueryTabStateApi {
     readonly id?: string
-    /** 
+    /**
             Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
             and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
@@ -551,14 +553,14 @@ export interface PatchedQueryTabStateApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -645,9 +647,9 @@ export const StatusD5cEnumApi = {
 export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
 
 export const OriginEnumApi = {
-    data_warehouse: 'data_warehouse',
-    endpoint: 'endpoint',
-    managed_viewset: 'managed_viewset',
+    DataWarehouse: 'data_warehouse',
+    Endpoint: 'endpoint',
+    ManagedViewset: 'managed_viewset',
 } as const
 
 /**
@@ -795,7 +797,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
 
 export const TableFormatEnumApi = {
-    CSV: 'CSV',
+    Csv: 'CSV',
     CSVWithNames: 'CSVWithNames',
     Parquet: 'Parquet',
     JSONEachRow: 'JSONEachRow',
@@ -819,7 +821,7 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeEnumApi
+    readonly source_type: SourceTypeE09EnumApi
 }
 
 export interface TableApi {

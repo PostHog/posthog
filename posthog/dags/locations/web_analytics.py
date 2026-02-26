@@ -17,6 +17,7 @@ from . import resources
 schedules = [
     web_preaggregated.web_pre_aggregate_historical_schedule,
     web_preaggregated.web_pre_aggregate_current_day_schedule,
+    web_preaggregated_team_selection.web_analytics_team_candidates_schedule,
     cache_warming.web_analytics_cache_warming_schedule,
     cache_favicons.cache_authorized_domain_favicons_schedule,
 ]
@@ -29,6 +30,7 @@ if not TEST:
 defs = dagster.Definitions(
     assets=[
         web_preaggregated_team_selection.web_analytics_team_selection,
+        web_preaggregated_team_selection.web_analytics_high_volume_team_candidates,
         web_preaggregated.web_pre_aggregated_bounces,
         web_preaggregated.web_pre_aggregated_stats,
         web_pre_aggregated_accuracy.web_pre_aggregated_accuracy,
@@ -40,6 +42,7 @@ defs = dagster.Definitions(
     ],
     jobs=[
         web_preaggregated.web_pre_aggregate_job,
+        web_preaggregated_team_selection.web_analytics_team_candidates_job,
         cache_warming.web_analytics_cache_warming_job,
         cache_favicons.cache_authorized_domain_favicons_job,
     ],

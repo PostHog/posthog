@@ -40,10 +40,10 @@ impl RawRequest {
     /// Instead of trusting the parameter, we peek at the payload's first three bytes to
     /// detect gzip, fallback to uncompressed utf8 otherwise.
     #[instrument(skip_all, fields(request_id, compression, is_mirror_deploy))]
-    pub fn from_bytes<'a>(
+    pub fn from_bytes(
         bytes: Bytes,
         cmp_hint: Compression,
-        request_id: &'a str,
+        request_id: &str,
         limit: usize,
         path: String,
     ) -> Result<RawRequest, CaptureError> {

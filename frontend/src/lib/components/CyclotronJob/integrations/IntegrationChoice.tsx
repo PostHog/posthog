@@ -4,14 +4,15 @@ import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
+
 // Side-effect import: register all integration setups
 import './integrationSetups'
 
@@ -89,7 +90,13 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               ...(integrationsOfKind?.map((integ) => ({
-                                  icon: <img src={integ.icon_url} className="w-6 h-6 rounded" />,
+                                  icon: (
+                                      <img
+                                          src={integ.icon_url}
+                                          alt={`${integ.display_name} icon`}
+                                          className="w-6 h-6 rounded"
+                                      />
+                                  ),
                                   onClick: () => onChange?.(integ.id),
                                   active: integ.id === value,
                                   label: integ.display_name,

@@ -160,6 +160,17 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
     -m hogli.core.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
 fi
 
+# Generate hogli man page into the active environment so `man hogli` works.
+HOGLI_MANPAGE_DIR="$UV_PROJECT_ENVIRONMENT/share/man/man1"
+if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+  (
+    mkdir -p "$HOGLI_MANPAGE_DIR"
+    PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
+      "$FLOX_ENV_PROJECT/common/hogli/scripts/generate_man_page.py" \
+      --output "$HOGLI_MANPAGE_DIR/hogli.1" >/dev/null 2>&1
+  ) || true
+fi
+
 # ── Step 2: Node packages ──────────────────────────────────────────
 run_step "Node packages" pnpm install
 

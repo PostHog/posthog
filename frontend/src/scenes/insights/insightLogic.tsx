@@ -278,8 +278,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           query: null,
                       },
             setInsight: (state, { insight }) => {
-                // Preserve the user-edited name when loading new data
-                if (!insight.name && state.name) {
+                // Preserve the user-edited name when loading new data for the same insight,
+                // but not when switching to a brand new insight
+                const isSameInsight = insight.short_id && insight.short_id === state.short_id
+                if (!insight.name && state.name && isSameInsight) {
                     return {
                         ...insight,
                         name: state.name,
@@ -564,7 +566,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             if (isTrendsQuery(query)) {
                 tasksToComplete.push(SetupTaskId.ExploreTrendsInsight)
             } else if (isFunnelsQuery(query)) {
-                tasksToComplete.push(SetupTaskId.ExploreFunnelInsight)
+                tasksToComplete.push(SetupTaskId.CreateFunnel)
             } else if (isRetentionQuery(query)) {
                 tasksToComplete.push(SetupTaskId.ExploreRetentionInsight)
             } else if (isPathsQuery(query)) {

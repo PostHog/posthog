@@ -1,11 +1,10 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { Properties } from '@posthog/plugin-scaffold'
-
 import { KafkaProducerWrapper } from '~/kafka/producer'
+import { Properties } from '~/plugin-scaffold'
 
-import { GroupTypeIndex, Hub, TeamId } from '../../../types'
+import { GroupTypeIndex, TeamId } from '../../../types'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
@@ -25,8 +24,6 @@ import {
 import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repository'
 import { GroupRepositoryTransaction } from './repositories/group-repository-transaction.interface'
 import { GroupRepository } from './repositories/group-repository.interface'
-
-export type GroupHub = Pick<Hub, 'kafkaProducer' | 'groupRepository' | 'clickhouseGroupRepository'>
 
 class GroupCache {
     private cache: Map<string, GroupUpdate | null>
@@ -142,13 +139,18 @@ export class BatchWritingGroupStore implements GroupStore {
     private groupRepository: GroupRepository
     private clickhouseGroupRepository: ClickhouseGroupRepository
 
-    constructor(groupHub: GroupHub, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        kafkaProducer: KafkaProducerWrapper,
+        groupRepository: GroupRepository,
+        clickhouseGroupRepository: ClickhouseGroupRepository,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()
-        this.kafkaProducer = groupHub.kafkaProducer
-        this.groupRepository = groupHub.groupRepository
-        this.clickhouseGroupRepository = groupHub.clickhouseGroupRepository
+        this.kafkaProducer = kafkaProducer
+        this.groupRepository = groupRepository
+        this.clickhouseGroupRepository = clickhouseGroupRepository
     }
 
     getGroupCache(): GroupCache {
