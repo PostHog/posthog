@@ -1,0 +1,8 @@
+version: v2
+plugins:
+    - protoc_builtin: python
+      out: ../posthog/personhog_client/proto/generated
+    - protoc_builtin: pyi
+      out: ../posthog/personhog_client/proto/generated
+    - protoc_builtin: grpc_python
+      out: ../posthog/personhog_client/proto/generated
