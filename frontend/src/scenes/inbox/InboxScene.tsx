@@ -28,8 +28,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { inboxSceneLogic } from './inboxSceneLogic'
-import { SourcesModal } from './SourcesModal'
 import { signalSourcesLogic } from './signalSourcesLogic'
+import { SourcesModal } from './SourcesModal'
 import { SignalReport, SignalReportArtefact } from './types'
 
 export const scene: SceneExport = {

@@ -1,9 +1,11 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { RecordingUniversalFilters } from '~/types'
 
@@ -195,7 +197,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
 
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadSourceConfigs()
+            if (posthog.isFeatureEnabled(FEATURE_FLAGS.PRODUCT_AUTONOMY)) {
+                // The condition allows us to safely mount this logic for user without the product autonomy feature flag
+                // without needlessly loading the source configs
+                actions.loadSourceConfigs()
+            }
         },
     })),
 ])
