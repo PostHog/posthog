@@ -110,8 +110,8 @@ def refresh_oauth_token(
     try:
         resp = requests.post(token_url, data=data, timeout=TIMEOUT)
         resp.raise_for_status()
-    except requests.RequestException as e:
-        raise TokenRefreshError(f"Token refresh request failed: {e}") from e
+    except requests.RequestException:
+        raise TokenRefreshError("Token refresh request failed")
 
     token_data = resp.json()
     if "access_token" not in token_data:
