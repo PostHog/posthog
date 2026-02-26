@@ -248,12 +248,12 @@ class TestDeleteRecordings:
 
         mock_session.post = MagicMock(return_value=mock_response)
 
-        result = await client.delete_recordings(["s1", "s2"], 1)
+        result = await client.delete_recordings(["s1", "s2"], 1, deleted_by="test@posthog.com")
 
         assert result == []
         mock_session.post.assert_called_once_with(
             "http://localhost:6740/api/projects/1/recordings/delete",
-            json={"session_ids": ["s1", "s2"], "deleted_by": ""},
+            json={"session_ids": ["s1", "s2"], "deleted_by": "test@posthog.com"},
         )
 
     @pytest.mark.asyncio
@@ -272,7 +272,7 @@ class TestDeleteRecordings:
 
         mock_session.post = MagicMock(return_value=mock_response)
 
-        result = await client.delete_recordings(["s1", "s2"], 1)
+        result = await client.delete_recordings(["s1", "s2"], 1, deleted_by="test@posthog.com")
 
         assert result == ["s2"]
 
@@ -292,7 +292,7 @@ class TestDeleteRecordings:
 
         mock_session.post = MagicMock(return_value=mock_response)
 
-        result = await client.delete_recordings(["s1", "s2"], 1)
+        result = await client.delete_recordings(["s1", "s2"], 1, deleted_by="test@posthog.com")
 
         assert result == ["s1", "s2"]
 
