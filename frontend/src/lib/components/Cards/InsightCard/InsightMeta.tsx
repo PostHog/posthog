@@ -263,12 +263,12 @@ export function InsightMeta({
                     loadingQueued={loadingQueued}
                     tags={insight.tags}
                     compact={compact}
-                    showDescription={!!tile?.show_description}
+                    showDescription={tile?.show_description !== false}
                 />
             }
             metaTitle={name}
             metaDescription={
-                insight.description && !tile?.show_description ? (
+                insight.description && tile?.show_description === false ? (
                     <LemonMarkdown className="text-xs" lowKeyHeadings>
                         {insight.description}
                     </LemonMarkdown>
@@ -334,7 +334,7 @@ export function InsightMeta({
                             <LemonDivider />
                             {toggleShowDescription && !!insight.description && (
                                 <LemonButton onClick={toggleShowDescription} fullWidth>
-                                    {tile?.show_description ? 'Hide description' : 'Show description'}
+                                    {tile?.show_description === false ? 'Show description' : 'Hide description'}
                                 </LemonButton>
                             )}
                             {updateColor && (
