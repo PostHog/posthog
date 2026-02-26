@@ -702,6 +702,145 @@ FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementC
 )
 
 
+def verify_team_flag_definitions(
+    team: Team,
+    db_batch_data: dict | None = None,
+    cache_batch_data: dict | None = None,
+    include_cohorts: bool = True,
+    verbose: bool = False,
+) -> dict:
+    """
+    Verify a team's flag definitions cache against the database.
+
+    Args:
+        team: Team to verify
+        db_batch_data: Pre-loaded DB data from batch_load_fn (keyed by team.id)
+        cache_batch_data: Pre-loaded cache data from batch_get_from_cache (keyed by team.id)
+        include_cohorts: Which cache variant to verify (True for with-cohorts, False for without)
+        verbose: If True, include detailed diffs
+
+    Returns:
+        Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
+    """
+    hypercache = flag_definitions_hypercache if include_cohorts else flag_definitions_without_cohorts_hypercache
+
+    # Get cached data - use pre-loaded batch data if available
+    if cache_batch_data and team.id in cache_batch_data:
+        cached_data, source = cache_batch_data[team.id]
+    else:
+        cached_data, source = hypercache.get_from_cache_with_source(team)
+
+    # Get flag definitions from database
+    if db_batch_data and team.id in db_batch_data:
+        db_data = db_batch_data[team.id]
+    else:
+        db_data = _get_flags_response_for_local_evaluation(team, include_cohorts)
+
+    db_flags = db_data.get("flags", []) if isinstance(db_data, dict) else []
+
+    # Cache miss (source="db" or "miss" means data was not found in cache)
+    if source in ("db", "miss"):
+        return {
+            "status": "miss",
+            "issue": "CACHE_MISS",
+            "details": f"No cache entry found (team has {len(db_flags)} flags in DB)",
+        }
+
+    # Extract cached flags
+    cached_flags = cached_data.get("flags", []) if cached_data else []
+
+    # Compare flags by key (flag definitions use key as primary identifier)
+    db_flags_by_key = {flag.get("key"): flag for flag in db_flags}
+    cached_flags_by_key = {flag.get("key"): flag for flag in cached_flags}
+
+    diffs = []
+
+    # Find missing flags (in DB but not in cache)
+    for flag_key in db_flags_by_key:
+        if flag_key not in cached_flags_by_key:
+            diffs.append(
+                {
+                    "type": "MISSING_IN_CACHE",
+                    "flag_key": flag_key,
+                }
+            )
+
+    # Find stale flags (in cache but not in DB)
+    for flag_key in cached_flags_by_key:
+        if flag_key not in db_flags_by_key:
+            diffs.append(
+                {
+                    "type": "STALE_IN_CACHE",
+                    "flag_key": flag_key,
+                }
+            )
+
+    # Compare field values for flags that exist in both
+    for flag_key in db_flags_by_key:
+        if flag_key in cached_flags_by_key:
+            db_flag = db_flags_by_key[flag_key]
+            cached_flag = cached_flags_by_key[flag_key]
+            if db_flag != cached_flag:
+                field_diffs = _compare_flag_definition_fields(db_flag, cached_flag)
+                diff: dict = {
+                    "type": "FIELD_MISMATCH",
+                    "flag_key": flag_key,
+                    "diff_fields": [f["field"] for f in field_diffs],
+                }
+                if verbose:
+                    diff["field_diffs"] = field_diffs
+                diffs.append(diff)
+
+    # Also compare cohorts and group_type_mapping
+    if cached_data and db_data:
+        if cached_data.get("cohorts") != db_data.get("cohorts"):
+            diffs.append({"type": "COHORTS_MISMATCH", "flag_key": "cohorts"})
+        if cached_data.get("group_type_mapping") != db_data.get("group_type_mapping"):
+            diffs.append({"type": "GROUP_TYPE_MAPPING_MISMATCH", "flag_key": "group_type_mapping"})
+
+    if not diffs:
+        return {"status": "match", "issue": "", "details": ""}
+
+    # Summarize diffs
+    missing_count = sum(1 for d in diffs if d.get("type") == "MISSING_IN_CACHE")
+    stale_count = sum(1 for d in diffs if d.get("type") == "STALE_IN_CACHE")
+    mismatch_count = sum(1 for d in diffs if d.get("type") == "FIELD_MISMATCH")
+
+    summary_parts = []
+    if missing_count > 0:
+        summary_parts.append(f"{missing_count} missing")
+    if stale_count > 0:
+        summary_parts.append(f"{stale_count} stale")
+    if mismatch_count > 0:
+        summary_parts.append(f"{mismatch_count} mismatched")
+
+    result: dict = {
+        "status": "mismatch",
+        "issue": "DATA_MISMATCH",
+        "details": f"{', '.join(summary_parts)} flags" if summary_parts else "unknown differences",
+    }
+
+    if verbose:
+        result["diffs"] = diffs
+
+    return result
+
+
+def _compare_flag_definition_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
+    """Compare field values between DB and cached versions of a flag."""
+    field_diffs = []
+    all_keys = set(db_flag.keys()) | set(cached_flag.keys())
+
+    for key in all_keys:
+        db_val = db_flag.get(key)
+        cached_val = cached_flag.get(key)
+
+        if db_val != cached_val:
+            field_diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
+
+    return field_diffs
+
+
 # NOTE: All models that affect feature flag evaluation should have a signal to update the cache
 # GroupTypeMapping excluded as it's primarily managed by Node.js plugin-server
 
