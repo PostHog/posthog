@@ -13,41 +13,4 @@ class Migration(migrations.Migration):
             model_name="edge",
             name="unique_within_dag",
         ),
-        migrations.RemoveConstraint(
-            model_name="node",
-            name="saved_query_unique_within_team_dag",
-        ),
-        migrations.RemoveConstraint(
-            model_name="node",
-            name="name_unique_within_team_dag_for_tables",
-        ),
-        # db column is made nullable and given a default to avoid failures on insert
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.RemoveField(
-                    model_name="edge",
-                    name="dag_id",
-                ),
-            ],
-            database_operations=[
-                migrations.RunSQL(
-                    sql='ALTER TABLE "posthog_datamodelingedge" ALTER COLUMN "dag_id" SET DEFAULT \'posthog\', ALTER COLUMN "dag_id" DROP NOT NULL;',
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
-            ],
-        ),
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.RemoveField(
-                    model_name="node",
-                    name="dag_id",
-                ),
-            ],
-            database_operations=[
-                migrations.RunSQL(
-                    sql='ALTER TABLE "posthog_datamodelingnode" ALTER COLUMN "dag_id" SET DEFAULT \'posthog\', ALTER COLUMN "dag_id" DROP NOT NULL;',
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
-            ],
-        ),
     ]
