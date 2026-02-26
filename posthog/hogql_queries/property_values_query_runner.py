@@ -1,12 +1,15 @@
 import json
 import uuid
 from datetime import datetime
-from enum import StrEnum
-from typing import Any, Literal, Optional, cast
+from typing import Optional, cast
 
-from pydantic import BaseModel
-
-from posthog.schema import GenericCachedQueryResponse, HogQLQueryModifiers, QueryStatus, QueryTiming
+from posthog.schema import (
+    CachedPropertyValuesQueryResponse,
+    PropertyType,
+    PropertyValueItem,
+    PropertyValuesQuery,
+    PropertyValuesQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -17,40 +20,6 @@ from posthog.caching.utils import (
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import convert_property_value, flatten, relative_date_parse
-
-
-class PropertyType(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-
-
-class PropertyValuesQuery(BaseModel):
-    kind: Literal["PropertyValuesQuery"] = "PropertyValuesQuery"
-    property_type: PropertyType
-    property_key: str
-    search_value: Optional[str] = None
-    event_names: Optional[list[str]] = None
-    is_column: bool = False
-
-
-class PropertyValueItem(BaseModel):
-    name: Any
-    count: Optional[int] = None
-
-
-class PropertyValuesQueryResponse(BaseModel):
-    results: list[PropertyValueItem]
-    timings: Optional[list[QueryTiming]] = None
-    hogql: Optional[str] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
-    query_status: Optional[QueryStatus] = None
-
-
-class CachedPropertyValuesQueryResponse(GenericCachedQueryResponse):
-    results: list[PropertyValueItem]
-    timings: Optional[list[QueryTiming]] = None
-    hogql: Optional[str] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
 
 
 class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse]):
