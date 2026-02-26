@@ -32,7 +32,7 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(trim(groups.properties___arr), 'Float64') AS arr
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___arr,
@@ -91,7 +91,7 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(trim(groups.properties___arr), 'Float64') AS arr
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___arr,
@@ -102,7 +102,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.index, 0), 0), ifNull(greater(accurateCastOrNull(groups.properties___arr, 'Float64'), 100.0), 0))
+  WHERE and(ifNull(equals(groups.index, 0), 0), ifNull(greater(accurateCastOrNull(trim(groups.properties___arr), 'Float64'), 100.0), 0))
   ORDER BY groups.created_at DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
@@ -151,7 +151,7 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(trim(groups.properties___arr), 'Float64') AS arr
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___arr,
@@ -162,7 +162,7 @@
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE ifNull(equals(groups.index, 0), 0)
-  ORDER BY accurateCastOrNull(groups.properties___arr, 'Float64') DESC
+  ORDER BY accurateCastOrNull(trim(groups.properties___arr), 'Float64') DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -181,7 +181,7 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(trim(groups.properties___arr), 'Float64') AS arr
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___arr,
@@ -192,7 +192,7 @@
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE ifNull(equals(groups.index, 0), 0)
-  ORDER BY accurateCastOrNull(groups.properties___arr, 'Float64') ASC
+  ORDER BY accurateCastOrNull(trim(groups.properties___arr), 'Float64') ASC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -239,7 +239,7 @@
   '''
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
-         accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
+         accurateCastOrNull(trim(groups.properties___arr), 'Float64') AS arr
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___arr,
