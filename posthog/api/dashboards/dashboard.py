@@ -499,10 +499,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if tile_data.get("text", None):
             text_json: dict = tile_data.get("text", {})
-            created_by_json = text_json.get("created_by", None)
-            if created_by_json:
+            existing_text_id = text_json.get("id", None)
+            if existing_text_id:
                 last_modified_by = user
-                created_by = User.objects.get(id=created_by_json.get("id"))
+                existing_text = Text.objects.filter(id=existing_text_id, team_id=instance.team_id).first()
+                created_by = existing_text.created_by if existing_text else user
             else:
                 created_by = user
                 last_modified_by = None
