@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,6 +14,20 @@ use tracing::{error, info};
 
 #[cfg(test)]
 use chrono::DateTime;
+
+pub enum GlobalRateLimitKey<'a> {
+    Token(&'a str),
+    TokenDistinctId(&'a str, &'a str),
+}
+
+impl<'a> GlobalRateLimitKey<'a> {
+    pub fn to_cache_key(&self) -> Cow<'a, str> {
+        match self {
+            Self::Token(t) => Cow::Borrowed(t),
+            Self::TokenDistinctId(t, d) => Cow::Owned(format!("{t}:{d}")),
+        }
+    }
+}
 
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
@@ -34,10 +49,7 @@ impl GlobalRateLimiter {
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
-        let redis_prefix = format!(
-            "@posthog/capture/global_rate_limiter/{}",
-            config.capture_mode.as_tag()
-        );
+        let redis_prefix = format!("@posthog/capture/grl/{}", config.capture_mode.as_tag());
 
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: config.global_rate_limit_threshold,
@@ -45,6 +57,7 @@ impl GlobalRateLimiter {
             bucket_interval: Duration::from_secs(config.global_rate_limit_bucket_interval_secs),
             redis_key_prefix: redis_prefix,
             custom_keys: Self::format_custom_keys(config.global_rate_limit_overrides_csv.as_ref()),
+            local_cache_max_entries: config.global_rate_limit_local_cache_max_entries,
             ..Default::default()
         };
 
@@ -328,5 +341,33 @@ mod tests {
             vec!["is_custom_key", "check_custom_limit"],
             "must NOT call check_limit when key is registered as custom"
         );
+    }
+
+    #[test]
+    fn test_global_rate_limit_key_to_cache_key() {
+        let cases: Vec<(GlobalRateLimitKey, &str, bool)> = vec![
+            (GlobalRateLimitKey::Token("abc"), "abc", true),
+            (GlobalRateLimitKey::Token(""), "", true),
+            (
+                GlobalRateLimitKey::TokenDistinctId("abc", "xyz"),
+                "abc:xyz",
+                false,
+            ),
+            (
+                GlobalRateLimitKey::TokenDistinctId("abc", ""),
+                "abc:",
+                false,
+            ),
+        ];
+
+        for (key, expected, expect_borrowed) in cases {
+            let result = key.to_cache_key();
+            assert_eq!(&*result, expected, "key={expected}");
+            assert_eq!(
+                matches!(result, Cow::Borrowed(_)),
+                expect_borrowed,
+                "key={expected}: expected borrowed={expect_borrowed}"
+            );
+        }
     }
 }
