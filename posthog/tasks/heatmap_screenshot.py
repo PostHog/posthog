@@ -256,12 +256,14 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
             "--no-sandbox",
             "--disable-gpu",
         ]
+        proxy_config = None
         if settings.OUTBOUND_PROXY_ENABLED and settings.OUTBOUND_PROXY_URL:
-            launch_args.append(f"--proxy-server={settings.OUTBOUND_PROXY_URL}")
+            proxy_config = {"server": settings.OUTBOUND_PROXY_URL}
 
         browser = p.chromium.launch(
             headless=True,  # TIP: for debugging, set to False
             args=launch_args,
+            proxy=proxy_config,
         )
         try:
             for w in widths:
