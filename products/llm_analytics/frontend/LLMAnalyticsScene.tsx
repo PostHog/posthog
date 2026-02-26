@@ -676,6 +676,7 @@ function PlaygroundHeaderActions(): JSX.Element {
                 icon={<IconPlus />}
                 onClick={() => addPromptConfig(activePromptId ?? undefined)}
                 disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                data-attr="playground-add-prompt"
             >
                 Add prompt
             </LemonButton>

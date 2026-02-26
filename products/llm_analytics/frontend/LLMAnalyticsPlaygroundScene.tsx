@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
+import React, { useState } from 'react'
 
 import {
     IconChevronRight,
@@ -155,18 +155,19 @@ function PromptConfigsSection(): JSX.Element {
             >
                 {promptConfigs.map((prompt, index) => {
                     const isActive = prompt.id === activePromptId
-                    return [
-                        <PromptCard
-                            key={`prompt-${prompt.id}`}
-                            prompt={prompt}
-                            index={index}
-                            isActive={isActive}
-                            canRemove={promptConfigs.length > 1}
-                            onActivate={() => setActivePromptId(prompt.id)}
-                            onRemove={() => removePromptConfig(prompt.id)}
-                        />,
-                        <PromptResultCard key={`result-${prompt.id}`} item={latestItemByPromptId.get(prompt.id)} />,
-                    ]
+                    return (
+                        <React.Fragment key={prompt.id}>
+                            <PromptCard
+                                prompt={prompt}
+                                index={index}
+                                isActive={isActive}
+                                canRemove={promptConfigs.length > 1}
+                                onActivate={() => setActivePromptId(prompt.id)}
+                                onRemove={() => removePromptConfig(prompt.id)}
+                            />
+                            <PromptResultCard item={latestItemByPromptId.get(prompt.id)} />
+                        </React.Fragment>
+                    )
                 })}
             </div>
         </div>
@@ -212,6 +213,7 @@ function PromptCard({
                             noPadding
                             disabledReason={submitting ? 'Generating...' : undefined}
                             onClick={onRemove}
+                            data-attr="playground-remove-prompt"
                         />
                     </div>
                 )}
@@ -229,7 +231,7 @@ function PromptCard({
 }
 
 function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
-    const isStreaming = !!item && item.latencyMs == null && !item.error && !item.response.trim()
+    const isStreaming = !!item && item.latencyMs == null && !item.error
 
     return (
         <div className="border rounded p-4 bg-transparent h-[300px] min-w-0 flex flex-col">
@@ -488,26 +490,28 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
 
 function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { submitting } = useValues(llmAnalyticsPlaygroundLogic)
-    const { setTools } = useActions(llmAnalyticsPlaygroundLogic)
+    const { submitting, localToolsJsonByPromptId } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setTools, setLocalToolsJson } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
-    const [localToolsJson, setLocalToolsJson] = useState<string | null>(null)
+    const [jsonError, setJsonError] = useState<string | null>(null)
 
     if (!prompt) {
         return <LemonSkeleton className="h-7 w-20" />
     }
 
+    const localToolsJson = localToolsJsonByPromptId[promptId] ?? null
     const toolsJsonString = localToolsJson ?? JSON.stringify(prompt.tools ?? [], null, 2)
     const toolCount = Array.isArray(prompt.tools) ? prompt.tools.length : 0
     const hasTools = toolCount > 0
 
     const handleToolsChange = (value: string): void => {
-        setLocalToolsJson(value)
+        setLocalToolsJson(value, promptId)
         try {
             const parsedTools = JSON.parse(value)
             setTools(parsedTools, promptId)
-        } catch {
-            // Keep local invalid JSON visible while editing.
+            setJsonError(null)
+        } catch (e) {
+            setJsonError(e instanceof SyntaxError ? e.message : 'Invalid JSON')
         }
     }
 
@@ -538,7 +542,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                             status="danger"
                             onClick={() => {
                                 setTools(null, promptId)
-                                setLocalToolsJson(null)
+                                setLocalToolsJson(null, promptId)
                             }}
                             disabledReason={!prompt.tools ? 'No tools to remove' : undefined}
                         >
@@ -580,7 +584,9 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                             contextmenu: false,
                         }}
                     />
-                    <div className="text-xs text-muted">Paste or edit valid JSON tool definitions.</div>
+                    <div className={`text-xs ${jsonError ? 'text-danger' : 'text-muted'}`}>
+                        {jsonError ?? 'Paste or edit valid JSON tool definitions.'}
+                    </div>
                 </div>
             </LemonModal>
         </>
@@ -621,6 +627,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                         tooltip="Copy system prompt"
                         noPadding
                         onClick={() => void copyToClipboard(prompt.systemPrompt, 'system prompt')}
+                        data-attr="playground-copy-system-prompt"
                     />
                     {hasOtherPrompts && (
                         <LemonButton
@@ -629,6 +636,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                             tooltip="Apply this system prompt to other prompts"
                             noPadding
                             onClick={copySystemPromptToOtherPrompts}
+                            data-attr="playground-sync-system-prompt"
                         />
                     )}
                     <LemonButton
@@ -637,6 +645,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                         tooltip="Edit system prompt in modal"
                         noPadding
                         onClick={() => setShowEditModal(true)}
+                        data-attr="playground-edit-system-prompt"
                     />
                 </div>
 

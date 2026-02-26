@@ -332,6 +332,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
         setSubscriptionRequired: (required: boolean) => ({ required }),
         setActiveProviderKeyId: (id: string | null) => ({ id }),
+        setLocalToolsJson: (json: string | null, promptId?: string) => ({ json, promptId }),
     }),
 
     reducers({
@@ -372,10 +373,12 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 setMessages: (state, { messages, promptId }) =>
                     updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, messages })),
                 deleteMessage: (state, { index, promptId }) =>
-                    updatePromptConfigs(state, promptId, (prompt) => ({
-                        ...prompt,
-                        messages: prompt.messages.filter((_, i) => i !== index),
-                    })),
+                    updatePromptConfigs(state, promptId, (prompt) => {
+                        if (index < 0 || index >= prompt.messages.length) {
+                            return prompt
+                        }
+                        return { ...prompt, messages: prompt.messages.filter((_, i) => i !== index) }
+                    }),
                 addMessage: (state, { message, promptId }) =>
                     updatePromptConfigs(state, promptId, (prompt) => {
                         const defaultMessage: Message = { role: 'user', content: '' }
@@ -464,6 +467,27 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             {
                 setupPlaygroundFromEvent: (_, { payload }) => payload.model ?? null,
                 loadByokModelsSuccess: () => null,
+            },
+        ],
+        localToolsJsonByPromptId: [
+            {} as Record<string, string | null>,
+            {
+                setLocalToolsJson: (state, { json, promptId }) => {
+                    if (!promptId) {
+                        return state
+                    }
+                    return { ...state, [promptId]: json }
+                },
+                setTools: (state, { promptId }) => {
+                    if (!promptId) {
+                        return state
+                    }
+                    return { ...state, [promptId]: null }
+                },
+                removePromptConfig: (state, { promptId }) => {
+                    const { [promptId]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
     }),
