@@ -46,7 +46,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hogflow')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(hub.SITE_URL, hub.internalFetchService)
+        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(hub.internalFetchService)
     }
 
     private createHogFlowInvocation({
@@ -64,7 +64,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
     }): CyclotronJobInvocation {
         const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             team: team,
-            personId: personId,
+            personId,
             siteUrl: this.hub.SITE_URL,
         })
 
@@ -74,6 +74,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             id: new UUIDT().toString(),
             state: {
                 event: invocationGlobals.event,
+                personId,
                 actionStepCount: 0,
                 variables: defaultVariables,
             },

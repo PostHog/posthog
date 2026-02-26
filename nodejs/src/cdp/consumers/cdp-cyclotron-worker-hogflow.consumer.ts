@@ -2,6 +2,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
+import { PersonManagerPerson, PersonsManagerService } from '../services/managers/persons-manager.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -20,9 +21,11 @@ export type CdpCyclotronWorkerHogFlowHub = CdpCyclotronWorkerHub & Pick<Hub, 'te
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWorkerHogFlowHub> {
     protected name = 'CdpCyclotronWorkerHogFlow'
+    private personsByIdManager: PersonsManagerService
 
     constructor(hub: CdpCyclotronWorkerHogFlowHub) {
         super(hub, 'hogflow')
+        this.personsByIdManager = new PersonsManagerService(hub.personRepository, 'person_id')
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
@@ -65,10 +68,19 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                const dbPerson = await this.personsManager.get({
-                    teamId: hogFlow.team_id,
-                    distinctId: hogFlowInvocationState.event.distinct_id,
-                })
+                let dbPerson: PersonManagerPerson | null = null
+
+                if (hogFlowInvocationState.event?.distinct_id) {
+                    dbPerson = await this.personsManager.get({
+                        teamId: hogFlow.team_id,
+                        id: hogFlowInvocationState.event.distinct_id,
+                    })
+                } else if (hogFlowInvocationState.personId) {
+                    dbPerson = await this.personsByIdManager.get({
+                        teamId: hogFlow.team_id,
+                        id: hogFlowInvocationState.personId,
+                    })
+                }
 
                 const personDisplayName = getPersonDisplayName(
                     team,
