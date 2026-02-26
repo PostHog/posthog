@@ -388,13 +388,24 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+
+export const AnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
 export interface SentimentRequestApi {
     /**
      * @minItems 1
      * @maxItems 20
      */
     ids: string[]
-    analysis_level?: 'trace' | 'generation'
+    analysis_level?: AnalysisLevelEnumApi
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null
