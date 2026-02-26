@@ -16,38 +16,42 @@ Test dataset: 42 curated signals. Ranges from 2-4 full runs per strategy. LLM-ju
 
 **`current`** — Production baseline. Signal-to-signal matching.
 
-- `+` Good at discovering related signals, groups them aggressively
-- `-` Weak-chaining: unrelated signals chain through shared keywords (13–18 misplaced)
+- **Pros:** Good at discovering related signals, groups them aggressively
+- **Cons:** Weak-chaining: unrelated signals chain through shared keywords (13–18 misplaced)
 
 **`group_aware`** — Shows LLM full report context (all signals in group) before matching.
 
-- `+` Dramatically fewer misplaced signals (4–6 vs 13–18)
-- `-` Too conservative — over-splits into singletons, under-grouping can spike to 12
+- **Pros:** Dramatically fewer misplaced signals (4–6 vs 13–18)
+- **Cons:** Too conservative — over-splits into singletons, under-grouping can spike to 12
 
 **`verification_gate`** — Current discovery + LLM "does this fit?" verification step.
 
-- `+` Catches some weak chains with detailed explanations
-- `-` Subjective and inconsistent — actually increases weak-chain groups (3–5), still 6–10 misplaced
+- **Pros:** Catches some weak chains with detailed explanations
+- **Cons:** Subjective and inconsistent — actually increases weak-chain groups (3–5), still 6–10 misplaced
 
 **`multilink`** — Current discovery + embedding-based transitive verification (new signal must be close to multiple existing group members).
 
-- `+` Near-zero under-grouping
-- `-` Doesn't work — embeddings can't distinguish "same domain" from "same work item". Nearly identical to baseline (13–18 misplaced)
+- **Pros:** Near-zero under-grouping
+- **Cons:** Doesn't work — embeddings can't distinguish "same domain" from "same work item". Nearly identical to baseline (13–18 misplaced)
 
 **`pr_specificity` v1** — Current discovery + "can you write a specific PR title for all signals?" gate. Cold-start skip (only checks groups 2+).
 
-- `+` Novel approach: forces synthesis over subjective judgment
-- `-` Cold-start skip leaves initial weak pairings unchecked (5–6 weak-chain groups, 8–11 misplaced)
+- **Pros:** Novel approach: forces synthesis over subjective judgment
+- **Cons:** Cold-start skip leaves initial weak pairings unchecked (5–6 weak-chain groups, 8–11 misplaced)
 
 **`pr_specificity` v2** — Same gate, no cold-start skip, tighter prompt.
 
-- `+` 70–85% reduction in misplaced signals vs baseline (2–5), high coherence (3.23–4.21)
-- `-` More singletons (27–29), occasional under-grouping (1–4)
+- **Pros:** 70–85% reduction in misplaced signals vs baseline (2–5), high coherence (3.23–4.21)
+- **Cons:** More singletons (27–29), occasional under-grouping (1–4)
 
 **`pr_specificity_and_group_aware`** — Best of both: PR-specificity gate + group context in matching + title feedback loop.
 
-- `+` Highest coherence (3.78–4.50), lowest misplaced (1–2), near-zero weak-chains (0–1)
-- `-` Most singletons (29–33), under-grouping (1–3). Tradeoff: groups that DO form are high quality, but some related signals stay isolated
+- **Pros:** Highest coherence (3.78–4.50), lowest misplaced (1–2), near-zero weak-chains (0–1)
+- **Cons:** Most singletons (29–33), under-grouping (1–3). Tradeoff: groups that DO form are high quality, but some related signals stay isolated
+
+---
+
+- I expclicitly didn't test many-to-many connections and focused on DAG for simplicity and to support graph UI
 
 ## TL;DR
 
