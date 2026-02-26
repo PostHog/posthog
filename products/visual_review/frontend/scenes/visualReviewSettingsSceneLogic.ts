@@ -4,17 +4,12 @@ import { loaders } from 'kea-loaders'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { Breadcrumb } from '~/types'
 
 import { visualReviewReposCreate, visualReviewReposList, visualReviewReposPartialUpdate } from '../generated/api'
 import type { PatchedUpdateRepoRequestInputApi, RepoApi } from '../generated/api.schemas'
 import type { visualReviewSettingsSceneLogicType } from './visualReviewSettingsSceneLogicType'
-
-export interface GitHubRepo {
-    id: number
-    name: string
-    full_name: string
-}
 
 export interface RepoFormValues {
     baseline_file_paths: Record<string, string>
@@ -34,14 +29,15 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewSettingsSceneLogic']),
 
     connect(() => ({
-        values: [integrationsLogic, ['integrations', 'getGitHubRepositories']],
+        values: [integrationsLogic, ['integrations', 'getGitHubRepositoriesFull']],
+        actions: [integrationsLogic, ['loadIntegrationsSuccess']],
     })),
 
     actions({
         editRepo: (repoId: string) => ({ repoId }),
         cancelEdit: true,
         setFormField: (field: keyof RepoFormValues, value: RepoFormValues[keyof RepoFormValues]) => ({ field, value }),
-        addRepo: (githubRepo: GitHubRepo) => ({ githubRepo }),
+        addRepo: (githubRepo: GitHubRepoApi) => ({ githubRepo }),
         saveRepo: true,
     }),
 
@@ -108,26 +104,21 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
             },
         ],
         availableRepos: [
-            (s) => [s.integrations, s.getGitHubRepositories],
-            (integrations: any[] | null, getGitHubRepositories: (id: number) => string[]): GitHubRepo[] => {
-                const repos: GitHubRepo[] = []
+            (s) => [s.integrations, s.getGitHubRepositoriesFull],
+            (
+                integrations: any[] | null,
+                getGitHubRepositoriesFull: (id: number) => GitHubRepoApi[]
+            ): GitHubRepoApi[] => {
+                const repos: GitHubRepoApi[] = []
                 const githubIntegrations = integrations?.filter((i: { kind: string }) => i.kind === 'github') || []
 
                 for (const integration of githubIntegrations) {
-                    const org = integration.config?.account?.name || ''
-                    const repoNames = getGitHubRepositories(integration.id) || []
-                    for (const repoName of repoNames) {
-                        repos.push({
-                            id: 0, // GitHub numeric ID not available from list_repositories yet
-                            name: repoName,
-                            full_name: `${org}/${repoName}`,
-                        })
-                    }
+                    const integrationRepos = getGitHubRepositoriesFull(integration.id) || []
+                    repos.push(...integrationRepos)
                 }
                 return repos
             },
         ],
-        // Repos already added (by full_name) — used to filter the "add" dropdown
         existingRepoNames: [(s) => [s.repos], (repos): Set<string> => new Set(repos.map((r) => r.repo_full_name))],
         breadcrumbs: [
             () => [],
@@ -147,6 +138,12 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
     }),
 
     listeners(({ values, actions }) => ({
+        loadIntegrationsSuccess: () => {
+            const githubIntegrations = values.integrations?.filter((i: { kind: string }) => i.kind === 'github') || []
+            for (const integration of githubIntegrations) {
+                integrationsLogic.actions.loadGitHubRepositories(integration.id)
+            }
+        },
         editRepo: ({ repoId }) => {
             const repo = values.repos.find((r) => r.id === repoId)
             if (repo) {
@@ -187,11 +184,7 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
         },
     })),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         actions.loadRepos()
-        const githubIntegrations = values.integrations?.filter((i: { kind: string }) => i.kind === 'github') || []
-        for (const integration of githubIntegrations) {
-            integrationsLogic.actions.loadGitHubRepositories(integration.id)
-        }
     }),
 ])

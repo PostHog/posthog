@@ -41,10 +41,10 @@ class CreateRunInput:
 
 @dataclass(frozen=True)
 class CreateRepoInput:
-    """Input for creating a repo. Requires GitHub repo identity."""
+    """Input for creating a repo. repo_external_id resolved server-side if omitted."""
 
-    repo_external_id: int
     repo_full_name: str
+    repo_external_id: int | None = None
 
 
 @dataclass(frozen=True)

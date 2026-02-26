@@ -28,8 +28,9 @@ export interface PaginatedRepoListApi {
 }
 
 export interface CreateRepoInputApi {
-    repo_external_id: number
     repo_full_name: string
+    /** @nullable */
+    repo_external_id?: number | null
 }
 
 /**

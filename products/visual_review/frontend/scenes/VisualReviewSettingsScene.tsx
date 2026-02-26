@@ -7,11 +7,11 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { RepoApi } from '../generated/api.schemas'
-import type { GitHubRepo } from './visualReviewSettingsSceneLogic'
 import { visualReviewSettingsSceneLogic } from './visualReviewSettingsSceneLogic'
 
 export const scene: SceneExport = {
@@ -198,7 +198,7 @@ function AddRepoDropdown(): JSX.Element {
     const { addRepo } = useActions(visualReviewSettingsSceneLogic)
     const { githubRepositoriesLoading } = useValues(integrationsLogic)
 
-    const unaddedRepos = availableRepos.filter((r: GitHubRepo) => !existingRepoNames.has(r.full_name))
+    const unaddedRepos = availableRepos.filter((r: GitHubRepoApi) => !existingRepoNames.has(r.full_name))
 
     if (githubRepositoriesLoading && availableRepos.length === 0) {
         return (
@@ -212,12 +212,12 @@ function AddRepoDropdown(): JSX.Element {
         <LemonSelect
             placeholder="Add a repository..."
             loading={saving}
-            options={unaddedRepos.map((repo: GitHubRepo) => ({
+            options={unaddedRepos.map((repo: GitHubRepoApi) => ({
                 value: repo.full_name,
                 label: repo.full_name,
             }))}
             onChange={(fullName) => {
-                const repo = availableRepos.find((r: GitHubRepo) => r.full_name === fullName)
+                const repo = availableRepos.find((r: GitHubRepoApi) => r.full_name === fullName)
                 if (repo) {
                     addRepo(repo)
                 }

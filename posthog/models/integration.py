@@ -1827,7 +1827,7 @@ class GitHubIntegration:
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def list_repositories(self, page: int = 1) -> list[str]:
+    def list_repositories(self, page: int = 1) -> list[dict]:
         # Proactively refresh token if it's close to expiring to avoid intermittent 401s
         try:
             if self.access_token_expired():
@@ -1868,10 +1868,18 @@ class GitHubIntegration:
 
         repositories = body.get("repositories")
         if response.status_code == 200 and isinstance(repositories, list):
-            names: list[str] = [
-                repo["name"] for repo in repositories if isinstance(repo, dict) and isinstance(repo.get("name"), str)
+            return [
+                {
+                    "id": repo["id"],
+                    "name": repo["name"],
+                    "full_name": repo["full_name"],
+                }
+                for repo in repositories
+                if isinstance(repo, dict)
+                and isinstance(repo.get("id"), int)
+                and isinstance(repo.get("name"), str)
+                and isinstance(repo.get("full_name"), str)
             ]
-            return names
 
         logger.warning(
             "GitHubIntegration: failed to list repositories",
