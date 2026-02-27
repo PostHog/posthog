@@ -960,7 +960,14 @@ class SelectQuery(Expr):
         )
 
 
-SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
+SetOperator = Literal[
+    "UNION ALL",
+    "UNION DISTINCT",
+    "INTERSECT",
+    "INTERSECT ALL",
+    "INTERSECT DISTINCT",
+    "EXCEPT",
+]
 
 
 @dataclass(kw_only=True)
