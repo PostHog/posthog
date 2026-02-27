@@ -13,7 +13,7 @@ const MOCK_MODEL_OPTIONS: ModelOption[] = [
     { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Anthropic', description: '' },
 ]
 
-const DEFAULT_MODEL = 'gpt-4.1'
+const DEFAULT_MODEL = 'gpt-5-mini'
 
 describe('llmAnalyticsPlaygroundLogic', () => {
     let logic: ReturnType<typeof llmAnalyticsPlaygroundLogic.build>
@@ -361,24 +361,6 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             logic.actions.updateMessage(10, { content: 'Should not update' })
             expect(logic.values.messages).toEqual(originalMessages)
         })
-
-        it('should add response to history only when content exists', () => {
-            logic.actions.setMessages([{ role: 'user', content: 'Question' }])
-
-            logic.actions.addResponseToHistory('Assistant response')
-
-            expect(logic.values.messages).toEqual([
-                { role: 'user', content: 'Question' },
-                { role: 'assistant', content: 'Assistant response' },
-            ])
-
-            // Should not add empty responses
-            logic.actions.addResponseToHistory('')
-            expect(logic.values.messages).toHaveLength(2)
-
-            logic.actions.addResponseToHistory(null as any)
-            expect(logic.values.messages).toHaveLength(2)
-        })
     })
 
     describe('effectiveModelOptions', () => {
@@ -619,6 +601,20 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             expect(logic.values.messages[1].content).toContain('["array","content"]')
         })
 
+        it('should extract plain text from trace-style content arrays', () => {
+            const input = [
+                { role: 'user', content: [{ text: 'hi', type: 'text' }] },
+                { role: 'assistant', content: [{ text: 'PART 1/2: Let me check that.', type: 'text' }] },
+            ]
+
+            logic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(logic.values.messages).toEqual([
+                { role: 'user', content: 'hi' },
+                { role: 'assistant', content: 'PART 1/2: Let me check that.' },
+            ])
+        })
+
         it('should reset to default system prompt when none provided', () => {
             logic.actions.setSystemPrompt('Custom prompt')
 
@@ -640,6 +636,178 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             })
 
             expect(logic.values.model).toBe('claude-3-opus')
+        })
+    })
+
+    describe('Multi-prompt state management', () => {
+        it('should start with a single prompt config', () => {
+            expect(logic.values.promptConfigs).toHaveLength(1)
+            expect(logic.values.activePromptId).toBe(logic.values.promptConfigs[0].id)
+        })
+
+        it('should duplicate the source prompt when adding a new prompt', () => {
+            const originalPrompt = logic.values.promptConfigs[0]
+            logic.actions.setSystemPrompt('Custom system prompt')
+            logic.actions.addMessage({ role: 'user', content: 'Hello' })
+
+            logic.actions.addPromptConfig(originalPrompt.id)
+
+            expect(logic.values.promptConfigs).toHaveLength(2)
+            const newPrompt = logic.values.promptConfigs[1]
+            expect(newPrompt.id).not.toBe(originalPrompt.id)
+            expect(newPrompt.systemPrompt).toBe('Custom system prompt')
+            expect(newPrompt.messages).toEqual([{ role: 'user', content: 'Hello' }])
+        })
+
+        it('should set activePromptId to the new prompt on add', () => {
+            const originalId = logic.values.promptConfigs[0].id
+            logic.actions.addPromptConfig(originalId)
+
+            const newPrompt = logic.values.promptConfigs[1]
+            expect(logic.values.activePromptId).toBe(newPrompt.id)
+        })
+
+        it('should fall back to last prompt when no sourcePromptId provided', () => {
+            logic.actions.addPromptConfig()
+
+            expect(logic.values.promptConfigs).toHaveLength(2)
+        })
+
+        it('should remove a prompt config', () => {
+            const firstId = logic.values.promptConfigs[0].id
+            logic.actions.addPromptConfig(firstId)
+            expect(logic.values.promptConfigs).toHaveLength(2)
+
+            const secondId = logic.values.promptConfigs[1].id
+            logic.actions.removePromptConfig(secondId)
+
+            expect(logic.values.promptConfigs).toHaveLength(1)
+            expect(logic.values.promptConfigs[0].id).toBe(firstId)
+        })
+
+        it('should not allow removing the last prompt config', () => {
+            const onlyId = logic.values.promptConfigs[0].id
+            logic.actions.removePromptConfig(onlyId)
+
+            expect(logic.values.promptConfigs).toHaveLength(1)
+        })
+
+        it('should switch activePromptId when the active prompt is removed', () => {
+            const firstId = logic.values.promptConfigs[0].id
+            logic.actions.addPromptConfig(firstId)
+            const secondId = logic.values.promptConfigs[1].id
+
+            // Second prompt is active after add
+            expect(logic.values.activePromptId).toBe(secondId)
+
+            logic.actions.removePromptConfig(secondId)
+
+            // Should fall back to first prompt
+            expect(logic.values.activePromptId).toBe(firstId)
+        })
+
+        it('should not change activePromptId when a non-active prompt is removed', () => {
+            const firstId = logic.values.promptConfigs[0].id
+            logic.actions.addPromptConfig(firstId)
+            const secondId = logic.values.promptConfigs[1].id
+
+            // Switch back to first prompt
+            logic.actions.setActivePromptId(firstId)
+            expect(logic.values.activePromptId).toBe(firstId)
+
+            logic.actions.removePromptConfig(secondId)
+
+            expect(logic.values.activePromptId).toBe(firstId)
+        })
+
+        it('should target the first prompt when no promptId provided to setModel', () => {
+            const firstPrompt = logic.values.promptConfigs[0]
+            logic.actions.addPromptConfig(firstPrompt.id)
+
+            logic.actions.setModel('claude-3-opus')
+
+            // Should update the first prompt (default target)
+            expect(logic.values.promptConfigs[0].model).toBe('claude-3-opus')
+        })
+
+        it('should target a specific prompt when promptId is provided', () => {
+            const firstId = logic.values.promptConfigs[0].id
+            logic.actions.addPromptConfig(firstId)
+            const secondId = logic.values.promptConfigs[1].id
+
+            logic.actions.setSystemPrompt('Prompt 2 system', secondId)
+
+            expect(logic.values.promptConfigs[0].systemPrompt).not.toBe('Prompt 2 system')
+            expect(logic.values.promptConfigs[1].systemPrompt).toBe('Prompt 2 system')
+        })
+    })
+
+    describe('Comparison items', () => {
+        it('should start with empty comparison items', () => {
+            expect(logic.values.comparisonItems).toEqual([])
+        })
+
+        it('should add items to comparison', () => {
+            const item = {
+                id: 'test-1',
+                promptId: 'prompt-1',
+                model: 'gpt-5',
+                systemPrompt: 'test',
+                requestMessages: [],
+                response: 'Hello',
+            }
+
+            logic.actions.addToComparison(item)
+
+            expect(logic.values.comparisonItems).toHaveLength(1)
+            expect(logic.values.comparisonItems[0]).toEqual(item)
+        })
+
+        it('should update a comparison item by id', () => {
+            const item = {
+                id: 'test-1',
+                promptId: 'prompt-1',
+                model: 'gpt-5',
+                systemPrompt: 'test',
+                requestMessages: [],
+                response: '',
+            }
+
+            logic.actions.addToComparison(item)
+            logic.actions.updateComparisonItem('test-1', { response: 'Updated response' })
+
+            expect(logic.values.comparisonItems[0].response).toBe('Updated response')
+        })
+
+        it('should clear comparison items on submitPrompt', () => {
+            logic.actions.addToComparison({
+                id: 'test-1',
+                promptId: 'prompt-1',
+                model: 'gpt-5',
+                systemPrompt: 'test',
+                requestMessages: [],
+                response: 'old response',
+            })
+
+            expect(logic.values.comparisonItems).toHaveLength(1)
+
+            logic.actions.submitPrompt()
+
+            expect(logic.values.comparisonItems).toEqual([])
+        })
+    })
+
+    describe('deleteMessage bounds check', () => {
+        it.each([
+            { index: -1, description: 'negative index' },
+            { index: 5, description: 'out-of-bounds index' },
+        ])('should not modify messages with $description', ({ index }) => {
+            logic.actions.setMessages([{ role: 'user', content: 'Only message' }])
+
+            logic.actions.deleteMessage(index)
+
+            expect(logic.values.messages).toHaveLength(1)
+            expect(logic.values.messages[0].content).toBe('Only message')
         })
     })
 })

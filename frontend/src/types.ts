@@ -327,15 +327,7 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
-    notification_settings: {
-        plugin_disabled: boolean
-        project_weekly_digest_disabled: Record<number, boolean>
-        all_weekly_digest_disabled: boolean
-        error_tracking_issue_assigned: boolean
-        error_tracking_weekly_digest: boolean
-        discussions_mentioned: boolean
-        data_pipeline_error_threshold?: number
-    }
+    notification_settings: NotificationSettings
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -399,6 +391,7 @@ export interface NotificationSettings {
     all_weekly_digest_disabled: boolean
     error_tracking_issue_assigned: boolean
     error_tracking_weekly_digest: boolean
+    error_tracking_weekly_digest_project_enabled?: Record<string, boolean>
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
@@ -2191,6 +2184,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
         message: string
     }
     filters_overrides?: TileFilters
+    show_description?: boolean | null
 }
 
 export interface DashboardTileBasicType {

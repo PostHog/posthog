@@ -348,7 +348,11 @@ export function SupportSettingsScene(): JSX.Element {
             </SceneSection>
             {currentTeam?.conversations_enabled && (
                 <>
-                    <SceneSection title="Notifications" className="mt-4">
+                    <SceneSection
+                        title="Notifications"
+                        className="mt-4"
+                        description="We recommend using workflows to set custom notifications, e.g. when a new ticket is created or a new message is received."
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>
