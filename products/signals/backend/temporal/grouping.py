@@ -921,6 +921,8 @@ async def _process_signal_batch(
     within a batch.
     """
     team_id = batch[0].team_id
+    # Purely defensive
+    assert all(signal.team_id == team_id for signal in batch)
     dropped = 0
 
     # === PARALLEL PHASE (steps 1-4) ===
@@ -1236,26 +1238,3 @@ class TeamSignalGroupingWorkflow:
                         pending_signals=list(self._signal_buffer),
                     )
                 )
-
-
-@temporalio.workflow.defn(name="emit-signal")
-class EmitSignalWorkflow:
-    """
-    Legacy one-shot workflow for processing a single signal.
-
-    Kept temporarily for in-flight workflows during migration to TeamSignalGroupingWorkflow.
-    Will be removed once all existing executions have completed.
-    """
-
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> EmitSignalInputs:
-        loaded = json.loads(inputs[0])
-        return EmitSignalInputs(**loaded)
-
-    @staticmethod
-    def workflow_id_for(team_id: int, source_product: str, source_type: str, source_id: str) -> str:
-        return f"{team_id}:{source_product}:{source_type}:{source_id}"
-
-    @temporalio.workflow.run
-    async def run(self, inputs: EmitSignalInputs) -> str:
-        return await _process_one_signal(inputs)
