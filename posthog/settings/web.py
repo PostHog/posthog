@@ -56,6 +56,7 @@ PRODUCTS_APPS = [
     "products.workflows.backend.apps.WorkflowsConfig",
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
+    "products.event_definitions.backend.apps.EventDefinitionsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -352,6 +353,7 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
+    "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
@@ -430,6 +432,12 @@ PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
 
 ####
 # Proxy and IP egress config
+
+# CONNECT proxy for outbound HTTP — blocks connections to private IPs at the network level (SSRF prevention).
+# Only configured on clients making external/user-controlled requests;
+# internal service-to-service calls bypass the proxy by simply not configuring it.
+OUTBOUND_PROXY_URL = get_from_env("OUTBOUND_PROXY_URL", "")  # e.g. http://proxy:8080
+OUTBOUND_PROXY_ENABLED = get_from_env("OUTBOUND_PROXY_ENABLED", False, type_cast=str_to_bool)
 
 # Used only to display in the UI to inform users of allowlist options
 PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))

@@ -124,6 +124,8 @@ export const validateQuery = (q: DataNode): boolean => {
 }
 
 const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
+    [ChartDisplayType.Auto]: ChartDisplayType.ActionsLineGraph,
+
     // time series
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,

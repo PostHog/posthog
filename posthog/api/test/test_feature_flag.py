@@ -467,7 +467,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=50,
             name="some feature",
             key="some-feature",
             created_by=self.user,
@@ -529,6 +528,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -565,6 +567,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -594,7 +599,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_create_minimal_feature_flag(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "omega-feature"},
+            {
+                "key": "omega-feature",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -609,7 +617,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
-                "groups_count": 1,  # 1 is always created by default
+                "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
@@ -620,6 +628,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -632,7 +643,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "api-created-feature"},
+            {
+                "key": "api-created-feature",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
             format="json",
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
@@ -654,6 +668,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "api",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -849,6 +866,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "payload_count": 0,
                 "creation_context": "feature_flags",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -1150,6 +1170,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -1888,6 +1912,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
@@ -2776,6 +2804,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
+        # Query count should stay constant regardless of flag count (no N+1)
         with self.assertNumQueries(FuzzyInt(19, 20)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2839,8 +2868,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Capture query count with 5 flags
-        # With the fix, this should be ~18-20 queries
-        # Without the fix, this was ~24 queries (base queries + N+1 for surveys)
         with self.assertNumQueries(FuzzyInt(17, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2865,9 +2892,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Query count should remain similar (not scale linearly with flag count)
-        # With the fix: Should stay at ~18-22 queries (constant, regardless of flag count!)
-        # Without the fix: This was ~48 queries (18 base + 30 N+1 queries)
-        # The fix reduced 48 queries down to ~20 queries - a 60% reduction!
         with self.assertNumQueries(FuzzyInt(17, 24)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -3556,15 +3580,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(17, 21)):
+        with self.assertNumQueries(FuzzyInt(12, 17)):
             # 1-10: Auth, team, project, membership, and access control queries
             # 11. SELECT surveys (for survey exclusion)
-            # 12. SELECT all feature flags
-            # 13. SELECT cohorts (only referenced cohorts in bulk, not all cohorts)
-            # 14-18. SELECT evaluation tags (one per flag)
-            # 19. SELECT group type mapping
-            # Note: Query count reduced because cohorts are now loaded in bulk
-            # for only those referenced by flags, instead of loading all cohorts.
+            # 12. SELECT all feature flags (with evaluation tags via ArrayAgg)
+            # 13. SELECT cohorts (only loaded because a flag references a cohort)
+            # 14. SELECT group type mapping
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -4084,7 +4105,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Beta feature",
             key="beta-feature",
             team=self.team,
-            rollout_percentage=51,
             filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
             created_by=self.user,
         )
@@ -4094,7 +4114,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="inactive-flag",
             team=self.team,
             active=False,
-            rollout_percentage=100,
             filters={"properties": []},
             created_by=self.user,
         )
@@ -4148,7 +4167,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Beta feature",
             key="beta-feature",
             team=self.team,
-            rollout_percentage=51,
             filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
             created_by=self.user,
         )
@@ -4158,7 +4176,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="inactive-flag",
             team=self.team,
             active=False,
-            rollout_percentage=100,
             filters={"properties": []},
             created_by=self.user,
         )
@@ -5406,7 +5423,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_feature_flag_dashboard(self):
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=50,
             name="some feature",
             key="some-feature",
             created_by=self.user,
@@ -5433,7 +5449,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_feature_flag_dashboard_patch(self):
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=50,
             name="some feature",
             key="some-feature",
             created_by=self.user,
@@ -5456,7 +5471,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_feature_flag_dashboard_already_exists(self):
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=50,
             name="some feature",
             key="some-feature",
             created_by=self.user,
@@ -5484,7 +5498,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
                 "multivariate": None,
@@ -5541,7 +5554,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_cant_update_early_access_flag_with_group(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "aggregation_group_type_index": None,
                 "groups": [{"properties": [], "rollout_percentage": None}],
@@ -6020,9 +6032,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
         # Clear both Redis and S3 caches
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         # First request should miss cache and populate it
         self.client.logout()
@@ -6390,7 +6402,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_local_evaluation_cache_invalidation_on_feature_flag_delete(self, mock_on_commit):
         """Test that cache invalidates when FeatureFlag is deleted."""
-        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+        from posthog.models.feature_flag.local_evaluation import (
+            flag_definitions_hypercache,
+            flag_definitions_without_cohorts_hypercache,
+        )
 
         # Create two feature flags
         flag1 = FeatureFlag.objects.create(
@@ -6410,8 +6425,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Clear caches to start fresh
-        flags_hypercache.clear_cache(self.team)
-        flags_without_cohorts_hypercache.clear_cache(self.team)
+        flag_definitions_hypercache.clear_cache(self.team)
+        flag_definitions_without_cohorts_hypercache.clear_cache(self.team)
 
         # Populate both cache variants using use_cache parameter
         response1 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
@@ -6462,7 +6477,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_local_evaluation_cache_invalidation_on_cohort_delete(self, mock_on_commit):
         """Test that cache invalidates when Cohort is deleted."""
-        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+        from posthog.models.feature_flag.local_evaluation import (
+            flag_definitions_hypercache,
+            flag_definitions_without_cohorts_hypercache,
+        )
 
         # Create a cohort
         cohort = Cohort.objects.create(
@@ -6488,8 +6506,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Clear caches to start fresh
-        flags_hypercache.clear_cache(self.team)
-        flags_without_cohorts_hypercache.clear_cache(self.team)
+        flag_definitions_hypercache.clear_cache(self.team)
+        flag_definitions_without_cohorts_hypercache.clear_cache(self.team)
 
         # Populate cache with cohorts using use_cache parameter
         response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts")
@@ -6549,9 +6567,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
         response = self.client.get(
@@ -6578,9 +6596,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6616,9 +6634,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6648,9 +6666,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6701,9 +6719,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6749,9 +6767,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6792,9 +6810,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6830,9 +6848,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
 
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
+        from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
-        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
 
         self.client.logout()
 
@@ -6864,7 +6882,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
                 "multivariate": None,
@@ -6902,7 +6919,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_inactive_flag(self):
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
                 "multivariate": None,
@@ -6941,7 +6957,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_group_flag(self):
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [
                     {
@@ -6990,7 +7005,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_no_person_distinct_ids(self):
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": 100}],
                 "multivariate": None,
@@ -10401,3 +10415,211 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         flag_with_deleted_exp.refresh_from_db()
         assert flag_with_deleted_exp.deleted is True
         assert flag_with_deleted_exp.key == f"flag_with_deleted_exp:deleted:{flag_with_deleted_exp.id}"
+
+
+class TestFeatureFlagLimits(APIBaseTest):
+    """Tests for feature flag creation and update limits."""
+
+    def _create_flag(self, key: str, filters: Optional[dict] = None) -> FeatureFlag:
+        """Helper to create a flag directly in the database."""
+        if filters is None:
+            filters = {"groups": [{"rollout_percentage": 100, "properties": []}]}
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=key,
+            filters=filters,
+        )
+
+    def test_cannot_create_flag_when_team_exceeds_count_limit(self):
+        # Create flags up to the limit
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+        self._create_flag("flag-3")
+
+        # Attempting to create a new flag should fail
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=3):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "key": "flag-4",
+                    "filters": {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Maximum of 3 feature flags allowed per team" in response.json()["detail"]
+
+    def test_cannot_create_flag_without_filters_when_team_exceeds_count_limit(self):
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+        self._create_flag("flag-3")
+
+        # Omitting filters should still enforce the count limit
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=3):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {"key": "flag-4"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Maximum of 3 feature flags allowed per team" in response.json()["detail"]
+
+    def test_can_update_existing_flag_when_team_at_count_limit(self):
+        # Create flags up to the limit
+        flag1 = self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        # Updating an existing flag should succeed even at the limit
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag1.id}",
+                {"name": "Updated description"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "Updated description"
+
+    def test_deleted_flags_do_not_count_toward_limit(self):
+        # Create two flags
+        flag1 = self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        # Soft-delete one
+        flag1.deleted = True
+        flag1.save()
+
+        # Now we should be able to create a new flag
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "key": "flag-3",
+                    "filters": {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                },
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_per_flag_filter_size_limit_on_create(self):
+        # Create a filter with many properties that exceeds 1KB
+        properties = [
+            {"key": f"prop_{i}", "type": "person", "value": f"value_{i}", "operator": "exact"} for i in range(50)
+        ]
+        with self.settings(MAX_FEATURE_FLAG_FILTER_SIZE_BYTES=1024):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "key": "large-flag",
+                    "filters": {
+                        "groups": [{"rollout_percentage": 100, "properties": properties}],
+                    },
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "exceed maximum size" in str(response.json())
+
+    def test_per_flag_filter_size_limit_on_update(self):
+        flag = self._create_flag("small-flag")
+
+        properties = [
+            {"key": f"prop_{i}", "type": "person", "value": f"value_{i}", "operator": "exact"} for i in range(50)
+        ]
+        with self.settings(MAX_FEATURE_FLAG_FILTER_SIZE_BYTES=1024):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}",
+                {
+                    "filters": {
+                        "groups": [{"rollout_percentage": 100, "properties": properties}],
+                    }
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "exceed maximum size" in str(response.json())
+
+    def test_other_team_flags_do_not_count_toward_limit(self):
+        other_team = Team.objects.create(
+            organization=self.organization,
+            api_token="token_other_team",
+            name="Other Team",
+        )
+        # Create 2 flags for the other team directly in DB
+        FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-1", filters={"groups": []})
+        FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-2", filters={"groups": []})
+
+        # Create 2 flags for our team
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        # Should be able to create a 3rd flag for our team (limit is 3, we have 2)
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=3):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "key": "flag-3",
+                    "filters": {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                },
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_survey_creation_blocked_when_at_flag_limit(self):
+        """Survey creation should fail when team is at the flag limit."""
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/surveys",
+                {
+                    "name": "Test Survey",
+                    "type": "popover",
+                    "questions": [{"type": "open", "question": "Test?"}],
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Maximum of 2 feature flags allowed per team" in str(response.json())
+
+    def test_web_experiment_creation_blocked_when_at_flag_limit(self):
+        """Web experiment creation should fail when team is at the flag limit."""
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/web_experiments",
+                {
+                    "name": "Test Web Experiment",
+                    "variants": {
+                        "control": {"transforms": [], "rollout_percentage": 50},
+                        "test": {"transforms": [], "rollout_percentage": 50},
+                    },
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Maximum of 2 feature flags allowed per team" in str(response.json())
+
+    def test_product_tour_creation_blocked_when_at_flag_limit(self):
+        """Product tour creation with auto_launch should fail when team is at the flag limit."""
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/product_tours",
+                {
+                    "name": "Test Product Tour",
+                    "auto_launch": True,
+                    "content": {"steps": []},
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Maximum of 2 feature flags allowed per team" in str(response.json())

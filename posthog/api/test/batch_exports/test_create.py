@@ -7,6 +7,7 @@ import pytest
 from unittest import mock
 
 from django.conf import settings
+from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from asgiref.sync import async_to_sync
@@ -753,7 +754,7 @@ def test_create_redshift_batch_export_validates_copy_inputs(
             "user": "user",
             "password": "my-password",
             "database": "my-db",
-            "host": "test",
+            "host": "localhost",
             "schema": "public",
             "table_name": "my_events",
             "mode": mode,
@@ -870,7 +871,7 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
         assert response.json()["detail"] == expected_error_message
 
 
-def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
+def test_create_s3_batch_export_validates_empty_inputs(client: HttpClient, temporal, organization, team, user):
     """Test creating a BatchExport with S3 destination validates that expected inputs are not empty."""
 
     destination_data = {
@@ -902,6 +903,53 @@ def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, tem
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "The following inputs are empty: ['aws_access_key_id', 'aws_secret_access_key']"
+
+
+def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
+    """Test creating a BatchExport with S3 destination validates that expected inputs are not missing."""
+
+    config = {
+        "bucket_name": "my-s3-bucket",
+        "region": "us-east-1",
+        "prefix": "events/",
+        "aws_access_key_id": "something",
+        "aws_secret_access_key": "something",
+        "file_format": "JSONLines",
+        "compression": "gzip",
+    }
+
+    client.force_login(user)
+
+    for key in ("aws_access_key_id", "aws_secret_access_key"):
+        # Check that we validate each key missing invidually first
+        destination_data = {"type": "S3", "config": {k: v for k, v in config.items() if k != key}}
+
+        data = {
+            "name": "my-s3-bucket",
+            "destination": destination_data,
+            "interval": "hour",
+        }
+
+        response = create_batch_export(
+            client,
+            team.pk,
+            data,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, key
+        assert response.json()["detail"] == f"Configuration missing required field: '{key}'"
+
+    response_missing_both = create_batch_export(
+        client,
+        team.pk,
+        {
+            "name": "my-s3-bucket",
+            "destination": {k: v for k, v in destination_data.items() if k != "aws_secret_access_key"},
+            "interval": "hour",
+        },
+    )
+
+    assert response_missing_both.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.parametrize(
@@ -939,7 +987,7 @@ def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, tem
             {
                 "user": "test",
                 "password": "password",
-                "host": "host",
+                "host": "localhost",
                 "database": "db",
                 "schema": None,  # Not optional
                 "table_name": "test",
@@ -1603,3 +1651,104 @@ def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
 
     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
     assert "Backfilling Workflows is not enabled for this team." in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "endpoint_url",
+    [
+        "https://192.168.1.1",
+        "http://127.0.0.1",
+        "http://[::1]/",
+        "http://10.0.0.1:9000/",
+        "http://169.254.0.0:8080/data",
+        "http://localhost",
+    ],
+)
+def test_creating_S3_batch_export_fails_if_using_invalid_endpoint_url(
+    client: HttpClient, temporal, organization, team, user, endpoint_url
+):
+    """Test that creating an S3 batch export fails if passing an internal IP as endpoint URL.
+
+    Last time I checked, we are not S3.
+    """
+
+    interval = "hour"
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+            "use_virtual_style_addressing": True,
+            "endpoint_url": endpoint_url,
+        },
+        "integration": None,
+    }
+
+    batch_export_data: dict[str, t.Any] = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": interval,
+    }
+    client.force_login(user)
+
+    with override_settings(TEST=0, DEBUG=0):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert f"Invalid endpoint_url: '{endpoint_url}'" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "192.168.1.1",
+        "127.0.0.1",
+        "[::1]",
+        "10.0.0.1",
+        "169.254.0.0",
+        "localhost",
+    ],
+)
+def test_create_redshift_or_postgres_batch_export_fails_with_invalid_host(
+    client: HttpClient, temporal, organization, team, user, host
+):
+    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'."""
+
+    for type in ("Redshift", "Postgres"):
+        destination_data = {
+            "type": type,
+            "config": {
+                "user": "user",
+                "password": "my-password",
+                "database": "my-db",
+                "host": host,
+                "schema": "public",
+                "table_name": "my_events",
+            },
+        }
+
+        batch_export_data = {
+            "name": "my-production-destination",
+            "destination": destination_data,
+            "interval": "hour",
+        }
+
+        client.force_login(user)
+
+        with override_settings(TEST=0, DEBUG=0):
+            response = create_batch_export(
+                client,
+                team.pk,
+                batch_export_data,
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert f"Invalid host: '{host}'" in response.json()["detail"]

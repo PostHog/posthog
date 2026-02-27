@@ -9,6 +9,7 @@ export const getCategoryDisplayName = (category: string): string => {
         'data-management': 'Data management',
         settings: 'Settings',
         early_access_feature: 'Early access features',
+        suggested: 'Suggested',
         recents: 'Recents',
         folders: 'Folders',
         persons: 'Persons',

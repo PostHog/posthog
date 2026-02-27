@@ -2,7 +2,7 @@ import snappy from 'snappy'
 
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
-import { RecordingDecryptor, RecordingEncryptor, SessionKey } from '../types'
+import { EncryptResult, RecordingDecryptor, RecordingEncryptor, SessionKey } from '../types'
 import { CryptoMetrics } from './metrics'
 
 /**
@@ -24,18 +24,18 @@ export class VerifyingEncryptor implements RecordingEncryptor {
         await this.decryptor.start()
     }
 
-    encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer> {
+    encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<EncryptResult> {
         return this.encryptor.encryptBlock(sessionId, teamId, blockData)
     }
 
-    encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer {
-        const encrypted = this.encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+    encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): EncryptResult {
+        const result = this.encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
         if (sessionKey.sessionState === 'ciphertext' && this.checkRate > 0 && Math.random() < this.checkRate) {
-            this.verifyIntegrity(sessionId, teamId, blockData, encrypted, sessionKey)
+            this.verifyIntegrity(sessionId, teamId, blockData, result.data, sessionKey)
         }
 
-        return encrypted
+        return result
     }
 
     private verifyIntegrity(
@@ -59,7 +59,12 @@ export class VerifyingEncryptor implements RecordingEncryptor {
         }
 
         try {
-            const decrypted = this.decryptor.decryptBlockWithKey(sessionId, teamId, encryptedBlock, sessionKey)
+            const { data: decrypted } = this.decryptor.decryptBlockWithKey(
+                sessionId,
+                teamId,
+                encryptedBlock,
+                sessionKey
+            )
 
             if (!Buffer.from(decrypted).equals(originalBlock)) {
                 CryptoMetrics.incrementCryptoIntegrityFailures('mismatch')

@@ -11,8 +11,8 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
@@ -192,7 +192,7 @@ export function InfiniteSelectResults({
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
 
-    const { totalListCount, items } = useValues(logic)
+    const { totalListCount } = useValues(logic)
 
     const RenderComponent = activeTaxonomicGroup?.render
 
@@ -202,7 +202,7 @@ export function InfiniteSelectResults({
         <RenderComponent
             {...(activeTaxonomicGroup?.componentProps ?? {})}
             value={value}
-            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item, items.originalQuery)}
+            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item)}
             infiniteListLogicProps={infiniteListLogicProps}
         />
     ) : (

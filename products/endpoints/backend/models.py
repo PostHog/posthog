@@ -4,9 +4,10 @@ import uuid
 import logging
 from typing import Any
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -109,10 +110,6 @@ class EndpointVersion(models.Model):
         blank=True,
         help_text="Cache age in seconds. If null, uses default interval-based caching.",
     )
-    is_materialized = models.BooleanField(
-        default=False,
-        help_text="Whether this version's query results are materialized",
-    )
     saved_query = models.ForeignKey(
         "data_warehouse.DataWarehouseSavedQuery",
         null=True,
@@ -161,6 +158,25 @@ class EndpointVersion(models.Model):
                 self.columns = columns
                 self.save(update_fields=["columns"])
         return self.columns
+
+    def disable_materialization(self) -> None:
+        """Disable materialization: revert and soft-delete the saved query, clear version fields."""
+        if not self.saved_query:
+            return
+        self.saved_query.revert_materialization()
+        self.saved_query.soft_delete()
+        self.saved_query = None
+        self.save(update_fields=["saved_query"])
+
+    @property
+    def is_materialized(self) -> bool:
+        """Derived from saved_query.table_id — True only when materialization is complete."""
+        if self.saved_query is None:
+            return False
+        try:
+            return self.saved_query.table_id is not None
+        except ObjectDoesNotExist:
+            return False
 
     def can_materialize(self) -> tuple[bool, str]:
         """Check if this version can be materialized.
@@ -337,7 +353,6 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
             created_by=user,
             cache_age_seconds=previous_cache_age,
             description=previous_description,
-            is_materialized=False,
             columns=columns,
         )
 
@@ -355,3 +370,14 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         if latest is None:
             raise EndpointVersion.DoesNotExist("Endpoint has no versions")
         return latest
+
+    def soft_delete(self) -> None:
+        for version in self.versions.filter(saved_query__isnull=False):
+            version.disable_materialization()
+
+        self.deleted = True
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted", "deleted_at", "updated_at"])
+
+    def delete(self, *args, **kwargs):
+        raise Exception("Cannot hard delete Endpoint. Use soft_delete() instead.")

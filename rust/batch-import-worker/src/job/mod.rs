@@ -13,7 +13,7 @@ use crate::{
     context::AppContext,
     emit::Emitter,
     error::{extract_retry_after_from_error, get_user_message, is_rate_limited_error, UserError},
-    job::backoff::format_backoff_messages,
+    job::{backoff::format_backoff_messages, config::SinkConfig},
     parse::{format::ParserFn, Parsed},
     source::DataSource,
     spawn_liveness_loop,
@@ -87,6 +87,11 @@ pub struct Job {
 
     // Once created the job id doesn't change, store it on the Job struct for easy access, to avoid contention/locking on the model
     pub job_id: Uuid,
+
+    // How many bytes to fetch from the source per iteration. Varies by sink
+    // type: the capture sink uses a smaller value to stay within the capture
+    // service's HTTP body size limit.
+    pub chunk_size: usize,
 
     // The job maintains a copy of the job state, outside of the model,
     // because process in a pipelined fashion, and to do that we need to
@@ -175,10 +180,15 @@ impl Job {
         }
 
         let job_id = model.id;
+        let chunk_size = match &model.import_config.sink {
+            SinkConfig::Capture(_) => context.config.capture_chunk_size,
+            _ => context.config.chunk_size,
+        };
 
         Ok(Self {
             context,
             job_id,
+            chunk_size,
             model: Mutex::new(model),
             state: Mutex::new(state),
             source,
@@ -375,7 +385,7 @@ impl Job {
             .get_chunk(
                 &next_part.key,
                 next_part.current_offset,
-                self.context.config.chunk_size as u64,
+                self.chunk_size as u64,
             )
             .await
             .context(format!("Fetching part chunk {next_part:?}"))?;

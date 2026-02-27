@@ -8,7 +8,11 @@ test.describe('Survey Settings', () => {
     })
 
     async function toggleSurveysSettingsAndWaitResponse(page: Page): Promise<void> {
+        const responsePromise = page.waitForResponse(
+            (resp) => resp.url().includes('/api/environments/') && resp.request().method() === 'PATCH'
+        )
         await page.locator('[data-attr="opt-in-surveys-switch"]').click()
+        await responsePromise
         await expect(page.getByTestId('opt-in-surveys-switch')).not.toBeDisabled()
         await expect(page.getByText('Surveys opt in updated').first()).toBeVisible()
         await page.getByTestId('toast-close-button').first().click()

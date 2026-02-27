@@ -311,7 +311,7 @@ def early_access_features(request: Request):
             request,
             generate_exception_response(
                 "early_access_features",
-                "API key not provided. You can find your project API key in PostHog project settings.",
+                "Project token not provided. You can find your project token in PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -324,7 +324,7 @@ def early_access_features(request: Request):
             request,
             generate_exception_response(
                 "decide",
-                "Project API key invalid. You can find your project API key in PostHog project settings.",
+                "Project token invalid. You can find your project token in PostHog project settings.",
                 type="authentication_error",
                 code="invalid_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,

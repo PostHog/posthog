@@ -121,21 +121,18 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
-    const {
-        dataWarehouseSavedQueryMapById,
-        updatingDataWarehouseSavedQuery,
-        initialDataWarehouseSavedQueryLoading,
-        dataModelingJobs,
-        hasMoreJobsToLoad,
-        startingMaterialization,
-    } = useValues(dataWarehouseViewsLogic)
+    const { dataModelingJobs, dataModelingJobsLoading, hasMoreJobsToLoad, startingMaterialization } = useValues(
+        infoTabLogic({ tabId })
+    )
+    const { loadOlderDataModelingJobs, setStartingMaterialization } = useActions(infoTabLogic({ tabId }))
+
+    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
+        useValues(dataWarehouseViewsLogic)
     const {
         updateDataWarehouseSavedQuery,
-        loadOlderDataModelingJobs,
         cancelDataWarehouseSavedQuery,
         materializeDataWarehouseSavedQuery,
         revertMaterialization,
-        setStartingMaterialization,
     } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
@@ -292,7 +289,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                         </div>
                         <LemonTable
                             size="small"
-                            loading={initialDataWarehouseSavedQueryLoading}
+                            loading={dataModelingJobsLoading && !dataModelingJobs?.results?.length}
                             dataSource={dataModelingJobs?.results || []}
                             columns={[
                                 {
@@ -381,7 +378,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                             center
                                             fullWidth
                                             onClick={() => loadOlderDataModelingJobs()}
-                                            loading={initialDataWarehouseSavedQueryLoading}
+                                            loading={dataModelingJobsLoading}
                                         >
                                             Load older runs
                                         </LemonButton>

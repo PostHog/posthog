@@ -4,7 +4,7 @@ import { randomString } from '../../utils'
 import { expect, test } from '../../utils/playwright-test-base'
 
 async function deleteSurvey(page: Page, name: string): Promise<void> {
-    await page.locator('[data-attr=info-actions-panel]').click()
+    await page.locator('[data-attr=open-context-panel-button]').first().click()
     await page.locator('[data-attr=survey-delete]').click()
 
     await expect(page.locator('.LemonModal__layout')).toBeVisible()

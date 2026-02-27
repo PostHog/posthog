@@ -362,7 +362,7 @@ where
         out_degree: &mut HashMap<NodeIndex, usize>,
     ) -> Result<Vec<Vec<NodeIndex>>, T::Error> {
         use petgraph::Direction::Incoming;
-        let mut stages = Vec::new();
+        let mut stages = Vec::with_capacity(graph.node_count());
         while !out_degree.is_empty() {
             let current_stage: Vec<NodeIndex> = out_degree
                 .iter()
@@ -612,7 +612,7 @@ pub fn log_dependency_graph_construction_errors(
         );
     }
 
-    tracing::error!(
+    tracing::warn!(
         "There were errors building the feature flag dependency graph for team {}. Will attempt to evaluate the rest of the flags: {:?}",
         team_id, errors
     );

@@ -25,15 +25,23 @@ from posthog.api.monitoring import monitor
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.models import User
-from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
+from posthog.rate_limit import (
+    LLMProxyBurstRateThrottle,
+    LLMProxyBYOKBurstRateThrottle,
+    LLMProxyBYOKDailyRateThrottle,
+    LLMProxyBYOKSustainedRateThrottle,
+    LLMProxyDailyRateThrottle,
+    LLMProxySustainedRateThrottle,
+)
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
-from products.llm_analytics.backend.api.metrics import llma_track_latency
+from products.llm_analytics.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
 from products.llm_analytics.backend.llm import (
     SUPPORTED_MODELS_WITH_THINKING,
     Client,
     CompletionRequest,
+    ModelInfo,
     get_default_models,
 )
 from products.llm_analytics.backend.llm.errors import UnsupportedProviderError
@@ -75,9 +83,31 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if self.action == "models":
             return []
 
+        # BYOK requests should not count against shared playground trial limits.
+        if self.action == "completion":
+            serializer = LLMProxyCompletionSerializer(data=getattr(self.request, "data", {}))
+            if serializer.is_valid():
+                self._completion_validated_data = serializer.validated_data
+                provider_key_id = serializer.validated_data.get("provider_key_id")
+                provider = serializer.validated_data.get("provider")
+                if provider_key_id and provider:
+                    try:
+                        key = self._get_provider_key(str(provider_key_id), self.request.user, touch_last_used=False)
+                        if key and key.provider == provider:
+                            LLMA_PROXY_BYOK_REQUESTS.labels(provider=provider).inc()
+                            return [
+                                LLMProxyBYOKBurstRateThrottle(),
+                                LLMProxyBYOKSustainedRateThrottle(),
+                                LLMProxyBYOKDailyRateThrottle(),
+                            ]
+                    except ValueError:
+                        pass
+
         return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle(), LLMProxyDailyRateThrottle()]
 
-    def _get_provider_key(self, provider_key_id: str | None, user) -> LLMProviderKey | None:
+    def _get_provider_key(
+        self, provider_key_id: str | None, user, *, touch_last_used: bool = True
+    ) -> LLMProviderKey | None:
         """
         Fetch provider key by ID.
         Returns LLMProviderKey or None if no key ID provided.
@@ -99,8 +129,9 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if not api_key:
             raise ValueError("No API key configured for this provider key")
 
-        key.last_used_at = timezone.now()
-        key.save(update_fields=["last_used_at"])
+        if touch_last_used:
+            key.last_used_at = timezone.now()
+            key.save(update_fields=["last_used_at"])
 
         return key
 
@@ -149,11 +180,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     status=402,
                 )
 
-            serializer = LLMProxyCompletionSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response({"error": serializer.errors}, status=400)
-
-            data = serializer.validated_data
+            data = getattr(self, "_completion_validated_data", None)
+            if data is None:
+                serializer = LLMProxyCompletionSerializer(data=request.data)
+                if not serializer.is_valid():
+                    return Response({"error": serializer.errors}, status=400)
+                data = serializer.validated_data
             model = data.get("model")
             thinking = data.get("thinking", False)
 
@@ -294,15 +326,27 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
         if provider_key_id:
             try:
-                provider_key = self._get_provider_key(provider_key_id, request.user)
+                provider_key = self._get_provider_key(provider_key_id, request.user, touch_last_used=False)
             except ValueError:
                 return Response({"error": "Invalid provider key configuration"}, status=400)
 
             if provider_key:
                 api_key = provider_key.encrypted_config.get("api_key")
                 models = Client.list_models(provider_key.provider, api_key)
+                recommended = Client.recommended_models(provider_key.provider)
                 provider_display = provider_key.provider.title()
-                return Response([{"id": m, "name": m, "provider": provider_display, "description": ""} for m in models])
+                return Response(
+                    [
+                        ModelInfo(
+                            id=m,
+                            name=m,
+                            provider=provider_display,
+                            description="",
+                            is_recommended=m in recommended,
+                        )
+                        for m in models
+                    ]
+                )
 
         # Default: return static list of all supported models
         return Response(get_default_models())
