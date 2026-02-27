@@ -10,7 +10,9 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { teamLogic } from 'scenes/teamLogic'
 
 import IconPostHogService from 'public/posthog-icon.svg'
+import IconGitHubService from 'public/services/github.svg'
 import IconLinearService from 'public/services/linear.svg'
+import IconNotionService from 'public/services/notion.svg'
 
 import { AddCustomServerModal } from './AddCustomServerModal'
 import { MCPServerInstallation, RecommendedServer, mcpStoreLogic } from './mcpStoreLogic'
@@ -18,6 +20,8 @@ import { MCPServerInstallation, RecommendedServer, mcpStoreLogic } from './mcpSt
 const SERVER_ICONS: Record<string, string> = {
     'PostHog MCP': IconPostHogService,
     Linear: IconLinearService,
+    GitHub: IconGitHubService,
+    Notion: IconNotionService,
 }
 
 function ConnectOAuthButton({
@@ -66,7 +70,8 @@ function ConnectOAuthButton({
 export function McpStoreSettings(): JSX.Element {
     const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)
-    const { uninstallServer, openAddCustomServerModal } = useActions(mcpStoreLogic)
+    const { uninstallServer, openAddCustomServerModal, openAddCustomServerModalWithDefaults } =
+        useActions(mcpStoreLogic)
     const { currentTeamId } = useValues(teamLogic)
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -215,6 +220,21 @@ export function McpStoreSettings(): JSX.Element {
                                             <LemonTag type="success" icon={<IconCheck />}>
                                                 Active
                                             </LemonTag>
+                                        ) : server.auth_type === 'api_key' ? (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() =>
+                                                    openAddCustomServerModalWithDefaults({
+                                                        name: server.name,
+                                                        url: server.url,
+                                                        description: server.description,
+                                                        auth_type: 'api_key',
+                                                    })
+                                                }
+                                            >
+                                                Connect
+                                            </LemonButton>
                                         ) : (
                                             <ConnectOAuthButton
                                                 name={server.name}
