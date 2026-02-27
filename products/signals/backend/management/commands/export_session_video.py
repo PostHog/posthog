@@ -4,8 +4,9 @@ import datetime as dt
 
 from django.core.management.base import BaseCommand
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.tasks.exports.video_exporter import RecordReplayToFileOptions, record_replay_to_file
 from posthog.utils import absolute_uri
 
@@ -18,17 +19,23 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", type=int, default=1)
         parser.add_argument("--playback-speed", type=int, default=8)
         parser.add_argument("--recording-fps", type=int, default=3)
-        parser.add_argument("--duration", type=int, default=5400, help="Recording duration in seconds (default: 5400)")
 
     def handle(self, *args, **options):
         team_id = options["team_id"]
         session_id = options["session_id"]
         playback_speed = options["playback_speed"]
         recording_fps = options["recording_fps"]
-        duration = options["duration"]
+
+        team = Team.objects.get(id=team_id)
+        metadata = SessionReplayEvents().get_metadata(session_id=session_id, team=team)
+        if not metadata:
+            self.stderr.write(self.style.ERROR(f"No metadata found for session {session_id}"))
+            return
+        duration = int(metadata["duration"])
 
         self.stdout.write(f"Team ID: {team_id}")
         self.stdout.write(f"Session ID: {session_id}")
+        self.stdout.write(f"Duration: {duration}s (from session metadata)")
         self.stdout.write(f"Playback speed: {playback_speed}x")
         self.stdout.write(f"Recording FPS: {recording_fps}")
 
