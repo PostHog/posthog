@@ -121,6 +121,16 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                                         // requires SDK version 4.35.0 or higher.
                                                         captureNetworkTelemetry: true,
 
+                                                        // Sample rate for session recordings. A value between 0.0 and 1.0.
+                                                        // 1.0 means 100% of sessions will be recorded. 0.5 means 50%, and so on.
+                                                        // Local config has precedence over remote config when both are set.
+                                                        // Default is undefined (all sessions are recorded).
+                                                        //
+                                                        // Support for remote configuration
+                                                        // in the [session replay triggers](https://us.posthog.com/settings/project-replay#replay-triggers)
+                                                        // requires SDK version 4.37.0 or higher.
+                                                        // sampleRate: undefined,
+
                                                         // Throttling delay used to reduce the number of snapshots captured
                                                         // and reduce performance impact. Default is 1000ms
                                                         throttleDelayMs: 1000,
