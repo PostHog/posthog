@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react'
 import { IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { Logomark } from 'lib/brand/Logomark'
+
 import { Thread } from 'scenes/max/Thread'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
@@ -12,7 +14,6 @@ import { TOOL_DEFINITIONS, ToolRegistration } from 'scenes/max/max-constants'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
-import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
@@ -137,7 +138,7 @@ export function OnboardingMax(): JSX.Element {
 
                     if (products.length > 0) {
                         setRecommendedProducts(products)
-                        setSelectedProducts(products) // Pre-select all recommended products
+                        setSelectedProducts(products)
                     }
                 }
             },
@@ -159,7 +160,6 @@ export function OnboardingMax(): JSX.Element {
                 products_selected: selectedProducts,
                 products_recommended: recommendedProducts,
             })
-            // Set the first selected product to trigger onboarding flow
             setProductKey(selectedProducts[0])
         }
     }
@@ -169,24 +169,22 @@ export function OnboardingMax(): JSX.Element {
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <AIConsentPopoverWrapper>
                     <div className="flex flex-col items-center min-h-[calc(100vh-var(--scene-layout-header-height))]">
-                        <ThreadAutoScroller>
-                            {!threadVisible && (
-                                <div className="p-3 pt-4 max-w-180 w-full self-center">
-                                    <OnboardingWelcome />
-                                </div>
-                            )}
-                            {threadVisible && <Thread className="p-3" />}
-                            {recommendedProducts.length > 0 && (
-                                <ProductRecommendations
-                                    products={recommendedProducts}
-                                    selectedProducts={selectedProducts}
-                                    onToggleProduct={handleToggleProduct}
-                                    onContinue={handleContinueToSetup}
-                                />
-                            )}
-                            {!threadVisible && <div className="grow" />}
-                            <SidebarQuestionInput isSticky />
-                        </ThreadAutoScroller>
+                        {!threadVisible ? (
+                            <OnboardingWelcome />
+                        ) : (
+                            <ThreadAutoScroller>
+                                <Thread className="p-3" />
+                                {recommendedProducts.length > 0 && (
+                                    <ProductRecommendations
+                                        products={recommendedProducts}
+                                        selectedProducts={selectedProducts}
+                                        onToggleProduct={handleToggleProduct}
+                                        onContinue={handleContinueToSetup}
+                                    />
+                                )}
+                                <SidebarQuestionInput isSticky />
+                            </ThreadAutoScroller>
+                        )}
                     </div>
                 </AIConsentPopoverWrapper>
             </BindLogic>
@@ -203,31 +201,31 @@ function OnboardingWelcome(): JSX.Element {
     }, [setAgentMode])
 
     return (
-        <MessageTemplate type="ai" className="items-stretch">
-            <div className="flex flex-col gap-2">
-                <p className="mb-0">
-                    What are you looking to do? Tell me about your project and I'll recommend the right tools.
-                </p>
-                <div className="flex flex-col gap-3">
-                    {USE_CASE_OPTIONS.map((useCase) => (
-                        <button
-                            key={useCase.key}
-                            onClick={() => askMax(`I want to ${useCase.title.toLowerCase()}`)}
-                            className="flex items-center gap-3 p-3 border rounded-lg text-left transition-all cursor-pointer hover:bg-fill-highlight-100 hover:border-primary"
-                            data-attr={`onboarding-chat-${useCase.key}`}
-                        >
-                            <div className="text-2xl">
-                                {getProductIcon(useCase.iconKey, { iconColor: useCase.iconColor })}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="font-semibold">{useCase.title}</div>
-                                <div className="text-sm text-muted">{useCase.description}</div>
-                            </div>
-                            <IconArrowRight className="text-muted shrink-0" />
-                        </button>
-                    ))}
+        <div className="grow flex flex-col items-center justify-center w-full px-4 pb-7 gap-3">
+            <div className="flex *:h-full *:w-12 p-2">
+                <Logomark />
+            </div>
+            <div className="text-center mb-1">
+                <h2 className="text-xl font-bold mb-2 text-balance">What are you building?</h2>
+                <div className="text-sm text-tertiary text-pretty">
+                    Tell me about your project and I'll recommend the right tools.
                 </div>
             </div>
-        </MessageTemplate>
+            <SidebarQuestionInput />
+            <div className="flex flex-wrap items-center justify-center gap-2 max-w-180">
+                {USE_CASE_OPTIONS.map((useCase) => (
+                    <LemonButton
+                        key={useCase.key}
+                        type="secondary"
+                        size="small"
+                        icon={getProductIcon(useCase.iconKey, { iconColor: useCase.iconColor, className: 'text-base' })}
+                        onClick={() => askMax(`I want to ${useCase.title.toLowerCase()}`)}
+                        data-attr={`onboarding-chat-${useCase.key}`}
+                    >
+                        {useCase.title}
+                    </LemonButton>
+                ))}
+            </div>
+        </div>
     )
 }
