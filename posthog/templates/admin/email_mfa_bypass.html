@@ -111,8 +111,14 @@ function removeEmail(email) {
 function addEmail(e) {
     e.preventDefault();
     const input = document.getElementById('id_email');
-    const email = input.value.trim();
+    const email = input.value.trim().toLowerCase();
     if (!email) return;
+
+    const existingRow = document.querySelector('[data-email="' + CSS.escape(email) + '"]');
+    if (existingRow) {
+        showMessage('Email is already in the bypass list.', true);
+        return;
+    }
 
     fetch(API_BASE, {
         method: 'POST',
