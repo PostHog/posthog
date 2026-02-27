@@ -144,7 +144,7 @@ SUPPORTED_CURRENCIES: dict[CurrencyCode, str] = {
     CurrencyCode.TMT: "Turkmenistani Manat",
     CurrencyCode.TND: "Tunisian Dinar",
     CurrencyCode.TOP: "Tongan Pa'anga",
-    CurrencyCode.TRY_: "Turkish Lira",  # Named `TRY_` in Python because `TRY` is a reserved word
+    CurrencyCode.TRY: "Turkish Lira",
     CurrencyCode.TTD: "Trinidad and Tobago Dollar",
     CurrencyCode.TWD: "New Taiwan Dollar",
     CurrencyCode.TZS: "Tanzanian Shilling",
