@@ -38,6 +38,7 @@ class ExperimentService:
         parameters: dict | None = None,
         metrics: list[dict] | None = None,
         metrics_secondary: list[dict] | None = None,
+        secondary_metrics: list[dict] | None = None,
         stats_config: dict | None = None,
         exposure_criteria: dict | None = None,
         holdout: ExperimentHoldout | None = None,
@@ -49,12 +50,12 @@ class ExperimentService:
         create_in_folder: str | None = None,
         filters: dict | None = None,
         scheduling_config: dict | None = None,
+        exposure_preaggregation_enabled: bool = False,
         archived: bool = False,
         deleted: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         serializer_context: dict | None = None,
-        **extra_fields: Any,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         is_draft = start_date is None
@@ -105,6 +106,7 @@ class ExperimentService:
             "parameters": parameters,
             "metrics": metrics if metrics is not None else [],
             "metrics_secondary": metrics_secondary if metrics_secondary is not None else [],
+            "secondary_metrics": secondary_metrics if secondary_metrics is not None else [],
             "stats_config": stats_config,
             "exposure_criteria": exposure_criteria,
             "holdout": holdout,
@@ -114,11 +116,11 @@ class ExperimentService:
             "primary_metrics_ordered_uuids": primary_metrics_ordered_uuids,
             "secondary_metrics_ordered_uuids": secondary_metrics_ordered_uuids,
             "scheduling_config": scheduling_config,
+            "exposure_preaggregation_enabled": exposure_preaggregation_enabled,
             "archived": archived,
             "deleted": deleted,
             "conclusion": conclusion,
             "conclusion_comment": conclusion_comment,
-            **extra_fields,
         }
         if create_in_folder is not None:
             create_kwargs["_create_in_folder"] = create_in_folder

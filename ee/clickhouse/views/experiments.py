@@ -283,35 +283,60 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         feature_flag_key = validated_data.pop("get_feature_flag_key")
         saved_metrics_ids = validated_data.pop("saved_metrics_ids", None)
         create_in_folder = validated_data.pop("_create_in_folder", None)
+        name = validated_data.pop("name")
+        description = validated_data.pop("description", "")
+        experiment_type = validated_data.pop("type", "product")
+        parameters = validated_data.pop("parameters", None)
+        metrics = validated_data.pop("metrics", None)
+        metrics_secondary = validated_data.pop("metrics_secondary", None)
+        secondary_metrics = validated_data.pop("secondary_metrics", None)
+        stats_config = validated_data.pop("stats_config", None)
+        exposure_criteria = validated_data.pop("exposure_criteria", None)
+        holdout = validated_data.pop("holdout", None)
+        start_date = validated_data.pop("start_date", None)
+        end_date = validated_data.pop("end_date", None)
+        primary_metrics_ordered_uuids = validated_data.pop("primary_metrics_ordered_uuids", None)
+        secondary_metrics_ordered_uuids = validated_data.pop("secondary_metrics_ordered_uuids", None)
+        filters = validated_data.pop("filters", None)
+        scheduling_config = validated_data.pop("scheduling_config", None)
+        exposure_preaggregation_enabled = validated_data.pop("exposure_preaggregation_enabled", False)
+        archived = validated_data.pop("archived", False)
+        deleted = validated_data.pop("deleted", False)
+        conclusion = validated_data.pop("conclusion", None)
+        conclusion_comment = validated_data.pop("conclusion_comment", None)
+
+        if validated_data:
+            raise ValidationError(f"Can't create keys: {', '.join(sorted(validated_data))} on Experiment")
 
         team = Team.objects.get(id=self.context["team_id"])
         service = ExperimentService(team=team, user=self.context["request"].user)
 
         return service.create_experiment(
-            name=validated_data.pop("name"),
+            name=name,
             feature_flag_key=feature_flag_key,
-            description=validated_data.pop("description", ""),
-            type=validated_data.pop("type", "product"),
-            parameters=validated_data.pop("parameters", None),
-            metrics=validated_data.pop("metrics", None),
-            metrics_secondary=validated_data.pop("metrics_secondary", None),
-            stats_config=validated_data.pop("stats_config", None),
-            exposure_criteria=validated_data.pop("exposure_criteria", None),
-            holdout=validated_data.pop("holdout", None),
+            description=description,
+            type=experiment_type,
+            parameters=parameters,
+            metrics=metrics,
+            metrics_secondary=metrics_secondary,
+            secondary_metrics=secondary_metrics,
+            stats_config=stats_config,
+            exposure_criteria=exposure_criteria,
+            holdout=holdout,
             saved_metrics_ids=saved_metrics_ids,
-            start_date=validated_data.pop("start_date", None),
-            end_date=validated_data.pop("end_date", None),
-            primary_metrics_ordered_uuids=validated_data.pop("primary_metrics_ordered_uuids", None),
-            secondary_metrics_ordered_uuids=validated_data.pop("secondary_metrics_ordered_uuids", None),
+            start_date=start_date,
+            end_date=end_date,
+            primary_metrics_ordered_uuids=primary_metrics_ordered_uuids,
+            secondary_metrics_ordered_uuids=secondary_metrics_ordered_uuids,
             create_in_folder=create_in_folder,
-            filters=validated_data.pop("filters", None),
-            scheduling_config=validated_data.pop("scheduling_config", None),
-            archived=validated_data.pop("archived", False),
-            deleted=validated_data.pop("deleted", False),
-            conclusion=validated_data.pop("conclusion", None),
-            conclusion_comment=validated_data.pop("conclusion_comment", None),
+            filters=filters,
+            scheduling_config=scheduling_config,
+            exposure_preaggregation_enabled=exposure_preaggregation_enabled,
+            archived=archived,
+            deleted=deleted,
+            conclusion=conclusion,
+            conclusion_comment=conclusion_comment,
             serializer_context=self.context,
-            **validated_data,
         )
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:

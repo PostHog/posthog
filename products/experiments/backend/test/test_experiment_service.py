@@ -1,11 +1,14 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from posthog.test.base import APIBaseTest
 
+from django.utils import timezone
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import FeatureFlag
-from posthog.models.experiment import ExperimentSavedMetric
+from posthog.models.experiment import ExperimentHoldout, ExperimentSavedMetric
 
 from products.experiments.backend.experiment_service import ExperimentService
 
@@ -39,18 +42,32 @@ class TestExperimentService(APIBaseTest):
     # Basic creation
     # ------------------------------------------------------------------
 
-    def test_create_draft_experiment_with_existing_flag(self):
-        self._create_flag(key="my-flag")
+    def test_create_experiment_with_minimum_fields_uses_defaults(self):
+        self._create_flag(key="minimum-flag")
         service = self._service()
 
-        experiment = service.create_experiment(name="My Experiment", feature_flag_key="my-flag")
+        experiment = service.create_experiment(name="Minimum Experiment", feature_flag_key="minimum-flag")
 
-        assert experiment.name == "My Experiment"
-        assert experiment.feature_flag.key == "my-flag"
+        assert experiment.name == "Minimum Experiment"
+        assert experiment.feature_flag.key == "minimum-flag"
         assert experiment.is_draft
+        assert experiment.description == ""
+        assert experiment.type == "product"
+        assert experiment.parameters is None
         assert experiment.metrics == []
         assert experiment.metrics_secondary == []
+        assert experiment.secondary_metrics == []
         assert experiment.filters == {}
+        assert experiment.scheduling_config is None
+        assert experiment.exposure_preaggregation_enabled is False
+        assert experiment.archived is False
+        assert experiment.deleted is False
+        assert experiment.conclusion is None
+        assert experiment.conclusion_comment is None
+        assert experiment.primary_metrics_ordered_uuids is None
+        assert experiment.secondary_metrics_ordered_uuids is None
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["method"] == "bayesian"
 
     def test_create_experiment_creates_new_flag(self):
         service = self._service()
@@ -300,7 +317,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.primary_metrics_ordered_uuids == ["sm-uuid"]
 
     # ------------------------------------------------------------------
-    # Pass-through fields
+    # Service contract fields
     # ------------------------------------------------------------------
 
     def test_description_and_type_passed_through(self):
@@ -336,3 +353,136 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert experiment.parameters == params
+
+    def test_create_experiment_with_all_fields(self):
+        service = self._service()
+        now = timezone.now()
+
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="All Fields Holdout",
+            filters=[{"properties": [], "rollout_percentage": 10}],
+        )
+        saved_metric_primary = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Primary Saved Metric",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "saved-primary", "event": "$pageview"},
+        )
+        saved_metric_secondary = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Secondary Saved Metric",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "saved-secondary", "event": "$pageview"},
+        )
+
+        primary_metric_uuid = "inline-primary"
+        secondary_metric_uuid = "inline-secondary"
+
+        secondary_metrics = [
+            {
+                "name": "Legacy secondary metric",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "order": 0, "type": "events"}]},
+            },
+        ]
+
+        experiment = service.create_experiment(
+            name="All Fields Experiment",
+            feature_flag_key="all-fields-flag",
+            description="All optional fields set",
+            type="web",
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "name": "Control", "rollout_percentage": 34},
+                    {"key": "variant-a", "name": "Variant A", "rollout_percentage": 33},
+                    {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
+                ],
+                "rollout_percentage": 80,
+                "minimum_detectable_effect": 20,
+            },
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": primary_metric_uuid, "event": "$pageview"}
+            ],
+            metrics_secondary=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "count",
+                    "uuid": secondary_metric_uuid,
+                    "event": "$pageleave",
+                }
+            ],
+            secondary_metrics=secondary_metrics,
+            stats_config={"method": "frequentist", "frequentist": {"alpha": 0.08}},
+            exposure_criteria={"filterTestAccounts": True},
+            holdout=holdout,
+            saved_metrics_ids=[
+                {"id": saved_metric_primary.id, "metadata": {"type": "primary"}},
+                {"id": saved_metric_secondary.id, "metadata": {"type": "secondary"}},
+            ],
+            start_date=now,
+            end_date=now + timedelta(days=14),
+            primary_metrics_ordered_uuids=["manual-primary"],
+            secondary_metrics_ordered_uuids=["manual-secondary"],
+            create_in_folder="Test/Experiments",
+            filters={"events": [], "actions": [], "properties": []},
+            scheduling_config={"timeseries": True},
+            exposure_preaggregation_enabled=True,
+            archived=True,
+            deleted=True,
+            conclusion="won",
+            conclusion_comment="Shipped to 100%",
+        )
+
+        assert experiment.name == "All Fields Experiment"
+        assert experiment.description == "All optional fields set"
+        assert experiment.type == "web"
+        assert experiment.feature_flag.key == "all-fields-flag"
+        assert experiment.feature_flag.active is True
+        assert experiment.holdout_id == holdout.id
+        assert experiment.secondary_metrics == secondary_metrics
+        assert experiment.exposure_preaggregation_enabled is True
+        assert experiment.archived is True
+        assert experiment.deleted is True
+        assert experiment.conclusion == "won"
+        assert experiment.conclusion_comment == "Shipped to 100%"
+        assert experiment.filters == {"events": [], "actions": [], "properties": []}
+        assert experiment.scheduling_config == {"timeseries": True}
+
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 1
+        assert experiment.metrics[0]["uuid"] == primary_metric_uuid
+        assert "fingerprint" in experiment.metrics[0]
+
+        assert experiment.metrics_secondary is not None
+        assert len(experiment.metrics_secondary) == 1
+        assert experiment.metrics_secondary[0]["uuid"] == secondary_metric_uuid
+        assert "fingerprint" in experiment.metrics_secondary[0]
+
+        assert experiment.variants == {
+            "control": {"rollout_percentage": 34},
+            "variant-a": {"rollout_percentage": 33},
+            "variant-b": {"rollout_percentage": 33},
+        }
+
+        assert set(experiment.primary_metrics_ordered_uuids or []) == {
+            "manual-primary",
+            primary_metric_uuid,
+            "saved-primary",
+        }
+        assert set(experiment.secondary_metrics_ordered_uuids or []) == {
+            "manual-secondary",
+            secondary_metric_uuid,
+            "saved-secondary",
+        }
+
+    def test_create_experiment_with_unknown_field_raises_type_error(self):
+        self._create_flag(key="unknown-key-flag")
+        service = self._service()
+
+        with self.assertRaises(TypeError) as ctx:
+            service.create_experiment(
+                name="Unknown Key",
+                feature_flag_key="unknown-key-flag",
+                unknown_field="boom",  # type: ignore[call-arg]
+            )
+
+        assert "unexpected keyword argument 'unknown_field'" in str(ctx.exception)
