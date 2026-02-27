@@ -27,14 +27,39 @@ def _is_decimal_precision_delta_error(e: BaseException) -> bool:
     return "decimal128" in msg and ("precision 38" in msg or "too large" in msg)
 
 
-def _convert_decimal_columns_to_string(table: pa.Table) -> pa.Table:
-    """Return a new table with decimal columns converted to string (in memory only)."""
+def _find_incompatible_decimal_columns(batch_schema: pa.Schema, delta_table: deltalake.DeltaTable) -> set[str]:
+    """Return names of batch decimal columns whose type can't fit in the delta table's type."""
+    delta_schema = delta_table.schema().to_arrow()
+    result: set[str] = set()
+    for field in batch_schema:
+        if not pa.types.is_decimal(field.type):
+            continue
+        if isinstance(field.type, pa.Decimal256Type):
+            result.add(field.name)
+            continue
+        if field.name not in delta_schema.names:
+            continue
+        delta_field = delta_schema.field(field.name)
+        if not pa.types.is_decimal(delta_field.type):
+            continue
+        batch_int = field.type.precision - field.type.scale
+        delta_int = delta_field.type.precision - delta_field.type.scale
+        if batch_int > delta_int:
+            result.add(field.name)
+    return result
+
+
+def _convert_decimal_columns_to_string(table: pa.Table, columns: set[str] | None = None) -> pa.Table:
+    """Return a new table with specified (or all, if columns is None) decimal columns converted to string."""
     result = table
     for i, field in enumerate(table.schema):
-        if pa.types.is_decimal(field.type):
-            col = result.column(field.name)
-            str_values = [str(x.as_py()) if x.as_py() is not None else None for x in col]
-            result = result.set_column(i, field.name, pa.array(str_values, type=pa.string()))
+        if not pa.types.is_decimal(field.type):
+            continue
+        if columns is not None and field.name not in columns:
+            continue
+        col = result.column(field.name)
+        str_values = [str(v) if (v := x.as_py()) is not None else None for x in col]
+        result = result.set_column(i, field.name, pa.array(str_values, type=pa.string()))
     return result
 
 
@@ -242,12 +267,13 @@ class DeltaTableHelper:
                             "Decimal column in the table cannot hold this batch (e.g. 7+ integer digits). "
                             "Run a full refresh for this schema once to update the table schema, then use incremental again."
                         ) from e
+                    problematic = _find_incompatible_decimal_columns(merge_data.schema, delta_table)
                     await self._logger.adebug(
-                        "DeltaError (decimal precision on merge): converting batch decimals to string, retrying",
+                        f"DeltaError (decimal precision on merge): converting columns {problematic or 'all'} to string, retrying",
                         exc_info=e,
                     )
                     capture_exception(e)
-                    merge_data = _convert_decimal_columns_to_string(merge_data)
+                    merge_data = _convert_decimal_columns_to_string(merge_data, problematic or None)
         elif (
             write_type == "full_refresh"
             or (write_type == "incremental" and delta_table is None)

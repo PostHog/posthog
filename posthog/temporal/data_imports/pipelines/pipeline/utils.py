@@ -578,9 +578,8 @@ def _decimal_array_from_values(values: list[decimal.Decimal | None]) -> pa.Array
             pass
     try:
         return pa.array(values, type=pa.decimal256(76, DEFAULT_NUMERIC_SCALE))
-    except Exception:
-        pass
-    raise ValueError("Cannot build decimal array from values")
+    except Exception as exc:
+        raise ValueError("Cannot build decimal array from values") from exc
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):
