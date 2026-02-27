@@ -43,7 +43,6 @@ sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx
 postgresql = { pkg-path = "postgresql_14" } # psql
 ffmpeg = { pkg-path = "ffmpeg_5", version = "5.1.4", pkg-group = "ffmpeg" }
 protobuf = { pkg-path = "protobuf" } # protoc compiler for gRPC code generation
-buf = { pkg-path = "buf" } # buf CLI for proto generation
 ninja.pkg-path = "ninja"
 emscripten = { pkg-path = "emscripten", pkg-group = "emscripten", version = "4.0.23" }
 libpthread-stubs = { pkg-path = "libpthread-stubs", pkg-group = "emscripten" }
