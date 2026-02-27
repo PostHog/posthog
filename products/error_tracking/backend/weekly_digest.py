@@ -13,6 +13,52 @@ from posthog.models import Team
 logger = structlog.get_logger(__name__)
 
 
+def get_org_ids_with_exceptions() -> list[int]:
+    """Return distinct organization IDs that have teams with exceptions in the last 7 days"""
+    teams_with_exceptions = get_exception_counts()
+    team_id_set = {row[0] for row in teams_with_exceptions}
+    if not team_id_set:
+        return []
+
+    org_ids = list(Team.objects.filter(id__in=team_id_set).values_list("organization_id", flat=True).distinct())
+    return org_ids
+
+
+def get_exception_counts_for_org(org_id: int) -> dict[int, dict]:
+    """Get exception counts for all teams in an org, returned as {team_id: {exception_count, ingestion_failure_count, prev_exception_count}}"""
+    org_teams = list(Team.objects.filter(organization_id=org_id).values_list("id", flat=True))
+    if not org_teams:
+        return {}
+
+    results = get_exception_counts(org_teams)
+    return {
+        row[0]: {
+            "exception_count": row[1],
+            "ingestion_failure_count": row[2],
+            "prev_exception_count": row[3],
+        }
+        for row in results
+    }
+
+
+def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[int, dict]) -> None:
+    """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
+    and persist the selection to their notification settings"""
+    from posthog.models.user import User
+
+    current_settings = user.partial_notification_settings or {}
+    if "error_tracking_weekly_digest_project_enabled" in current_settings:
+        return
+
+    if not team_exception_counts:
+        return
+
+    busiest_team_id = max(team_exception_counts, key=lambda tid: team_exception_counts[tid]["exception_count"])
+
+    current_settings["error_tracking_weekly_digest_project_enabled"] = {str(busiest_team_id): True}
+    User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)
+
+
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
     """Exception counts and ingestion failures for the last 7 days"""
     from posthog.clickhouse.client import sync_execute

@@ -22,6 +22,8 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey, PropertyOperator
 
+from posthog.hogql.property import parse_semver
+
 from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.documentation import extend_schema
@@ -813,7 +815,11 @@ class FeatureFlagSerializer(
                             code="cohort_does_not_exist",
                         )
 
-                if prop.operator in ("is_date_before", "is_date_after"):
+                if prop.operator in (
+                    PropertyOperator.IS_DATE_BEFORE,
+                    PropertyOperator.IS_DATE_AFTER,
+                    PropertyOperator.IS_DATE_EXACT,
+                ):
                     parsed_date = determine_parsed_date_for_property_matching(prop.value)
 
                     if not parsed_date:
@@ -843,6 +849,62 @@ class FeatureFlagSerializer(
                         detail=f"The '{prop.operator}' operator is only valid for cohort properties, not '{prop.type}' properties.",
                         code="invalid_operator",
                     )
+
+                if prop.operator in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
+                    if not isinstance(prop.value, list) or len(prop.value) != 2:
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires a two-element array [min, max]",
+                            code="invalid_value",
+                        )
+                    try:
+                        if float(prop.value[0]) > float(prop.value[1]):
+                            raise serializers.ValidationError(
+                                detail=f"{prop.operator} operator requires min value to be less than or equal to max value",
+                                code="invalid_value",
+                            )
+                    except (ValueError, TypeError):
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires numeric values",
+                            code="invalid_value",
+                        )
+
+                semver_operators = (
+                    PropertyOperator.SEMVER_EQ,
+                    PropertyOperator.SEMVER_NEQ,
+                    PropertyOperator.SEMVER_GT,
+                    PropertyOperator.SEMVER_GTE,
+                    PropertyOperator.SEMVER_LT,
+                    PropertyOperator.SEMVER_LTE,
+                    PropertyOperator.SEMVER_TILDE,
+                    PropertyOperator.SEMVER_CARET,
+                    PropertyOperator.SEMVER_WILDCARD,
+                )
+                if prop.operator in semver_operators:
+                    if not isinstance(prop.value, str):
+                        raise serializers.ValidationError(
+                            detail=f"Invalid value for operator {prop.operator}: expected a semver string",
+                            code="invalid_value",
+                        )
+                    try:
+                        semver_value = prop.value
+                        if str(prop.operator) == PropertyOperator.SEMVER_WILDCARD:
+                            semver_value = semver_value.rstrip(".*")
+                        parse_semver(semver_value)
+                    except (ValueError, IndexError):
+                        raise serializers.ValidationError(
+                            detail=f"Invalid semver value for operator {prop.operator}: {prop.value}",
+                            code="invalid_value",
+                        )
+
+                if prop.operator in (
+                    PropertyOperator.ICONTAINS_MULTI,
+                    PropertyOperator.NOT_ICONTAINS_MULTI,
+                ):
+                    if not isinstance(prop.value, list):
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires a list of values",
+                            code="invalid_value",
+                        )
 
         payloads = filters.get("payloads", {})
 

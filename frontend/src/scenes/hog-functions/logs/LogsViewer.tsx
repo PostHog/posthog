@@ -61,7 +61,7 @@ export type LogsViewerProps = LogsViewerLogicProps & {
 }
 
 /**
- * NOTE: There is a loose attempt to keeep this generic so we can use it as an abstract log component in the future.
+ * NOTE: There is a loose attempt to keep this generic so we can use it as an abstract log component in the future.
  */
 
 export function LogsViewer({

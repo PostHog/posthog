@@ -209,15 +209,7 @@ def get_api_team_rate_limiter():
         is_api: Optional[bool] = None,
         **kwargs,
     ) -> bool:
-        return bool(
-            not TEST
-            and is_api
-            and team_id
-            and (
-                team_id in settings.API_QUERIES_PER_TEAM
-                or (settings.API_QUERIES_LEGACY_TEAM_LIST and team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
-            )
-        )
+        return bool(not TEST and is_api and team_id)
 
     if __API_CONCURRENT_QUERY_PER_TEAM is None:
         __API_CONCURRENT_QUERY_PER_TEAM = RateLimit(

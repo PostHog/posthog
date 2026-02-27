@@ -11905,6 +11905,13 @@
         "EndpointRequest": {
             "additionalProperties": false,
             "properties": {
+                "bucket_overrides": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
+                    "type": "object"
+                },
                 "cache_age_seconds": {
                     "type": "number"
                 },

@@ -526,9 +526,9 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Comma-separated list of team IDs that should receive the digest
 HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
 
-# Comma-separated list of team ids allowed to receive the Error Tracking weekly digest
+# Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
 # "*" for all, empty to disable feature
-ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS", ""))
+ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS", ""))
 
 # Comma-separated list of email addresses allowed to receive the Error Tracking weekly digest
 # "*" for all

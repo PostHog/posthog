@@ -66,7 +66,7 @@ export const createEmptyInsight = (
     shortId: InsightShortId | `new-${string}` | 'new'
 ): Partial<QueryBasedInsightModel> => ({
     short_id: shortId !== 'new' && !shortId.startsWith('new-') ? (shortId as InsightShortId) : undefined,
-    name: '',
+    name: undefined,
     description: '',
     tags: [],
     dashboards: [],
@@ -427,7 +427,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     mathDefinitions,
                 }).slice(0, 400),
         ],
-        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
+        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name ?? derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
             (s) => [s.insight],
