@@ -13,11 +13,13 @@ import { urls } from 'scenes/urls'
 import { byokModelPickerLogic } from './byokModelPickerLogic'
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
 import {
+    firstUsableProviderKeyIdForProvider,
     LLMProvider,
     LLMProviderKey,
     llmProviderKeysLogic,
+    normalizeLLMProvider,
     providerSortIndex,
-    sortProviderKeys,
+    sortedUsableProviderKeyIds,
 } from './settings/llmProviderKeysLogic'
 import { normalizeRole } from './utils'
 
@@ -172,20 +174,38 @@ function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptConfig {
 
 const INITIAL_PROMPT = createPromptConfig()
 
-function pickByPrefix(query: string, idList: string[]): string | null {
-    let best = null
-    for (const s of idList) {
-        if (query.startsWith(s)) {
-            if (best === null || s.length > best.length) {
-                best = s
-            }
-        }
-    }
-    return best
-}
-
 function normalizeModelId(modelId: string): string {
     return modelId.trim().toLowerCase()
+}
+
+function canonicalizeModelId(modelId: string): string {
+    return normalizeModelId(modelId).replace(/[^a-z0-9]/g, '')
+}
+
+function comparableModelIdVariants(modelId: string): string[] {
+    const normalizedModelId = normalizeModelId(modelId)
+    const segments = normalizedModelId.split('/').filter(Boolean)
+    const variants: string[] = []
+
+    for (let index = 0; index < segments.length; index++) {
+        variants.push(segments.slice(index).join('/'))
+    }
+
+    if (variants.length === 0 && normalizedModelId.length > 0) {
+        variants.push(normalizedModelId)
+    }
+
+    return Array.from(new Set(variants))
+}
+
+function hasComparableModelVariantMatch(
+    leftModelId: string,
+    rightModelId: string,
+    matcher: (leftVariant: string, rightVariant: string) => boolean
+): boolean {
+    const leftVariants = comparableModelIdVariants(leftModelId)
+    const rightVariants = comparableModelIdVariants(rightModelId)
+    return leftVariants.some((leftVariant) => rightVariants.some((rightVariant) => matcher(leftVariant, rightVariant)))
 }
 
 function isSuffixEquivalentModelId(leftModelId: string, rightModelId: string): boolean {
@@ -197,9 +217,200 @@ function isSuffixEquivalentModelId(leftModelId: string, rightModelId: string): b
 }
 
 function getProviderKeyOrder(providerKeys: LLMProviderKey[]): string[] {
-    return sortProviderKeys(providerKeys)
-        .filter((key) => key.state !== 'invalid')
-        .map((key) => key.id)
+    return sortedUsableProviderKeyIds(providerKeys)
+}
+
+function isTraceLikeSelection(model: string | undefined, provider: string | undefined): boolean {
+    return provider !== undefined || Boolean(model && model.includes('/'))
+}
+
+function pickProviderKeyIdForProvider(provider: string | undefined, providerKeys: LLMProviderKey[]): string | null {
+    return firstUsableProviderKeyIdForProvider(provider, providerKeys)
+}
+
+function inferProviderFromModelId(modelId: string): string | null {
+    const normalizedModelId = normalizeModelId(modelId)
+    const candidateProvider = normalizedModelId.split('/')[0]
+    return normalizeLLMProvider(candidateProvider)
+}
+
+function resolveProviderKeyIdForTraceModel(
+    modelId: string,
+    provider: string | null,
+    availableModels: ModelOption[],
+    providerKeys: LLMProviderKey[]
+): string | null {
+    const exactMatches = availableModels.filter((model) => model.id === modelId)
+    if (exactMatches.length > 0) {
+        return pickPreferredModelOption(exactMatches, providerKeys)?.providerKeyId ?? null
+    }
+
+    const normalizedModelId = normalizeModelId(modelId)
+    const normalizedExactMatches = availableModels.filter((model) => normalizeModelId(model.id) === normalizedModelId)
+    if (normalizedExactMatches.length > 0) {
+        return pickPreferredModelOption(normalizedExactMatches, providerKeys)?.providerKeyId ?? null
+    }
+
+    return pickProviderKeyIdForProvider(provider ?? inferProviderFromModelId(modelId) ?? undefined, providerKeys)
+}
+
+function getModelCandidates(
+    targetModel: string,
+    availableModels: ModelOption[],
+    scopeToNamespacePrefix: boolean
+): ModelOption[] {
+    if (!scopeToNamespacePrefix) {
+        return availableModels
+    }
+    const normalizedTarget = normalizeModelId(targetModel)
+    const targetPrefix = normalizedTarget.split('/')[0]
+    const scoped = availableModels.filter((model) => normalizeModelId(model.id).startsWith(`${targetPrefix}/`))
+    return scoped.length > 0 ? scoped : availableModels
+}
+
+function bestPrefixMatches(targetModel: string, candidates: ModelOption[]): ModelOption[] {
+    const prefixMatchesWithLength = candidates
+        .map((model) => {
+            const modelVariants = comparableModelIdVariants(model.id)
+            const targetVariants = comparableModelIdVariants(targetModel)
+            const bestPrefixLength = modelVariants.reduce((bestLength, modelVariant) => {
+                const matchingVariant = targetVariants.find((targetVariant) => targetVariant.startsWith(modelVariant))
+                return matchingVariant ? Math.max(bestLength, modelVariant.length) : bestLength
+            }, 0)
+            return { model, bestPrefixLength }
+        })
+        .filter((item) => item.bestPrefixLength > 0)
+
+    if (prefixMatchesWithLength.length === 0) {
+        return []
+    }
+
+    const longestPrefixLength = Math.max(...prefixMatchesWithLength.map((item) => item.bestPrefixLength))
+    return prefixMatchesWithLength
+        .filter((item) => item.bestPrefixLength === longestPrefixLength)
+        .map((item) => item.model)
+}
+
+function bestCanonicalPrefixMatches(targetModel: string, candidates: ModelOption[]): ModelOption[] {
+    const targetCanonical = canonicalizeModelId(targetModel)
+    const canonicalPrefixMatchesWithLength = candidates
+        .map((model) => {
+            const candidateCanonical = canonicalizeModelId(model.id)
+            if (!candidateCanonical) {
+                return { model, prefixLength: 0 }
+            }
+            const prefixLength = targetCanonical.startsWith(candidateCanonical) ? candidateCanonical.length : 0
+            return { model, prefixLength }
+        })
+        .filter((item) => item.prefixLength > 0)
+
+    if (canonicalPrefixMatchesWithLength.length === 0) {
+        return []
+    }
+
+    const longestCanonicalPrefixLength = Math.max(...canonicalPrefixMatchesWithLength.map((item) => item.prefixLength))
+    return canonicalPrefixMatchesWithLength
+        .filter((item) => item.prefixLength === longestCanonicalPrefixLength)
+        .map((item) => item.model)
+}
+
+function findMatchedModelOption(
+    targetModel: string,
+    availableModels: ModelOption[],
+    providerKeys: LLMProviderKey[],
+    options: { scopeToNamespacePrefix: boolean; includeCanonicalFallback: boolean; includeDefaultFallback: boolean }
+): ModelOption | null {
+    if (availableModels.length === 0) {
+        return null
+    }
+
+    const candidates = getModelCandidates(targetModel, availableModels, options.scopeToNamespacePrefix)
+    const normalizedTarget = normalizeModelId(targetModel)
+
+    const exactIdMatches = candidates.filter((model) => model.id === targetModel)
+    if (exactIdMatches.length > 0) {
+        return pickPreferredModelOption(exactIdMatches, providerKeys)
+    }
+
+    const exactNormalizedIdMatches = candidates.filter((model) => normalizeModelId(model.id) === normalizedTarget)
+    if (exactNormalizedIdMatches.length > 0) {
+        return pickPreferredModelOption(exactNormalizedIdMatches, providerKeys)
+    }
+
+    const exactComparableMatches = candidates.filter((model) =>
+        hasComparableModelVariantMatch(
+            model.id,
+            targetModel,
+            (leftVariant, rightVariant) => leftVariant === rightVariant
+        )
+    )
+    if (exactComparableMatches.length > 0) {
+        return pickPreferredModelOption(exactComparableMatches, providerKeys)
+    }
+
+    const suffixEquivalentMatches = candidates.filter((model) =>
+        hasComparableModelVariantMatch(model.id, targetModel, isSuffixEquivalentModelId)
+    )
+    if (suffixEquivalentMatches.length > 0) {
+        return pickPreferredModelOption(suffixEquivalentMatches, providerKeys)
+    }
+
+    const prefixMatches = bestPrefixMatches(targetModel, candidates)
+    if (prefixMatches.length > 0) {
+        return pickPreferredModelOption(prefixMatches, providerKeys)
+    }
+
+    if (options.includeCanonicalFallback) {
+        const targetCanonical = canonicalizeModelId(targetModel)
+        const canonicalExactMatches = candidates.filter((model) => canonicalizeModelId(model.id) === targetCanonical)
+        if (canonicalExactMatches.length > 0) {
+            return pickPreferredModelOption(canonicalExactMatches, providerKeys)
+        }
+
+        const canonicalPrefixMatches = bestCanonicalPrefixMatches(targetModel, candidates)
+        if (canonicalPrefixMatches.length > 0) {
+            return pickPreferredModelOption(canonicalPrefixMatches, providerKeys)
+        }
+    }
+
+    if (options.includeDefaultFallback) {
+        const defaultModelMatches = candidates.filter((model) => model.id === DEFAULT_MODEL)
+        if (defaultModelMatches.length > 0) {
+            return pickPreferredModelOption(defaultModelMatches, providerKeys)
+        }
+
+        return pickPreferredModelOption(candidates, providerKeys)
+    }
+
+    return null
+}
+
+const TRACE_MATCH_OPTIONS = {
+    scopeToNamespacePrefix: true,
+    includeCanonicalFallback: true,
+    includeDefaultFallback: false,
+}
+
+const DEFAULT_MATCH_OPTIONS = {
+    scopeToNamespacePrefix: false,
+    includeCanonicalFallback: false,
+    includeDefaultFallback: true,
+}
+
+function resolveTraceModelSelection(
+    modelId: string,
+    provider: string | null,
+    availableModels: ModelOption[],
+    providerKeys: LLMProviderKey[]
+): { resolvedModelId: string; providerKeyId?: string } {
+    const matchedModel = findMatchedModelOption(modelId, availableModels, providerKeys, TRACE_MATCH_OPTIONS)
+    if (matchedModel) {
+        return { resolvedModelId: matchedModel.id, providerKeyId: matchedModel.providerKeyId }
+    }
+
+    const providerKeyId =
+        resolveProviderKeyIdForTraceModel(modelId, provider, availableModels, providerKeys) ?? undefined
+    return { resolvedModelId: modelId, providerKeyId }
 }
 
 function pickPreferredModelOption(candidates: ModelOption[], providerKeys: LLMProviderKey[]): ModelOption | null {
@@ -233,44 +444,7 @@ function matchClosestModelOption(
     availableModels: ModelOption[],
     providerKeys: LLMProviderKey[] = []
 ): ModelOption | null {
-    if (availableModels.length === 0) {
-        return null
-    }
-
-    const normalizedTarget = normalizeModelId(targetModel)
-
-    const exactIdMatches = availableModels.filter((model) => model.id === targetModel)
-    if (exactIdMatches.length > 0) {
-        return pickPreferredModelOption(exactIdMatches, providerKeys)
-    }
-
-    const exactNormalizedIdMatches = availableModels.filter((model) => normalizeModelId(model.id) === normalizedTarget)
-    if (exactNormalizedIdMatches.length > 0) {
-        return pickPreferredModelOption(exactNormalizedIdMatches, providerKeys)
-    }
-
-    const suffixEquivalentMatches = availableModels.filter((model) =>
-        isSuffixEquivalentModelId(normalizeModelId(model.id), normalizedTarget)
-    )
-    if (suffixEquivalentMatches.length > 0) {
-        return pickPreferredModelOption(suffixEquivalentMatches, providerKeys)
-    }
-
-    const normalizedIds = availableModels.map((model) => normalizeModelId(model.id))
-    const normalizedPrefixMatch = pickByPrefix(normalizedTarget, normalizedIds)
-    if (normalizedPrefixMatch) {
-        const normalizedPrefixMatches = availableModels.filter(
-            (model) => normalizeModelId(model.id) === normalizedPrefixMatch
-        )
-        return pickPreferredModelOption(normalizedPrefixMatches, providerKeys)
-    }
-
-    const defaultModelMatches = availableModels.filter((model) => model.id === DEFAULT_MODEL)
-    if (defaultModelMatches.length > 0) {
-        return pickPreferredModelOption(defaultModelMatches, providerKeys)
-    }
-
-    return pickPreferredModelOption(availableModels, providerKeys)
+    return findMatchedModelOption(targetModel, availableModels, providerKeys, DEFAULT_MATCH_OPTIONS)
 }
 
 function matchClosestModel(targetModel: string, availableModels: ModelOption[]): string {
@@ -388,8 +562,18 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsPlaygroundLogic']),
 
     connect(() => ({
-        values: [byokModelPickerLogic, ['byokModels', 'hasByokKeys'], llmProviderKeysLogic, ['providerKeys']],
-        actions: [byokModelPickerLogic, ['loadByokModelsSuccess']],
+        values: [
+            byokModelPickerLogic,
+            ['byokModels', 'byokModelsLoading', 'hasByokKeys'],
+            llmProviderKeysLogic,
+            ['providerKeys', 'providerKeysLoading'],
+        ],
+        actions: [
+            byokModelPickerLogic,
+            ['loadByokModelsSuccess', 'loadByokModelsFailure'],
+            llmProviderKeysLogic,
+            ['loadProviderKeys', 'loadProviderKeysSuccess', 'loadProviderKeysFailure'],
+        ],
     })),
 
     actions({
@@ -412,11 +596,14 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         addToComparison: (item: ComparisonItem) => ({ item }),
         updateComparisonItem: (id: string, payload: Partial<ComparisonItem>) => ({ id, payload }),
-        setupPlaygroundFromEvent: (payload: { model?: string; input?: any; tools?: any }) => ({ payload }),
+        setupPlaygroundFromEvent: (payload: { model?: string; provider?: string; input?: any; tools?: any }) => ({
+            payload,
+        }),
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
         setSubscriptionRequired: (required: boolean) => ({ required }),
         setActiveProviderKeyId: (id: string | null) => ({ id }),
         setLocalToolsJson: (json: string | null, promptId?: string) => ({ json, promptId }),
+        clearPendingTargetModel: true,
     }),
 
     reducers({
@@ -550,7 +737,21 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             null as string | null,
             {
                 setupPlaygroundFromEvent: (_, { payload }) => payload.model ?? null,
-                loadByokModelsSuccess: () => null,
+                clearPendingTargetModel: () => null,
+            },
+        ],
+        pendingTargetProvider: [
+            null as string | null,
+            {
+                setupPlaygroundFromEvent: (_, { payload }) => normalizeLLMProvider(payload.provider),
+                clearPendingTargetModel: () => null,
+            },
+        ],
+        pendingTargetIsTrace: [
+            false as boolean,
+            {
+                setupPlaygroundFromEvent: (_, { payload }) => isTraceLikeSelection(payload.model, payload.provider),
+                clearPendingTargetModel: () => false,
             },
         ],
         localToolsJsonByPromptId: [
@@ -572,6 +773,24 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     const { [promptId]: _, ...rest } = state
                     return rest
                 },
+            },
+        ],
+        providerKeysSettled: [
+            false as boolean,
+            {
+                loadProviderKeys: () => false,
+                loadProviderKeysSuccess: () => true,
+                loadProviderKeysFailure: () => true,
+            },
+        ],
+        byokModelsSettled: [
+            false as boolean,
+            {
+                loadProviderKeys: () => false,
+                loadProviderKeysSuccess: (_, { providerKeys }) =>
+                    !providerKeys.some((key: LLMProviderKey) => key.state === 'ok'),
+                loadByokModelsSuccess: () => true,
+                loadByokModelsFailure: () => true,
             },
         ],
     }),
@@ -597,8 +816,18 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
 
                 const trialModels = (await api.get('/api/llm_proxy/models/')) as ModelOption[]
                 const options = trialModels ?? []
+                const pendingTargetModel = values.pendingTargetModel
 
-                const normalizedPrompts = values.promptConfigs.map((prompt) => {
+                const normalizedPrompts = values.promptConfigs.map((prompt, index) => {
+                    // Don't auto-normalize the first prompt while we're still resolving a pending target model.
+                    if (index === 0 && pendingTargetModel) {
+                        return prompt
+                    }
+                    // Don't normalize trial-model IDs over a BYOK-resolved prompt.
+                    if (values.hasByokKeys && prompt.selectedProviderKeyId) {
+                        return prompt
+                    }
+
                     const closestMatch = matchClosestModel(prompt.model, options)
                     if (prompt.model === closestMatch) {
                         return prompt
@@ -620,292 +849,366 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         },
     })),
 
-    listeners(({ actions, values }) => ({
-        removePromptConfig: ({ promptId }) => {
-            if (values.promptConfigs.length === 0) {
-                actions.setPromptConfigs([createPromptConfig({ id: INITIAL_PROMPT.id })])
-                actions.setActivePromptId(INITIAL_PROMPT.id)
+    listeners(({ actions, values }) => {
+        const applyTraceSelection = (targetModel: string, promptId: string, provider: string | null): void => {
+            const { resolvedModelId, providerKeyId } = resolveTraceModelSelection(
+                targetModel,
+                provider,
+                values.allModelOptions,
+                values.providerKeys
+            )
+            actions.setModel(resolvedModelId, providerKeyId, promptId)
+        }
+
+        const applyPendingTraceSelection = (targetModel: string): void => {
+            const promptId = values.promptConfigs[0]?.id
+            if (!promptId) {
+                actions.clearPendingTargetModel()
                 return
             }
+            applyTraceSelection(targetModel, promptId, values.pendingTargetProvider)
+            actions.clearPendingTargetModel()
+        }
 
-            if (values.activePromptId === null || values.activePromptId === promptId) {
-                actions.setActivePromptId(values.promptConfigs[0]?.id ?? null)
-            }
-        },
-
-        loadByokModelsSuccess: ({ byokModels }) => {
-            if (byokModels.length === 0) {
-                return
-            }
-
-            const targetModelForFirstPrompt = values.pendingTargetModel
-            const normalizedPrompts = values.promptConfigs.map((prompt, index) => {
-                const targetModel = index === 0 && targetModelForFirstPrompt ? targetModelForFirstPrompt : prompt.model
-                const matchedModel = matchClosestModelOption(targetModel, byokModels, values.providerKeys)
-                return {
-                    ...prompt,
-                    model: matchedModel?.id ?? matchClosestModel(targetModel, byokModels),
-                    selectedProviderKeyId: matchedModel?.providerKeyId ?? prompt.selectedProviderKeyId,
+        return {
+            removePromptConfig: ({ promptId }) => {
+                if (values.promptConfigs.length === 0) {
+                    actions.setPromptConfigs([createPromptConfig({ id: INITIAL_PROMPT.id })])
+                    actions.setActivePromptId(INITIAL_PROMPT.id)
+                    return
                 }
-            })
 
-            actions.setPromptConfigs(normalizedPrompts)
-        },
+                if (values.activePromptId === null || values.activePromptId === promptId) {
+                    actions.setActivePromptId(values.promptConfigs[0]?.id ?? null)
+                }
+            },
 
-        submitPrompt: async (_, breakpoint) => {
-            const runnablePrompts = values.promptConfigs
-                .map((prompt, index) => ({
-                    prompt,
-                    index,
-                    messagesToSend: prompt.messages.filter((m) => m.content.trim()),
-                }))
-                .filter((item) => item.messagesToSend.length > 0)
+            loadModelOptionsSuccess: () => {
+                const targetModelForFirstPrompt = values.pendingTargetModel
+                if (!targetModelForFirstPrompt) {
+                    return
+                }
 
-            if (runnablePrompts.length === 0) {
-                lemonToast.error('Please add some messages before running prompts')
-                actions.finishSubmitPrompt()
-                return
-            }
+                // Defer until provider-key state and (if needed) BYOK models are settled.
+                if (!values.providerKeysSettled || !values.byokModelsSettled) {
+                    return
+                }
 
-            const abortController = new AbortController()
-            try {
-                const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
-                    const liveItemId = uuid()
-                    let responseUsage: ComparisonItem['usage'] = {}
-                    let ttftMs: number | null = null
-                    let latencyMs: number | null = null
-                    let firstTokenTime: number | null = null
-                    let startTime: number | null = null
-                    let responseText = ''
-                    let responseHasError = false
-                    let toolCalls: Array<{ id: string; name: string; arguments: string }> = []
-                    let itemAdded = false
+                if (values.pendingTargetIsTrace) {
+                    applyPendingTraceSelection(targetModelForFirstPrompt)
+                    return
+                }
 
-                    const upsertLiveItem = (): void => {
-                        const payload: ComparisonItem = {
-                            id: liveItemId,
-                            promptId: prompt.id,
-                            promptLabel: `Prompt ${index + 1}`,
-                            model: prompt.model,
-                            systemPrompt: prompt.systemPrompt,
-                            requestMessages: messagesToSend,
-                            response: responseText,
-                            error: responseHasError,
-                            usage: responseUsage,
-                            ttftMs,
-                            latencyMs,
-                        }
-                        if (!itemAdded) {
-                            actions.addToComparison(payload)
-                            itemAdded = true
-                        } else {
-                            actions.updateComparisonItem(liveItemId, payload)
-                        }
+                const normalizedPrompts = values.promptConfigs.map((prompt, index) => {
+                    const targetModel = index === 0 ? targetModelForFirstPrompt : prompt.model
+                    const matchedModel = matchClosestModelOption(
+                        targetModel,
+                        values.effectiveModelOptions,
+                        values.providerKeys
+                    )
+                    return {
+                        ...prompt,
+                        model:
+                            index === 0
+                                ? (matchedModel?.id ?? targetModelForFirstPrompt)
+                                : (matchedModel?.id ?? matchClosestModel(targetModel, values.effectiveModelOptions)),
+                        selectedProviderKeyId: matchedModel?.providerKeyId ?? prompt.selectedProviderKeyId,
                     }
+                })
 
-                    upsertLiveItem()
+                actions.setPromptConfigs(normalizedPrompts)
+                actions.clearPendingTargetModel()
+            },
 
-                    try {
-                        startTime = performance.now()
+            loadByokModelsSuccess: ({ byokModels }) => {
+                if (byokModels.length === 0) {
+                    return
+                }
 
-                        const selectedModel = values.effectiveModelOptions.find((m) => m.id === prompt.model)
-                        if (!selectedModel?.provider) {
-                            lemonToast.error('Selected model not found in available models')
-                            responseText = '**Error:** Selected model not available.'
-                            responseHasError = true
-                            upsertLiveItem()
-                            return
+                const targetModelForFirstPrompt = values.pendingTargetModel
+                if (targetModelForFirstPrompt && values.pendingTargetIsTrace) {
+                    applyPendingTraceSelection(targetModelForFirstPrompt)
+                    return
+                }
+                const normalizedPrompts = values.promptConfigs.map((prompt, index) => {
+                    const targetModel =
+                        index === 0 && targetModelForFirstPrompt ? targetModelForFirstPrompt : prompt.model
+                    const matchedModel = matchClosestModelOption(targetModel, byokModels, values.providerKeys)
+                    return {
+                        ...prompt,
+                        model:
+                            index === 0 && targetModelForFirstPrompt
+                                ? (matchedModel?.id ?? targetModelForFirstPrompt)
+                                : (matchedModel?.id ?? matchClosestModel(targetModel, byokModels)),
+                        selectedProviderKeyId: matchedModel?.providerKeyId ?? prompt.selectedProviderKeyId,
+                    }
+                })
+
+                actions.setPromptConfigs(normalizedPrompts)
+                actions.clearPendingTargetModel()
+            },
+
+            submitPrompt: async (_, breakpoint) => {
+                const runnablePrompts = values.promptConfigs
+                    .map((prompt, index) => ({
+                        prompt,
+                        index,
+                        messagesToSend: prompt.messages.filter((m) => m.content.trim()),
+                    }))
+                    .filter((item) => item.messagesToSend.length > 0)
+
+                if (runnablePrompts.length === 0) {
+                    lemonToast.error('Please add some messages before running prompts')
+                    actions.finishSubmitPrompt()
+                    return
+                }
+
+                const abortController = new AbortController()
+                try {
+                    const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
+                        const liveItemId = uuid()
+                        let responseUsage: ComparisonItem['usage'] = {}
+                        let ttftMs: number | null = null
+                        let latencyMs: number | null = null
+                        let firstTokenTime: number | null = null
+                        let startTime: number | null = null
+                        let responseText = ''
+                        let responseHasError = false
+                        let toolCalls: Array<{ id: string; name: string; arguments: string }> = []
+                        let itemAdded = false
+
+                        const upsertLiveItem = (): void => {
+                            const payload: ComparisonItem = {
+                                id: liveItemId,
+                                promptId: prompt.id,
+                                promptLabel: `Prompt ${index + 1}`,
+                                model: prompt.model,
+                                systemPrompt: prompt.systemPrompt,
+                                requestMessages: messagesToSend,
+                                response: responseText,
+                                error: responseHasError,
+                                usage: responseUsage,
+                                ttftMs,
+                                latencyMs,
+                            }
+                            if (!itemAdded) {
+                                actions.addToComparison(payload)
+                                itemAdded = true
+                            } else {
+                                actions.updateComparisonItem(liveItemId, payload)
+                            }
                         }
 
-                        const providerKeyId =
-                            resolveProviderKeyForPrompt(prompt, values.effectiveModelOptions, values.providerKeys)
-                                ?.id ?? values.activeProviderKeyId
+                        upsertLiveItem()
 
-                        const requestData: Record<string, unknown> = {
-                            system: prompt.systemPrompt,
-                            messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
-                            model: selectedModel.id,
-                            provider: selectedModel.provider.toLowerCase(),
-                            thinking: prompt.thinking,
-                            ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
-                            ...(prompt.tools ? { tools: prompt.tools } : {}),
-                            ...(prompt.maxTokens !== null && prompt.maxTokens > 0
-                                ? { max_tokens: prompt.maxTokens }
-                                : {}),
-                            ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
-                        }
+                        try {
+                            startTime = performance.now()
 
-                        await api.stream('/api/llm_proxy/completion', {
-                            method: 'POST',
-                            data: requestData,
-                            headers: { 'Content-Type': 'application/json' },
-                            signal: abortController.signal,
-                            onMessage: (event) => {
-                                breakpoint()
-                                if (!event.data) {
-                                    return
-                                }
+                            const selectedModel = values.effectiveModelOptions.find((m) => m.id === prompt.model)
+                            if (!selectedModel?.provider) {
+                                lemonToast.error('Selected model not found in available models')
+                                responseText = '**Error:** Selected model not available.'
+                                responseHasError = true
+                                upsertLiveItem()
+                                return
+                            }
 
-                                try {
-                                    const data = JSON.parse(event.data)
-                                    if (data.type === 'text') {
-                                        if (firstTokenTime === null && startTime !== null) {
-                                            firstTokenTime = performance.now()
-                                            ttftMs = firstTokenTime - startTime
+                            const providerKeyId =
+                                resolveProviderKeyForPrompt(prompt, values.effectiveModelOptions, values.providerKeys)
+                                    ?.id ?? values.activeProviderKeyId
+
+                            const requestData: Record<string, unknown> = {
+                                system: prompt.systemPrompt,
+                                messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
+                                model: selectedModel.id,
+                                provider: selectedModel.provider.toLowerCase(),
+                                thinking: prompt.thinking,
+                                ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
+                                ...(prompt.tools ? { tools: prompt.tools } : {}),
+                                ...(prompt.maxTokens !== null && prompt.maxTokens > 0
+                                    ? { max_tokens: prompt.maxTokens }
+                                    : {}),
+                                ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
+                            }
+
+                            await api.stream('/api/llm_proxy/completion', {
+                                method: 'POST',
+                                data: requestData,
+                                headers: { 'Content-Type': 'application/json' },
+                                signal: abortController.signal,
+                                onMessage: (event) => {
+                                    breakpoint()
+                                    if (!event.data) {
+                                        return
+                                    }
+
+                                    try {
+                                        const data = JSON.parse(event.data)
+                                        if (data.type === 'text') {
+                                            if (firstTokenTime === null && startTime !== null) {
+                                                firstTokenTime = performance.now()
+                                                ttftMs = firstTokenTime - startTime
+                                            }
+                                            responseText += data.text
+                                            upsertLiveItem()
+                                        } else if (data.type === 'tool_call') {
+                                            if (firstTokenTime === null && startTime !== null) {
+                                                firstTokenTime = performance.now()
+                                                ttftMs = firstTokenTime - startTime
+                                            }
+                                            toolCalls = appendToolCallChunk(toolCalls, data)
+                                            const toolCallsText = formatToolCalls(toolCalls)
+                                            const separator = responseText.trim() && toolCallsText ? '\n\n' : ''
+                                            actions.updateComparisonItem(liveItemId, {
+                                                response: responseText + separator + toolCallsText,
+                                                ttftMs,
+                                            })
+                                        } else if (data.type === 'usage') {
+                                            responseUsage = normalizeUsageFromStreamChunk(data)
+                                            actions.updateComparisonItem(liveItemId, { usage: responseUsage })
+                                        } else if (data.error) {
+                                            responseText += `\n\n**LLM Error:** ${data.error}`
+                                            responseHasError = true
+                                            upsertLiveItem()
                                         }
-                                        responseText += data.text
-                                        upsertLiveItem()
-                                    } else if (data.type === 'tool_call') {
-                                        if (firstTokenTime === null && startTime !== null) {
-                                            firstTokenTime = performance.now()
-                                            ttftMs = firstTokenTime - startTime
-                                        }
-                                        toolCalls = appendToolCallChunk(toolCalls, data)
-                                        const toolCallsText = formatToolCalls(toolCalls)
-                                        const separator = responseText.trim() && toolCallsText ? '\n\n' : ''
-                                        actions.updateComparisonItem(liveItemId, {
-                                            response: responseText + separator + toolCallsText,
-                                            ttftMs,
-                                        })
-                                    } else if (data.type === 'usage') {
-                                        responseUsage = normalizeUsageFromStreamChunk(data)
-                                        actions.updateComparisonItem(liveItemId, { usage: responseUsage })
-                                    } else if (data.error) {
-                                        responseText += `\n\n**LLM Error:** ${data.error}`
+                                    } catch (e) {
+                                        console.error('Error parsing stream message:', e, 'Data:', event.data)
+                                        responseText += `\n\n**Stream Error:** Could not parse response chunk.`
                                         responseHasError = true
                                         upsertLiveItem()
                                     }
-                                } catch (e) {
-                                    console.error('Error parsing stream message:', e, 'Data:', event.data)
-                                    responseText += `\n\n**Stream Error:** Could not parse response chunk.`
+                                },
+                                onError: (err) => {
+                                    if (err instanceof RateLimitError) {
+                                        actions.setRateLimited(err.retryAfterSeconds)
+                                        responseHasError = true
+                                        upsertLiveItem()
+                                        return
+                                    }
+                                    if (err instanceof ApiError && err.status === 402) {
+                                        actions.setSubscriptionRequired(true)
+                                        responseHasError = true
+                                        upsertLiveItem()
+                                        return
+                                    }
+                                    responseText += `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
                                     responseHasError = true
                                     upsertLiveItem()
-                                }
-                            },
-                            onError: (err) => {
-                                if (err instanceof RateLimitError) {
-                                    actions.setRateLimited(err.retryAfterSeconds)
-                                    responseHasError = true
-                                    upsertLiveItem()
-                                    return
-                                }
-                                if (err instanceof ApiError && err.status === 402) {
-                                    actions.setSubscriptionRequired(true)
-                                    responseHasError = true
-                                    upsertLiveItem()
-                                    return
-                                }
-                                responseText += `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
+                                },
+                            })
+
+                            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
+                        } catch (error) {
+                            if (error instanceof RateLimitError) {
+                                actions.setRateLimited(error.retryAfterSeconds)
                                 responseHasError = true
-                                upsertLiveItem()
-                            },
-                        })
-
-                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
-                    } catch (error) {
-                        if (error instanceof RateLimitError) {
-                            actions.setRateLimited(error.retryAfterSeconds)
-                            responseHasError = true
-                        } else if (error instanceof ApiError && error.status === 402) {
-                            actions.setSubscriptionRequired(true)
-                            responseHasError = true
-                        } else {
-                            responseText += `\n\n**Error:** Failed to initiate prompt submission.`
-                            responseHasError = true
-                            lemonToast.error('Failed to connect to LLM service. Please try again.')
+                            } else if (error instanceof ApiError && error.status === 402) {
+                                actions.setSubscriptionRequired(true)
+                                responseHasError = true
+                            } else {
+                                responseText += `\n\n**Error:** Failed to initiate prompt submission.`
+                                responseHasError = true
+                                lemonToast.error('Failed to connect to LLM service. Please try again.')
+                            }
+                            upsertLiveItem()
+                        } finally {
+                            if (startTime !== null) {
+                                latencyMs = performance.now() - startTime
+                            }
                         }
+
+                        const toolCallsText = formatToolCalls(toolCalls)
+                        if (toolCallsText) {
+                            const separator = responseText.trim() ? '\n\n' : ''
+                            responseText += separator + toolCallsText
+                        }
+
                         upsertLiveItem()
-                    } finally {
-                        if (startTime !== null) {
-                            latencyMs = performance.now() - startTime
-                        }
-                    }
+                    })
 
-                    const toolCallsText = formatToolCalls(toolCalls)
-                    if (toolCallsText) {
-                        const separator = responseText.trim() ? '\n\n' : ''
-                        responseText += separator + toolCallsText
-                    }
-
-                    upsertLiveItem()
-                })
-
-                await Promise.allSettled(runs)
-            } finally {
-                abortController.abort()
-                actions.finishSubmitPrompt()
-            }
-        },
-
-        setupPlaygroundFromEvent: ({ payload }) => {
-            const { model, input, tools } = payload
-            const currentPrompt = values.promptConfigs[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
-            const promptId = currentPrompt.id
-
-            if (model) {
-                const matchedModel = matchClosestModelOption(model, values.effectiveModelOptions, values.providerKeys)
-                actions.setModel(
-                    matchedModel?.id ?? matchClosestModel(model, values.effectiveModelOptions),
-                    matchedModel?.providerKeyId,
-                    promptId
-                )
-            }
-
-            if (tools) {
-                actions.setTools(tools, promptId)
-            }
-
-            let systemPromptContent: string | undefined = undefined
-            let conversationMessages: Message[] = []
-            let initialUserPrompt: string | undefined = undefined
-
-            if (input) {
-                try {
-                    if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
-                        const systemContents = input
-                            .filter((msg) => msg.role === 'system')
-                            .map((msg) => msg.content)
-                            .filter(
-                                (content): content is string => typeof content === 'string' && content.trim().length > 0
-                            )
-
-                        if (systemContents.length > 0) {
-                            systemPromptContent = systemContents.join('\n\n')
-                        }
-
-                        conversationMessages = input
-                            .filter((msg: RawMessage) => msg.role !== 'system')
-                            .map((msg: RawMessage) => extractConversationMessage(msg))
-                    } else if (typeof input === 'string') {
-                        initialUserPrompt = input
-                    } else if (isObject(input)) {
-                        if (typeof input.content === 'string') {
-                            initialUserPrompt = input.content
-                        } else if (input.content && typeof input.content !== 'string') {
-                            initialUserPrompt = JSON.stringify(input.content, null, 2)
-                        } else {
-                            initialUserPrompt = JSON.stringify(input, null, 2)
-                        }
-                    }
-                } catch (e) {
-                    console.error('Error processing input for playground:', e)
-                    initialUserPrompt = String(input)
-                    conversationMessages = []
+                    await Promise.allSettled(runs)
+                } finally {
+                    abortController.abort()
+                    actions.finishSubmitPrompt()
                 }
-            }
+            },
 
-            actions.setSystemPrompt(systemPromptContent ?? DEFAULT_SYSTEM_PROMPT, promptId)
+            setupPlaygroundFromEvent: ({ payload }) => {
+                const { model, provider, input, tools } = payload
+                const currentPrompt = values.promptConfigs[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
+                const promptId = currentPrompt.id
+                const traceLikeSelection = isTraceLikeSelection(model, provider)
 
-            if (initialUserPrompt) {
-                conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
-            }
+                if (model && values.providerKeysSettled && values.byokModelsSettled) {
+                    if (traceLikeSelection) {
+                        applyTraceSelection(model, promptId, normalizeLLMProvider(provider))
+                    } else {
+                        const matchedModel = matchClosestModelOption(
+                            model,
+                            values.effectiveModelOptions,
+                            values.providerKeys
+                        )
+                        actions.setModel(matchedModel?.id ?? model, matchedModel?.providerKeyId, promptId)
+                    }
+                    actions.clearPendingTargetModel()
+                }
 
-            actions.setMessages(conversationMessages, promptId)
-            actions.setActivePromptId(promptId)
-            router.actions.push(urls.llmAnalyticsPlayground())
-        },
-    })),
+                if (tools) {
+                    actions.setTools(tools, promptId)
+                }
 
+                let systemPromptContent: string | undefined = undefined
+                let conversationMessages: Message[] = []
+                let initialUserPrompt: string | undefined = undefined
+
+                if (input) {
+                    try {
+                        if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
+                            const systemContents = input
+                                .filter((msg) => msg.role === 'system')
+                                .map((msg) => msg.content)
+                                .filter(
+                                    (content): content is string =>
+                                        typeof content === 'string' && content.trim().length > 0
+                                )
+
+                            if (systemContents.length > 0) {
+                                systemPromptContent = systemContents.join('\n\n')
+                            }
+
+                            conversationMessages = input
+                                .filter((msg: RawMessage) => msg.role !== 'system')
+                                .map((msg: RawMessage) => extractConversationMessage(msg))
+                        } else if (typeof input === 'string') {
+                            initialUserPrompt = input
+                        } else if (isObject(input)) {
+                            if (typeof input.content === 'string') {
+                                initialUserPrompt = input.content
+                            } else if (input.content && typeof input.content !== 'string') {
+                                initialUserPrompt = JSON.stringify(input.content, null, 2)
+                            } else {
+                                initialUserPrompt = JSON.stringify(input, null, 2)
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error processing input for playground:', e)
+                        initialUserPrompt = String(input)
+                        conversationMessages = []
+                    }
+                }
+
+                actions.setSystemPrompt(systemPromptContent ?? DEFAULT_SYSTEM_PROMPT, promptId)
+
+                if (initialUserPrompt) {
+                    conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
+                }
+
+                actions.setMessages(conversationMessages, promptId)
+                actions.setActivePromptId(promptId)
+                router.actions.push(urls.llmAnalyticsPlayground())
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadModelOptions()
     }),
@@ -959,6 +1262,10 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             (s) => [s.hasByokKeys, s.byokModels, s.modelOptions],
             (hasByokKeys: boolean, byokModels: ModelOption[], modelOptions: ModelOption[]): ModelOption[] =>
                 hasByokKeys && byokModels.length > 0 ? byokModels : modelOptions,
+        ],
+        allModelOptions: [
+            (s) => [s.modelOptions, s.byokModels],
+            (modelOptions: ModelOption[], byokModels: ModelOption[]): ModelOption[] => [...modelOptions, ...byokModels],
         ],
         groupedModelOptions: [
             (s) => [s.modelOptions],

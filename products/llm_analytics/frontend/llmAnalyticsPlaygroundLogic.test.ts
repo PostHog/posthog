@@ -110,14 +110,25 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 input: 'test input',
             })
 
-            // No models available, so matchClosestModel falls back to DEFAULT_MODEL
-            expect(emptyLogic.values.model).toBe(DEFAULT_MODEL)
+            // No models available yet, so preserve the requested model instead of guessing.
+            expect(emptyLogic.values.model).toBe('gpt-5-2025-08-07')
 
             emptyLogic.unmount()
         })
     })
 
     describe('setupPlaygroundFromEvent model matching', () => {
+        it('should resolve pending model after model options load when setup happens early', async () => {
+            logic.actions.setupPlaygroundFromEvent({
+                model: 'gpt-5-2025-08-07',
+                input: 'test input',
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.model).toBe('gpt-5')
+        })
+
         it('should set valid model directly', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -193,10 +204,10 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             testLogic.unmount()
         })
 
-        it('should match provider-prefixed model IDs to BYOK model and keep provider key', async () => {
+        it('should keep trace model ID and map to the matching provider key', async () => {
             const byokModels: ModelOption[] = [
                 {
-                    id: 'openrouter/anthropic/claude-sonnet-4',
+                    id: 'anthropic/claude-sonnet-4',
                     name: 'Claude Sonnet 4',
                     provider: 'openrouter',
                     description: '',
@@ -228,17 +239,109 @@ describe('llmAnalyticsPlaygroundLogic', () => {
 
             testLogic.actions.setupPlaygroundFromEvent({
                 model: 'anthropic/claude-sonnet-4',
+                provider: 'gateway',
                 input: 'test input',
             })
 
-            expect(testLogic.values.model).toBe('openrouter/anthropic/claude-sonnet-4')
+            expect(testLogic.values.model).toBe('anthropic/claude-sonnet-4')
+            expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
+
+            testLogic.unmount()
+        })
+
+        it('should keep trace model ID even when setup runs before keys/models load', async () => {
+            const byokModels: ModelOption[] = [
+                {
+                    id: 'anthropic/claude-sonnet-4-5-20250929',
+                    name: 'Claude Sonnet 4.5',
+                    provider: 'openrouter',
+                    description: '',
+                },
+            ]
+
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
+                    },
+                    '/api/llm_proxy/models/': (req: any) => {
+                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                },
+            })
+
+            const testLogic = llmAnalyticsPlaygroundLogic()
+            testLogic.mount()
+
+            testLogic.actions.setupPlaygroundFromEvent({
+                model: 'anthropic/claude-sonnet-4-5-20250929',
+                provider: 'gateway',
+                input: 'test input',
+            })
+
+            await expectLogic(testLogic).toFinishAllListeners()
+
+            expect(testLogic.values.model).toBe('anthropic/claude-sonnet-4-5-20250929')
+            expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
+
+            testLogic.unmount()
+        })
+
+        it('should map gateway snapshot model IDs to the closest same-prefix catalog model', async () => {
+            const byokModels: ModelOption[] = [
+                {
+                    id: 'anthropic/claude-sonnet-4.5',
+                    name: 'Claude Sonnet 4.5',
+                    provider: 'openrouter',
+                    description: '',
+                },
+            ]
+
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
+                    },
+                    '/api/llm_proxy/models/': (req: any) => {
+                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                },
+            })
+
+            const testLogic = llmAnalyticsPlaygroundLogic()
+            testLogic.mount()
+            await expectLogic(testLogic).toFinishAllListeners()
+
+            testLogic.actions.setupPlaygroundFromEvent({
+                model: 'anthropic/claude-sonnet-4-5-20250929',
+                provider: 'gateway',
+                input: 'test input',
+            })
+
+            expect(testLogic.values.model).toBe('anthropic/claude-sonnet-4.5')
             expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
 
             testLogic.unmount()
         })
 
         it('should consistently pick the first provider key by sorted order when multiple keys match', async () => {
-            const byokModelId = 'openrouter/anthropic/claude-sonnet-4'
+            const byokModelId = 'anthropic/claude-sonnet-4'
 
             logic.unmount()
 
@@ -280,11 +383,57 @@ describe('llmAnalyticsPlaygroundLogic', () => {
 
             testLogic.actions.setupPlaygroundFromEvent({
                 model: 'anthropic/claude-sonnet-4',
+                provider: 'gateway',
                 input: 'test input',
             })
 
             expect(testLogic.values.model).toBe(byokModelId)
             expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-a')
+
+            testLogic.unmount()
+        })
+
+        it('should keep trial model selection even when BYOK models are available', async () => {
+            const byokModels: ModelOption[] = [
+                {
+                    id: 'anthropic/claude-sonnet-4.5',
+                    name: 'Claude Sonnet 4.5',
+                    provider: 'openrouter',
+                    description: '',
+                },
+            ]
+
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
+                    },
+                    '/api/llm_proxy/models/': (req: any) => {
+                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                },
+            })
+
+            const testLogic = llmAnalyticsPlaygroundLogic()
+            testLogic.mount()
+            await expectLogic(testLogic).toFinishAllListeners()
+
+            testLogic.actions.setupPlaygroundFromEvent({
+                model: 'gpt-5-mini',
+                provider: 'gateway',
+                input: 'test input',
+            })
+
+            expect(testLogic.values.model).toBe('gpt-5-mini')
+            expect(testLogic.values.selectedProviderKeyId).toBe(null)
 
             testLogic.unmount()
         })
