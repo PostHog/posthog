@@ -160,7 +160,7 @@ def should_send_notification(
             if et_project_settings is not None:
                 return et_project_settings.get(str(team_id), False)
 
-        return False
+        return True
 
     # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.DISCUSSIONS_MENTIONED.value:
