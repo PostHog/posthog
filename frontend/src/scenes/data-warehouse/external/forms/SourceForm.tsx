@@ -12,8 +12,10 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -246,6 +248,7 @@ export function SourceFormComponent({
     setSourceConfigValue,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
@@ -283,7 +286,7 @@ export function SourceFormComponent({
                     )}
                 </LemonField>
             )}
-            {sourceConfig.name === 'Postgres' && (
+            {sourceConfig.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
                 <LemonField
                     name="access_method"
                     label="How should PostHog query this source?"
