@@ -437,6 +437,7 @@ export type AssistantTool =
     | 'list_data'
     | 'upsert_alert'
     | 'finalize_plan'
+    | 'call_mcp_server'
     | 'recommend_products'
     | 'search_llm_traces'
 

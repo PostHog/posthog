@@ -3474,6 +3474,13 @@ export interface StepOrderVersion {
     created_at: string
 }
 
+export type EffectiveProductTourType = 'tour' | 'announcement' | 'banner'
+
+export interface ProductTourWaitPeriod {
+    days: number
+    types: EffectiveProductTourType[]
+}
+
 export interface ProductTourDisplayConditions {
     url?: string
     urlMatchType?: SurveyMatchType
@@ -3492,6 +3499,7 @@ export interface ProductTourDisplayConditions {
         values: SurveyEventsWithProperties[]
     } | null
     linkedFlagVariant?: string
+    seenTourWaitPeriod?: ProductTourWaitPeriod
 }
 
 export interface ProductTourAppearance {

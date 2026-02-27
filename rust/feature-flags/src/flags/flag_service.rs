@@ -3,10 +3,12 @@ use crate::{
     flags::flag_models::FeatureFlagList,
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
-        DB_TEAM_READS_COUNTER, TEAM_CACHE_HIT_COUNTER, TOKEN_VALIDATION_ERRORS_COUNTER,
+        DB_TEAM_READS_COUNTER, TEAM_CACHE_HIT_COUNTER, TEAM_NEGATIVE_CACHE_HIT_COUNTER,
+        TOKEN_VALIDATION_ERRORS_COUNTER,
     },
     team::team_models::Team,
 };
+use common_cache::NegativeCache;
 use common_database::PostgresReader;
 use common_hypercache::{CacheSource, HyperCacheReader, KeyType};
 use common_metrics::inc;
@@ -34,6 +36,8 @@ pub struct FlagService {
     /// HyperCache reader for fetching flags from Redis/S3
     /// Arc-wrapped to allow sharing across requests
     flags_hypercache_reader: Arc<HyperCacheReader>,
+    /// In-memory negative cache for invalid API tokens
+    team_negative_cache: NegativeCache,
 }
 
 impl FlagService {
@@ -42,12 +46,14 @@ impl FlagService {
         pg_client: PostgresReader,
         team_hypercache_reader: Arc<HyperCacheReader>,
         flags_hypercache_reader: Arc<HyperCacheReader>,
+        team_negative_cache: NegativeCache,
     ) -> Self {
         Self {
             shared_redis_client,
             pg_client,
             team_hypercache_reader,
             flags_hypercache_reader,
+            team_negative_cache,
         }
     }
 
@@ -64,16 +70,32 @@ impl FlagService {
     ///
     /// This combines token verification with team fetching to avoid a redundant
     /// cache lookup — callers get the Team directly instead of re-fetching it.
+    /// Invalid tokens are tracked in a negative cache to avoid repeated lookups
+    /// against Redis/S3/PG for tokens that don't correspond to any team.
     pub async fn verify_token_and_get_team(&self, token: &str) -> Result<Team, FlagError> {
+        if self.team_negative_cache.contains(token) {
+            with_canonical_log(|log| log.team_cache_source = Some("negative_cache"));
+            inc(TEAM_NEGATIVE_CACHE_HIT_COUNTER, &[], 1);
+            inc(
+                TOKEN_VALIDATION_ERRORS_COUNTER,
+                &[("reason".to_string(), "token_not_found".to_string())],
+                1,
+            );
+            return Err(FlagError::TokenValidationError);
+        }
+
         match self.get_team_from_cache_or_pg(token).await {
             Ok(team) => Ok(team),
             Err(e) => {
                 tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
-                inc(
-                    TOKEN_VALIDATION_ERRORS_COUNTER,
-                    &[("reason".to_string(), "token_not_found".to_string())],
-                    1,
-                );
+                if e.is_token_not_found() {
+                    self.team_negative_cache.insert(token.to_string());
+                    inc(
+                        TOKEN_VALIDATION_ERRORS_COUNTER,
+                        &[("reason".to_string(), "token_not_found".to_string())],
+                        1,
+                    );
+                }
                 Err(FlagError::TokenValidationError)
             }
         }
@@ -163,6 +185,7 @@ impl FlagService {
 
 #[cfg(test)]
 mod tests {
+    use common_cache::NegativeCache;
     use serde_json::json;
 
     use crate::{
@@ -195,6 +218,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
         // Test valid token returns the team
@@ -226,6 +250,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
         // Test fetching from HyperCache
@@ -254,6 +279,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
         // Test fetching from PostgreSQL (cache miss)
@@ -375,6 +401,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
         // Test fetching from hypercache
@@ -514,6 +541,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -572,6 +600,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
         // Should fall back to PostgreSQL and succeed (returns empty list for new team)
@@ -613,6 +642,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -658,6 +688,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -706,6 +737,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -729,6 +761,127 @@ mod tests {
                 .any(|call| call.op == "set" || call.op == "set_bytes"),
             "Cache write detected after PG fallback. Rust should be read-only; \
              Django handles cache population via HyperCache. Found calls: {client_calls:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn test_negative_cache_returns_error_for_cached_invalid_token() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+
+        let negative_cache = NegativeCache::new(100, 300);
+        negative_cache.insert("known_bad_token".to_string());
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            negative_cache,
+        );
+
+        let result = flag_service
+            .verify_token_and_get_team("known_bad_token")
+            .await;
+        assert!(matches!(result, Err(FlagError::TokenValidationError)));
+    }
+
+    #[tokio::test]
+    async fn test_negative_cache_populated_on_invalid_token() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+
+        let negative_cache = NegativeCache::new(100, 300);
+        assert!(!negative_cache.contains("nonexistent_token"));
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            negative_cache.clone(),
+        );
+
+        // First call should fail and populate the negative cache
+        let result = flag_service
+            .verify_token_and_get_team("nonexistent_token")
+            .await;
+        assert!(matches!(result, Err(FlagError::TokenValidationError)));
+        assert!(negative_cache.contains("nonexistent_token"));
+    }
+
+    #[tokio::test]
+    async fn test_negative_cache_does_not_affect_valid_tokens() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("Failed to insert team");
+
+        let negative_cache = NegativeCache::new(100, 300);
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            negative_cache.clone(),
+        );
+
+        // Valid token should succeed and not be added to negative cache
+        let result = flag_service
+            .verify_token_and_get_team(&team.api_token)
+            .await;
+        assert!(result.is_ok());
+        assert!(!negative_cache.contains(&team.api_token));
+    }
+
+    /// Verifies the full negative cache lifecycle: the first call for an invalid
+    /// token hits the backend and populates the cache, and the second call is
+    /// served from cache without making additional Redis calls.
+    #[tokio::test]
+    async fn test_second_call_for_invalid_token_skips_backends() {
+        use common_redis::MockRedisClient;
+
+        let mock_client = MockRedisClient::new();
+        let mock_redis: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
+        let team_hypercache_reader = setup_hypercache_reader_with_mock_redis(mock_redis.clone());
+        let hypercache_reader = setup_hypercache_reader_with_mock_redis(mock_redis.clone());
+        let context = TestContext::new(None).await;
+
+        let negative_cache = NegativeCache::new(100, 300);
+
+        let flag_service = FlagService::new(
+            mock_redis,
+            context.non_persons_reader.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            negative_cache.clone(),
+        );
+
+        // First call: misses cache, hits Redis (mock) + PG fallback, fails, populates negative cache
+        let result = flag_service.verify_token_and_get_team("bad_token").await;
+        assert!(matches!(result, Err(FlagError::TokenValidationError)));
+        assert!(negative_cache.contains("bad_token"));
+        let calls_after_first = mock_client.get_calls().len();
+        assert!(
+            calls_after_first > 0,
+            "First call should have made Redis calls"
+        );
+
+        // Second call: should hit negative cache and return immediately
+        let result = flag_service.verify_token_and_get_team("bad_token").await;
+        assert!(matches!(result, Err(FlagError::TokenValidationError)));
+        let calls_after_second = mock_client.get_calls().len();
+        assert_eq!(
+            calls_after_first, calls_after_second,
+            "Second call should not make additional Redis calls (served from negative cache)"
         );
     }
 }

@@ -83,7 +83,7 @@ from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
-from posthog.security.outbound_proxy import make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests, make_proxied_requests_session
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -1264,7 +1264,7 @@ def redirect_to_website(request):
 
     # check if a strapi id is attached
     if request.user.strapi_id is None:
-        response = requests.request(
+        response = external_requests.request(
             "POST",
             "https://squeak.posthog.cc/api/auth/local/register",
             json={
