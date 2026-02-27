@@ -405,6 +405,21 @@ export interface NotificationSettings {
     materialized_view_sync_failed?: boolean
 }
 
+export interface InAppNotification {
+    id: string
+    notification_type: string
+    priority: string
+    title: string
+    body: string
+    read: boolean
+    read_at: string | null
+    source_type: string | null
+    source_id: string | null
+    source_url: string | null
+    actor: UserBasicType | null
+    created_at: string
+}
+
 export interface PluginAccess {
     view: boolean
     install: boolean

@@ -1,35 +1,34 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog, { JsonRecord } from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
+import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
+import { InAppNotification } from '~/types'
 
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
+const UNREAD_POLL_TIMEOUT = 30 * 1000
 
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
-
-    // Images can be embedded directly in the markdown using ![alt text](url) syntax.
-    // LemonMarkdown will render them.
-    // For optimal display, ensure images are reasonably sized (e.g., width < 800px)
-    // and optimized for web (e.g., < 500KB).
-    // We suggest you upload it to a CDN to reduce load times/server load.
-    // If you're a PostHog employee, check https://posthog.com/handbook/engineering/posthog-com/assets out
     markdown: string
-
-    // Optional fields used if you want to override this to a specific person rather than Joe
     name?: string
     email?: string
 }
@@ -37,7 +36,16 @@ export interface ChangelogFlagPayload {
 export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>([
     path(['layout', 'navigation-3000', 'sidepanel', 'panels', 'activity', 'sidePanelNotificationsLogic']),
     connect(() => ({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
+        values: [
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
+        ],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
     actions({
@@ -46,6 +54,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         clearErrorCount: true,
         markAllAsRead: true,
         loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
+        // Real-time notification actions
+        setInAppNotifications: (notifications: InAppNotification[]) => ({ notifications }),
+        setInAppUnreadCount: (count: number) => ({ count }),
+        notificationReceived: (notification: InAppNotification) => ({ notification }),
+        markAsRead: (id: string) => ({ id }),
+        startSSE: true,
+        stopSSE: true,
+        fallbackToPoll: true,
     }),
     reducers({
         errorCounter: [
@@ -53,6 +69,26 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             {
                 incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
                 clearErrorCount: () => 0,
+            },
+        ],
+        inAppNotifications: [
+            [] as InAppNotification[],
+            {
+                setInAppNotifications: (_, { notifications }) => notifications,
+                notificationReceived: (state, { notification }) => [notification, ...state],
+                markAsRead: (state, { id }) =>
+                    state.map((n) => (n.id === id ? { ...n, read: true, read_at: new Date().toISOString() } : n)),
+                markAllAsRead: (state) =>
+                    state.map((n) => (n.read ? n : { ...n, read: true, read_at: new Date().toISOString() })),
+            },
+        ],
+        inAppUnreadCount: [
+            0,
+            {
+                setInAppUnreadCount: (_, { count }) => count,
+                notificationReceived: (state, { notification }) => (notification.read ? state : state + 1),
+                markAsRead: (state) => Math.max(0, state - 1),
+                markAllAsRead: () => 0,
             },
         ],
     }),
@@ -69,12 +105,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                 toParams({ unread: onlyUnread })
                         )
 
-                        // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
                     } catch {
-                        // swallow errors as this isn't user initiated
-                        // increment a counter to backoff calling the API while errors persist
                         actions.incrementErrorCount()
                         return null
                     } finally {
@@ -89,16 +122,22 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     }
                 },
                 markAllAsRead: async () => {
+                    if (values.realTimeNotificationsEnabled) {
+                        await api.create(`api/environments/${values.currentProjectId}/notifications/mark_all_read/`, {})
+                        return values.importantChanges
+                    }
+
                     const current = values.importantChanges
                     if (!current) {
                         return null
                     }
 
-                    const latestNotification = values.notifications.reduce((a, b) =>
+                    const legacyNotifications = values.legacyNotifications
+                    const latestNotification = legacyNotifications.reduce((a, b) =>
                         a.created_at.isAfter(b.created_at) ? a : b
                     )
 
-                    const hasUnread = values.notifications.some((ic) => ic.unread)
+                    const hasUnread = legacyNotifications.some((ic) => ic.unread)
 
                     if (!hasUnread) {
                         return current
@@ -117,17 +156,112 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
     })),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         togglePolling: ({ pageIsVisible }) => {
+            if (values.realTimeNotificationsEnabled) {
+                return
+            }
             if (pageIsVisible) {
                 actions.loadImportantChanges()
             } else {
                 cache.disposables.dispose('pollTimeout')
             }
         },
+        startSSE: () => {
+            const token = values.currentTeam?.live_events_token
+            if (!token) {
+                actions.fallbackToPoll()
+                return
+            }
+
+            const host = liveEventsHostOrigin()
+            if (!host) {
+                actions.fallbackToPoll()
+                return
+            }
+
+            const url = `${host}/notifications`
+
+            cache.sseConnection?.abort()
+            const abortController = new AbortController()
+            cache.sseConnection = abortController
+
+            void api.stream(url, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+                signal: abortController.signal,
+                onMessage: (event) => {
+                    try {
+                        const notification = JSON.parse(event.data) as InAppNotification
+                        actions.notificationReceived(notification)
+                        if (notification.priority === 'urgent') {
+                            lemonToast.info(notification.title)
+                        }
+                    } catch {
+                        // Ignore heartbeat or malformed messages
+                    }
+                },
+                onError: () => {
+                    actions.fallbackToPoll()
+                },
+            })
+        },
+        stopSSE: () => {
+            cache.sseConnection?.abort()
+            cache.sseConnection = null
+            if (cache.pollTimer) {
+                clearInterval(cache.pollTimer)
+                cache.pollTimer = null
+            }
+        },
+        fallbackToPoll: () => {
+            cache.sseConnection?.abort()
+            cache.sseConnection = null
+
+            if (cache.pollTimer) {
+                clearInterval(cache.pollTimer)
+            }
+
+            const poll = async (): Promise<void> => {
+                try {
+                    const resp = await api.get<{ count: number }>(
+                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                    )
+                    actions.setInAppUnreadCount(resp.count)
+                } catch {
+                    // Swallow
+                }
+            }
+
+            void poll()
+            cache.pollTimer = setInterval(() => void poll(), UNREAD_POLL_TIMEOUT)
+        },
+        notificationReceived: async () => {
+            // Refresh unread count from server on each new notification
+            try {
+                const resp = await api.get<{ count: number }>(
+                    `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                )
+                actions.setInAppUnreadCount(resp.count)
+            } catch {
+                // Swallow
+            }
+        },
+        markAsRead: async ({ id }) => {
+            try {
+                await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/mark_read/`, {})
+            } catch {
+                // Swallow
+            }
+        },
     })),
     selectors({
-        notifications: [
+        realTimeNotificationsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS],
+        ],
+        legacyNotifications: [
             (s) => [s.importantChanges],
             (importantChanges): HumanizedActivityLogItem[] => {
                 try {
@@ -164,8 +298,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             ),
                         ]
 
-                        // Sorting this inside the `if` case because there's no need to sort the changelog notifications
-                        // if there are no changelog notifications, since they come from the backend sorted already.
                         importantChangesHumanized.sort((a: HumanizedActivityLogItem, b: HumanizedActivityLogItem) => {
                             if (a.created_at.isBefore(b.created_at)) {
                                 return 1
@@ -179,27 +311,66 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
 
                     return importantChangesHumanized
                 } catch {
-                    // swallow errors as this isn't user initiated
                     return []
                 }
             },
         ],
-
-        hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
-        unread: [
-            (s) => [s.notifications],
-            (notifications: HumanizedActivityLogItem[]) => notifications.filter((ic) => ic.unread),
+        notifications: [
+            (s) => [s.realTimeNotificationsEnabled, s.legacyNotifications, s.inAppNotifications],
+            (
+                realTimeEnabled,
+                legacyNotifications,
+                inAppNotifications
+            ): HumanizedActivityLogItem[] | InAppNotification[] => {
+                return realTimeEnabled ? inAppNotifications : legacyNotifications
+            },
         ],
-        unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
+        hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
+        unreadCount: [
+            (s) => [s.realTimeNotificationsEnabled, s.legacyNotifications, s.inAppUnreadCount],
+            (realTimeEnabled, legacyNotifications, inAppUnreadCount): number => {
+                if (realTimeEnabled) {
+                    return inAppUnreadCount
+                }
+                return legacyNotifications.filter((ic) => ic.unread).length
+            },
+        ],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
-    afterMount(({ cache, actions }) => {
-        cache.disposables.add(() => {
-            const onVisibilityChange = (): void => {
-                actions.togglePolling(document.visibilityState === 'visible')
-            }
-            document.addEventListener('visibilitychange', onVisibilityChange)
-            return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-        }, 'visibilityListener')
+    afterMount(({ cache, actions, values }) => {
+        if (values.realTimeNotificationsEnabled) {
+            // Load initial notifications from the REST API
+            void (async () => {
+                try {
+                    const resp = await api.get<{ results: InAppNotification[] }>(
+                        `api/environments/${values.currentProjectId}/notifications/`
+                    )
+                    actions.setInAppNotifications(resp.results)
+                } catch {
+                    // Swallow
+                }
+                try {
+                    const countResp = await api.get<{ count: number }>(
+                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                    )
+                    actions.setInAppUnreadCount(countResp.count)
+                } catch {
+                    // Swallow
+                }
+            })()
+
+            actions.startSSE()
+        } else {
+            cache.disposables.add(() => {
+                const onVisibilityChange = (): void => {
+                    actions.togglePolling(document.visibilityState === 'visible')
+                }
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+            }, 'visibilityListener')
+        }
+    }),
+    beforeUnmount(({ actions }) => {
+        actions.stopSSE()
     }),
 ])
