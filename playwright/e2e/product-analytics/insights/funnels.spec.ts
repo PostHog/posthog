@@ -2,7 +2,7 @@ import { InsightShortId, InsightType } from '~/types'
 
 import { InsightPage } from '../../../page-models/insightPage'
 import { randomString } from '../../../utils'
-import { createEvent, daysAgo } from '../../../utils/event-data'
+import { createEvent, daysAgo, hoursAgo } from '../../../utils/event-data'
 import { PlaywrightSetupEvent } from '../../../utils/playwright-setup'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
@@ -19,7 +19,9 @@ const EXCLUSION_EVENT = 'funnel_excluded_action'
  *   Firefox     10         0         0      (0% total conversion)
  *   Total       20        10         5      (25% total conversion)
  *
- * user-10 (Firefox) performs the exclusion event between steps 1 and 2.
+ * chrome-user-0 performs the exclusion event between steps 1 and 2.
+ * This user converts through all 3 steps, so excluding them meaningfully
+ * changes the numbers: 20→19 at step 1, 10→9 at step 2, 5→4 at step 3.
  * Steps are spaced 24h apart so a 1-hour conversion window yields 0 conversions.
  */
 function generateFunnelEvents(): PlaywrightSetupEvent[] {
@@ -32,7 +34,7 @@ function generateFunnelEvents(): PlaywrightSetupEvent[] {
     return [
         ...createEvent({ event: STEP_1, user: chromeUsers, timestamp: daysAgo(5), properties: chrome }).repeat(10),
         ...createEvent({ event: STEP_1, user: firefoxUsers, timestamp: daysAgo(5), properties: firefox }).repeat(10),
-        ...createEvent({ event: EXCLUSION_EVENT, user: 'firefox-user-10', timestamp: daysAgo(4), properties: firefox })
+        ...createEvent({ event: EXCLUSION_EVENT, user: 'chrome-user-0', timestamp: hoursAgo(108), properties: chrome })
             .events,
         ...createEvent({ event: STEP_2, user: chromeUsers, timestamp: daysAgo(4), properties: chrome }).repeat(10),
         ...createEvent({ event: STEP_3, user: chromeUsers, timestamp: daysAgo(3), properties: chrome }).repeat(5),
@@ -281,9 +283,10 @@ test.describe('Funnel insights', () => {
             await insight.funnels.waitForChart()
         })
 
-        await test.step('verify user-10 is excluded: 19 → 10', async () => {
+        await test.step('verify chrome-user-0 is excluded: 19 → 9 → 4', async () => {
             await expect(insight.funnels.stepLegend(0)).toContainText('19')
-            await expect(insight.funnels.stepLegend(1)).toContainText('10')
+            await expect(insight.funnels.stepLegend(1)).toContainText('9')
+            await expect(insight.funnels.stepLegend(2)).toContainText('4')
         })
     })
 
@@ -319,10 +322,13 @@ test.describe('Funnel insights', () => {
             await expect(insight.cancelButton).toBeVisible()
         })
 
-        await test.step('cancel edit — original state restored', async () => {
+        await test.step('cancel edit — conversion window reverts to saved value', async () => {
             await insight.cancelButton.click()
             await expect(insight.editButton).toBeVisible()
             await insight.funnels.waitForChart()
+
+            await insight.edit()
+            await expect(insight.funnels.conversionWindowInput).toHaveValue('7')
         })
     })
 
@@ -349,6 +355,25 @@ test.describe('Funnel insights', () => {
                 .click()
             await expect(page.getByText('filter/variable overrides')).not.toBeVisible()
             await expect(insight.editButton).toBeVisible()
+        })
+
+        await test.step('edit controls work after discard', async () => {
+            await insight.edit()
+            await expect(insight.saveButton).toContainText('No changes')
+
+            await insight.funnels.setConversionWindowInterval('3')
+            await insight.funnels.waitForChart()
+            await expect(insight.saveButton).toBeEnabled()
+            await expect(insight.saveButton).toContainText('Save')
+        })
+
+        await test.step('cancel restores original state after discard flow', async () => {
+            await insight.cancelButton.click()
+            await expect(insight.editButton).toBeVisible()
+            await insight.funnels.waitForChart()
+
+            await insight.edit()
+            await expect(insight.funnels.conversionWindowInput).not.toHaveValue('3')
         })
     })
 })

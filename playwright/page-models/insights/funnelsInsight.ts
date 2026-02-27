@@ -13,6 +13,7 @@ export class FunnelsInsight {
     readonly stepOrderFilter: Locator
     readonly tooltip: Locator
     readonly taxonomicFilter: TaxonomicFilter
+    readonly conversionWindowInput: Locator
     private readonly conversionWindowSection: Locator
 
     constructor(private readonly page: Page) {
@@ -30,6 +31,7 @@ export class FunnelsInsight {
             .locator('div')
             .filter({ hasText: /^Conversion window limit/ })
             .last()
+        this.conversionWindowInput = this.conversionWindowSection.locator('input[type="number"]')
     }
 
     async waitForChart(): Promise<void> {
