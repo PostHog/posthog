@@ -6,14 +6,16 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
-import { insertBatchExport, insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_tests/examples'
+import { insertHogFunction as _insertHogFunction, insertBatchExport } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
+
+import { parseJSON } from '../../utils/json-parse'
 
 describe('BatchExportHogFunctionService', () => {
     let hub: Hub
@@ -32,8 +34,7 @@ describe('BatchExportHogFunctionService', () => {
         return item
     }
 
-    const invocationUrl = () =>
-        `/api/projects/${team.id}/hog_functions/${hogFunction.id}/batch_export_invocations`
+    const invocationUrl = () => `/api/projects/${team.id}/hog_functions/${hogFunction.id}/batch_export_invocations`
 
     const postInvocation = (body: any) => supertest(app).post(invocationUrl()).send(body)
 
@@ -83,8 +84,23 @@ describe('BatchExportHogFunctionService', () => {
     describe('request body validation', () => {
         it.each([
             ['empty body', {}, 'clickhouse_event'],
-            ['missing event uuid', { clickhouse_event: { event: '$pageview', team_id: 1, distinct_id: 'x', timestamp: 't' } }, 'uuid'],
-            ['missing event name', { clickhouse_event: { uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0', team_id: 1, distinct_id: 'x', timestamp: 't' } }, 'event'],
+            [
+                'missing event uuid',
+                { clickhouse_event: { event: '$pageview', team_id: 1, distinct_id: 'x', timestamp: 't' } },
+                'uuid',
+            ],
+            [
+                'missing event name',
+                {
+                    clickhouse_event: {
+                        uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                        team_id: 1,
+                        distinct_id: 'x',
+                        timestamp: 't',
+                    },
+                },
+                'event',
+            ],
         ])('rejects %s', async (_label, body, expectedField) => {
             const res = await postInvocation(body)
             expect(res.status).toEqual(400)
@@ -204,7 +220,7 @@ describe('BatchExportHogFunctionService', () => {
             expect(res.status).toEqual(200)
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
-            const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body)
+            const fetchBody = parseJSON(mockFetch.mock.calls[0][1].body)
             expect(fetchBody).toMatchObject({
                 event: expect.objectContaining({
                     uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
