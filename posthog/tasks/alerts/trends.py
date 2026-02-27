@@ -41,7 +41,8 @@ class TrendResult(TypedDict):
 def _is_empty_query_result(
     calculation_result: InsightResult,
     alert: AlertConfiguration,
-    threshold: InsightThreshold,
+    bounds: InsightsThresholdBounds,
+    threshold_type: InsightThresholdType,
     condition: AlertCondition,
     interval_type: IntervalType | None,
 ) -> AlertEvaluationResult | None:
@@ -53,7 +54,7 @@ def _is_empty_query_result(
     # For other "empty" cases we assume that they had no legitimate results and as a result will treat it as a 0 value
     # in terms of alerting. See: https://github.com/PostHog/posthog/pull/48701
     if not calculation_result.result:
-        breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, interval_type, "empty result")
+        breaches = _breach_messages(bounds, 0, threshold_type, condition.type, interval_type, "empty result")
         return AlertEvaluationResult(value=0, breaches=breaches)
 
     return None
@@ -120,7 +121,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             interval = query.interval if not is_non_time_series else None
 
             if no_result_evaluation := _is_empty_query_result(
-                calculation_result, alert, threshold, condition, interval
+                calculation_result, alert, threshold.bounds, threshold.type, condition, interval
             ):
                 return no_result_evaluation
 
@@ -132,7 +133,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
             if has_breakdown:
                 # for breakdowns, we need to check all values in calculation_result.result
-                breakdown_results = calculation_result.result
+                breakdown_results = cast(list[TrendResult], calculation_result.result)
 
                 for breakdown_result in breakdown_results:
                     if check_current_interval or is_non_time_series:
@@ -211,7 +212,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             )
 
             if no_result_evaluation := _is_empty_query_result(
-                calculation_result, alert, threshold, condition, query.interval
+                calculation_result, alert, threshold.bounds, threshold.type, condition, query.interval
             ):
                 return no_result_evaluation
 
@@ -320,7 +321,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             )
 
             if no_result_evaluation := _is_empty_query_result(
-                calculation_result, alert, threshold, condition, query.interval
+                calculation_result, alert, threshold.bounds, threshold.type, condition, query.interval
             ):
                 return no_result_evaluation
 
@@ -328,7 +329,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
             if has_breakdown:
                 # for breakdowns, we need to check all values in calculation_result.result
-                breakdown_results = calculation_result.result
+                breakdown_results = cast(list[TrendResult], calculation_result.result)
                 results_to_evaluate.extend(breakdown_results)
             else:
                 # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
