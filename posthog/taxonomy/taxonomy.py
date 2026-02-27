@@ -1887,6 +1887,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
             "examples": [0.0041],
         },
+        "$ai_request_cost_usd": {
+            "label": "AI request cost USD (LLM)",
+            "description": "The per-request cost in USD charged by the LLM API, independent of token usage.",
+            "examples": [0.005],
+        },
+        "$ai_web_search_cost_usd": {
+            "label": "AI web search cost USD (LLM)",
+            "description": "The cost in USD of web searches performed during the LLM API request.",
+            "examples": [0.005],
+        },
+        "$ai_model_cost_used": {
+            "label": "AI model cost used (LLM)",
+            "description": "The model identifier used for cost calculation. May differ from the requested model when a variant or alias is resolved.",
+            "examples": ["openai/gpt-4o-mini"],
+        },
+        "$ai_cost_model_source": {
+            "label": "AI cost model source (LLM)",
+            "description": "Where the cost data for this model was sourced from.",
+            "examples": ["openrouter", "manual", "custom", "passthrough"],
+        },
+        "$ai_cost_model_provider": {
+            "label": "AI cost model provider (LLM)",
+            "description": "The provider used to look up the cost for this model.",
+            "examples": ["openai", "anthropic", "custom"],
+        },
         "$ai_latency": {
             "label": "AI latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds.",
@@ -2046,6 +2071,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Span Name (LLM)",
             "description": "The name given to this LLM trace, generation, or span.",
             "examples": ["summarize_text"],
+        },
+        "$ai_tools_called": {
+            "label": "AI Tools Called (LLM)",
+            "description": "The names of tools called by the LLM in this generation.",
+            "examples": ["get_weather,search_docs"],
+        },
+        "$ai_tool_call_count": {
+            "label": "AI Tool Call Count (LLM)",
+            "description": "The number of tool calls made by the LLM in this generation.",
+            "examples": ["2"],
         },
         "$csp_document_url": {
             "label": "Document URL",
@@ -2514,4 +2549,20 @@ PROPERTY_NAME_ALIASES = {
     key: value["label"]
     for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
     if "label" in value and "deprecated" not in value["label"]
+}
+
+_PROP_TYPE_TO_TAXONOMY_GROUP = {
+    "event": "event_properties",
+    "person": "person_properties",
+    "group": "groups",
+    "session": "session_properties",
+}
+
+PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
+    prop_type: {
+        key: value["label"]
+        for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group_name, {}).items()
+        if "label" in value and "deprecated" not in value["label"]
+    }
+    for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }

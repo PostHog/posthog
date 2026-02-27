@@ -299,6 +299,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_EVALUATIONS_SUMMARY: 'llm-analytics-evaluations-summary', // owner: #team-llm-analytics
     LLM_ANALYTICS_SESSION_SUMMARIZATION: 'llm-analytics-session-summarization', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERS_TAB: 'llm-analytics-clusters-tab', // owner: #team-llm-analytics
+    LLM_ANALYTICS_TOOLS_TAB: 'llm-analytics-tools-tab', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-llm-analytics
     LLM_ANALYTICS_SESSIONS_VIEW: 'llm-analytics-sessions-view', // owner: #team-llm-analytics
     LLM_ANALYTICS_SUMMARIZATION: 'llm-analytics-summarization', // owner: #team-llm-analytics
@@ -328,6 +329,7 @@ export const FEATURE_FLAGS = {
     NOTEBOOK_PYTHON: 'notebook-python', // owner: #team-data-tools
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PHAI_ERROR_TRACKING_MODE: 'posthog-ai-error-tracking-mode', // owner: #team-posthog-ai
+    PHAI_LLM_ANALYTICS_MODE: 'posthog-ai-llm-analytics-mode', // owner: #team-posthog-ai
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
     PHAI_SURVEY_MODE: 'posthog-ai-survey-mode', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
@@ -352,6 +354,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
+    DASHBOARD_TILE_REDESIGN: 'dashboard-tile-redesign', // owner: @sam #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
@@ -39,6 +40,12 @@ export function IntegrationChoice({
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
+
+    useEffect(() => {
+        if (!integrationsLoading && !value && integrationsOfKind?.length) {
+            onChange?.(integrationsOfKind[0].id)
+        }
+    }, [integrationsLoading])
 
     if (!kind) {
         return null

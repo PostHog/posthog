@@ -30,6 +30,9 @@ from posthog.schema import (
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
+from products.alerts.backend.max_tools import UpsertAlertTool
+from products.surveys.backend.max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
+
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.chat_agent.prompt_builder import ChatAgentPlanPromptBuilder, ChatAgentPromptBuilder
 from ee.hogai.chat_agent.prompts import (
@@ -41,6 +44,7 @@ from ee.hogai.chat_agent.toolkit import ChatAgentPlanToolkit, ChatAgentToolkit
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.presets.product_analytics import ReadOnlyProductAnalyticsAgentToolkit
 from ee.hogai.core.agent_modes.presets.survey import SubagentSurveyAgentToolkit
+from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -701,18 +705,15 @@ class TestChatAgentModeManagerSubagent(BaseTest):
                 self.assertNotIn(unexpected, mode_names)
 
     def test_subagent_product_analytics_toolkit_excludes_dangerous_tools(self):
-        from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
-
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
         )
         toolkit = ReadOnlyProductAnalyticsAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
         self.assertIn(CreateInsightTool, toolkit.tools)
         self.assertNotIn(UpsertDashboardTool, toolkit.tools)
+        self.assertNotIn(UpsertAlertTool, toolkit.tools)
 
     def test_subagent_survey_toolkit_excludes_dangerous_tools(self):
-        from products.surveys.backend.max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
-
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
         )

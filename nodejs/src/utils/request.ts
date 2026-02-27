@@ -8,6 +8,7 @@ import {
     Agent,
     Dispatcher,
     type HeadersInit,
+    ProxyAgent,
     RequestInfo,
     RequestInit,
     Response,
@@ -245,7 +246,22 @@ class InsecureAgent extends Agent {
     }
 }
 
-const sharedSecureAgent = new SecureAgent()
+// When the outbound proxy is enabled, external requests go through a CONNECT tunnel.
+// The proxy handles SSRF blocking (private IP rejection) at the network level,
+// so we skip the DNS lookup (httpStaticLookup) which would be redundant.
+function makeSecureDispatcher(): Dispatcher {
+    if (defaultConfig.OUTBOUND_PROXY_ENABLED && defaultConfig.OUTBOUND_PROXY_URL) {
+        return new ProxyAgent({
+            uri: defaultConfig.OUTBOUND_PROXY_URL,
+            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            requestTls: {},
+        })
+    }
+    return new SecureAgent()
+}
+
+const sharedSecureAgent = makeSecureDispatcher()
 const sharedInsecureAgent = new InsecureAgent()
 
 export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
