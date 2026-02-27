@@ -747,20 +747,19 @@ class BigQueryClient:
 
         This method blocks and should only be run on an executor.
         """
-        while True:
-            try:
-                load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-                result = load_job.result()
-            except Forbidden as err:
-                if err.reason == "quotaExceeded":
-                    self.external_logger.exception(
-                        "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
-                    )
-                    raise BigQueryQuotaExceededError(err.message) from err
+        try:
+            load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
+            result = load_job.result()
+        except Forbidden as err:
+            if err.reason == "quotaExceeded":
+                self.external_logger.exception(
+                    "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
+                )
+                raise BigQueryQuotaExceededError(err.message) from err
 
-                raise
-            else:
-                return result
+            raise
+        else:
+            return result
 
 
 class MissingRequiredPermissionsError(Exception):
