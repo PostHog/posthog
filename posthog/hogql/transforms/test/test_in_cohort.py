@@ -1,5 +1,5 @@
 import pytest
-from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person
 
 from django.test import override_settings
 
@@ -32,7 +32,6 @@ class TestInCohort(BaseTest):
             is_identified=True,
         )
         _create_event(distinct_id="bla", event=random_uuid, team=self.team)
-        flush_persons_and_events()
         return random_uuid
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -217,7 +216,6 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
             is_identified=True,
         )
         _create_event(distinct_id=distinct_id1, event=random_uuid, team=self.team)
-        flush_persons_and_events()
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -232,7 +230,6 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
             is_identified=True,
         )
         _create_event(distinct_id=distinct_id2, event=random_uuid, team=self.team)
-        flush_persons_and_events()
         sync_execute("OPTIMIZE TABLE person FINAL")
 
         return cohort, random_uuid
@@ -327,9 +324,9 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
             is_identified=True,
         )
         _create_event(distinct_id="person1", event=random_uuid, team=self.team)
-        flush_persons_and_events()
 
         cohort = Cohort.objects.create(team=self.team, is_static=True)
+        cohort.insert_users_by_list(["person1"])
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'",
             self.team,
@@ -338,5 +335,5 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
             ),
             pretty=False,
         )
-        assert len(response.results or []) == 0
+        assert len(response.results or []) == 1
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot

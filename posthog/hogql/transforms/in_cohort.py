@@ -359,7 +359,6 @@ class InCohortResolver(TraversingVisitor):
     ):
         from posthog.hogql.functions.cohort import inline_cohort_query
         from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-        from posthog.hogql.transforms.property_types import PropertySwapper
 
         assert self.context is not None
 
@@ -418,14 +417,7 @@ class InCohortResolver(TraversingVisitor):
                 if self.context.property_swapper:
                     new_join = cast(
                         ast.JoinExpr,
-                        PropertySwapper(
-                            timezone=self.context.property_swapper.timezone,
-                            group_properties={},
-                            person_properties=self.context.property_swapper.person_properties,
-                            event_properties=self.context.property_swapper.event_properties,
-                            context=self.context,
-                            setTimeZones=self.context.modifiers.convertToProjectTimezone is not False,
-                        ).visit(new_join),
+                        self.context.property_swapper.visit(new_join),
                     )
             new_join.constraint.expr.left = resolve_types(
                 ast.Field(chain=[f"in_cohort__{cohort_id}", "person_id"]),

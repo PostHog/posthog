@@ -1,7 +1,7 @@
 import datetime
 
 import pytest
-from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import BaseTest, _create_event, _create_person
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -38,7 +38,6 @@ class TestCohort(BaseTest):
             is_identified=True,
         )
         _create_event(distinct_id="bla", event=random_uuid, team=self.team)
-        flush_persons_and_events()
         return random_uuid
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -140,7 +139,6 @@ class TestInlineCohortSubquery(BaseTest):
             is_identified=True,
         )
         _create_event(distinct_id=distinct_id1, event=random_uuid, team=self.team)
-        flush_persons_and_events()
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -155,7 +153,6 @@ class TestInlineCohortSubquery(BaseTest):
             is_identified=True,
         )
         _create_event(distinct_id=distinct_id2, event=random_uuid, team=self.team)
-        flush_persons_and_events()
         sync_execute("OPTIMIZE TABLE person FINAL")
 
         return cohort, random_uuid
@@ -193,9 +190,9 @@ class TestInlineCohortSubquery(BaseTest):
             is_identified=True,
         )
         _create_event(distinct_id="person1", event=random_uuid, team=self.team)
-        flush_persons_and_events()
 
         cohort = Cohort.objects.create(team=self.team, is_static=True)
+        cohort.insert_users_by_list(["person1"])
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'",
             self.team,
@@ -204,7 +201,7 @@ class TestInlineCohortSubquery(BaseTest):
             ),
             pretty=False,
         )
-        self.assertEqual(len(response.results), 0)
+        self.assertEqual(len(response.results), 1)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_inline_cohort_auto_mode_with_fast_history(self):
