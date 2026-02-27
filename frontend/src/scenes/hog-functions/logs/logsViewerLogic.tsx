@@ -26,7 +26,7 @@ import { LogEntryLevel } from '~/types'
 import type { logsViewerLogicType } from './logsViewerLogicType'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 'ERROR']
-export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 'ERROR']
+export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'ERROR']
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 
