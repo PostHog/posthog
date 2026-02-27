@@ -1,15 +1,21 @@
+import { Collapsible } from '@base-ui/react/collapsible'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
-import { IconChevronRight, IconPlusSmall, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import {
+    IconChevronRight,
+    IconClock,
+    IconHome,
+    IconMessage,
+    IconNotification,
+    IconSidebarClose,
+    IconSidebarOpen,
+    IconSparkles,
+} from '@posthog/icons'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -17,21 +23,18 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AppsMenu } from '~/layout/panel-layout/ai-first/AppsMenu'
-import { ConversationsMenu } from '~/layout/panel-layout/ai-first/ConversationsMenu'
-import { RecentConversationsList } from '~/layout/panel-layout/ai-first/RecentConversationsList'
+import { DataMenu } from '~/layout/panel-layout/ai-first/DataMenu'
+import { RecentsMenu } from '~/layout/panel-layout/ai-first/RecentsMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
+import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { ActivityTab } from '~/types'
 
-import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
-import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { DataMenu } from './ai-first/DataMenu'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -47,198 +50,218 @@ const navBarStyles = cva({
     },
 })
 
+function SectionChevron({ open }: { open: boolean }): JSX.Element {
+    return (
+        <IconChevronRight
+            className={cn(
+                'size-3 text-tertiary opacity-0 group-hover:opacity-100 transition-all duration-150',
+                open && 'rotate-90'
+            )}
+        />
+    )
+}
+
 export function AiFirstNavBar(): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
-    const { toggleLayoutNavCollapsed } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, isLayoutNavCollapsed } = useValues(panelLayoutLogic)
+    const { toggleLayoutNavCollapsed, toggleNavSection } = useActions(panelLayoutLogic)
+    const { isLayoutPanelVisible, isLayoutNavCollapsed, expandedNavSections } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { user } = useValues(userLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
 
-    useAppShortcut({
-        name: 'open-new-chat',
-        keybind: [keyBinds.newChat],
-        intent: 'Open new chat',
-        interaction: 'function',
-        callback: () => {
-            newInternalTab(urls.ai())
-        },
-    })
-
     return (
-        <>
-            <div className="flex gap-0 relative">
-                <nav
-                    className={cn(
-                        navBarStyles({
-                            isLayoutNavCollapsed,
-                            isMobileLayout,
-                        })
-                    )}
-                    ref={containerRef}
-                >
-                    <div
-                        className={cn(
-                            'flex justify-between p-1 pl-[5px] items-center',
-                            isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'
-                        )}
-                    >
-                        <div
-                            className={cn('flex gap-1 rounded-md w-full', {
-                                'flex-col items-center pt-px': isLayoutNavCollapsed,
-                            })}
-                        >
-                            <OrganizationMenu
-                                showName={false}
-                                buttonProps={{
-                                    variant: 'panel',
-                                    className: cn('px-px', {
-                                        hidden: isLayoutNavCollapsed,
-                                    }),
-                                    iconOnly: isLayoutNavCollapsed,
-                                    tooltipCloseDelayMs: 0,
-                                    tooltipPlacement: 'bottom',
-                                    tooltip: 'Switch organization',
-                                }}
-                            />
-                            <ProjectMenu
-                                buttonProps={{
-                                    className: 'max-w-full flex-1',
-                                    variant: 'panel',
-                                    tooltipCloseDelayMs: 0,
-                                    iconOnly: isLayoutNavCollapsed,
-                                    tooltipPlacement: 'bottom',
-                                    tooltip: 'Switch project',
-                                }}
-                            />
-
-                            {/* <RecentItemsMenu /> */}
-                        </div>
-                    </div>
-
-                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
-                        <div className="flex-1 show-scrollbar-on-hover">
-                            <div className="flex flex-col gap-px">
-                                <div
-                                    className={cn('px-1 flex flex-col gap-2', {
-                                        'items-center': isLayoutNavCollapsed,
-                                    })}
-                                >
-                                    <LemonButton
-                                        tooltip={
-                                            <>
-                                                <span>New chat</span> <RenderKeybind keybind={[keyBinds.newChat]} />
-                                            </>
-                                        }
-                                        tooltipPlacement="right"
-                                        onClick={() => router.actions.push(urls.ai())}
-                                        type="secondary"
-                                        className="[--lemon-button-padding-horizontal:0.5rem] [--lemon-button-gap:1rem]"
-                                    >
-                                        <IconPlusSmall className="size-4 text-secondary" />
-                                        <span className="pl-[2px]">New chat</span>
-                                    </LemonButton>
-
-                                    <div className="flex flex-col gap-1">
-                                        <Label intent="menu" className="text-xxs px-2 text-tertiary">
-                                            Recent
-                                        </Label>
-                                        <div className="flex flex-col gap-px">
-                                            <RecentConversationsList isCollapsed={isLayoutNavCollapsed} />
-                                            <ConversationsMenu isCollapsed={isLayoutNavCollapsed} />
-                                        </div>
-                                    </div>
-
-                                    <div className="flex flex-col gap-px w-full">
-                                        {/* Data Menu */}
-                                        <DataMenu />
-
-                                        {/* Apps Menu */}
-                                        <AppsMenu isCollapsed={isLayoutNavCollapsed} />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="border-b border-primary h-px " />
-
-                        <div className="p-1 flex flex-col gap-px items-center">
-                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
-                            <NavPanelAdvertisement />
-
-                            <ButtonPrimitive
-                                iconOnly={isLayoutNavCollapsed}
-                                tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
-                                tooltipPlacement="right"
-                                onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
-                                menuItem={!isLayoutNavCollapsed}
-                                className="hidden lg:flex"
+        <div className="flex gap-0 relative">
+            <nav
+                className={cn(
+                    navBarStyles({
+                        isLayoutNavCollapsed,
+                        isMobileLayout,
+                    })
+                )}
+                ref={containerRef}
+            >
+                <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
+                    <div className="flex-1 show-scrollbar-on-hover">
+                        <div className="flex flex-col gap-px">
+                            <div
+                                className={cn('px-1 pt-2 flex flex-col gap-px', {
+                                    'items-center': isLayoutNavCollapsed,
+                                })}
                             >
-                                {isLayoutNavCollapsed ? (
-                                    <>
-                                        <IconSidebarClose className="text-tertiary" />
-                                    </>
-                                ) : (
-                                    <>
-                                        <IconSidebarOpen className="text-tertiary" />
-                                        Collapse nav
-                                    </>
-                                )}
-                            </ButtonPrimitive>
+                                <ButtonPrimitive
+                                    menuItem={!isLayoutNavCollapsed}
+                                    iconOnly={isLayoutNavCollapsed}
+                                    tooltip={isLayoutNavCollapsed ? 'PostHog AI' : undefined}
+                                    tooltipPlacement="right"
+                                    onClick={() => router.actions.push(urls.ai())}
+                                >
+                                    <IconSparkles className="size-4 text-secondary" />
+                                    {!isLayoutNavCollapsed && <span className="flex-1 text-left">PostHog AI</span>}
+                                </ButtonPrimitive>
 
-                            <AccountMenu
-                                align="end"
-                                side="right"
-                                alignOffset={10}
-                                trigger={
-                                    <ButtonPrimitive
-                                        menuItem={!isLayoutNavCollapsed}
-                                        tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
-                                        tooltipPlacement="right"
-                                        iconOnly={isLayoutNavCollapsed}
-                                        data-attr="menu-item-me"
-                                    >
-                                        <ProfilePicture user={user} size="xs" />
-                                        {!isLayoutNavCollapsed && (
-                                            <>
-                                                {user?.first_name ? (
-                                                    <span>{user?.first_name}</span>
-                                                ) : (
-                                                    <span>{user?.email}</span>
-                                                )}
-                                                <IconChevronRight className="size-3 text-secondary ml-auto" />
-                                            </>
-                                        )}
-                                    </ButtonPrimitive>
-                                }
-                            />
+                                <ButtonPrimitive
+                                    menuItem={!isLayoutNavCollapsed}
+                                    iconOnly={isLayoutNavCollapsed}
+                                    tooltip={isLayoutNavCollapsed ? 'Conversations' : undefined}
+                                    tooltipPlacement="right"
+                                    onClick={() => router.actions.push('#')}
+                                >
+                                    <IconMessage className="size-4 text-secondary" />
+                                    {!isLayoutNavCollapsed && <span className="flex-1 text-left">Conversations</span>}
+                                </ButtonPrimitive>
+
+                                <AppsMenu isCollapsed={isLayoutNavCollapsed} />
+                            </div>
+
+                            {!isLayoutNavCollapsed && (
+                                <Collapsible.Root
+                                    open={expandedNavSections.project ?? true}
+                                    onOpenChange={() => toggleNavSection('project')}
+                                    className="px-1 mt-2"
+                                >
+                                    <Collapsible.Trigger className="flex items-center w-full px-2 py-1 cursor-pointer group">
+                                        <Label intent="menu" className="text-xxs text-tertiary flex-1 text-left">
+                                            Project
+                                        </Label>
+                                        <SectionChevron open={expandedNavSections.project ?? true} />
+                                    </Collapsible.Trigger>
+                                    <Collapsible.Panel className="flex flex-col gap-px">
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => router.actions.push(urls.projectRoot())}
+                                        >
+                                            <IconHome className="size-4 text-secondary" />
+                                            <span className="flex-1 text-left">Home</span>
+                                        </ButtonPrimitive>
+
+                                        <ButtonPrimitive menuItem onClick={() => router.actions.push(urls.inbox())}>
+                                            <IconNotification className="size-4 text-secondary" />
+                                            <span className="flex-1 text-left">Inbox</span>
+                                        </ButtonPrimitive>
+
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() =>
+                                                router.actions.push(urls.activity(ActivityTab.ExploreEvents))
+                                            }
+                                        >
+                                            <IconClock className="size-4 text-secondary" />
+                                            <span className="flex-1 text-left">Activity</span>
+                                        </ButtonPrimitive>
+
+                                        <DataMenu />
+                                        <RecentsMenu />
+                                    </Collapsible.Panel>
+                                </Collapsible.Root>
+                            )}
+
+                            {!isLayoutNavCollapsed && (
+                                <Collapsible.Root
+                                    open={expandedNavSections.files ?? true}
+                                    onOpenChange={() => toggleNavSection('files')}
+                                    className="px-1 mt-2"
+                                >
+                                    <Collapsible.Trigger className="flex items-center w-full px-2 py-1 cursor-pointer group">
+                                        <Label intent="menu" className="text-xxs text-tertiary flex-1 text-left">
+                                            Files
+                                        </Label>
+                                        <SectionChevron open={expandedNavSections.files ?? true} />
+                                    </Collapsible.Trigger>
+                                    <Collapsible.Panel>
+                                        <ProjectTree root="project://" onlyTree />
+                                    </Collapsible.Panel>
+                                </Collapsible.Root>
+                            )}
+
+                            {!isLayoutNavCollapsed && (
+                                <Collapsible.Root
+                                    open={expandedNavSections.favorites ?? true}
+                                    onOpenChange={() => toggleNavSection('favorites')}
+                                    className="px-1 mt-2"
+                                >
+                                    <Collapsible.Trigger className="flex items-center w-full px-2 py-1 cursor-pointer group">
+                                        <Label intent="menu" className="text-xxs text-tertiary flex-1 text-left">
+                                            Favorites
+                                        </Label>
+                                        <SectionChevron open={expandedNavSections.favorites ?? true} />
+                                    </Collapsible.Trigger>
+                                    <Collapsible.Panel>
+                                        <ProjectTree root="shortcuts://" onlyTree />
+                                    </Collapsible.Panel>
+                                </Collapsible.Root>
+                            )}
                         </div>
                     </div>
-                    {!isMobileLayout && (
-                        <Resizer
-                            logicKey="panel-layout-navbar"
-                            placement="right"
-                            containerRef={containerRef}
-                            closeThreshold={100}
-                            onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
-                            onDoubleClick={() => toggleLayoutNavCollapsed()}
-                            data-attr="tree-navbar-resizer"
-                            // top + 7px is to match rounded-lg border-radius on <main>
-                            className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4', {
-                                // // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
-                                'top-[var(--scene-layout-header-height)]': firstTabIsActive,
-                                'top-0': isLayoutPanelVisible,
-                            })}
-                            offset={0}
+
+                    <div className="border-b border-primary h-px" />
+
+                    <div className="p-1 flex flex-col gap-px items-center">
+                        <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                        <NavPanelAdvertisement />
+
+                        <ButtonPrimitive
+                            iconOnly={isLayoutNavCollapsed}
+                            tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
+                            tooltipPlacement="right"
+                            onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
+                            menuItem={!isLayoutNavCollapsed}
+                            className="hidden lg:flex"
+                        >
+                            {isLayoutNavCollapsed ? (
+                                <IconSidebarClose className="text-tertiary" />
+                            ) : (
+                                <>
+                                    <IconSidebarOpen className="text-tertiary" />
+                                    Collapse nav
+                                </>
+                            )}
+                        </ButtonPrimitive>
+
+                        <AccountMenu
+                            align="end"
+                            side="right"
+                            alignOffset={10}
+                            trigger={
+                                <ButtonPrimitive
+                                    menuItem={!isLayoutNavCollapsed}
+                                    tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
+                                    tooltipPlacement="right"
+                                    iconOnly={isLayoutNavCollapsed}
+                                    data-attr="menu-item-me"
+                                >
+                                    <ProfilePicture user={user} size="xs" />
+                                    {!isLayoutNavCollapsed && (
+                                        <>
+                                            {user?.first_name ? (
+                                                <span>{user?.first_name}</span>
+                                            ) : (
+                                                <span>{user?.email}</span>
+                                            )}
+                                            <IconChevronRight className="size-3 text-secondary ml-auto" />
+                                        </>
+                                    )}
+                                </ButtonPrimitive>
+                            }
                         />
-                    )}
-                </nav>
-            </div>
-            <ConfigurePinnedTabsModal
-                isOpen={isConfigurePinnedTabsOpen}
-                onClose={() => setIsConfigurePinnedTabsOpen(false)}
-            />
-        </>
+                    </div>
+                </div>
+                {!isMobileLayout && (
+                    <Resizer
+                        logicKey="panel-layout-navbar"
+                        placement="right"
+                        containerRef={containerRef}
+                        closeThreshold={100}
+                        onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
+                        onDoubleClick={() => toggleLayoutNavCollapsed()}
+                        data-attr="tree-navbar-resizer"
+                        className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4', {
+                            'top-[var(--scene-layout-header-height)]': firstTabIsActive,
+                            'top-0': isLayoutPanelVisible,
+                        })}
+                        offset={0}
+                    />
+                )}
+            </nav>
+        </div>
     )
 }

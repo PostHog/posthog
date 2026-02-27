@@ -142,7 +142,6 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                         tooltipPlacement="right"
                         menuItem
                         className="hidden lg:flex"
-                        onClick={() => setOpen(!open)}
                     >
                         <IconApps className="size-4 text-secondary" />
                         {!isCollapsed && (
