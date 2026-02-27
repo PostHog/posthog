@@ -10,6 +10,7 @@ from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .process_task.activities import (
     cleanup_sandbox,
     execute_task_in_sandbox,
+    forward_pending_user_message,
     get_sandbox_for_repository,
     get_task_processing_context,
     post_slack_update,
@@ -30,6 +31,7 @@ ACTIVITIES = [
     get_task_processing_context,
     get_sandbox_for_repository,
     execute_task_in_sandbox,
+    forward_pending_user_message,
     start_agent_server,
     read_sandbox_logs,
     cleanup_sandbox,

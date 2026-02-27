@@ -63,6 +63,28 @@ class TestSlackThreadHandler(TestCase):
         mock_client.chat_delete.assert_not_called()
 
     @patch.object(SlackThreadHandler, "_get_client")
+    def test_update_reaction_removes_seedling_and_eyes(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            user_message_ts="1234.5678",
+        )
+        handler = SlackThreadHandler(context)
+        handler.update_reaction("white_check_mark")
+
+        remove_calls = mock_client.reactions_remove.call_args_list
+        assert len(remove_calls) == 2
+        assert remove_calls[0].kwargs["name"] == "seedling"
+        assert remove_calls[1].kwargs["name"] == "eyes"
+        mock_client.reactions_add.assert_called_once_with(
+            channel="C001", timestamp="1234.5678", name="white_check_mark"
+        )
+
+    @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_posts_buttons(self, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client

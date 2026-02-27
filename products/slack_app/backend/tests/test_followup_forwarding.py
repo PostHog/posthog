@@ -168,13 +168,118 @@ class TestForwardTwigFollowupActivity(TestCase):
         result = forward_twig_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679")
         assert result is False
 
-    def test_terminal_run_returns_false(self):
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_run_resumes_same_task(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
         self.task_run.save()
         self._create_mapping()
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
         inputs = _make_inputs(self.integration.id)
-        result = forward_twig_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679")
-        assert result is False
+        result = forward_twig_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
+        )
+
+        assert result is True
+        mock_execute_workflow.assert_called_once()
+        call_kwargs = mock_execute_workflow.call_args.kwargs
+        assert call_kwargs["task_id"] == str(self.task.id)
+        assert call_kwargs["user_id"] == self.user.id
+
+        new_run_id = call_kwargs["run_id"]
+        assert new_run_id != str(self.task_run.id)
+
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=self.integration, channel="C123", thread_ts="1234.5678"
+        )
+        assert str(mapping.task_run_id) == new_run_id
+        assert mapping.task_id == self.task.id
+
+        new_run = self.TaskRun.objects.get(id=new_run_id)
+        assert new_run.state.get("pending_user_message") == "do something"
+
+        mock_slack_instance.client.reactions_add.assert_called_once_with(
+            channel="C123", timestamp="1234.5679", name="eyes"
+        )
+        assert any("restarting" in str(call) for call in mock_slack_instance.client.chat_postMessage.call_args_list)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_run_seeds_pr_url_into_new_run_state(self, mock_slack_cls, mock_execute_workflow):
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.output = {"pr_url": "https://github.com/org/repo/pull/1"}
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_cls.return_value = MagicMock()
+
+        inputs = _make_inputs(self.integration.id)
+        forward_twig_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> fix the tests", "1234.5679")
+
+        new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        new_run = self.TaskRun.objects.get(id=new_run_id)
+        assert new_run.state.get("slack_pr_opened_notified") is True
+        assert new_run.state.get("slack_notified_pr_url") == "https://github.com/org/repo/pull/1"
+
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_run_unauthorized_user_returns_true_with_error(self, mock_slack_cls):
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping(mentioning_user="U_ALICE")
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_twig_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> do something", "1234.5679"
+        )
+
+        assert result is True
+        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
+        assert "Only the person who started" in call_kwargs["text"]
+
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_run_missing_created_by_returns_true_with_error(self, mock_slack_cls):
+        self.task.created_by = None
+        self.task.save()
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_twig_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
+        )
+
+        assert result is True
+        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
+        assert "original task creator" in call_kwargs["text"]
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow", side_effect=Exception("boom"))
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_run_workflow_start_failure_returns_true_with_error(self, mock_slack_cls, mock_execute_workflow):
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_twig_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
+        )
+
+        assert result is True
+        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
+        assert "internal error" in call_kwargs["text"]
+
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=self.integration, channel="C123", thread_ts="1234.5678"
+        )
+        assert mapping.task_run_id == self.task_run.id
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_unauthorized_actor_returns_true_with_message(self, mock_slack_cls):

@@ -38,12 +38,12 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         if input.sandbox_cleaned:
             if pr_url:
                 handler.update_reaction("white_check_mark")
-                if _is_pr_opened_notified(task_run):
+                if _is_pr_opened_notified(task_run, pr_url):
                     handler.delete_progress()
                     return
 
                 handler.post_pr_opened_sandbox_cleaned(pr_url, task_url)
-                _mark_pr_opened_notified(task_run)
+                _mark_pr_opened_notified(task_run, pr_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
                 handler.update_reaction("white_check_mark")
                 handler.post_cancelled(task_url)
@@ -94,20 +94,25 @@ def _get_stage_from_status(status: str, stage: str | None = None) -> str:
 
 
 def _post_pr_opened_notification_once(task_run, handler, pr_url: str, task_url: str) -> None:
-    if _is_pr_opened_notified(task_run):
+    if _is_pr_opened_notified(task_run, pr_url):
         return
 
     handler.post_pr_opened(pr_url, task_url)
 
-    _mark_pr_opened_notified(task_run)
+    _mark_pr_opened_notified(task_run, pr_url)
 
 
-def _is_pr_opened_notified(task_run) -> bool:
-    return bool((task_run.state or {}).get("slack_pr_opened_notified"))
+def _is_pr_opened_notified(task_run, pr_url: str) -> bool:
+    state = task_run.state or {}
+    if not state.get("slack_pr_opened_notified"):
+        return False
+    notified_url = state.get("slack_notified_pr_url")
+    return notified_url == pr_url if notified_url else True
 
 
-def _mark_pr_opened_notified(task_run) -> None:
+def _mark_pr_opened_notified(task_run, pr_url: str) -> None:
     state = task_run.state or {}
     state["slack_pr_opened_notified"] = True
+    state["slack_notified_pr_url"] = pr_url
     task_run.state = state
     task_run.save(update_fields=["state", "updated_at"])

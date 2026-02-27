@@ -96,18 +96,14 @@ class SlackThreadHandler:
             logger.warning("slack_find_progress_message_failed", error=str(e))
         return None
 
-    def update_reaction(self, emoji: str, remove: str | None = "seedling") -> None:
+    def update_reaction(self, emoji: str) -> None:
         """Swap the reaction on the user's mention message."""
         target_ts = self.context.user_message_ts or self.context.thread_ts
         try:
             client = self._get_client()
-            if remove:
+            for stale in ("seedling", "eyes"):
                 try:
-                    client.reactions_remove(
-                        channel=self.context.channel,
-                        timestamp=target_ts,
-                        name=remove,
-                    )
+                    client.reactions_remove(channel=self.context.channel, timestamp=target_ts, name=stale)
                 except Exception:
                     pass
             client.reactions_add(

@@ -17,6 +17,7 @@ from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnaps
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
+from .activities.forward_pending_message import forward_pending_user_message
 from .activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     GetSandboxForRepositoryOutput,
@@ -122,6 +123,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "used_snapshot": sandbox_output.used_snapshot,
                 },
             )
+
+            await self._forward_pending_user_message()
 
             # Wait for completion signal or inactivity timeout.
             # Heartbeat signals reset the inactivity timer, keeping the workflow alive
@@ -237,6 +240,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             StartAgentServerInput(context=self.context, sandbox_id=sandbox_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _forward_pending_user_message(self) -> None:
+        await workflow.execute_activity(
+            forward_pending_user_message,
+            self.context.run_id,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:

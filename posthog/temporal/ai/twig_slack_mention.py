@@ -675,7 +675,7 @@ def forward_twig_followup_activity(
     log = structlog.get_logger(__name__)
 
     try:
-        mapping = SlackThreadTaskMapping.objects.select_related("task_run").get(
+        mapping = SlackThreadTaskMapping.objects.select_related("task_run", "task__created_by").get(
             integration_id=inputs.integration_id,
             channel=channel,
             thread_ts=thread_ts,
@@ -685,9 +685,6 @@ def forward_twig_followup_activity(
         return False
 
     task_run = mapping.task_run
-    if task_run.is_terminal:
-        log.info("twig_followup_not_handled", channel=channel, thread_ts=thread_ts, reason="terminal_run")
-        return False
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -710,6 +707,19 @@ def forward_twig_followup_activity(
             text="Only the person who started this task can send follow-up messages to the agent.",
         )
         return True
+
+    if task_run.is_terminal:
+        return _resume_task_with_new_run(
+            mapping,
+            task_run,
+            slack,
+            inputs,
+            channel,
+            thread_ts,
+            slack_user_id,
+            event_text,
+            user_message_ts,
+        )
 
     sandbox_url = (task_run.state or {}).get("sandbox_url")
     if not sandbox_url:
@@ -811,6 +821,110 @@ def forward_twig_followup_activity(
     )
 
     log.info("twig_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
+    return True
+
+
+def _resume_task_with_new_run(
+    mapping: Any,
+    previous_run: Any,
+    slack: Any,
+    inputs: "TwigSlackMentionWorkflowInputs",
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    event_text: str,
+    user_message_ts: str | None,
+) -> bool:
+    """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    import re
+
+    import structlog
+
+    from products.slack_app.backend.slack_thread import SlackThreadContext
+    from products.tasks.backend.temporal.client import execute_task_processing_workflow
+
+    log = structlog.get_logger(__name__)
+
+    user_text = re.sub(r"<@[A-Z0-9]+>", "", event_text).strip()
+    if not user_text:
+        return True
+
+    created_by = mapping.task.created_by
+    if not created_by:
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text="I can't restart the agent — the original task creator is no longer available.",
+        )
+        return True
+
+    extra_state: dict[str, Any] = {"pending_user_message": user_text}
+
+    previous_state = previous_run.state or {}
+    if previous_state.get("slack_thread_url"):
+        extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
+
+    previous_pr_url = (previous_run.output or {}).get("pr_url")
+    if previous_pr_url:
+        extra_state["slack_pr_opened_notified"] = True
+        extra_state["slack_notified_pr_url"] = previous_pr_url
+
+    new_run = mapping.task.create_run(extra_state=extra_state)
+
+    slack_thread_context = SlackThreadContext(
+        integration_id=inputs.integration_id,
+        channel=channel,
+        thread_ts=thread_ts,
+        user_message_ts=user_message_ts,
+        mentioning_slack_user_id=slack_user_id,
+    )
+
+    try:
+        execute_task_processing_workflow(
+            task_id=str(mapping.task.id),
+            run_id=str(new_run.id),
+            team_id=mapping.task.team_id,
+            user_id=created_by.id,
+            slack_thread_context=slack_thread_context,
+        )
+    except Exception:
+        log.exception(
+            "twig_resume_workflow_start_failed",
+            channel=channel,
+            thread_ts=thread_ts,
+            task_id=str(mapping.task.id),
+            run_id=str(new_run.id),
+        )
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text="Sorry, I ran into an internal error restarting the agent. Please try again in a minute.",
+        )
+        return True
+
+    mapping.task_run = new_run
+    mapping.save(update_fields=["task_run", "updated_at"])
+
+    if user_message_ts:
+        try:
+            slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="eyes")
+        except Exception:
+            pass
+
+    slack.client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text="Got it — restarting the agent to work on this.",
+    )
+
+    log.info(
+        "twig_task_resumed",
+        channel=channel,
+        thread_ts=thread_ts,
+        task_id=str(mapping.task.id),
+        new_run_id=str(new_run.id),
+        previous_run_id=str(previous_run.id),
+    )
     return True
 
 
