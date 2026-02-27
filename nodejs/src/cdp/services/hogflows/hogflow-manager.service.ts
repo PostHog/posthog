@@ -107,12 +107,7 @@ export class HogFlowManagerService {
         return await this.lazyLoader.getMany(ids)
     }
 
-    /**
-     * Set the status of a HogFlow to 'draft'.
-     * Only transitions from 'active' — leaves 'archived' flows untouched.
-     * Invalidates the cache so workers pick up the change immediately.
-     */
-    public async setStatusDraft(id: HogFlow['id']): Promise<boolean> {
+    public async disableHogFlow(id: HogFlow['id']): Promise<boolean> {
         const result = await this.postgres.query<{ id: string }>(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogflow SET status = 'draft', updated_at = NOW() WHERE id = $1 AND status = 'active' RETURNING id`,
