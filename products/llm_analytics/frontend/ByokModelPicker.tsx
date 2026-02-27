@@ -6,8 +6,7 @@ import { LemonButton, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
-import { byokModelPickerLogic } from './byokModelPickerLogic'
-import { ModelOption } from './llmAnalyticsPlaygroundLogic'
+import { byokModelPickerLogic, type ModelOption } from './byokModelPickerLogic'
 import { LLMProviderIcon } from './LLMProviderIcon'
 
 export interface ByokModelPickerProps {

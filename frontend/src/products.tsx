@@ -73,7 +73,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalyticsTrace: () => import('../../products/llm_analytics/frontend/LLMAnalyticsTraceScene'),
     LLMAnalyticsSession: () => import('../../products/llm_analytics/frontend/LLMAnalyticsSessionScene'),
     LLMAnalyticsUsers: () => import('../../products/llm_analytics/frontend/LLMAnalyticsUsers'),
-    LLMAnalyticsPlayground: () => import('../../products/llm_analytics/frontend/LLMAnalyticsPlaygroundScene'),
+    LLMAnalyticsPlayground: () =>
+        import('../../products/llm_analytics/frontend/playground/LLMAnalyticsPlaygroundScene'),
     LLMAnalyticsDatasets: () => import('../../products/llm_analytics/frontend/datasets/LLMAnalyticsDatasetsScene'),
     LLMAnalyticsDataset: () => import('../../products/llm_analytics/frontend/datasets/LLMAnalyticsDatasetScene'),
     LLMAnalyticsEvaluations: () =>

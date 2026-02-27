@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { byokModelPickerLogicType } from './byokModelPickerLogicType'
-import { ModelOption, ProviderModelGroup } from './llmAnalyticsPlaygroundLogic'
 import {
     LLMProvider,
     LLMProviderKey,
@@ -13,6 +12,23 @@ import {
     providerSortIndex,
 } from './settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState, providerKeyStateSuffix } from './settings/providerKeyStateUtils'
+
+export interface ModelOption {
+    id: string
+    name: string
+    provider: string
+    description: string
+    providerKeyId?: string
+    isRecommended?: boolean
+}
+
+export interface ProviderModelGroup {
+    provider: LLMProvider
+    providerKeyId: string
+    label: string
+    models: ModelOption[]
+    disabled?: boolean
+}
 
 export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'byokModelPickerLogic']),

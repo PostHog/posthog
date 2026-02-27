@@ -3,7 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { ModelOption, llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
+import type { ModelOption } from '../byokModelPickerLogic'
+import { llmPlaygroundLogic } from './llmPlaygroundLogic'
 
 const MOCK_MODEL_OPTIONS: ModelOption[] = [
     { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '' },
@@ -15,8 +16,8 @@ const MOCK_MODEL_OPTIONS: ModelOption[] = [
 
 const DEFAULT_MODEL = 'gpt-5-mini'
 
-describe('llmAnalyticsPlaygroundLogic', () => {
-    let logic: ReturnType<typeof llmAnalyticsPlaygroundLogic.build>
+describe('llmPlaygroundLogic', () => {
+    let logic: ReturnType<typeof llmPlaygroundLogic.build>
 
     beforeEach(() => {
         initKeaTests()
@@ -33,7 +34,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             },
         })
 
-        logic = llmAnalyticsPlaygroundLogic()
+        logic = llmPlaygroundLogic()
         logic.mount()
     })
 
@@ -100,7 +101,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const emptyLogic = llmAnalyticsPlaygroundLogic()
+            const emptyLogic = llmPlaygroundLogic()
             emptyLogic.mount()
 
             await expectLogic(emptyLogic).toFinishAllListeners()
@@ -188,7 +189,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.mount()
 
             await expectLogic(testLogic).toFinishAllListeners()
@@ -233,7 +234,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.mount()
             await expectLogic(testLogic).toFinishAllListeners()
 
@@ -278,7 +279,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.mount()
 
             testLogic.actions.setupPlaygroundFromEvent({
@@ -324,7 +325,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.mount()
             await expectLogic(testLogic).toFinishAllListeners()
 
@@ -377,7 +378,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.mount()
             await expectLogic(testLogic).toFinishAllListeners()
 
@@ -422,7 +423,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.mount()
             await expectLogic(testLogic).toFinishAllListeners()
 
@@ -442,7 +443,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
     describe('loadModelOptions auto-correction', () => {
         it('should auto-correct invalid model after loading options', async () => {
             // Create logic and mount
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.mount()
 
             // Set an invalid model that should be corrected
@@ -461,7 +462,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
         })
 
         it('should not change valid models during loading', async () => {
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.actions.setModel('claude-3-opus')
             testLogic.mount()
 
@@ -628,7 +629,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.mount()
             await expectLogic(testLogic).toFinishAllListeners()
 
@@ -651,7 +652,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmAnalyticsPlaygroundLogic()
+            const testLogic = llmPlaygroundLogic()
             testLogic.mount()
             await expectLogic(testLogic).toFinishAllListeners()
 
@@ -683,7 +684,7 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            logic = llmAnalyticsPlaygroundLogic()
+            logic = llmPlaygroundLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
