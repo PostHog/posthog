@@ -8,6 +8,7 @@ pub enum SymbolDataType {
     SourceAndMap = 2,
     HermesMap = 3,
     ProguardMapping = 4,
+    AppleDsym = 5,
 }
 
 pub trait SymbolData: Sized {

@@ -687,12 +687,18 @@ export function clearDOMTextSelection(): void {
     }
 }
 
-export function slugify(text: string): string {
-    return text
-        .toString() // Cast to string
-        .toLowerCase() // Convert the string to lowercase letters
+// trimBothEnds=false is useful when the input is slugified as the user is typing to allow them hitting space and continue typing
+export function slugify(
+    text: string,
+    { trimBothEnds = true, lowercase = true }: { trimBothEnds?: boolean; lowercase?: boolean } = {}
+): string {
+    let result = text.toString()
+    if (lowercase) {
+        result = result.toLowerCase()
+    }
+    return result
         .normalize('NFD') // The normalize() method returns the Unicode Normalization Form of a given string.
-        .trim() // Remove whitespace from both sides of a string
+        [trimBothEnds ? 'trim' : 'trimStart']()
         .replace(/\s+/g, '-') // Replace spaces with -
         .replace(/[^\w-]+/g, '') // Remove all non-word chars
         .replace(/--+/g, '-')

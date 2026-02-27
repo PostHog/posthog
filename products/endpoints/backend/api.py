@@ -155,6 +155,37 @@ class EndpointContext(ActivityContextBase):
     version: Optional[int] = None
 
 
+@dataclasses.dataclass(frozen=True)
+class EndpointPagination:
+    limit: int
+    offset: int
+    ceiling: int | None
+
+    def apply_to(self, select_query: ast.SelectQuery) -> None:
+        """Set LIMIT and OFFSET on an AST SelectQuery for pagination."""
+        if self.ceiling is not None and self.offset >= self.ceiling:
+            select_query.limit = ast.Constant(value=0)
+            select_query.offset = ast.Constant(value=0)
+        else:
+            remaining = (self.ceiling - self.offset) if self.ceiling is not None else None
+            effective_limit = min(self.limit, remaining) if remaining is not None else self.limit
+            select_query.limit = ast.Constant(value=effective_limit + 1)
+            if self.offset > 0:
+                select_query.offset = ast.Constant(value=self.offset)
+
+    def process_results(self, result: dict) -> None:
+        """Trim the extra row and annotate the result dict with pagination metadata."""
+        rows = result.get("results", [])
+        has_more = len(rows) > self.limit
+        if has_more:
+            result["results"] = rows[: self.limit]
+        if self.ceiling is not None and self.offset + len(result["results"]) >= self.ceiling:
+            has_more = False
+        result["hasMore"] = has_more
+        result["limit"] = self.limit
+        result["offset"] = self.offset
+
+
 @extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
@@ -211,14 +242,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def _build_materialization_info(self, version: EndpointVersion) -> dict:
         """Build materialization status dict for a version."""
-        if version.is_materialized and version.saved_query:
+        if version.saved_query:
             return {
                 "status": version.saved_query.status or "Unknown",
                 "can_materialize": True,
                 "last_materialized_at": (
                     version.saved_query.last_run_at.isoformat() if version.saved_query.last_run_at else None
                 ),
-                "error": version.saved_query.latest_error or "",
+                "error": (version.saved_query.latest_error or "")
+                if version.saved_query.status != DataWarehouseSavedQuery.Status.COMPLETED
+                else "",
                 "sync_frequency": sync_frequency_interval_to_sync_frequency(
                     version.saved_query.sync_frequency_interval
                 ),
@@ -638,7 +671,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             endpoint.save()
 
             final_is_active = data.is_active if data.is_active is not None else endpoint.is_active
-            was_materialized = bool(current_version.is_materialized and current_version.saved_query)
+            was_materialized = current_version.saved_query_id is not None
 
             # Step 1: Handle deactivation (disables materialization, prevents any materialization operations)
             if not final_is_active and was_materialized:
@@ -680,7 +713,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 # When targeting a specific version, check that version's materialization state
                 # Otherwise use was_materialized (state before this update) to support materialization transfer
                 if target_version_override is not None:
-                    check_was_materialized = bool(target_version.is_materialized and target_version.saved_query)
+                    check_was_materialized = target_version.saved_query_id is not None
                 else:
                     check_was_materialized = was_materialized
 
@@ -841,8 +874,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # Update version with materialization info
         version.saved_query = saved_query
-        version.is_materialized = True
-        version.save(update_fields=["saved_query", "is_materialized"])
+        version.save(update_fields=["saved_query"])
 
     def _disable_materialization(self, endpoint: Endpoint, version: EndpointVersion | None = None) -> None:
         """Disable materialization for an endpoint version.
@@ -948,26 +980,32 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             logger.debug("Failed to analyze variables for materialization", exc_info=True)
             return []
 
-    def _get_original_select_columns(self, query: dict, version: EndpointVersion) -> builtins.list[ast.Expr] | None:
-        """Parse the original HogQL query and return SELECT columns as materialized field references.
+    def _parse_original_hogql_query(
+        self, query: dict, version: EndpointVersion
+    ) -> tuple[builtins.list[ast.Expr] | None, int | None]:
+        """Parse the original HogQL query and extract SELECT columns and LIMIT.
 
-        Returns field references for only the original SELECT expressions (not variable columns).
-        Returns None if parsing fails, so the caller can fall back to SELECT *.
+        Returns (select_columns, limit) where either may be None.
+        select_columns are transformed to materialized field references.
         """
         from products.endpoints.backend.materialization import transform_select_for_materialized_table
 
         query_str = query.get("query")
         if not query_str:
-            return None
+            return None, None
 
         try:
             parsed = parse_select(query_str)
-            if isinstance(parsed, ast.SelectQuery) and parsed.select:
-                return transform_select_for_materialized_table(list(parsed.select), self.team)
+            if isinstance(parsed, ast.SelectQuery):
+                columns = (
+                    transform_select_for_materialized_table(list(parsed.select), self.team) if parsed.select else None
+                )
+                limit = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
+                return columns, limit
         except Exception:
-            logger.debug("Failed to parse original query for SELECT columns", exc_info=True)
+            logger.debug("Failed to parse original HogQL query", exc_info=True)
 
-        return None
+        return None, None
 
     # Query types that support user-configurable breakdown filtering
     BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
@@ -1087,6 +1125,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         extra_result_fields: dict | None = None,
         debug: bool = False,
         headers: dict[str, str] | None = None,
+        pagination: EndpointPagination | None = None,
     ) -> Response:
         """Shared query execution logic."""
         merged_data = self.get_model(query_request_data, QueryRequest)
@@ -1132,6 +1171,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             for field in debug_fields_to_remove:
                 result.pop(field, None)
 
+        if pagination and "results" in result:
+            pagination.process_results(result)
+
         if "results" in result:
             results_value = result.pop("results")
             result = {"results": results_value, **result}
@@ -1165,6 +1207,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         version: EndpointVersion | None = None,
         debug: bool = False,
         limit: int | None = None,
+        offset: int | None = None,
     ) -> Response:
         """Execute against a materialized table in S3."""
         try:
@@ -1177,9 +1220,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             query_kind = query.get("kind")
 
             select_columns: list[ast.Expr] = [ast.Field(chain=["*"])]
-            if query_kind == "HogQLQuery" and query.get("variables"):
-                original_select = self._get_original_select_columns(query, version)
-                if original_select:
+            original_limit: int | None = None
+            if query_kind == "HogQLQuery":
+                original_select, original_limit = self._parse_original_hogql_query(query, version)
+                if query.get("variables") and original_select:
                     select_columns = original_select
 
             select_query = ast.SelectQuery(
@@ -1187,8 +1231,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 select_from=ast.JoinExpr(table=ast.Field(chain=[saved_query.name])),
             )
 
+            pagination: EndpointPagination | None = None
+
             if limit is not None:
-                select_query.limit = ast.Constant(value=limit)
+                pagination = EndpointPagination(limit=limit, offset=offset or 0, ceiling=original_limit)
+                pagination.apply_to(select_query)
+            elif original_limit is not None:
+                select_query.limit = ast.Constant(value=original_limit)
 
             deprecation_headers: dict[str, str] | None = None
 
@@ -1265,6 +1314,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 extra_result_fields=extra_fields,
                 debug=debug,
                 headers=deprecation_headers,
+                pagination=pagination,
             )
 
             if self._is_cache_stale(result, saved_query):
@@ -1276,6 +1326,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     extra_result_fields=extra_fields,
                     debug=debug,
                     headers=deprecation_headers,
+                    pagination=pagination,
                 )
 
             return result
@@ -1298,25 +1349,49 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
             raise
 
-    def _apply_limit_to_query(self, query: dict, limit: int) -> dict:
-        """Apply limit to HogQL query by modifying the SQL string."""
+    @staticmethod
+    def _parse_int_param(
+        body_value: int | None, query_param: str | None, name: str, min_value: int | None = None
+    ) -> tuple[int | None, Response | None]:
+        """Parse an integer from the request body or query params. Returns (value, error_response)."""
+        value = body_value
+        if value is None and query_param is not None:
+            try:
+                value = int(query_param)
+                if min_value is not None and value < min_value:
+                    raise ValueError()
+            except (ValueError, TypeError):
+                return None, Response(
+                    {"error": f"Invalid {name} parameter: {query_param}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif value is not None and min_value is not None and value < min_value:
+            return None, Response(
+                {"error": f"Invalid {name} parameter: {value}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return value, None
+
+    def _apply_pagination_to_query(self, query: dict, limit: int, offset: int) -> tuple[dict, EndpointPagination]:
+        """Apply pagination to a HogQL query. Returns (modified_query, pagination)."""
         query_kind = query.get("kind")
 
         if query_kind == "HogQLQuery":
-            query_string = query.get("query", "")
-            parsed = parse_select(query_string)
+            parsed = parse_select(query.get("query", ""))
+            if not isinstance(parsed, ast.SelectQuery):
+                raise ValidationError(
+                    "Pagination is not supported for UNION queries. Wrap the UNION in a subquery: SELECT * FROM (... UNION ALL ...) LIMIT n"
+                )
 
-            if isinstance(parsed, ast.SelectQuery):
-                existing_limit = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
-                effective_limit = min(limit, existing_limit) if existing_limit is not None else limit
-                parsed.limit = ast.Constant(value=effective_limit)
+            ceiling = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
+            pagination = EndpointPagination(limit=limit, offset=offset, ceiling=ceiling)
+            pagination.apply_to(parsed)
 
             query = query.copy()
             query["query"] = parsed.to_hogql()
-        elif query_kind:
-            raise ValidationError(f"Limit parameter is only supported for HogQLQuery, not {query_kind}")
+            return query, pagination
 
-        return query
+        raise ValidationError(f"Limit/offset parameters are only supported for HogQLQuery, not {query_kind}")
 
     def _parse_variables(
         self, query: dict[str, dict], variables: dict[str, str]
@@ -1387,11 +1462,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         version: EndpointVersion | None = None,
         debug: bool = False,
         limit: int | None = None,
+        offset: int | None = None,
     ) -> Response:
         """Execute query directly against ClickHouse."""
         try:
+            pagination: EndpointPagination | None = None
             if limit is not None:
-                query = self._apply_limit_to_query(query, limit)
+                query, pagination = self._apply_pagination_to_query(query, limit, offset or 0)
 
             refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
             query_kind = query.get("kind")
@@ -1432,6 +1509,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 cache_age_seconds=cache_age,
                 debug=debug,
                 headers=deprecation_headers,
+                pagination=pagination,
             )
 
         except Exception as e:
@@ -1471,40 +1549,25 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "has_filters_override": bool(data.filters_override),
                 "has_variables": bool(data.variables),
                 "has_limit": data.limit is not None,
+                "has_offset": data.offset is not None,
                 "refresh_mode": data.refresh.value if data.refresh else None,
             },
             team=self.team,
         )
 
-        # Support version from request body or query params (for backwards compatibility)
-        version_number = data.version
-        if version_number is None:
-            version_param = request.query_params.get("version")
-            if version_param is not None:
-                try:
-                    version_number = int(version_param)
-                except (ValueError, TypeError):
-                    return Response(
-                        {"error": f"Invalid version parameter: {version_param}"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        version_number, err = self._parse_int_param(data.version, request.query_params.get("version"), "version")
+        if err:
+            return err
+        limit, err = self._parse_int_param(data.limit, request.query_params.get("limit"), "limit", min_value=1)
+        if err:
+            return err
+        offset, err = self._parse_int_param(data.offset, request.query_params.get("offset"), "offset", min_value=0)
+        if err:
+            return err
 
-        limit = data.limit
-        if limit is None:
-            limit_param = request.query_params.get("limit")
-            if limit_param is not None:
-                try:
-                    limit = int(limit_param)
-                    if limit <= 0:
-                        raise ValueError()
-                except (ValueError, TypeError):
-                    return Response(
-                        {"error": f"Invalid limit parameter: {limit_param}"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-        elif limit <= 0:  # Add validation for body limit
+        if offset is not None and limit is None:
             return Response(
-                {"error": f"Invalid limit parameter: {limit}"},
+                {"error": "offset requires limit to be set"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1523,6 +1586,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         self.validate_run_request(data, endpoint, version_obj)
 
+        if offset is not None and version_obj:
+            query_kind = version_obj.query.get("kind")
+            if query_kind != "HogQLQuery":
+                return Response(
+                    {"error": "offset is only supported for HogQL endpoints"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         # Check if we should use materialization for this version
         use_materialized = self._should_use_materialized_table(endpoint, data, version_obj)
 
@@ -1531,7 +1602,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         try:
             if use_materialized:
                 result = self._execute_materialized_endpoint(
-                    endpoint, data, request, version=version_obj, debug=debug, limit=limit
+                    endpoint, data, request, version=version_obj, debug=debug, limit=limit, offset=offset
                 )
             else:
                 # Use version's query
@@ -1542,7 +1613,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     )
                 query_to_use = version_obj.query.copy()
                 result = self._execute_inline_endpoint(
-                    endpoint, data, request, query_to_use, version=version_obj, debug=debug, limit=limit
+                    endpoint, data, request, query_to_use, version=version_obj, debug=debug, limit=limit, offset=offset
                 )
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             logger.exception(

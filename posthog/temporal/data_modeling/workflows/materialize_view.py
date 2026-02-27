@@ -127,6 +127,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     maximum_interval=dt.timedelta(minutes=5),
                     non_retryable_error_types=NON_RETRYABLE_ERRORS,
                 ),
+                cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
 
             # prepare files for querying and create DataWarehouseTable
@@ -205,14 +206,20 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             )
         except Exception as e:
             # handle failure
-            if isinstance(e, temporalio.exceptions.ActivityError):
+            cancelled = isinstance(e, temporalio.exceptions.ActivityError) and isinstance(
+                e.cause, temporalio.exceptions.CancelledError
+            )
+            if cancelled:
+                error_message = "Workflow was cancelled"
+            elif isinstance(e, temporalio.exceptions.ActivityError):
                 error_message = str(e.cause) if e.cause else str(e)
-                temporal_error_log = f"MaterializeViewWorkflow failed with ActivityError: {error_message}"
             else:
                 capture_exception(e)
                 error_message = str(e)
-                temporal_error_log = f"MaterializeViewWorkflow failed with unexpected error: {error_message}"
-            temporalio.workflow.logger.error(temporal_error_log, extra=inputs.properties_to_log)
+            temporalio.workflow.logger.error(
+                f"MaterializeViewWorkflow failed: {error_message}",
+                extra=inputs.properties_to_log,
+            )
             try:
                 await temporalio.workflow.execute_activity(
                     fail_materialization_activity,
@@ -222,6 +229,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         dag_id=inputs.dag_id,
                         job_id=job_id,
                         error=error_message,
+                        cancelled=cancelled,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(

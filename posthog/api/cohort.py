@@ -73,7 +73,7 @@ from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.queries.actor_base_query import get_serialized_people
-from posthog.queries.base import property_group_to_Q
+from posthog.queries.base import determine_parsed_date_for_property_matching, property_group_to_Q
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
@@ -230,6 +230,12 @@ class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     negation: bool = False
 
 
+# Date operators that require date value validation
+# Note: is_date_exact is not yet supported (see posthog/models/property/util.py)
+# Keep in sync with OperatorType in posthog/models/property/property.py
+DATE_OPERATORS = ("is_date_after", "is_date_before")
+
+
 class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["person"]
     key: str
@@ -252,6 +258,18 @@ class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
 
         if missing:
             raise ValueError(f"Missing required keys for person filter: {', '.join(missing)}")
+
+        return self
+
+    @model_validator(mode="after")
+    def _validate_date_value(self):
+        if self.operator in DATE_OPERATORS and self.value is not None:
+            parsed_date = determine_parsed_date_for_property_matching(self.value)
+            if not parsed_date:
+                raise ValueError(
+                    f"Invalid date value '{self.value}' for operator '{self.operator}'. "
+                    f"Expected a relative date (e.g., '-7d', '30d') or an ISO 8601 date (e.g., '2024-01-15')."
+                )
 
         return self
 

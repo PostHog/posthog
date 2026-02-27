@@ -132,7 +132,8 @@
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
-         "posthog_survey"."form_content"
+         "posthog_survey"."form_content",
+         "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -175,7 +176,8 @@
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
-         "posthog_survey"."form_content"
+         "posthog_survey"."form_content",
+         "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -508,7 +510,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -528,7 +529,15 @@
          "posthog_featureflag"."bucketing_identifier",
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
-  WHERE "posthog_featureflag"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND "posthog_featureflag"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -718,7 +727,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -750,7 +758,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -803,7 +810,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -823,7 +829,15 @@
          "posthog_featureflag"."bucketing_identifier",
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
-  WHERE "posthog_featureflag"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND "posthog_featureflag"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -921,7 +935,8 @@
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
-         "posthog_survey"."form_content"
+         "posthog_survey"."form_content",
+         "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -964,7 +979,8 @@
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
-         "posthog_survey"."form_content"
+         "posthog_survey"."form_content",
+         "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -1401,7 +1417,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -1572,7 +1587,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -1604,7 +1618,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",

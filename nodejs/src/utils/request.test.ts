@@ -39,6 +39,15 @@ describe('fetch', () => {
             ['http://10.0.0.24', 'Hostname is not allowed'],
             ['http://172.20.0.21', 'Hostname is not allowed'],
             ['http://fgtggggzzggggfd.com', 'Invalid hostname'],
+            // IPv6 literal SSRF bypasses
+            ['http://[::ffff:169.254.169.254]/', 'Hostname is not allowed'],
+            ['http://[::ffff:127.0.0.1]/', 'Hostname is not allowed'],
+            ['http://[::ffff:10.0.0.1]/', 'Hostname is not allowed'],
+            ['http://[::ffff:192.168.1.1]/', 'Hostname is not allowed'],
+            ['http://[::1]/', 'Hostname is not allowed'],
+            ['http://[fe80::1]/', 'Hostname is not allowed'],
+            ['http://[fc00::1]/', 'Hostname is not allowed'],
+            ['http://[fd12:3456:789a::1]/', 'Hostname is not allowed'],
         ])('should raise against unsafe URLs: %s', async (url, error) => {
             await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(error)
         })
@@ -64,6 +73,21 @@ describe('fetch', () => {
             // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             const response = await fetch('http://example.com')
             expect(response.status).toBe(200)
+        })
+
+        it.each([
+            ['http://[::ffff:169.254.169.254]/latest/api/token', 'IPv6-mapped IMDS'],
+            ['http://[::ffff:127.0.0.1]/', 'IPv6-mapped loopback'],
+            ['http://[::ffff:10.0.0.1]/', 'IPv6-mapped private'],
+            ['http://[::ffff:192.168.1.1]/', 'IPv6-mapped private'],
+            ['http://[::1]/', 'IPv6 loopback'],
+            ['http://[fe80::1]/', 'IPv6 link-local'],
+            ['http://[fc00::1]/', 'IPv6 unique-local'],
+            ['http://[fd12:3456:789a::1]/', 'IPv6 unique-local'],
+            ['http://169.254.169.254/latest/api/token', 'IPv4 IMDS'],
+            ['http://127.0.0.1/', 'IPv4 loopback'],
+        ])('should block IP literal SSRF bypasses: %s (%s)', async (url) => {
+            await expect(fetch(url)).rejects.toThrow(new SecureRequestError('Hostname is not allowed'))
         })
     })
 
@@ -102,6 +126,25 @@ describe('fetch', () => {
 
             // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
+        })
+
+        it.each([
+            ['::1', 'IPv6 loopback'],
+            ['fe80::1', 'IPv6 link-local'],
+            ['fc00::1', 'IPv6 unique-local'],
+            ['fd12:3456:789a::1', 'IPv6 unique-local'],
+        ])('should block non-global pure IPv6 addresses: %s (%s)', async (ip) => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 6 }] as any)
+
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
+        })
+
+        it('should allow globally routable IPv6 addresses', async () => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '2607:f8b0:4004:800::200e', family: 6 }] as any)
+
+            // This will fail to connect since it's a mock DNS result, but it should NOT throw SecureRequestError
+            await expect(fetch(`http://example.com`)).rejects.not.toThrow(SecureRequestError) // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
         })
     })
 

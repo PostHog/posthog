@@ -18,6 +18,14 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     fireworks: 'Fireworks',
 }
 
+const PROVIDER_ORDER = Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]
+
+/** Sort index for a provider string. Unknown providers sort last. */
+export function providerSortIndex(provider: string): number {
+    const index = PROVIDER_ORDER.indexOf(provider.toLowerCase() as LLMProvider)
+    return index === -1 ? PROVIDER_ORDER.length : index
+}
+
 export interface LLMProviderKey {
     id: string
     provider: LLMProvider

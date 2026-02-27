@@ -10,6 +10,7 @@ use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
+use crate::tokio_monitor::TokioRuntimeMonitor;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
@@ -116,7 +117,7 @@ pub async fn serve<F>(
     let health = HealthRegistry::new("liveness");
 
     // Liveness checks only verify the process is alive (simple heartbeat loop).
-    // Readiness checks (in router.rs) verify DB connectivity before accepting traffic.
+    // Readiness checks (in router.rs) verify the pod isn't shutting down via a preStop marker file.
     let simple_loop = health
         .register(
             "simple_loop".to_string(),
@@ -138,6 +139,12 @@ pub async fn serve<F>(
         cohort_cache_clone
             .start_monitoring(cohort_cache_monitor_interval)
             .await;
+    });
+
+    // Start Tokio runtime monitoring
+    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
+    tokio::spawn(async move {
+        tokio_monitor.start_monitoring().await;
     });
 
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
@@ -244,9 +251,8 @@ pub async fn serve<F>(
         };
 
     // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
-    let flags_with_cohorts_redis_client = dedicated_redis_client
-        .clone()
-        .unwrap_or_else(|| redis_client.clone());
+    // Uses the shared cache (redis_client) - same cache Django writes to via HyperCache
+    let flags_with_cohorts_redis_client = redis_client.clone();
 
     let mut flags_with_cohorts_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
@@ -306,6 +312,13 @@ pub async fn serve<F>(
                 return;
             }
         };
+
+    if *config.skip_writes {
+        tracing::warn!(
+            "SKIP_WRITES is enabled: all writes to PostgreSQL and Redis are disabled. \
+             This instance is running in read-only mode for safe performance testing."
+        );
+    }
 
     // Warn about deprecated environment variables
     if std::env::var("TEAM_CACHE_TTL_SECONDS").is_ok() {

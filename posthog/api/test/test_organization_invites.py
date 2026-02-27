@@ -6,6 +6,7 @@ from unittest.mock import ANY, patch
 
 from django.core import mail
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -13,7 +14,9 @@ from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal
 
 from ee.models import Role, RoleMembership
 from ee.models.rbac.access_control import AccessControl
@@ -1285,3 +1288,69 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Check that the user was not assigned to any roles
         assert RoleMembership.objects.filter(user=new_user).count() == 0
+
+    def _create_api_key(self, scopes: list[str]) -> str:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+        )
+        return key_value
+
+    @parameterized.expand(
+        [
+            (["organization_member:read"], "get", status.HTTP_200_OK, None),
+            (["organization_member:read"], "post", status.HTTP_403_FORBIDDEN, "organization_member:write"),
+            (["organization_member:write"], "post", status.HTTP_201_CREATED, None),
+        ]
+    )
+    @patch("posthog.api.organization_invite.send_invite")
+    def test_invite_api_key_scope_enforcement(self, scopes, http_method, expected_status, error_scope, _):
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
+
+        url = f"/api/organizations/{self.organization.id}/invites/"
+        if http_method == "post":
+            response = self.client.post(
+                url,
+                {"target_email": "scope-test-invite@posthog.com"},
+                HTTP_AUTHORIZATION=f"Bearer {api_key}",
+            )
+        else:
+            response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        assert response.status_code == expected_status
+        if error_scope:
+            assert error_scope in response.json()["detail"]
+
+    @patch("posthog.api.organization_invite.send_invite")
+    def test_invite_delete_api_key_scope_enforcement(self, _):
+        invite = OrganizationInvite.objects.create(target_email="todelete@posthog.com", organization=self.organization)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        api_key = self._create_api_key(["organization_member:read"])
+        self.client.logout()
+
+        response = self.client.delete(
+            f"/api/organizations/{self.organization.id}/invites/{invite.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "organization_member:write" in response.json()["detail"]
+
+    @patch("posthog.api.organization_invite.send_invite")
+    def test_invite_bulk_api_key_scope_enforcement(self, _):
+        api_key = self._create_api_key(["organization_member:read"])
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [{"target_email": "bulk@posthog.com"}],
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "organization_member:write" in response.json()["detail"]

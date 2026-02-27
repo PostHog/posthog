@@ -26,7 +26,7 @@ import {
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { type Ticket, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
+import { type Ticket, channelOptions, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
@@ -41,6 +41,7 @@ export function SupportTicketsScene(): JSX.Element {
         filteredTickets,
         statusFilter,
         priorityFilter,
+        channelFilter,
         assigneeFilter,
         dateFrom,
         dateTo,
@@ -48,8 +49,15 @@ export function SupportTicketsScene(): JSX.Element {
         currentPage,
         totalCount,
     } = useValues(logic)
-    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, setCurrentPage, loadTickets } =
-        useActions(logic)
+    const {
+        setStatusFilter,
+        setPriorityFilter,
+        setChannelFilter,
+        setAssigneeFilter,
+        setDateRange,
+        setCurrentPage,
+        loadTickets,
+    } = useActions(logic)
     const { push } = useActions(router)
 
     return (
@@ -141,6 +149,29 @@ export function SupportTicketsScene(): JSX.Element {
                                 : priorityFilter.length === 1
                                   ? priorityMultiselectOptions.find((o) => o.key === priorityFilter[0])?.label
                                   : `${priorityFilter.length} priorities`}
+                        </LemonButton>
+                    </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {channelOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.value}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        onClick={() => setChannelFilter(option.value)}
+                                        active={channelFilter === option.value}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {channelOptions.find((o) => o.value === channelFilter)?.label ?? 'All channels'}
                         </LemonButton>
                     </LemonDropdown>
                     <AssigneeSelect
