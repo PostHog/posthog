@@ -147,6 +147,18 @@ class TestQueryCoalescer(TestCase):
         self.assertEqual(result, [1])
         self.assertFalse(execute_called)
 
+    def test_follower_accepts_cache_written_before_its_creation(self):
+        leader_lock_time = time.time() - 5
+        self._set_lock(timestamp=leader_lock_time)
+        cache_data = {"last_refresh": datetime.fromtimestamp(leader_lock_time + 0.001, tz=UTC)}
+        coalescer = QueryCoalescer(self.cache_key, "follower")
+        result = coalescer.run_coalesced(
+            execute=lambda: self.fail("follower should not execute"),
+            get_cache_data=lambda: cache_data,
+            build_response=lambda data: data,
+        )
+        self.assertEqual(result, cache_data)
+
     def test_follower_falls_back_on_timeout(self):
         self._set_lock(timestamp=time.time() - 60)
         coalescer = QueryCoalescer(self.cache_key, "follower")

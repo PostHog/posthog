@@ -53,7 +53,6 @@ class QueryCoalescer:
         self.dry_run = dry_run
         self._lock_value: str = ""
         self._is_leader: bool = False
-        self._created_at: float = time.time()
         self._redis = posthog_redis.get_client()
 
     @property
@@ -117,23 +116,33 @@ class QueryCoalescer:
         if self.dry_run:
             return None
 
+        # Read leader's start time once, cache entries must be newer than this to be considered fresh
+        lock_value = self._redis.get(self._lock_key)
+        if lock_value is None:
+            coalesce_counter.labels(outcome="follower_leader_gone").inc()
+            return None
+        leader_start = self._parse_lock_start_time(
+            lock_value.decode("utf-8") if isinstance(lock_value, bytes) else lock_value
+        )
+        if leader_start is None:
+            return None
+        fresh_after = leader_start
+
         start = time.monotonic()
 
         while (time.monotonic() - start) < max_leader_age:
+            lock_value = self._redis.get(self._lock_key)
             data = get_cache_data()
-            if data is not None and self._is_fresh(data):
+
+            if data is not None and self._is_fresh(data, fresh_after):
                 coalesce_wait_histogram.observe(time.monotonic() - start)
                 coalesce_counter.labels(outcome="follower_hit").inc()
                 return data
 
-            lock_value = self._redis.get(self._lock_key)
             if lock_value is None:
                 coalesce_counter.labels(outcome="follower_leader_gone").inc()
                 return None
 
-            leader_start = self._parse_lock_start_time(
-                lock_value.decode("utf-8") if isinstance(lock_value, bytes) else lock_value
-            )
             if leader_start and (time.time() - leader_start) > max_leader_age:
                 coalesce_counter.labels(outcome="follower_timeout").inc()
                 return None
@@ -143,7 +152,8 @@ class QueryCoalescer:
         coalesce_counter.labels(outcome="follower_timeout").inc()
         return None
 
-    def _is_fresh(self, data: dict) -> bool:
+    @staticmethod
+    def _is_fresh(data: dict, fresh_after: float) -> bool:
         last_refresh = data.get("last_refresh")
         if last_refresh is None:
             return False
@@ -151,7 +161,7 @@ class QueryCoalescer:
             from datetime import datetime
 
             last_refresh = datetime.fromisoformat(last_refresh)
-        return last_refresh.timestamp() >= self._created_at
+        return last_refresh.timestamp() >= fresh_after
 
     @staticmethod
     def _parse_lock_start_time(lock_value: str) -> Optional[float]:
