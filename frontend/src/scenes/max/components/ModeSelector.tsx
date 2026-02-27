@@ -107,7 +107,6 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
 interface GetModeOptionsParams {
     planModeEnabled: boolean
     researchEnabled: boolean
-    webSearchEnabled: boolean
     errorTrackingModeEnabled: boolean
     surveyModeEnabled: boolean
     hasExistingMessages: boolean
@@ -117,7 +116,6 @@ interface GetModeOptionsParams {
 function getModeOptions({
     planModeEnabled,
     researchEnabled,
-    webSearchEnabled,
     errorTrackingModeEnabled,
     surveyModeEnabled,
     hasExistingMessages,
@@ -128,7 +126,7 @@ function getModeOptions({
             value: null as ModeValue,
             label: SPECIAL_MODES.auto.name as string | JSX.Element,
             icon: SPECIAL_MODES.auto.icon,
-            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools({ webSearchEnabled })),
+            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools()),
         },
     ]
     if (planModeEnabled) {
@@ -145,7 +143,7 @@ function getModeOptions({
                 </span>
             ),
             icon: SPECIAL_MODES.plan.icon,
-            tooltip: buildModeTooltip(SPECIAL_MODES.plan.description, getDefaultTools({ webSearchEnabled })),
+            tooltip: buildModeTooltip(SPECIAL_MODES.plan.description, getDefaultTools()),
         })
     }
 
@@ -207,7 +205,6 @@ export function ModeSelector(): JSX.Element | null {
     const { setAgentMode } = useActions(maxThreadLogic)
     const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
     const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
-    const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
     const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
     const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
     const flagsModeEnabled = useFeatureFlag('POSTHOG_AI_FLAGS_MODE')
@@ -218,7 +215,6 @@ export function ModeSelector(): JSX.Element | null {
             getModeOptions({
                 planModeEnabled,
                 researchEnabled,
-                webSearchEnabled,
                 errorTrackingModeEnabled,
                 flagsModeEnabled,
                 surveyModeEnabled,
@@ -227,12 +223,10 @@ export function ModeSelector(): JSX.Element | null {
         [
             planModeEnabled,
             researchEnabled,
-            webSearchEnabled,
             errorTrackingModeEnabled,
             surveyModeEnabled,
             hasExistingMessages,
             flagsModeEnabled,
-            surveyModeEnabled,
         ]
     )
 
@@ -263,7 +257,7 @@ export function ModeSelector(): JSX.Element | null {
             }
             tooltip={buildGeneralTooltip(
                 'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
-                getDefaultTools({ webSearchEnabled })
+                getDefaultTools()
             )}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}
