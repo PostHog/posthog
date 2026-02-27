@@ -127,15 +127,13 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                                 uniqIf($session_id, notEmpty($session_id)) as total_sessions,
                                 uniqIf($session_id, event = '$exception' AND notEmpty($session_id)) as crash_sessions
                             FROM events
-                            WHERE timestamp >= toDateTime({dateFrom})
-                            AND timestamp < toDateTime({dateTo})
-                            AND {filters}
+                            WHERE {filters}
                         `,
-                        values: {
-                            dateFrom: values.anchorDate.startOf('day').format('YYYY-MM-DD HH:mm:ss'),
-                            dateTo: effectiveEnd.format('YYYY-MM-DD HH:mm:ss'),
-                        },
                         filters: {
+                            dateRange: {
+                                date_from: values.anchorDate.startOf('day').format('YYYY-MM-DD HH:mm:ss'),
+                                date_to: effectiveEnd.format('YYYY-MM-DD HH:mm:ss'),
+                            },
                             filterTestAccounts: values.filterTestAccounts,
                         },
                     })
