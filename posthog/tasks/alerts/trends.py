@@ -38,6 +38,27 @@ class TrendResult(TypedDict):
     filter: dict
 
 
+def _is_empty_query_result(
+    calculation_result: InsightResult,
+    alert: AlertConfiguration,
+    threshold: InsightThreshold,
+    condition: AlertCondition,
+    interval_type: IntervalType | None,
+) -> AlertEvaluationResult | None:
+    # is None -> Indicates that the query layer swallowed a legitimate error, in this case we still want
+    # to raise an exception to avoid mis-fires of the alert.
+    if calculation_result.result is None:
+        raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+
+    # For other "empty" cases we assume that they had no legitimate results and as a result will treat it as a 0 value
+    # in terms of alerting. See: https://github.com/PostHog/posthog/pull/48701
+    if not calculation_result.result:
+        breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, interval_type, "empty result")
+        return AlertEvaluationResult(value=0, breaches=breaches)
+
+    return None
+
+
 def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: TrendsQuery) -> AlertEvaluationResult:
     """
     Calculates insight value for the needed time periods and compares it with the threshold.
@@ -96,11 +117,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 filters_override=filters_override,
             )
 
-            if not calculation_result.result:
-                breaches = _breach_messages(threshold.bounds, 0, threshold.type, condition.type, None, "empty result")
-                return AlertEvaluationResult(value=0, breaches=breaches)
-
             interval = query.interval if not is_non_time_series else None
+
+            if no_result_evaluation := _is_empty_query_result(
+                calculation_result, alert, threshold, condition, interval
+            ):
+                return no_result_evaluation
 
             if check_current_interval and threshold.bounds.upper is None:
                 # checking for value > X so we can also check current interval value
@@ -188,11 +210,10 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 filters_override=filters_overrides,
             )
 
-            if not calculation_result.result:
-                breaches = _breach_messages(
-                    threshold.bounds, 0, threshold.type, condition.type, query.interval, "empty result"
-                )
-                return AlertEvaluationResult(value=0, breaches=breaches)
+            if no_result_evaluation := _is_empty_query_result(
+                calculation_result, alert, threshold, condition, query.interval
+            ):
+                return no_result_evaluation
 
             results_to_evaluate: list[TrendResult] = []
 
@@ -298,11 +319,10 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 filters_override=filters_overrides,
             )
 
-            if not calculation_result.result:
-                breaches = _breach_messages(
-                    threshold.bounds, 0, threshold.type, condition.type, query.interval, "empty result"
-                )
-                return AlertEvaluationResult(value=0, breaches=breaches)
+            if no_result_evaluation := _is_empty_query_result(
+                calculation_result, alert, threshold, condition, query.interval
+            ):
+                return no_result_evaluation
 
             results_to_evaluate = []
 
