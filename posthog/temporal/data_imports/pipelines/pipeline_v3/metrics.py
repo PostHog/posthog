@@ -1,5 +1,5 @@
 from temporalio import activity
-from temporalio.common import MetricCounter, MetricHistogram
+from temporalio.common import MetricCounter, MetricHistogramFloat
 
 
 def get_rows_extracted_metric(team_id: str, schema_id: str, source_type: str) -> MetricCounter:
@@ -18,8 +18,8 @@ def get_batches_produced_metric(team_id: str, schema_id: str) -> MetricCounter:
     )
 
 
-def get_s3_write_duration_metric() -> MetricHistogram:
-    return activity.metric_meter().create_histogram(
+def get_s3_write_duration_metric() -> MetricHistogramFloat:
+    return activity.metric_meter().create_histogram_float(
         "warehouse_producer_s3_write_duration_seconds", "Duration of S3 batch writes", "s"
     )
 
@@ -38,11 +38,13 @@ def get_kafka_flush_failures_metric() -> MetricCounter:
     )
 
 
-def get_pipeline_run_duration_metric(team_id: str, source_type: str, sync_type: str, status: str) -> MetricHistogram:
+def get_pipeline_run_duration_metric(
+    team_id: str, source_type: str, sync_type: str, status: str
+) -> MetricHistogramFloat:
     return (
         activity.metric_meter()
         .with_additional_attributes(
             {"team_id": team_id, "source_type": source_type, "sync_type": sync_type, "status": status}
         )
-        .create_histogram("warehouse_pipeline_run_duration_seconds", "Duration of full pipeline runs", "s")
+        .create_histogram_float("warehouse_pipeline_run_duration_seconds", "Duration of full pipeline runs", "s")
     )
