@@ -77,6 +77,18 @@ class KafkaBatchProducer:
         # Partial data loading fields
         self._is_first_ever_sync = is_first_ever_sync
 
+    @property
+    def sync_type(self) -> SyncTypeLiteral:
+        return self._sync_type
+
+    @property
+    def is_first_ever_sync(self) -> bool:
+        return self._is_first_ever_sync
+
+    @is_first_ever_sync.setter
+    def is_first_ever_sync(self, value: bool) -> None:
+        self._is_first_ever_sync = value
+
     def _get_key(self) -> str:
         return f"{self._team_id}:{self._schema_id}"  # we want ordering across multiple runs for the same schema
 

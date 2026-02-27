@@ -243,8 +243,8 @@ class KafkaConsumerService:
                     if i in dlq_indices:
                         continue
 
-                    team_id = str(message.get("team_id", "unknown"))
-                    schema_id = str(message.get("schema_id", "unknown"))
+                    team_id = str(message.get("team_id") or "unknown")
+                    schema_id = str(message.get("schema_id") or "unknown")
 
                     try:
                         with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():

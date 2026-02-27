@@ -36,6 +36,10 @@ class DeltaTableHelper:
         self._logger = logger
         self._is_first_sync = is_first_sync
 
+    @property
+    def is_first_sync(self) -> bool:
+        return self._is_first_sync
+
     def _get_credentials(self):
         if settings.USE_LOCAL_SETUP:
             if (

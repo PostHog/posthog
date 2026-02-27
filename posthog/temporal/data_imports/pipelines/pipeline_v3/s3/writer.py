@@ -86,7 +86,7 @@ class S3BatchWriter:
 
         write_duration = time.perf_counter() - write_start
         if activity.in_activity():
-            get_s3_write_duration_metric().record(int(write_duration))
+            get_s3_write_duration_metric().record(write_duration)
 
         file_info = self._s3.info(s3_path_without_protocol)
         byte_size = file_info.get("Size", 0) if isinstance(file_info, dict) else 0

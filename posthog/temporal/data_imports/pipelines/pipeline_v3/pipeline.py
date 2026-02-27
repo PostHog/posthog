@@ -167,7 +167,7 @@ class PipelineV3(Generic[ResumableData]):
         team_id_str = str(self._job.team_id)
         schema_id_str = str(self._schema.id)
         source_type = self._source.source_type if self._source else "unknown"
-        sync_type = self._kafka_producer._sync_type
+        sync_type = self._kafka_producer.sync_type
 
         start_time = time.perf_counter()
         status = "success"
@@ -196,9 +196,9 @@ class PipelineV3(Generic[ResumableData]):
                 self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
             )
 
-            is_fresh_sync = self._delta_table_helper._is_first_sync or self._schema.table is None
+            is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
             if is_fresh_sync:
-                self._kafka_producer._is_first_ever_sync = True
+                self._kafka_producer.is_first_ever_sync = True
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None
@@ -257,7 +257,7 @@ class PipelineV3(Generic[ResumableData]):
         finally:
             duration = time.perf_counter() - start_time
             if activity.in_activity():
-                get_pipeline_run_duration_metric(team_id_str, source_type, sync_type, status).record(int(duration))
+                get_pipeline_run_duration_metric(team_id_str, source_type, sync_type, status).record(duration)
 
             posthoganalytics.capture(
                 distinct_id=get_machine_id(),
