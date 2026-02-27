@@ -266,7 +266,7 @@ export function CodeEditor({
                 vimModeRef.current = null
             }
         }
-    }, [editor, enableVimMode, vimCommandHistory, appendVimCommand])
+    }, [editor, enableVimMode])
 
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
         minimap: {
