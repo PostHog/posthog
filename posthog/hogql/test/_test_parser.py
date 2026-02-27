@@ -1557,6 +1557,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_union_by_invalid_identifier(self):
+            with self.assertRaisesMessage(SyntaxError, "Only UNION BY NAME is supported"):
+                self._select("select 1 union by foo select 2")
+
         def test_nested_selects(self):
             self.assertEqual(
                 self._select("(select 1 intersect select 2) union all (select 3 except select 4)"),
