@@ -4019,6 +4019,7 @@ export interface LLMTrace {
     errorCount?: number
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
+    tools?: string[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {

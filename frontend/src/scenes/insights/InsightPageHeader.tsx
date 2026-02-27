@@ -52,7 +52,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { insightsApi } from 'scenes/insights/utils/api'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -204,21 +203,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         ),
     })
 
-    async function handleDuplicateInsight(): Promise<void> {
-        // We do not want to duplicate the dashboard filters that might be included in this insight
-        // Ideally we would store those separately and be able to remove them on duplicate or edit, but current we merge them
-        // irreversibly in apply_dashboard_filters and return that to the front-end
-        if (insight.short_id) {
-            const cleanInsight = await insightsApi.getByShortId(insight.short_id)
-            if (cleanInsight) {
-                duplicateInsight(cleanInsight, true)
-                return
-            }
-        }
-        // Fallback to original behavior if load failed
-        duplicateInsight(insight as QueryBasedInsightModel, true)
-    }
-
     return (
         <>
             {hasDashboardItemId && (
@@ -335,7 +319,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <ScenePanelDivider />
 
                     <ScenePanelActionsSection>
-                        <SceneDuplicate dataAttrKey={RESOURCE_TYPE} onClick={() => void handleDuplicateInsight()} />
+                        <SceneDuplicate
+                            dataAttrKey={RESOURCE_TYPE}
+                            onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
+                        />
                         <SceneFavorite
                             dataAttrKey={RESOURCE_TYPE}
                             onClick={() => {

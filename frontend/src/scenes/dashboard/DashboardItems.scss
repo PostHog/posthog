@@ -1,5 +1,9 @@
 .dashboard-items-wrapper {
     width: 100%; // This provides the width for the dashboard items grid
+
+    .InsightCard__viz .InsightVizDisplay .LineGraph {
+        padding: 0.25rem;
+    }
 }
 
 .react-grid-layout {

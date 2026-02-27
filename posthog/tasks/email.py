@@ -1413,8 +1413,8 @@ def send_error_tracking_weekly_digest() -> None:
     if "*" in allowed_org_ids:
         org_ids = all_org_ids
     else:
-        allowed_set = {int(oid) for oid in allowed_org_ids}
-        org_ids = [oid for oid in all_org_ids if oid in allowed_set]
+        allowed_set = {str(oid) for oid in allowed_org_ids}
+        org_ids = [oid for oid in all_org_ids if str(oid) in allowed_set]
 
     logger.info(f"Found {len(org_ids)} orgs with exceptions, fanning out digest emails")
 

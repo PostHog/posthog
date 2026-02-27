@@ -18713,6 +18713,12 @@
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
                 },
+                "tools": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "totalCost": {
                     "type": "number"
                 },

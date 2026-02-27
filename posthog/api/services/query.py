@@ -158,15 +158,15 @@ def process_query_model(
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")
         elif isinstance(query, HogQLAutocomplete):
-            result = get_hogql_autocomplete(query=query, team=team)
+            result = get_hogql_autocomplete(query=query, team=team, user=user)
         elif isinstance(query, HogQLMetadata):
             metadata_query = HogQLMetadata.model_validate(query)
-            metadata_response = get_hogql_metadata(query=metadata_query, team=team)
+            metadata_response = get_hogql_metadata(query=metadata_query, team=team, user=user)
             result = metadata_response
         elif isinstance(query, DatabaseSchemaQuery):
             joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-            database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
-            context = HogQLContext(team_id=team.pk, team=team, database=database)
+            database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team), user=user)
+            context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
             result = DatabaseSchemaQueryResponse(
                 tables=database.serialize(context, include_hidden_posthog_tables=True),
                 joins=[
