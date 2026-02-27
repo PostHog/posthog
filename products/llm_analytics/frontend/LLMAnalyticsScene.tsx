@@ -51,6 +51,7 @@ import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
+import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
 import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
@@ -411,7 +412,9 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
                                     <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
                                         <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
-                                            <LLMAnalyticsSceneContent />
+                                            <BindLogic logic={llmAnalyticsToolsLogic} props={{ tabId }}>
+                                                <LLMAnalyticsSceneContent />
+                                            </BindLogic>
                                         </BindLogic>
                                     </BindLogic>
                                 </BindLogic>
