@@ -5,7 +5,7 @@ from datetime import datetime
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Count
+from django.db.models import Count, Q
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -116,11 +116,12 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, view
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team).annotate(artefact_count=Count("artefacts"))
-
         status_filter = self.request.query_params.get("status")
         if status_filter:
-            qs = qs.filter(status=status_filter)
-
+            qs = qs.filter(status__in=[s.strip() for s in status_filter.split(",") if s.strip()])
+        search = self.request.query_params.get("search")
+        if search:
+            qs = qs.filter(Q(title__icontains=search) | Q(summary__icontains=search))
         return qs
 
     def get_serializer_context(self):

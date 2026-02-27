@@ -13,7 +13,7 @@ from posthog.models import Team
 logger = structlog.get_logger(__name__)
 
 
-def get_org_ids_with_exceptions() -> list[int]:
+def get_org_ids_with_exceptions() -> list[str]:
     """Return distinct organization IDs that have teams with exceptions in the last 7 days"""
     teams_with_exceptions = get_exception_counts()
     team_id_set = {row[0] for row in teams_with_exceptions}

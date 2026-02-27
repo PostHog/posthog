@@ -17551,6 +17551,10 @@
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
                 },
+                "inlineCohortCalculation": {
+                    "enum": ["off", "auto", "always"],
+                    "type": "string"
+                },
                 "materializationMode": {
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
