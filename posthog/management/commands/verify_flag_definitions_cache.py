@@ -2,8 +2,10 @@
 Management command to verify flag definitions cache consistency.
 
 Compares cached flag definitions data against database to detect discrepancies.
-By default verifies only the with-cohorts variant since both variants are always
-updated together — fixing one fixes both. Use --variant to verify a specific variant.
+By default verifies only the with-cohorts variant, which serves the vast majority of
+traffic (the without-cohorts variant is deprecated). Both variants derive from the same
+source data and share the same Celery update path, so checking one is a reliable
+indicator of overall cache health. Use --variant both to verify both explicitly.
 
 Usage:
     # Verify all teams
