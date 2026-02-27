@@ -5547,6 +5547,7 @@ class LLMTrace(BaseModel):
     outputState: Any | None = None
     outputTokens: float | None = None
     person: LLMTracePerson | None = None
+    tools: list[str] | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None
