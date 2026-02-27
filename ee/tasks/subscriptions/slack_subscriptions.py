@@ -42,7 +42,7 @@ class SlackDeliveryResult:
         return self.main_message_sent and len(self.failed_thread_message_indices) == 0
 
 
-def _block_for_asset(asset: ExportedAsset, resource_url: str | None = None) -> dict:
+def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
     if _has_asset_failed(asset):
         insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
 
@@ -57,8 +57,7 @@ def _block_for_asset(asset: ExportedAsset, resource_url: str | None = None) -> d
         else:
             exception_text = ASSET_GENERATION_FAILED_MESSAGE
 
-        support_path = resource_url or ""
-        support_url = f"{support_path}#panel=support:bug:analytics_platform:high:true"
+        support_url = f"{resource_url}#panel=support:bug:analytics_platform:high:true"
         error_text = (
             f"*{insight_name}*\n"
             f"There was an error generating your asset: {exception_text}\n"
