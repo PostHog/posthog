@@ -2349,21 +2349,46 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 (
                     "p1",
                     [
-                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
-                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                        (
+                            "2023-12-02 10:00:00",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02 10:01:00",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
                     ],
                 ),
                 (
                     "p2",
                     [
-                        ("2023-12-03", s2, "/landing", {"$host": "subdomain.example.com"}),
-                        ("2023-12-03", s2, "/pricing", {"$host": "subdomain.example.com"}),
+                        (
+                            "2023-12-03 10:00:00",
+                            s2,
+                            "/landing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/landing"},
+                        ),
+                        (
+                            "2023-12-03 10:01:00",
+                            s2,
+                            "/pricing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/pricing"},
+                        ),
                     ],
                 ),
                 (
                     "p3",
                     [
-                        ("2023-12-04", s3, "/pricing", {"$host": "example.com"}),
+                        (
+                            "2023-12-04 10:00:00",
+                            s3,
+                            "/pricing",
+                            {"$host": "example.com", "$current_url": "https://example.com/pricing"},
+                        ),
                     ],
                 ),
             ]
@@ -2409,15 +2434,35 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 (
                     "p1",
                     [
-                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
-                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
                     ],
                 ),
                 (
                     "p2",
                     [
-                        ("2023-12-03", s2, "/landing", {"$host": "subdomain.example.com"}),
-                        ("2023-12-03", s2, "/pricing", {"$host": "subdomain.example.com"}),
+                        (
+                            "2023-12-03",
+                            s2,
+                            "/landing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/landing"},
+                        ),
+                        (
+                            "2023-12-03",
+                            s2,
+                            "/pricing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/pricing"},
+                        ),
                     ],
                 ),
             ]
@@ -2446,20 +2491,40 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 (
                     "p1",
                     [
-                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
-                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
                     ],
                 ),
                 (
                     "p2",
                     [
-                        ("2023-12-03", s2, "/landing", {"$host": "subdomain.example.com"}),
+                        (
+                            "2023-12-03",
+                            s2,
+                            "/landing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/landing"},
+                        ),
                     ],
                 ),
                 (
                     "p3",
                     [
-                        ("2023-12-04", s3, "/landing", {"$host": "example.com"}),
+                        (
+                            "2023-12-04",
+                            s3,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
                     ],
                 ),
             ]
@@ -2495,14 +2560,29 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 (
                     "p1",
                     [
-                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
-                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
                     ],
                 ),
                 (
                     "p2",
                     [
-                        ("2023-12-03", s2, "/pricing", {"$host": "subdomain.example.com"}),
+                        (
+                            "2023-12-03",
+                            s2,
+                            "/pricing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/pricing"},
+                        ),
                     ],
                 ),
             ]
@@ -2531,22 +2611,55 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 (
                     "p1",
                     [
-                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
-                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                        (
+                            "2023-12-02 10:00:00",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02 10:01:00",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
                     ],
                 ),
                 (
                     "p2",
                     [
-                        ("2023-12-03", s2, "/pricing", {"$host": "subdomain.example.com"}),
-                        ("2023-12-03", s2, "/features", {"$host": "subdomain.example.com"}),
+                        (
+                            "2023-12-03 10:00:00",
+                            s2,
+                            "/pricing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/pricing"},
+                        ),
+                        (
+                            "2023-12-03 10:01:00",
+                            s2,
+                            "/features",
+                            {
+                                "$host": "subdomain.example.com",
+                                "$current_url": "https://subdomain.example.com/features",
+                            },
+                        ),
                     ],
                 ),
                 (
                     "p3",
                     [
-                        ("2023-12-04", s3, "/landing", {"$host": "example.com"}),
-                        ("2023-12-04", s3, "/features", {"$host": "example.com"}),
+                        (
+                            "2023-12-04 10:00:00",
+                            s3,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-04 10:01:00",
+                            s3,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
                     ],
                 ),
             ]

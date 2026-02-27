@@ -76,7 +76,6 @@ import {
     WebAnalyticsFiltersConfig,
 } from '~/types'
 
-import { IncludeHostToggle } from './IncludeHostToggle'
 import {
     ActiveHoursTab,
     ConversionGoalWarning,
@@ -113,6 +112,7 @@ import {
     hasURLSearchParams,
 } from './constants'
 import { webAnalyticsHealthLogic } from './health'
+import { IncludeHostToggle } from './IncludeHostToggle'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'

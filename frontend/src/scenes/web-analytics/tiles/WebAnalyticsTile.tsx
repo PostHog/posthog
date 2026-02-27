@@ -807,8 +807,7 @@ export const WebStatsTableTile = ({
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
-    const includeHost =
-        query.source.kind === NodeKind.WebStatsTableQuery ? query.source.includeHost : false
+    const includeHost = query.source.kind === NodeKind.WebStatsTableQuery ? query.source.includeHost : false
 
     const onClick = useCallback(
         (breakdownValue: string | null) => {
