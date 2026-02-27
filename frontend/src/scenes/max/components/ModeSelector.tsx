@@ -110,6 +110,7 @@ interface GetModeOptionsParams {
     webSearchEnabled: boolean
     errorTrackingModeEnabled: boolean
     surveyModeEnabled: boolean
+    llmAnalyticsModeEnabled: boolean
     hasExistingMessages: boolean
     flagsModeEnabled: boolean
 }
@@ -120,6 +121,7 @@ function getModeOptions({
     webSearchEnabled,
     errorTrackingModeEnabled,
     surveyModeEnabled,
+    llmAnalyticsModeEnabled,
     hasExistingMessages,
     flagsModeEnabled,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
@@ -177,6 +179,9 @@ function getModeOptions({
         if (mode === AgentMode.Flags && !flagsModeEnabled) {
             return false
         }
+        if (mode === AgentMode.LLMAnalytics && !llmAnalyticsModeEnabled) {
+            return false
+        }
         return true
     })
 
@@ -209,6 +214,7 @@ export function ModeSelector(): JSX.Element | null {
     const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
     const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
+    const llmAnalyticsModeEnabled = useFeatureFlag('PHAI_LLM_ANALYTICS_MODE')
     const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
     const flagsModeEnabled = useFeatureFlag('POSTHOG_AI_FLAGS_MODE')
 
@@ -221,6 +227,7 @@ export function ModeSelector(): JSX.Element | null {
                 webSearchEnabled,
                 errorTrackingModeEnabled,
                 flagsModeEnabled,
+                llmAnalyticsModeEnabled,
                 surveyModeEnabled,
                 hasExistingMessages,
             }),
@@ -230,9 +237,9 @@ export function ModeSelector(): JSX.Element | null {
             webSearchEnabled,
             errorTrackingModeEnabled,
             surveyModeEnabled,
+            llmAnalyticsModeEnabled,
             hasExistingMessages,
             flagsModeEnabled,
-            surveyModeEnabled,
         ]
     )
 

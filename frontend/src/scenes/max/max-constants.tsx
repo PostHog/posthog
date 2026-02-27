@@ -8,6 +8,7 @@ import {
     IconGlobe,
     IconMemory,
     IconNotebook,
+    IconNotification,
     IconPlug,
     IconSearch,
     IconShuffle,
@@ -948,6 +949,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a document...'
         },
     },
+    upsert_alert: {
+        name: 'Manage alerts',
+        description: 'Manage alerts to monitor insight metrics',
+        icon: <IconNotification />,
+        product: Scene.Insight,
+        modes: [AgentMode.ProductAnalytics],
+        displayFormatter: (toolCall) => {
+            if (isObject(toolCall.args?.action) && 'alert_id' in toolCall.args.action) {
+                return toolCall.status === 'completed' ? 'Updated alert' : 'Updating alert...'
+            }
+            return toolCall.status === 'completed' ? 'Created alert' : 'Creating alert...'
+        },
+    },
     finalize_plan: {
         name: 'Finalize plan',
         description: 'Finalize plan',
@@ -968,6 +982,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Recommended products'
             }
             return 'Recommending products...'
+        },
+    },
+    search_llm_traces: {
+        name: 'Search LLM traces',
+        description: 'Search LLM traces to analyze model usage, costs, latency, and errors',
+        icon: iconForType('llm_analytics'),
+        modes: [AgentMode.LLMAnalytics],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched LLM traces'
+            }
+            return 'Searching LLM traces...'
         },
     },
 }
@@ -1031,6 +1057,21 @@ export const MODE_DEFINITIONS: Record<
             Scene.Experiments,
             Scene.ExperimentsSharedMetric,
             Scene.ExperimentsSharedMetrics,
+        ]),
+    },
+    [AgentMode.LLMAnalytics]: {
+        name: 'LLM analytics',
+        description: 'Analyzes LLM traces.',
+        icon: iconForType('llm_analytics'),
+        scenes: new Set([
+            Scene.LLMAnalytics,
+            Scene.LLMAnalyticsTrace,
+            Scene.LLMAnalyticsEvaluation,
+            Scene.LLMAnalyticsEvaluations,
+            Scene.LLMAnalyticsDataset,
+            Scene.LLMAnalyticsDatasets,
+            Scene.LLMAnalyticsPlayground,
+            Scene.LLMAnalyticsUsers,
         ]),
     },
 }

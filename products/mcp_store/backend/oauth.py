@@ -59,14 +59,19 @@ def discover_oauth_metadata(server_url: str) -> dict:
         resource_data = resource_resp.json()
         auth_servers = resource_data.get("authorization_servers", [])
         if auth_servers:
-            metadata = _fetch_auth_server_metadata(auth_servers[0])
-            metadata.setdefault("issuer", auth_servers[0])
+            auth_server_url = auth_servers[0]
+            metadata = _fetch_auth_server_metadata(auth_server_url)
+            if "issuer" in metadata and metadata["issuer"].rstrip("/") != auth_server_url.rstrip("/"):
+                raise ValueError("Issuer mismatch in authorization server metadata")
+            metadata.setdefault("issuer", auth_server_url)
             return metadata
 
     # Step 2: Fall back to fetching authorization server metadata directly from the origin.
     # Many MCP servers (e.g. Linear) serve /.well-known/oauth-authorization-server
     # without implementing the protected resource metadata endpoint.
     metadata = _fetch_auth_server_metadata(origin)
+    if "issuer" in metadata and metadata["issuer"].rstrip("/") != origin.rstrip("/"):
+        raise ValueError("Issuer mismatch in authorization server metadata")
     metadata.setdefault("issuer", origin)
     return metadata
 

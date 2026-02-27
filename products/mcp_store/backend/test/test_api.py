@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
@@ -233,3 +235,106 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["display_name"] == "Custom Name"
         assert response.json()["name"] == "Custom Name"
+
+
+class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.api.discover_oauth_metadata")
+    def test_spoofed_issuer_fails_and_no_state_persisted(self, mock_discover, _allow):
+        mock_discover.side_effect = ValueError("Issuer mismatch in authorization server metadata")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Evil", "url": "https://evil.com/mcp", "auth_type": "oauth"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not MCPServerInstallation.objects.filter(url="https://evil.com/mcp").exists()
+        assert not MCPServer.objects.filter(url="https://evil.com").exists()
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.api.register_dcr_client")
+    @patch("products.mcp_store.backend.api.discover_oauth_metadata")
+    def test_existing_server_metadata_not_overwritten_on_reregistration(self, mock_discover, mock_dcr, _allow):
+        legitimate_metadata = {
+            "issuer": "https://auth.legit.com",
+            "authorization_endpoint": "https://auth.legit.com/authorize",
+            "token_endpoint": "https://auth.legit.com/token",
+            "registration_endpoint": "https://auth.legit.com/register",
+            "dcr_redirect_uri": "https://old.posthog.com/callback",
+        }
+        server = MCPServer.objects.create(
+            name="Legit Server",
+            url="https://auth.legit.com",
+            oauth_metadata=legitimate_metadata,
+            oauth_client_id="legit-client-id",
+            created_by=self.user,
+        )
+
+        mock_discover.return_value = {
+            "issuer": "https://auth.legit.com",
+            "authorization_endpoint": "https://evil.com/authorize",
+            "token_endpoint": "https://evil.com/token",
+            "registration_endpoint": "https://evil.com/register",
+        }
+        mock_dcr.return_value = "new-client-id"
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Legit", "url": "https://legit.com/mcp", "auth_type": "oauth"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert urlparse(response.json()["redirect_url"]).netloc == "auth.legit.com"
+
+        server.refresh_from_db()
+        assert server.oauth_metadata["authorization_endpoint"] == "https://auth.legit.com/authorize"
+        assert server.oauth_metadata["token_endpoint"] == "https://auth.legit.com/token"
+        assert server.oauth_metadata["registration_endpoint"] == "https://auth.legit.com/register"
+        assert server.oauth_client_id == "new-client-id"
+
+        # DCR was called with the existing trusted metadata, not the attacker-supplied metadata
+        mock_dcr.assert_called_once()
+        call_metadata = mock_dcr.call_args[0][0]
+        assert call_metadata["registration_endpoint"] == "https://auth.legit.com/register"
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.api.register_dcr_client")
+    @patch("products.mcp_store.backend.api.discover_oauth_metadata")
+    def test_authorize_reuses_existing_metadata_instead_of_rediscovering(self, mock_discover, mock_dcr, _allow):
+        server = MCPServer.objects.create(
+            name="Server",
+            url="https://auth.example.com",
+            oauth_metadata={
+                "issuer": "https://auth.example.com",
+                "authorization_endpoint": "https://auth.example.com/authorize",
+                "token_endpoint": "https://auth.example.com/token",
+                "registration_endpoint": "https://auth.example.com/register",
+                "dcr_redirect_uri": "https://old.posthog.com/callback",
+            },
+            oauth_client_id="existing-client-id",
+            created_by=self.user,
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Test",
+            auth_type="oauth",
+        )
+        mock_dcr.return_value = "new-client-id"
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {"server_id": str(server.id)},
+        )
+
+        assert response.status_code == 302
+        assert urlparse(response["Location"]).netloc == "auth.example.com"
+        mock_discover.assert_not_called()
+        mock_dcr.assert_called_once()
+        call_metadata = mock_dcr.call_args[0][0]
+        assert call_metadata["authorization_endpoint"] == "https://auth.example.com/authorize"
