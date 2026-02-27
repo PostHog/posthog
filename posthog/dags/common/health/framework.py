@@ -1,19 +1,12 @@
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import cast
 
 import dagster
 
 from posthog.dags.common.common import JobOwners, check_for_concurrent_runs
 from posthog.dags.common.health.detectors import HealthDetector, resolve_execution_policy
-from posthog.dags.common.health.processing import _process_batch_detection, _process_per_team_detection
-from posthog.dags.common.health.types import (
-    BatchDetectFn,
-    BatchResult,
-    HealthCheckDefinition,
-    HealthCheckThresholdExceeded,
-    TeamDetectFn,
-)
+from posthog.dags.common.health.processing import _process_batch_detection
+from posthog.dags.common.health.types import BatchResult, HealthCheckDefinition, HealthCheckThresholdExceeded
 from posthog.dags.common.ops import get_all_team_ids_op
 
 _REGISTERED_KINDS: dict[str, str] = {}
@@ -73,10 +66,10 @@ def _get_teams_per_second(result: BatchResult) -> float:
 def _create_check_batch_op(name: str, kind: str, detector: HealthDetector) -> dagster.OpDefinition:
     @dagster.op(name=f"{name}_check_batch", retry_policy=_default_retry_policy)
     def check_batch_op(context: dagster.OpExecutionContext, team_ids: list[int]) -> BatchResult:
-        if detector.per_team:
-            result = _process_per_team_detection(team_ids, kind, cast(TeamDetectFn, detector.detect_fn), context)
-        else:
-            result = _process_batch_detection(team_ids, kind, cast(BatchDetectFn, detector.detect_fn), context)
+        dry_run = (
+            context.run_config.get("ops", {}).get("get_all_team_ids_op", {}).get("config", {}).get("dry_run", False)
+        )
+        result = _process_batch_detection(team_ids, kind, detector.detect_fn, context, dry_run=dry_run)
 
         teams_per_second = _get_teams_per_second(result)
 
@@ -145,6 +138,7 @@ def create_health_check(
     max_concurrent: int | None = None,
     rollout_percentage: float | None = None,
     not_processed_threshold: float = 0.1,
+    dry_run: bool = False,
 ) -> HealthCheckDefinition:
     """Create a complete health check pipeline as a Dagster job.
 
@@ -157,8 +151,9 @@ def create_health_check(
         schedule: Optional cron expression for scheduling.
         batch_size: Optional override for detector default batch size.
         max_concurrent: Optional override for detector default concurrency.
-        rollout_percentage: Optional deterministic team rollout percentage (0-100, supports decimals).
+        rollout_percentage: Optional deterministic team rollout fraction (0–1, e.g. 0.01 = 1%).
         not_processed_threshold: Fail if this fraction of teams are skipped or failed.
+        dry_run: If True, run detection but skip DB writes (upsert/resolve).
 
     Returns:
         HealthCheckDefinition
@@ -183,11 +178,13 @@ def create_health_check(
     if rollout_percentage is not None:
         op_config["rollout_percentage"] = rollout_percentage
 
+    op_config["dry_run"] = dry_run
+
     job_config = {
         "ops": {
             "get_all_team_ids_op": {
                 "config": op_config,
-            }
+            },
         }
     }
 

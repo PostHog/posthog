@@ -1,7 +1,7 @@
 import dagster
 
 from posthog.dags.common import JobOwners
-from posthog.dags.common.health.detectors import clickhouse_batch_detector_from_fn
+from posthog.dags.common.health.detectors import batch_detector
 from posthog.dags.common.health.framework import create_health_check
 from posthog.dags.common.health.query import execute_clickhouse_health_team_query
 from posthog.dags.common.health.types import HealthCheckResult
@@ -46,6 +46,6 @@ def detect_no_live_events(
 no_live_events_check = create_health_check(
     name="no_live_events",
     kind="no_live_events",
-    detector=clickhouse_batch_detector_from_fn(detect_no_live_events),
+    detector=batch_detector(detect_no_live_events, kind="clickhouse_batch"),
     owner=JobOwners.TEAM_WEB_ANALYTICS,
 )

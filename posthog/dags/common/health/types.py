@@ -1,14 +1,13 @@
 import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import dagster
 
 from posthog.models.health_issue import HealthIssue
 
 BatchDetectFn = Callable[[list[int], dagster.OpExecutionContext], dict[int, list["HealthCheckResult"]]]
-TeamDetectFn = Callable[[int, dagster.OpExecutionContext], Optional[list["HealthCheckResult"]]]
 
 
 @dataclass
@@ -32,9 +31,9 @@ class BatchResult:
     teams_healthy: int = 0
     teams_failed: int = 0
     teams_skipped: int = 0
-    detect_duration: float = 0
-    db_write_duration: float = 0
-    resolve_duration: float = 0
+    detect_duration: float = 0.0
+    db_write_duration: float = 0.0
+    resolve_duration: float = 0.0
 
     @property
     def total_duration(self) -> float:

@@ -14,20 +14,18 @@ _DEFAULT_HEALTH_QUERY_SETTINGS: dict[str, Any] = {
 def _validate_clickhouse_team_query(sql: str) -> None:
     if "%(team_ids)s" not in sql:
         raise ValueError("Health ClickHouse queries must include a %(team_ids)s placeholder")
-    if "%(lookback_days)s" not in sql:
-        raise ValueError("Health ClickHouse queries must include a %(lookback_days)s placeholder")
 
 
 def execute_clickhouse_health_team_query(
     sql: str,
     *,
     team_ids: list[int],
-    lookback_days: int,
+    lookback_days: int | None = None,
     context: dagster.OpExecutionContext,
     params: Mapping[str, Any] | None = None,
     settings: Mapping[str, Any] | None = None,
 ) -> list[tuple[Any, ...]]:
-    if lookback_days <= 0:
+    if lookback_days is not None and lookback_days <= 0:
         raise ValueError(f"lookback_days must be > 0, got {lookback_days}")
     if not team_ids:
         return []
@@ -36,8 +34,10 @@ def execute_clickhouse_health_team_query(
 
     query_params: dict[str, Any] = {
         "team_ids": team_ids,
-        "lookback_days": lookback_days,
     }
+
+    if lookback_days is not None:
+        query_params["lookback_days"] = lookback_days
 
     if params:
         reserved = {"team_ids", "lookback_days"} & set(params.keys())
@@ -49,5 +49,5 @@ def execute_clickhouse_health_team_query(
     if settings:
         query_settings.update(settings)
 
-    context.log.info(f"Running health ClickHouse query for {len(team_ids)} teams with lookback_days={lookback_days}")
+    context.log.info(f"Running health ClickHouse query for {len(team_ids)} teams")
     return sync_execute(sql, query_params, settings=query_settings) or []

@@ -84,66 +84,18 @@ from posthog.dags.common.health.detectors import batch_detector
 detector = batch_detector(detect_fn)
 ```
 
+The optional `kind` parameter selects execution-policy defaults. Use `kind="clickhouse_batch"` for detectors that run ClickHouse queries (batch_size=250, max_concurrent=1):
+
+```python
+detector = batch_detector(detect_fn, kind="clickhouse_batch")
+```
+
 **Signature:** `(team_ids: list[int], context: OpExecutionContext) -> dict[int, list[HealthCheckResult]]`
 
-**Defaults:** batch_size=1000, max_concurrent=5
-
-### `per_team_detector`
-
-Your function is called once per team. Useful when each team requires independent evaluation logic.
-
-```python
-from posthog.dags.common.health.detectors import per_team_detector
-
-detector = per_team_detector(detect_fn)
-```
-
-**Signature:** `(team_id: int, context: OpExecutionContext) -> list[HealthCheckResult] | None`
-
-**Return semantics:**
-
-- `None` — team is skipped (existing issues are left untouched)
-- `[]` — team is healthy (stale active issues are resolved)
-- `[HealthCheckResult(...)]` — team has issues
-
-**Defaults:** batch_size=1000, max_concurrent=5
-
-### `clickhouse_batch_detector`
-
-Declarative detector for ClickHouse queries. Provide a SQL template and a row mapper — the framework handles query execution with safe defaults.
-
-```python
-from posthog.dags.common.health.detectors import clickhouse_batch_detector
-
-detector = clickhouse_batch_detector(
-    sql="""
-        SELECT team_id, count() as event_count
-        FROM events
-        WHERE team_id IN %(team_ids)s
-          AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
-        GROUP BY team_id
-    """,
-    row_mapper=lambda row: (row[0], HealthCheckResult(
-        severity=HealthIssue.Severity.INFO,
-        payload={"event_count": row[1]},
-    )),
-    lookback_days=30,
-)
-```
-
-Your SQL **must** include `%(team_ids)s` and `%(lookback_days)s` placeholders. Additional params can be passed via the `params` argument. Query settings default to `max_execution_time=30, max_threads=2` and can be overridden via `settings`.
-
-**Defaults:** batch_size=250, max_concurrent=1
-
-### `clickhouse_batch_detector_from_fn`
-
-Same execution defaults as `clickhouse_batch_detector` but you provide a full detect function instead of SQL + row mapper. Use when your ClickHouse logic is too complex for a single query template.
-
-```python
-from posthog.dags.common.health.detectors import clickhouse_batch_detector_from_fn
-
-detector = clickhouse_batch_detector_from_fn(detect_fn)
-```
+| `kind`                | batch_size | max_concurrent |
+| --------------------- | ---------- | -------------- |
+| `"default"` (default) | 1000       | 5              |
+| `"clickhouse_batch"`  | 250        | 1              |
 
 ## HealthCheckResult
 
@@ -165,13 +117,13 @@ HealthCheckResult(
 
 ### Issue identity and `hash_keys`
 
-An active issue is uniquely identified by `(team_id, kind, unique_hash)`. The `unique_hash` is derived from `kind` + `payload`, controlled by `hash_keys`:
+An active issue is uniquely identified by `(team_id, kind, unique_hash)`. The `unique_hash` is derived from `kind` + `payload`, controlled by `hash_keys`. `kind` is always included as a prefix in the hash content, so the hash is always scoped to the issue kind.
 
-| `hash_keys` value        | Behavior                          | Use case                                                  |
-| ------------------------ | --------------------------------- | --------------------------------------------------------- |
-| `None` (default)         | Hash the full payload             | Each unique payload produces a distinct issue             |
-| `[]`                     | Hash only the kind                | One active issue per team per kind                        |
-| `["field_a", "field_b"]` | Hash only the listed payload keys | Identity based on specific fields, ignoring volatile ones |
+| `hash_keys` value        | Hash content                   | Use case                                                  |
+| ------------------------ | ------------------------------ | --------------------------------------------------------- |
+| `None` (default)         | `kind` + full payload          | Each unique payload produces a distinct issue             |
+| `[]`                     | `kind` only (payload = `{}`)   | One active issue per team per kind                        |
+| `["field_a", "field_b"]` | `kind` + selected payload keys | Identity based on specific fields, ignoring volatile ones |
 
 ## Issue lifecycle
 
@@ -179,8 +131,6 @@ On each check run, for every team in the batch:
 
 1. **Upsert** — Issues returned by the detector are written (or updated) as `status=active`.
 2. **Resolve** — Active issues for checked teams that were _not_ returned by the detector are marked `status=resolved`.
-
-Teams that are skipped or that fail during per-team detection do not have their issues resolved. This prevents false resolution from transient errors.
 
 ## `create_health_check` reference
 
@@ -197,21 +147,23 @@ create_health_check(
     max_concurrent: int | None = None,
     rollout_percentage: float | None = None,
     not_processed_threshold: float = 0.1,
+    dry_run: bool = False,
 ) -> HealthCheckDefinition
 ```
 
-| Parameter                 | Type                | Default  | Description                                                                    |
-| ------------------------- | ------------------- | -------- | ------------------------------------------------------------------------------ |
-| `name`                    | `str`               | required | Unique name used in Dagster op/job naming                                      |
-| `kind`                    | `str`               | required | Issue kind written to the `posthog_healthissue` table. Must be globally unique |
-| `detector`                | `HealthDetector`    | required | Detector wrapping your detect function                                         |
-| `owner`                   | `JobOwners`         | required | Team that owns this check (used for Slack alert routing)                       |
-| `team_ids`                | `list[int] \| None` | `None`   | Restrict to specific teams. `None` processes all teams                         |
-| `schedule`                | `str \| None`       | `None`   | Cron expression (UTC). Omit for manual-only jobs                               |
-| `batch_size`              | `int \| None`       | `None`   | Override detector default batch size                                           |
-| `max_concurrent`          | `int \| None`       | `None`   | Override detector default concurrency                                          |
-| `rollout_percentage`      | `float \| None`     | `None`   | Percentage of teams to include (0–100). Deterministic by team ID               |
-| `not_processed_threshold` | `float`             | `0.1`    | Fail the job if this fraction of teams are skipped or errored                  |
+| Parameter                 | Type                | Default  | Description                                                                                                                                |
+| ------------------------- | ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`                    | `str`               | required | Unique name used in Dagster op/job naming                                                                                                  |
+| `kind`                    | `str`               | required | Issue kind written to the `posthog_healthissue` table. Must be globally unique                                                             |
+| `detector`                | `HealthDetector`    | required | Detector wrapping your detect function                                                                                                     |
+| `owner`                   | `JobOwners`         | required | Team that owns this check (used for Slack alert routing)                                                                                   |
+| `team_ids`                | `list[int] \| None` | `None`   | Restrict to specific teams. `None` processes all teams                                                                                     |
+| `schedule`                | `str \| None`       | `None`   | Cron expression (UTC). Omit for manual-only jobs                                                                                           |
+| `batch_size`              | `int \| None`       | `None`   | Override detector default batch size                                                                                                       |
+| `max_concurrent`          | `int \| None`       | `None`   | Override detector default concurrency                                                                                                      |
+| `rollout_percentage`      | `float \| None`     | `None`   | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                               |
+| `not_processed_threshold` | `float`             | `0.1`    | Fail the job if this fraction of teams are skipped or errored                                                                              |
+| `dry_run`                 | `bool`              | `False`  | Run detection but skip DB writes (upsert/resolve). Sets the default for scheduled runs; can be overridden per-run in the Dagster launchpad |
 
 **Returns** a `HealthCheckDefinition` with `.job` and `.schedule` attributes for Dagster registration.
 
@@ -223,10 +175,10 @@ Teams are split into batches of `batch_size` IDs. Up to `max_concurrent` batches
 
 Defaults depend on detector type:
 
-| Detector type                          | batch_size | max_concurrent |
-| -------------------------------------- | ---------- | -------------- |
-| `batch_detector` / `per_team_detector` | 1000       | 5              |
-| `clickhouse_batch_detector`            | 250        | 1              |
+| Detector kind        | batch_size | max_concurrent |
+| -------------------- | ---------- | -------------- |
+| `"default"`          | 1000       | 5              |
+| `"clickhouse_batch"` | 250        | 1              |
 
 Override at the `create_health_check` call site if needed.
 
@@ -240,13 +192,13 @@ Use this to canary a new health check:
 # Start with 1% of teams
 stale_data_check = create_health_check(
     ...
-    rollout_percentage=1.0,
+    rollout_percentage=0.01,
 )
 
 # Later, increase to 100%
 ```
 
-At `rollout_percentage=100` (default when omitted), all teams are processed.
+At `rollout_percentage=1.0` (default when omitted), all teams are processed.
 
 ### Failure threshold
 
@@ -256,36 +208,14 @@ If more than `not_processed_threshold` (default 10%) of teams are skipped or err
 
 With 300,000 total teams:
 
-| Setting                   | Value | Effect                             |
-| ------------------------- | ----- | ---------------------------------- |
-| `rollout_percentage`      | `1.0` | 3,000 teams selected               |
-| `batch_size`              | `250` | 12 batches created                 |
-| `max_concurrent`          | `2`   | Up to 2 batches run at a time      |
-| `not_processed_threshold` | `0.1` | Job fails if >300 teams skip/error |
+| Setting                   | Value  | Effect                             |
+| ------------------------- | ------ | ---------------------------------- |
+| `rollout_percentage`      | `0.01` | 3,000 teams selected (1%)          |
+| `batch_size`              | `250`  | 12 batches created                 |
+| `max_concurrent`          | `2`    | Up to 2 batches run at a time      |
+| `not_processed_threshold` | `0.1`  | Job fails if >300 teams skip/error |
 
-## Roadmap
-
-### Streamed team fetching
-
-`get_all_team_ids_op` loads every team ID into memory with a single `Team.objects.values_list("id", flat=True)` call. At scale this is expensive and holds a large list in the Dagster op process. Replace with Django's `.iterator()` or cursor-based pagination to stream team IDs and yield batches directly, without materializing the full list.
-
-### Team ID caching
-
-Every health check job independently queries Postgres for the full team list. When multiple health checks run concurrently or in quick succession, this duplicates work. Cache team IDs (e.g. in Redis or as a Dagster asset with a short TTL) so concurrent and sequential runs reuse a recent team list instead of querying on every run.
-
-### Bulk resolve query batching
-
-`HealthIssue.bulk_resolve` runs a separate `.update()` query per team when that team has `keep_hashes` to exclude. For thousands of teams with active issues, this becomes thousands of individual database queries. Batch these into fewer queries — e.g. a single raw SQL statement with per-team hash exclusion, or group teams by identical hash sets for batch updates.
-
-### Resolved issue retention
-
-Resolved issues accumulate in `posthog_healthissue` indefinitely. Add a retention job that deletes or archives resolved issues older than a configurable TTL (e.g. 30–90 days) to prevent unbounded table growth.
-
-### Dry-run mode
-
-There's no way to run a health check against production data without writing issues to the database. Add a `dry_run` option to `create_health_check` that runs detection and logs results but skips the upsert and resolve steps. This makes it safe to validate new detectors against real data before going live.
-
-### Component files
+## Component files
 
 | File                           | Role                                                                                                                                      |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
