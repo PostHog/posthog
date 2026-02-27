@@ -1941,6 +1941,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["table"] = std::move(table_json);
     json["table_args"] = std::move(table_args_json);
+    json["next_join"] = nullptr;
+    json["alias"] = nullptr;
     return json;
   }
 
