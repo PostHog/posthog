@@ -111,6 +111,10 @@ export async function cdpTrackedFetch({
 
     let [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
 
+    const fetchDuration = performance.now() - start
+    cdpHttpRequestTiming.observe(fetchDuration)
+    cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+
     if (fetchError && isConnectionLevelError(fetchError)) {
         logger.warn('🦔', '[cdpTrackedFetch] Connection-level error detected, immediately retrying fetch once', {
             url,
@@ -122,10 +126,6 @@ export async function cdpTrackedFetch({
         cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
         return { fetchError, fetchResponse, fetchDuration: retryDuration }
     }
-
-    const fetchDuration = performance.now() - start
-    cdpHttpRequestTiming.observe(fetchDuration)
-    cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
 
     return { fetchError, fetchResponse, fetchDuration }
 }
