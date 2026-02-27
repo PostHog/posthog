@@ -1,7 +1,9 @@
 from django.db import models
 
+from posthog.models.utils import UUIDModel
 
-class Notification(models.Model):
+
+class Notification(UUIDModel):
     class NotificationType(models.TextChoices):
         COMMENT_MENTION = "comment_mention"
         ALERT_FIRING = "alert_firing"
