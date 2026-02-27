@@ -103,7 +103,7 @@ describe('toolbar featureFlagsLogic', () => {
     it('expires the token if request failed', async () => {
         global.fetch = jest.fn((url: RequestInfo | URL) => {
             if (typeof url === 'string' && url.includes('toolbar_oauth_refresh')) {
-                return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({}) })
+                return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({}) } as any as Response)
             }
             return Promise.resolve({
                 ok: false,
