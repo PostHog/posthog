@@ -2047,6 +2047,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The name given to this LLM trace, generation, or span.",
             "examples": ["summarize_text"],
         },
+        "$ai_tools_called": {
+            "label": "AI Tools Called (LLM)",
+            "description": "The names of tools called by the LLM in this generation.",
+            "examples": ["get_weather,search_docs"],
+        },
+        "$ai_tool_call_count": {
+            "label": "AI Tool Call Count (LLM)",
+            "description": "The number of tool calls made by the LLM in this generation.",
+            "examples": ["2"],
+        },
         "$csp_document_url": {
             "label": "Document URL",
             "description": "The URL of the document where the violation occurred.",
@@ -2514,4 +2524,20 @@ PROPERTY_NAME_ALIASES = {
     key: value["label"]
     for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
     if "label" in value and "deprecated" not in value["label"]
+}
+
+_PROP_TYPE_TO_TAXONOMY_GROUP = {
+    "event": "event_properties",
+    "person": "person_properties",
+    "group": "groups",
+    "session": "session_properties",
+}
+
+PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
+    prop_type: {
+        key: value["label"]
+        for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group_name, {}).items()
+        if "label" in value and "deprecated" not in value["label"]
+    }
+    for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }

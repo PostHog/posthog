@@ -107,8 +107,11 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
     )
+    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
+    from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
+    from posthog.admin.admins.tophog_admin import tophog_dashboard_view
 
     admin_urlpatterns = [
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
@@ -123,6 +126,21 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="realtime-cohorts-calculation",
         ),
         path(
+            "admin/radar-bypass/",
+            admin.site.admin_view(radar_bypass_view),
+            name="radar-bypass",
+        ),
+        path(
+            "api/admin/radar-bypass/",
+            RadarBypassViewSet.as_view({"get": "list", "post": "create"}),
+            name="radar-bypass-api-list",
+        ),
+        path(
+            "api/admin/radar-bypass/<str:email>/",
+            RadarBypassViewSet.as_view({"delete": "destroy"}),
+            name="radar-bypass-api-detail",
+        ),
+        path(
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
@@ -131,6 +149,16 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/backfill-precalculated-person-properties/",
             admin.site.admin_view(backfill_precalculated_person_properties_view),
             name="backfill-precalculated-person-properties",
+        ),
+        path(
+            "admin/distinct-id-usage/",
+            admin.site.admin_view(distinct_id_usage_view),
+            name="distinct-id-usage",
+        ),
+        path(
+            "admin/tophog/",
+            admin.site.admin_view(tophog_dashboard_view),
+            name="tophog-dashboard",
         ),
         path(
             "admin/logout/",

@@ -13,7 +13,7 @@ import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
 // Hardcoded category order - categories not in this list will be sorted alphabetically after these
-export const CATEGORY_ORDER = ['Analytics', 'AI Analytics', 'Behavior', 'Features', 'Tools', 'Unreleased']
+export const CATEGORY_ORDER = ['Analytics', 'AI engineering', 'Behavior', 'Features', 'Tools', 'Unreleased']
 
 export function getCategoryOrder(category: string | undefined): number {
     if (!category) {

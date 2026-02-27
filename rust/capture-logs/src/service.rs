@@ -135,7 +135,7 @@ pub async fn export_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    // The Project API key must be passed in as a Bearer token in the Authorization header
+    // The project token must be passed in as a Bearer token in the Authorization header
     if !headers.contains_key("Authorization") && query_params.token.is_none() {
         error!("No token provided");
         return Err((

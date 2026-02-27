@@ -30,7 +30,6 @@ from posthog.schema import (
     FunnelsQuery,
     GenericCachedQueryResponse,
     GroupsQuery,
-    HogQLASTQuery,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -372,11 +371,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "HogQLQuery" or kind == "HogQLASTQuery":
+    if kind == "HogQLQuery":
         from .hogql_query_runner import HogQLQueryRunner
 
         return HogQLQueryRunner(
-            query=cast(HogQLQuery | HogQLASTQuery | dict[str, Any], query),
+            query=cast(HogQLQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1174,6 +1173,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
+
+            tag_queries(execution_mode=execution_mode.value)
 
             # Abort early if the user doesn't have access to the query runner
             # We'll proceed as usual if there's no user connected to this request

@@ -26,7 +26,7 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
-from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import get_experiment_date_range
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
 from posthog.hogql_queries.experiments.experiment_query_builder import (
@@ -80,12 +80,14 @@ class ExperimentQueryRunner(QueryRunner):
         override_end_date: Optional[datetime] = None,
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
+        force_precomputation: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
+        self.force_precomputation = force_precomputation
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -101,6 +103,9 @@ class ExperimentQueryRunner(QueryRunner):
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
+
+        stats_config = self.experiment.stats_config or {}
+        self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
 
         self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
         self.date_range_query = QueryDateRange(
@@ -208,6 +213,7 @@ class ExperimentQueryRunner(QueryRunner):
             entity_key=self.entity_key,
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
+            force_precomputation=self.force_precomputation,
         )
 
         if self.experiment.exposure_preaggregation_enabled:
@@ -297,7 +303,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _calculate_statistics_for_variants(self, variants: list[ExperimentStatsBase]) -> ExperimentQueryResponse:
         """Calculate statistical analysis results for a set of variants."""
-        control_variant, test_variants = split_baseline_and_test_variants(variants)
+        control_variant, test_variants = split_baseline_and_test_variants(variants, self.baseline_variant_key)
 
         if self.stats_method == "frequentist":
             return get_frequentist_experiment_result(

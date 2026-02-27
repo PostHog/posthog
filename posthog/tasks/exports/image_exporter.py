@@ -16,6 +16,7 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.proxy import Proxy, ProxyType
 from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
@@ -30,6 +31,7 @@ from posthog.models import InsightVariable
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
@@ -70,6 +72,13 @@ def get_driver() -> webdriver.Chrome:
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
+
+    if settings.OUTBOUND_PROXY_ENABLED and settings.OUTBOUND_PROXY_URL:
+        proxy = Proxy()
+        proxy.proxy_type = ProxyType.MANUAL
+        proxy.http_proxy = settings.OUTBOUND_PROXY_URL
+        proxy.ssl_proxy = settings.OUTBOUND_PROXY_URL
+        options.proxy = proxy
 
     # Create a unique prefix for the temporary directory
     pid = os.getpid()
@@ -171,6 +180,11 @@ def _export_to_png(
                 token_preview=access_token[:10],
             )
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
+            heatmap_url = exported_asset.export_context["heatmap_url"]
+            ok, err = is_url_allowed(heatmap_url)
+            if not ok:
+                raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
+
             # Handle replay export using /exporter route (same as insights/dashboards)
             url_to_render = absolute_uri(
                 f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"

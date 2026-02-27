@@ -13,15 +13,16 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
@@ -36,8 +37,8 @@ import {
 } from '~/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
-import { TZLabel } from '../TZLabel'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
+import { TZLabel } from '../TZLabel'
 
 export function PropertyStatusControl({
     verified,
@@ -546,7 +547,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <div className="flex justify-end">
                         <LemonButton
                             onClick={() => {
-                                selectItem(group, itemValue ?? null, localDefinition, undefined)
+                                selectItem(group, itemValue ?? null, localDefinition)
                             }}
                             disabledReason={
                                 dataWarehousePopoverFields.every(
@@ -691,6 +692,7 @@ interface ControlledDefinitionPopoverContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     highlightedItemElement: HTMLDivElement | null
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export function ControlledDefinitionPopover({
@@ -698,6 +700,7 @@ export function ControlledDefinitionPopover({
     item,
     group,
     highlightedItemElement,
+    definitionPopoverRenderer,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
@@ -717,6 +720,9 @@ export function ControlledDefinitionPopover({
     if (!value || !item) {
         return null
     }
+
+    const defaultView = <DefinitionView group={group} />
+    const customView = definitionPopoverRenderer?.({ item, group, defaultView }) ?? defaultView
 
     return (
         <Popover
@@ -739,7 +745,7 @@ export function ControlledDefinitionPopover({
                         editHeaderTitle={`Edit ${singularType}`}
                         icon={icon}
                     />
-                    {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
+                    {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : customView}
                 </DefinitionPopover.Wrapper>
             }
             placement="right"

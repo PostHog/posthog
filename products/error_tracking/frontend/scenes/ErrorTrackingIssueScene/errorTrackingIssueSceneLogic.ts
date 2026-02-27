@@ -2,6 +2,7 @@ import { actions, connect, defaults, events, kea, key, listeners, path, props, r
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ErrorEventProperties, ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
@@ -157,6 +158,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
                     const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
+                    posthog.capture('error_tracking_issue_pushed', {
+                        issue_id: props.id,
+                        destination: response.integration.kind,
+                    })
                     const externalIssues = values.issue.external_issues ?? []
                     return { ...values.issue, external_issues: [...externalIssues, response] }
                 }

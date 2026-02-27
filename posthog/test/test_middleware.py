@@ -1355,6 +1355,20 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
 
 
+class TestCSPMiddleware(APIBaseTest):
+    def test_non_html_response_gets_strict_csp(self):
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response["Content-Security-Policy"] == "default-src 'none'"
+        assert "Content-Security-Policy-Report-Only" not in response
+
+    def test_html_response_gets_report_only_csp(self):
+        response = self.client.get("/")
+        assert response.status_code == 200
+        assert "Content-Security-Policy-Report-Only" in response
+        assert "Content-Security-Policy" not in response
+
+
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 

@@ -1,38 +1,37 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconDocument, IconEllipsis, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
+import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { WarningHog } from 'lib/components/hedgehogs'
+import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
-import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { createPlaylist } from './playlist/playlistUtils'
+import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
@@ -46,7 +45,6 @@ function Header(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
         reportRecordingPlaylistCreated('new')
@@ -57,27 +55,10 @@ function Header(): JSX.Element {
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
                     <LiveRecordingsCount />
-                    {!isRemovingSidePanelFlag && (
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: 'Playback from PostHog JSON file',
-                                    to: urls.replayFilePlayback(),
-                                },
-                                {
-                                    label: 'Kiosk mode',
-                                    to: urls.replayKiosk(),
-                                },
-                            ]}
-                            placement="bottom-end"
-                        >
-                            <LemonButton icon={<IconEllipsis />} size="small" />
-                        </LemonMenu>
-                    )}
                     <ScenePanel>
                         <ScenePanelActionsSection>
                             <Link
-                                to={urls.replaySettings()}
+                                to={urls.replayFilePlayback()}
                                 buttonProps={{
                                     menuItem: true,
                                 }}

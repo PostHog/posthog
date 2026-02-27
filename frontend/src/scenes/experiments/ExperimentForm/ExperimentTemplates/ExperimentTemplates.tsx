@@ -1,8 +1,8 @@
 import { useActions } from 'kea'
 
+import { EXPERIMENT_TEMPLATES } from './constants'
 import { ExperimentTemplateCard } from './ExperimentTemplateCard'
 import { ExperimentTemplateModal } from './ExperimentTemplateModal'
-import { EXPERIMENT_TEMPLATES } from './constants'
 import { experimentTemplateModalLogic } from './experimentTemplateModalLogic'
 
 export const ExperimentTemplates = (): JSX.Element => {

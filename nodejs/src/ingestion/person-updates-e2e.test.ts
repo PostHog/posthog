@@ -20,6 +20,7 @@ import { resetKafka } from '~/tests/helpers/kafka'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../tests/helpers/sql'
+import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
@@ -219,7 +220,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         team = fetchedTeam
         currentToken = team.api_token
 
-        ingester = new IngestionConsumer(hub)
+        ingester = new IngestionConsumer(hub, { ...hub, hogTransformer: createHogTransformerService(hub) })
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
             disconnect: jest.fn(),

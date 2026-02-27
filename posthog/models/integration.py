@@ -114,6 +114,7 @@ class Integration(models.Model):
         AZURE_BLOB = "azure-blob"
         FIREBASE = "firebase"
         JIRA = "jira"
+        PINTEREST_ADS = "pinterest-ads"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -188,6 +189,38 @@ class OauthConfig:
     additional_authorize_params: dict[str, str] | None = None
 
 
+POSTHOG_SLACK_SCOPE = ",".join(
+    [
+        "channels:read",
+        "groups:read",
+        "chat:write",
+        "chat:write.customize",
+        *(
+            [  # New scopes that came with the update adding PostHog AI integration with Slack
+                "app_mentions:read",
+                "assistant:write",
+                "channels:history",
+                "channels:join",
+                "chat:write.public",
+                "commands",
+                "groups:history",
+                "im:history",
+                "im:write",
+                "links:read",
+                "links:write",
+                "reactions:read",
+                "reactions:write",
+                "team:read",
+                "users:read",
+                "users:read.email",
+            ]
+            if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV"
+            else []
+        ),
+    ]
+)
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -205,6 +238,7 @@ class OauthIntegration:
         "linear",
         "clickup",
         "jira",
+        "pinterest-ads",
     ]
     integration: Integration
 
@@ -234,7 +268,7 @@ class OauthIntegration:
                 token_url="https://slack.com/api/oauth.v2.access",
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
-                scope="channels:read,groups:read,chat:write,chat:write.customize",
+                scope=POSTHOG_SLACK_SCOPE,
                 id_path="team.id",
                 name_path="team.name",
             )
@@ -470,6 +504,21 @@ class OauthIntegration:
                 id_path="cloud_id",
                 name_path="site_name",
             )
+        elif kind == "pinterest-ads":
+            if not settings.PINTEREST_ADS_CLIENT_ID or not settings.PINTEREST_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Pinterest Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.pinterest.com/oauth/",
+                token_url="https://api.pinterest.com/v5/oauth/token",
+                token_info_url="https://api.pinterest.com/v5/user_account",
+                token_info_config_fields=["id", "username"],
+                client_id=settings.PINTEREST_ADS_CLIENT_ID,
+                client_secret=settings.PINTEREST_ADS_CLIENT_SECRET,
+                scope="ads:read user_accounts:read",
+                id_path="id",
+                name_path="username",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -518,6 +567,17 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
+        elif kind == "pinterest-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
             )
         elif kind == "tiktok-ads":
             # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
@@ -760,6 +820,16 @@ class OauthIntegration:
                 },
                 # If I use a standard User-Agent, it will throw a 429 too many requests error
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        # Pinterest uses HTTP Basic Auth for token refresh
+        elif self.integration.kind == "pinterest-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
             )
         elif self.integration.kind == "tiktok-ads":
             res = requests.post(

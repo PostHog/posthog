@@ -128,8 +128,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "TicketAssignment",
         # --- Internal config / OneToOne settings ---
         "DuckLakeCatalog",
+        "DuckgresServer",
         "EvaluationConfig",
         "RemoteConfig",
+        "TeamConversationsSlackConfig",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationTag",
         "TeamMarketingAnalyticsConfig",
