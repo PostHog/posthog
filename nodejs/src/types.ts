@@ -490,6 +490,8 @@ export interface PluginsServerConfig
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
+    OUTBOUND_PROXY_URL: string
+    OUTBOUND_PROXY_ENABLED: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number

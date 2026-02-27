@@ -44,6 +44,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -268,12 +269,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         description: 'Direct SQL query.',
         icon: IconBrackets,
         inMenu: true,
-    },
-    [NodeKind.HogQLASTQuery]: {
-        name: 'SQL AST',
-        description: 'Direct SQL AST query.',
-        icon: IconBrackets,
-        inMenu: false,
     },
     [NodeKind.HogQLMetadata]: {
         name: 'SQL Metadata',
@@ -854,13 +849,26 @@ export function SavedInsights(): JSX.Element {
                                 >
                                     <LemonButton
                                         status="danger"
-                                        onClick={() =>
-                                            void deleteInsightWithUndo({
-                                                object: insight,
-                                                endpoint: `projects/${currentProjectId}/insights`,
-                                                callback: loadInsights,
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Delete insight?',
+                                                description:
+                                                    'Are you sure you want to delete this insight? This action can be undone.',
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () =>
+                                                        void deleteInsightWithUndo({
+                                                            object: insight,
+                                                            endpoint: `projects/${currentProjectId}/insights`,
+                                                            callback: loadInsights,
+                                                        }),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
                                             })
-                                        }
+                                        }}
                                         data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
                                         fullWidth
                                     >

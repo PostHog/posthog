@@ -55,7 +55,6 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         runsSummary,
         evaluationProviderKeyIssue,
         signalEmissionEnabled,
-        signalEmissionLoading,
     } = useValues(llmEvaluationLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -225,11 +224,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             </Field>
                             {!isNewEvaluation && user?.is_staff && (
                                 <div className="flex items-center gap-2">
-                                    <LemonSwitch
-                                        checked={signalEmissionEnabled}
-                                        onChange={setSignalEmission}
-                                        loading={signalEmissionLoading}
-                                    />
+                                    <LemonSwitch checked={signalEmissionEnabled} onChange={setSignalEmission} />
                                     <span>Emit signals</span>
                                     <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
                                         <IconInfo className="text-muted text-base" />
