@@ -967,6 +967,7 @@ SetOperator = Literal[
     "INTERSECT ALL",
     "INTERSECT DISTINCT",
     "EXCEPT",
+    "EXCEPT ALL",
 ]
 
 

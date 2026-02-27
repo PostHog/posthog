@@ -209,6 +209,14 @@ class TestPrinter(BaseTest):
             f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_except_all(self):
+        expr = parse_select("""select 1 as id except all select 2 as id""")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT ALL\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     # these share the same priority, should stay in order
     def test_except_and_union(self):
         expr = parse_select("""select 1 as id except select 2 as id union all select 3 as id""")
