@@ -103,6 +103,54 @@ describe('HogFlowManager', () => {
         })
     })
 
+    describe('disableHogFlow', () => {
+        it('disables an active hog flow and returns true', async () => {
+            const updated = await manager.disableHogFlow(hogFlows[0].id)
+            expect(updated).toBe(true)
+
+            const res = await hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                `SELECT status FROM posthog_hogflow WHERE id = $1`,
+                [hogFlows[0].id],
+                'testKey'
+            )
+            expect(res.rows[0].status).toEqual('draft')
+        })
+
+        it('returns false when the hog flow is not active', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET status='archived', updated_at = NOW() WHERE id = $1`,
+                [hogFlows[1].id],
+                'testKey'
+            )
+
+            const updated = await manager.disableHogFlow(hogFlows[1].id)
+            expect(updated).toBe(false)
+        })
+
+        it('only updates the specified hog flow id', async () => {
+            const updated = await manager.disableHogFlow(hogFlows[0].id)
+            expect(updated).toBe(true)
+
+            const res = await hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                `SELECT id, status FROM posthog_hogflow WHERE id = ANY($1)`,
+                [[hogFlows[0].id, hogFlows[1].id, hogFlows[2].id]],
+                'testKey'
+            )
+
+            const statusMap: Record<string, string> = {}
+            for (const row of res.rows) {
+                statusMap[row.id] = row.status
+            }
+
+            expect(statusMap[hogFlows[0].id]).toEqual('draft')
+            expect(statusMap[hogFlows[1].id]).toEqual('active')
+            expect(statusMap[hogFlows[2].id]).toEqual('active')
+        })
+    })
+
     describe('getHogFlowIdsForTeam', () => {
         it('returns function IDs', async () => {
             const result = await manager.getHogFlowIdsForTeams([teamId1, teamId2])
