@@ -297,14 +297,26 @@ export function SourceFormComponent({
                             options={[
                                 {
                                     value: 'warehouse',
-                                    label: 'Sync to warehouse',
-                                    description: 'Sync selected tables into PostHog-managed storage for querying.',
+                                    label: (
+                                        <div>
+                                            <div>Sync to warehouse</div>
+                                            <div className="text-xs text-secondary">
+                                                Sync selected tables into PostHog-managed storage for querying.
+                                            </div>
+                                        </div>
+                                    ),
                                 },
                                 {
                                     value: 'direct',
-                                    label: 'Query directly',
-                                    description:
-                                        'Run queries live against this Postgres connection. No warehouse sync jobs are created.',
+                                    label: (
+                                        <div>
+                                            <div>Query directly</div>
+                                            <div className="text-xs text-secondary">
+                                                Run queries live against this Postgres connection. No warehouse sync
+                                                jobs are created.
+                                            </div>
+                                        </div>
+                                    ),
                                 },
                             ]}
                         />

@@ -269,7 +269,7 @@ class HogQLQueryExecutor:
         )
 
         self.direct_postgres_sql = print_prepared_ast(
-            node=direct_prepared_ast,
+            node=cast(ast.SelectQuery | ast.SelectSetQuery, direct_prepared_ast),
             context=direct_context,
             dialect="postgres",
             pretty=self.pretty if self.pretty is not None else True,
@@ -481,6 +481,7 @@ class HogQLQueryExecutor:
             self._generate_hogql()
         if self._should_use_direct_postgres():
             self._maybe_prepare_direct_postgres_query()
+            assert self.direct_postgres_sql is not None
             return self.direct_postgres_sql, self.context
         with self.timings.measure("_generate_clickhouse_sql"):
             self._generate_clickhouse_sql()

@@ -364,7 +364,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLDataWarehouseTable:
+    def hogql_definition(
+        self, modifiers: Optional[HogQLQueryModifiers] = None
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
