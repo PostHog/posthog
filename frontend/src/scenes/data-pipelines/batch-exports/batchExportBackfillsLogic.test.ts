@@ -17,6 +17,7 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
         error: jest.fn(),
         success: jest.fn(),
         info: jest.fn(),
+        warning: jest.fn(),
     },
 }))
 
@@ -195,6 +196,27 @@ describe('batchExportBackfillsLogic', () => {
                     }),
                 })
             )
+        })
+
+        it('shows warning toast with no cancel button when estimate is 0 rows', async () => {
+            jest.spyOn(api.batchExports, 'listBackfills').mockResolvedValue({
+                results: [
+                    makeBackfill({
+                        start_at: '2024-01-10T00:00:00Z',
+                        end_at: '2024-01-15T00:00:00Z',
+                        total_records_count: 0,
+                    }),
+                ],
+                next: null,
+            } as any)
+
+            logic.actions.backfillCreated('2024-01-10T00:00:00.000Z', '2024-01-15T00:00:00.000Z')
+            await jest.advanceTimersByTimeAsync(POLL_ADVANCE_MS)
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(
+                'No rows found to export for the selected time range. The backfill will finish with nothing to export.'
+            )
+            expect(lemonToast.info).not.toHaveBeenCalled()
         })
 
         it.each([

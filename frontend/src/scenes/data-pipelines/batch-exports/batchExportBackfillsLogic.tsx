@@ -144,23 +144,29 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                     })
 
                     if (matchingBackfill?.total_records_count != null) {
-                        lemonToast.info(
-                            `Estimated ~${matchingBackfill.total_records_count.toLocaleString()} rows to export`,
-                            {
-                                button: {
-                                    label: 'Cancel backfill',
-                                    action: async () => {
-                                        try {
-                                            await api.batchExports.cancelBackfill(props.id, matchingBackfill.id)
-                                            lemonToast.success('Backfill cancelled')
-                                            actions.loadBackfills()
-                                        } catch {
-                                            lemonToast.error('Failed to cancel backfill')
-                                        }
+                        if (matchingBackfill.total_records_count === 0) {
+                            lemonToast.warning(
+                                'No rows found to export for the selected time range. The backfill will finish with nothing to export.'
+                            )
+                        } else {
+                            lemonToast.info(
+                                `Estimated ~${matchingBackfill.total_records_count.toLocaleString()} rows to export`,
+                                {
+                                    button: {
+                                        label: 'Cancel backfill',
+                                        action: async () => {
+                                            try {
+                                                await api.batchExports.cancelBackfill(props.id, matchingBackfill.id)
+                                                lemonToast.success('Backfill cancelled')
+                                                actions.loadBackfills()
+                                            } catch {
+                                                lemonToast.error('Failed to cancel backfill')
+                                            }
+                                        },
                                     },
-                                },
-                            }
-                        )
+                                }
+                            )
+                        }
                         actions.loadBackfills()
                         return
                     }
