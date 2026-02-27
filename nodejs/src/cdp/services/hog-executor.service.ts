@@ -64,6 +64,12 @@ const cdpHttpRequestTiming = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
+const cdpHttpRequestTimingRetried = new Histogram({
+    name: 'cdp_http_request_timing_retried_ms',
+    help: 'Timing of HTTP requests that required immediate retry after a connection-level error',
+    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
+})
+
 export const shadowFetchContext = new AsyncLocalStorage<boolean>()
 
 // Stale keep-alive connections produce these errors when the server has closed its end before
@@ -77,8 +83,6 @@ export function isConnectionLevelError(error: any): boolean {
         error?.message === 'socket hang up'
     )
 }
-
-export const CONNECTION_RETRY_LIMIT = 1
 
 export async function cdpTrackedFetch({
     url,
@@ -104,14 +108,19 @@ export async function cdpTrackedFetch({
     }
 
     const start = performance.now()
-    let fetchError: Error | null = null
-    let fetchResponse: FetchResponse | null = null
 
-    for (let attempt = 0; attempt <= CONNECTION_RETRY_LIMIT; attempt++) {
+    let [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+
+    if (fetchError && isConnectionLevelError(fetchError)) {
+        logger.warn('🦔', '[cdpTrackedFetch] Connection-level error detected, immediately retrying fetch once', {
+            url,
+            error: fetchError,
+        })
         ;[fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
-        if (!fetchError || !isConnectionLevelError(fetchError)) {
-            break
-        }
+        const retryDuration = performance.now() - start
+        cdpHttpRequestTimingRetried.observe(retryDuration)
+        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+        return { fetchError, fetchResponse, fetchDuration: retryDuration }
     }
 
     const fetchDuration = performance.now() - start
