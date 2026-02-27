@@ -16,6 +16,7 @@ from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import get_request_analytics_properties
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
@@ -183,6 +184,7 @@ class AlertSerializer(serializers.ModelSerializer):
                 user=user, alert_configuration=instance, created_by=self.context["request"].user
             )
 
+        instance.report_created(self.context["request"].user, get_request_analytics_properties(self.context["request"]))
         return instance
 
     def update(self, instance, validated_data):
@@ -246,7 +248,9 @@ class AlertSerializer(serializers.ModelSerializer):
         if conditions_or_threshold_changed or calculation_interval_changed:
             instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
 
-        return super().update(instance, validated_data)
+        instance = super().update(instance, validated_data)
+        instance.report_updated(self.context["request"].user, get_request_analytics_properties(self.context["request"]))
+        return instance
 
     def validate_snoozed_until(self, value):
         if value is not None and not isinstance(value, str):

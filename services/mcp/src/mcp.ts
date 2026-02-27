@@ -41,6 +41,7 @@ export type RequestProperties = {
     version?: number
     organizationId?: string
     projectId?: string
+    clientIdentifier?: string
 }
 
 export class MCP extends McpAgent<Env> {
@@ -137,6 +138,7 @@ export class MCP extends McpAgent<Env> {
             this._api = new ApiClient({
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
+                clientIdentifier: this.requestProperties.clientIdentifier,
             })
         }
 

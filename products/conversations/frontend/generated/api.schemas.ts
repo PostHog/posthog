@@ -160,6 +160,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `onboarding` - onboarding
  * `research` - research
  * `flags` - flags
+ * `llm_analytics` - llm_analytics
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -174,6 +175,7 @@ export const AgentModeEnumApi = {
     Onboarding: 'onboarding',
     Research: 'research',
     Flags: 'flags',
+    LlmAnalytics: 'llm_analytics',
 } as const
 
 /**
