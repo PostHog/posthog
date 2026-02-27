@@ -329,9 +329,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 return existing_server
 
             try:
-                client_id = register_dcr_client(metadata, redirect_uri)
-                metadata["dcr_redirect_uri"] = redirect_uri
-                existing_server.oauth_metadata = metadata
+                client_id = register_dcr_client(existing_server.oauth_metadata, redirect_uri)
+                new_metadata = dict(existing_server.oauth_metadata)
+                new_metadata["dcr_redirect_uri"] = redirect_uri
+                existing_server.oauth_metadata = new_metadata
                 existing_server.oauth_client_id = client_id
                 existing_server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
                 return existing_server
@@ -444,7 +445,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         if needs_registration:
             try:
-                metadata = discover_oauth_metadata(mcp_url)
+                if server.oauth_metadata:
+                    metadata = dict(server.oauth_metadata)
+                else:
+                    metadata = discover_oauth_metadata(mcp_url)
                 client_id = register_dcr_client(metadata, redirect_uri)
             except Exception as e:
                 logger.exception("DCR registration failed", server_url=server.url, error=str(e))
