@@ -8,10 +8,13 @@ import { IconHome } from '@posthog/icons'
 
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { NewTabScene } from 'scenes/new-tab/NewTabScene'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -29,8 +32,10 @@ export const scene: SceneExport = {
 }
 
 function HomePageContent(): JSX.Element {
-    const { dashboardLogicProps } = useValues(projectHomepageLogic)
+    const { dashboardLogicProps, isFirstEventCreateEventModalOpen, shouldShowFirstEventBanner } =
+        useValues(projectHomepageLogic)
     const { showInviteModal } = useActions(inviteLogic)
+    const { clickFirstEventBannerCTA, closeFirstEventCreateEventModal } = useActions(projectHomepageLogic)
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps as DashboardLogicProps))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -45,6 +50,35 @@ function HomePageContent(): JSX.Element {
             <span className="hidden" data-attr="aa-test-flag-result">
                 AA test flag result: {String(aaTestBayesianLegacy)} {String(aaTestBayesianNew)}
             </span>
+
+            {shouldShowFirstEventBanner && (
+                <div className="my-4" data-attr="first-event-banner">
+                    <LemonBanner type="info">
+                        <div className="flex flex-col gap-3 @md:flex-row @md:items-center @md:justify-between">
+                            <div className="grow">
+                                Welcome to PostHog! Create your first event to start tracking user behavior.
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={clickFirstEventBannerCTA}
+                                    data-attr="first-event-banner-create-event"
+                                >
+                                    Create event
+                                </LemonButton>
+                                <Link
+                                    to="https://posthog.com/docs/data/events"
+                                    target="_blank"
+                                    data-attr="first-event-banner-learn-more"
+                                >
+                                    Learn more
+                                </Link>
+                            </div>
+                        </div>
+                    </LemonBanner>
+                </div>
+            )}
 
             <SceneTitleSection
                 name={dashboard?.name ?? 'Project Homepage'}
@@ -99,6 +133,7 @@ function HomePageContent(): JSX.Element {
                 isOpen={isConfigurePinnedTabsOpen}
                 onClose={() => setIsConfigurePinnedTabsOpen(false)}
             />
+            <EventDefinitionModal isOpen={isFirstEventCreateEventModalOpen} onClose={closeFirstEventCreateEventModal} />
         </SceneContent>
     )
 }

@@ -1,8 +1,11 @@
-import { BuiltLogic, actions, beforeUnmount, connect, kea, path, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
@@ -16,11 +19,15 @@ import type { projectHomepageLogicType } from './projectHomepageLogicType'
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], projectLogic, ['currentProjectId']],
+        values: [teamLogic, ['currentTeam'], projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
     })),
 
     actions({
         toggleInsightExpanded: (insightShortId: string) => ({ insightShortId }),
+        openFirstEventCreateEventModal: true,
+        closeFirstEventCreateEventModal: true,
+        clickFirstEventBannerCTA: true,
+        reportFirstEventBannerImpression: true,
     }),
 
     reducers({
@@ -32,6 +39,19 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                     next.has(insightShortId) ? next.delete(insightShortId) : next.add(insightShortId)
                     return next
                 },
+            },
+        ],
+        isFirstEventCreateEventModalOpen: [
+            false,
+            {
+                openFirstEventCreateEventModal: () => true,
+                closeFirstEventCreateEventModal: () => false,
+            },
+        ],
+        hasSentFirstEventBannerImpression: [
+            false,
+            {
+                reportFirstEventBannerImpression: () => true,
             },
         ],
     }),
@@ -80,6 +100,18 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                 },
             ],
         ],
+        isFirstEventBannerEligible: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam && !currentTeam.is_demo && !currentTeam.ingested_event,
+        ],
+        isFirstEventBannerEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => featureFlags[FEATURE_FLAGS.FIRST_EVENT_BANNER] === true,
+        ],
+        shouldShowFirstEventBanner: [
+            (s) => [s.isFirstEventBannerEligible, s.isFirstEventBannerEnabled],
+            (isEligible, isEnabled): boolean => isEligible && isEnabled,
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -94,6 +126,35 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                 },
             },
         ],
+    })),
+
+    listeners(({ actions, values }) => ({
+        clickFirstEventBannerCTA: () => {
+            posthog.capture('banner.cta_click', {
+                banner: 'first_event',
+                location: 'project_homepage',
+                feature_flag: FEATURE_FLAGS.FIRST_EVENT_BANNER,
+            })
+            actions.openFirstEventCreateEventModal()
+        },
+        reportFirstEventBannerImpression: () => {
+            if (values.hasSentFirstEventBannerImpression) {
+                return
+            }
+            posthog.capture('banner.impression', {
+                banner: 'first_event',
+                location: 'project_homepage',
+                feature_flag: FEATURE_FLAGS.FIRST_EVENT_BANNER,
+            })
+        },
+    })),
+
+    subscriptions(({ actions, values }) => ({
+        shouldShowFirstEventBanner: (shouldShow) => {
+            if (shouldShow && !values.hasSentFirstEventBannerImpression) {
+                actions.reportFirstEventBannerImpression()
+            }
+        },
     })),
 
     subscriptions(({ cache }) => ({
