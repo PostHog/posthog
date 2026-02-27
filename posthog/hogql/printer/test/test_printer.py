@@ -3439,7 +3439,7 @@ class TestPrinter(BaseTest):
     def test_cte_using_key_not_supported(self):
         with self.assertRaises(ImpossibleASTError) as ctx:
             self._select(
-                "WITH RECURSIVE x(a, b) USING KEY (a) AS (SELECT 1, 2 UNION ALL SELECT a + 1, b FROM x WHERE a < 5) SELECT * FROM x",
+                "WITH x USING KEY (a) AS (SELECT 1 AS a, 2 AS b) SELECT * FROM x",
             )
         self.assertIn("not supported", str(ctx.exception))
 
