@@ -106,6 +106,7 @@ All options except `name` have sensible defaults.
 | `.with_prestop_check(bool)`               | Poll for pre-stop shutdown file (K8s pre-stop hook pattern).                                                                                                                                                   | `true`          |
 | `.with_prestop_path(path)`                | Override the pre-stop file path.                                                                                                                                                                               | `/tmp/shutdown` |
 | `.with_health_poll_interval(duration)`    | Override health monitor poll frequency. The health monitor is automatically active when any component has `with_liveness_deadline`. (see test `stall_triggers_shutdown`)                                       | `5s`            |
+| `.with_test_shutdown(receiver)`           | Inject a test shutdown trigger. When the oneshot receiver resolves (e.g. test sends on the paired sender), the manager triggers shutdown. Use with `with_trap_signals(false)` and `with_prestop_check(false)` in tests. (see test `test_shutdown_trigger_initiates_shutdown`) | `None`          |
 | `.build()`                                | Consume the builder and produce a `Manager`.                                                                                                                                                                   | —               |
 
 ### register() / ComponentOptions
@@ -256,7 +257,7 @@ The crate emits metrics via the `metrics` facade (no recorder installed by this 
 | `lifecycle_shutdown_completed_total`            | Counter   | `service_name`, `clean`                               | Once when monitor returns successfully         |
 | `lifecycle_component_healthy`                   | Gauge     | `service_name`, `component`                           | Continuously during normal operation           |
 
-Label values: `trigger_reason` = `signal`, `prestop`, `failure`, `requested`, `died`; `result` = `completed`, `timeout`, `died`; `clean` = `true` / `false`.
+Label values: `trigger_reason` = `signal`, `prestop`, `test`, `failure`, `requested`, `died`; `result` = `completed`, `timeout`, `died`; `clean` = `true` / `false`.
 
 `lifecycle_shutdown_completed_total` is **not** emitted on global timeout or if the process is killed; that asymmetry with `lifecycle_shutdown_initiated_total` is how incomplete shutdowns (e.g. SIGKILL) are detected.
 
@@ -291,6 +292,24 @@ by `component`, `result`.
 - Incomplete shutdown count > 0 over 1h:
 `increase(lifecycle_shutdown_initiated_total{service_name="$service_name"}[1h]) - increase(lifecycle_shutdown_completed_total{service_name="$service_name"}[1h]) > 0`
 - Component unhealthy for > 2 consecutive scrapes: e.g. alert when `lifecycle_component_healthy{service_name="$service_name"}` is 0 for a given component for 2 scrape intervals.
+
+## Testing
+
+For deterministic shutdown in tests, use `with_trap_signals(false)`, `with_prestop_check(false)`, and `with_test_shutdown`:
+
+```rust
+let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+let mut manager = Manager::builder("test-service")
+    .with_trap_signals(false)
+    .with_prestop_check(false)
+    .with_test_shutdown(shutdown_rx)
+    .build();
+
+// ... register components, spawn monitor_background, spawn component tasks ...
+
+shutdown_tx.send(()).ok(); // test triggers shutdown
+guard.wait().await?;
+```
 
 ## SIGKILL detection
 

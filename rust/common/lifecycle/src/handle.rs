@@ -210,3 +210,13 @@ impl Drop for HandleInner {
         }
     }
 }
+
+impl common_liveness::SyncLivenessReporter for Handle {
+    fn report_healthy(&self) {
+        Handle::report_healthy(self);
+    }
+
+    fn report_unhealthy(&self) {
+        Handle::report_unhealthy(self);
+    }
+}
