@@ -172,7 +172,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
                 throw new Error(`Failed to fetch team ${newTeam.id} from database`)
             }
 
-            const ingester = new IngestionConsumer(hub, createHogTransformerService(hub))
+            const ingester = new IngestionConsumer(hub, { ...hub, hogTransformer: createHogTransformerService(hub) })
             ingester['kafkaConsumer'] = {
                 connect: jest.fn(),
                 disconnect: jest.fn(),

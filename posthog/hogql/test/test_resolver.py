@@ -1055,3 +1055,85 @@ class TestResolver(BaseTest):
                 assert isinstance(revenue_field.expr, ast.Field)
                 chain = revenue_field.expr.chain
                 assert chain == expected_chain
+
+    def test_cte_column_name_list_resolves_columns(self):
+        expr = self._select("WITH stats(a, b) AS (SELECT 'x', 'y') SELECT a, b FROM stats")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        # The resolved CTE's inner select should have the column names from the list
+        assert resolved.ctes is not None
+        cte = resolved.ctes["stats"]
+        assert isinstance(cte.expr, ast.SelectQuery)
+        assert isinstance(cte.expr.type, ast.SelectQueryType)
+        assert list(cte.expr.type.columns.keys()) == ["a", "b"]
+
+    def test_cte_column_name_list_overrides_existing_aliases(self):
+        expr = self._select(
+            "WITH stats(a, b) AS (SELECT event AS orig_a, timestamp AS orig_b FROM events) SELECT a, b FROM stats"
+        )
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert resolved.ctes is not None
+        cte = resolved.ctes["stats"]
+        assert isinstance(cte.expr, ast.SelectQuery)
+        assert isinstance(cte.expr.type, ast.SelectQueryType)
+        assert list(cte.expr.type.columns.keys()) == ["a", "b"]
+
+    def test_cte_column_name_list_qualified_access(self):
+        expr = self._select("WITH stats(a, b) AS (SELECT 'x', 'y') SELECT stats.a, stats.b FROM stats")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert len(resolved.select) == 2
+        for i, name in enumerate(["a", "b"]):
+            col = resolved.select[i]
+            assert isinstance(col, ast.Alias)
+            assert col.alias == name
+            assert isinstance(col.expr, ast.Field)
+            assert isinstance(col.expr.type, ast.FieldType)
+            assert col.expr.type.name == name
+
+    def test_cte_column_name_list_mismatch(self):
+        query = "WITH stats (a, b, c) AS (SELECT 'a', 'b') SELECT a FROM stats"
+        with self.assertRaisesMessage(
+            QueryError,
+            "CTE 'stats' has 2 column(s) but 3 column name(s) were provided",
+        ):
+            resolve_types(self._select(query), self.context, dialect="postgres")
+
+        query = "WITH stats (a) AS (SELECT 'a', 'b') SELECT a FROM stats"
+        with self.assertRaisesMessage(
+            QueryError,
+            "CTE 'stats' has 2 column(s) but 1 column name(s) were provided",
+        ):
+            resolve_types(self._select(query), self.context, dialect="postgres")
+
+    def test_cte_column_name_list_union_all_resolves_columns(self):
+        expr = self._select("WITH stats(a, b) AS (SELECT 'x', 'y' UNION ALL SELECT 'p', 'q') SELECT a, b FROM stats")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert resolved.ctes is not None
+        cte = resolved.ctes["stats"]
+        assert isinstance(cte.expr, ast.SelectSetQuery)
+        assert isinstance(cte.expr.type, ast.SelectSetQueryType)
+        first_type = cte.expr.type.types[0]
+        while isinstance(first_type, ast.SelectSetQueryType):
+            first_type = first_type.types[0]
+        assert list(first_type.columns.keys()) == ["a", "b"]
+
+    @parameterized.expand(
+        [
+            (
+                "too_many",
+                "WITH stats (a, b, c) AS (SELECT 'x', 'y' UNION ALL SELECT 'p', 'q') SELECT a FROM stats",
+                2,
+                3,
+            ),
+            ("too_few", "WITH stats (a) AS (SELECT 'x', 'y' UNION ALL SELECT 'p', 'q') SELECT a FROM stats", 2, 1),
+        ]
+    )
+    def test_cte_column_name_list_union_all_mismatch(self, _name, query, n_cols, n_names):
+        with self.assertRaisesMessage(
+            QueryError,
+            f"CTE 'stats' has {n_cols} column(s) but {n_names} column name(s) were provided",
+        ):
+            resolve_types(self._select(query), self.context, dialect="postgres")

@@ -2038,6 +2038,13 @@ const api = {
         async generateName(query: Record<string, any>): Promise<{ name: string }> {
             return await new ApiRequest().insights().withAction('generate_name').create({ data: { query } })
         },
+        async trending(params?: { days?: number; limit?: number }): Promise<InsightModel[]> {
+            return await new ApiRequest()
+                .insights()
+                .withAction('trending')
+                .withQueryString(toParams(params || {}))
+                .get()
+        },
     },
 
     endpoint: {
