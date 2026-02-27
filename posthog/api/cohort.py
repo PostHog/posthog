@@ -503,8 +503,8 @@ class CohortSerializer(serializers.ModelSerializer):
         from posthog.tasks.calculate_cohort import insert_cohort_from_feature_flag, insert_cohort_from_query
 
         request = self.context["request"]
-        if request.FILES.get("csv") or person_ids is not None:
-            if person_ids is not None:
+        if request.FILES.get("csv") or person_ids:
+            if person_ids:
                 uuids = [
                     str(uuid)
                     for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
@@ -518,6 +518,9 @@ class CohortSerializer(serializers.ModelSerializer):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         elif validated_data.get("query"):
             insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+        elif person_ids is not None:
+            # Empty list explicitly provided (e.g. MCP creating an empty static cohort to add persons later)
+            cohort.insert_users_list_by_uuid([], team_id=self.context["team_id"])
         else:
             raise ValidationError(
                 "Invalid source for static cohort. Requires a csv, feature flag, existing cohort or query."
