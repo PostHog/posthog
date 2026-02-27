@@ -5,7 +5,13 @@ import api from 'lib/api'
 
 import type { byokModelPickerLogicType } from './byokModelPickerLogicType'
 import { ModelOption, ProviderModelGroup } from './llmAnalyticsPlaygroundLogic'
-import { LLMProvider, LLMProviderKey, LLM_PROVIDER_LABELS, llmProviderKeysLogic } from './settings/llmProviderKeysLogic'
+import {
+    LLMProvider,
+    LLMProviderKey,
+    LLM_PROVIDER_LABELS,
+    llmProviderKeysLogic,
+    providerSortIndex,
+} from './settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState, providerKeyStateSuffix } from './settings/providerKeyStateUtils'
 
 export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
@@ -145,7 +151,13 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                     groups.push({ provider: key.provider, providerKeyId: key.id, label, models })
                 }
 
-                return groups.sort((a, b) => a.label.localeCompare(b.label))
+                return groups.sort((a, b) => {
+                    const providerDiff = providerSortIndex(a.provider) - providerSortIndex(b.provider)
+                    if (providerDiff !== 0) {
+                        return providerDiff
+                    }
+                    return a.label.localeCompare(b.label)
+                })
             },
         ],
         selectedProviderForModel: [

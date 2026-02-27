@@ -1058,6 +1058,39 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_from_table_function_join(self):
+            # Regression: TableFunctionExpr produced a JoinExpr without next_join,
+            # causing chainJoinExprs to throw "JoinExpr is missing 'next_join' field"
+            self.assertEqual(
+                self._select("select 1 from numbers(10) JOIN events ON 1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["numbers"]),
+                        table_args=[ast.Constant(value=10)],
+                        next_join=ast.JoinExpr(
+                            join_type="JOIN",
+                            table=ast.Field(chain=["events"]),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                        ),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from numbers(10) CROSS JOIN events"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["numbers"]),
+                        table_args=[ast.Constant(value=10)],
+                        next_join=ast.JoinExpr(
+                            join_type="CROSS JOIN",
+                            table=ast.Field(chain=["events"]),
+                        ),
+                    ),
+                ),
+            )
+
         def test_select_from_join_multiple(self):
             node = self._select(
                 """
