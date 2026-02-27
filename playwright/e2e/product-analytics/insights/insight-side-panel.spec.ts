@@ -22,8 +22,6 @@ test.describe('Insight side panel actions', () => {
             await insight.save()
         })
 
-        const originalUrl = page.url()
-
         await test.step('open side panel and click duplicate', async () => {
             await insight.openInfoPanel()
             const duplicateButton = page.getByTestId('insight-duplicate-button')
@@ -32,8 +30,7 @@ test.describe('Insight side panel actions', () => {
         })
 
         await test.step('navigated to new insight in edit mode with (copy) name', async () => {
-            await page.waitForURL((url) => url.toString() !== originalUrl)
-            expect(page.url()).toContain('/edit')
+            await page.waitForURL(/\/edit/)
             await expect(insight.topBarName).toContainText('Side Panel Duplicate Test (copy)')
         })
     })
