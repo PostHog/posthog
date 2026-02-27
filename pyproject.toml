@@ -300,6 +300,7 @@ exclude = [
     "./posthog/hogql/grammar",
     "./posthog/personhog_client/proto/generated",
 ]
+force-exclude = true
 
 [tool.ruff.lint]
 ignore = [
