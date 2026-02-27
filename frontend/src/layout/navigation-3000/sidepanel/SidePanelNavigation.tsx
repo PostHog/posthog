@@ -2,6 +2,7 @@ import { Tabs } from '@base-ui/react/tabs'
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles, IconX } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -55,42 +56,42 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                                   ? 'Discuss'
                                   : defaultLabel
                         return (
-                            <Tabs.Tab
-                                key={tab}
-                                value={tab}
-                                render={(props) => (
-                                    <ButtonPrimitive
-                                        {...props}
-                                        onClick={() => openSidePanel(tab as SidePanelTab)}
-                                        tooltip={defaultLabel}
-                                        data-attr={`context-panel-tab-${tab}`}
-                                        className="size-[33px] @[540px]/side-panel:w-auto hover:bg-transparent group justify-center @[540px]/side-panel:justify-normal"
-                                    >
-                                        {tab === SidePanelTab.Max ? (
-                                            <IconSparkles
+                            <Tooltip key={tab} title={defaultLabel} delayMs={100}>
+                                <Tabs.Tab
+                                    value={tab}
+                                    render={(props) => (
+                                        <ButtonPrimitive
+                                            {...props}
+                                            onClick={() => openSidePanel(tab as SidePanelTab)}
+                                            data-attr={`context-panel-tab-${tab}`}
+                                            className="size-[33px] @[660px]/side-panel:w-auto hover:bg-transparent group justify-center @[660px]/side-panel:justify-normal"
+                                        >
+                                            {tab === SidePanelTab.Max ? (
+                                                <IconSparkles
+                                                    className={cn(
+                                                        'text-ai size-4 -mt-[1px] ml-[2px] group-hover/button-primitive:animate-hue-rotate'
+                                                    )}
+                                                />
+                                            ) : (
+                                                <Icon
+                                                    className={cn(
+                                                        'size-4 text-tertiary group-hover:text-primary',
+                                                        activeTab === tab ? 'text-primary' : 'text-tertiary'
+                                                    )}
+                                                />
+                                            )}
+                                            <span
                                                 className={cn(
-                                                    'text-ai size-4 -mt-[1px] ml-[2px] group-hover/button-primitive:animate-hue-rotate'
-                                                )}
-                                            />
-                                        ) : (
-                                            <Icon
-                                                className={cn(
-                                                    'size-4 text-tertiary group-hover:text-primary',
+                                                    'hidden @[660px]/side-panel:block text-tertiary group-hover:text-primary',
                                                     activeTab === tab ? 'text-primary' : 'text-tertiary'
                                                 )}
-                                            />
-                                        )}
-                                        <span
-                                            className={cn(
-                                                'hidden @[540px]/side-panel:block text-tertiary group-hover:text-primary',
-                                                activeTab === tab ? 'text-primary' : 'text-tertiary'
-                                            )}
-                                        >
-                                            {label}
-                                        </span>
-                                    </ButtonPrimitive>
-                                )}
-                            />
+                                            >
+                                                {label}
+                                            </span>
+                                        </ButtonPrimitive>
+                                    )}
+                                />
+                            </Tooltip>
                         )
                     })}
                 <Tabs.Indicator className="transform-gpu absolute top-1/2 left-0 z-[-1] h-[33px] w-[var(--active-tab-width)] translate-x-[var(--active-tab-left)] -translate-y-1/2 rounded bg-[var(--color-bg-fill-button-tertiary-active)] transition-all duration-200 ease-in-out" />

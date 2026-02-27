@@ -45,6 +45,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
@@ -386,7 +387,10 @@ def gather_hog_variables_in_scope(root_node, node) -> list[str]:
 
 
 def get_hogql_autocomplete(
-    query: HogQLAutocomplete, team: Team, database_arg: Optional[Database] = None
+    query: HogQLAutocomplete,
+    team: Team,
+    user: Optional[User] = None,
+    database_arg: Optional[Database] = None,
 ) -> HogQLAutocompleteResponse:
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
@@ -394,9 +398,9 @@ def get_hogql_autocomplete(
     if database_arg is not None:
         database = database_arg
     else:
-        database = Database.create_for(team=team, timings=timings)
+        database = Database.create_for(team=team, user=user, timings=timings)
 
-    context = HogQLContext(team_id=team.pk, team=team, database=database, timings=timings)
+    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database, timings=timings)
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""
