@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { NodeKind } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
 
@@ -15,6 +16,11 @@ export interface InsightsSummaryStats {
     totalSessions: number
     crashSessions: number
     crashFreeRate: number
+}
+
+const DEFAULT_FILTER_GROUP: UniversalFiltersGroup = {
+    type: FilterLogicalOperator.And,
+    values: [{ type: FilterLogicalOperator.And, values: [] }],
 }
 
 export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
@@ -33,6 +39,8 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         setAnchorDate: (date: Dayjs) => ({ date }),
         navigateBack: true,
         navigateForward: true,
+        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
     }),
 
     reducers({
@@ -46,6 +54,19 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             dayjs().startOf('isoWeek') as Dayjs,
             {
                 setAnchorDate: (_, { date }) => date,
+            },
+        ],
+        filterGroup: [
+            DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
+            {
+                setFilterGroup: (_, { filterGroup }) =>
+                    filterGroup?.values?.length ? filterGroup : DEFAULT_FILTER_GROUP,
+            },
+        ],
+        filterTestAccounts: [
+            false as boolean,
+            {
+                setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
             },
         ],
     }),
@@ -108,10 +129,14 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                             FROM events
                             WHERE timestamp >= toDateTime({dateFrom})
                             AND timestamp < toDateTime({dateTo})
+                            AND {filters}
                         `,
                         values: {
                             dateFrom: values.anchorDate.startOf('day').format('YYYY-MM-DD HH:mm:ss'),
                             dateTo: effectiveEnd.format('YYYY-MM-DD HH:mm:ss'),
+                        },
+                        filters: {
+                            filterTestAccounts: values.filterTestAccounts,
                         },
                     })
                     const row = response?.results?.[0]
@@ -149,6 +174,12 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             actions.setAnchorDate(next.isAfter(currentPeriodStart) ? currentPeriodStart : next)
         },
         setAnchorDate: () => {
+            actions.loadSummaryStats()
+        },
+        setFilterTestAccounts: () => {
+            actions.loadSummaryStats()
+        },
+        setFilterGroup: () => {
             actions.loadSummaryStats()
         },
     })),

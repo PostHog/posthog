@@ -1,7 +1,19 @@
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
+
+export interface InsightQueryFilters {
+    filterGroup: UniversalFiltersGroup
+    filterTestAccounts: boolean
+}
 
 export function formatQueryForInsightEditor(query: InsightVizNode<TrendsQuery>): InsightVizNode<TrendsQuery> {
     return {
@@ -22,7 +34,11 @@ export function formatQueryForInsightEditor(query: InsightVizNode<TrendsQuery>):
     }
 }
 
-export function buildExceptionVolumeQuery(dateFrom: string, dateTo: string): InsightVizNode<TrendsQuery> {
+export function buildExceptionVolumeQuery(
+    dateFrom: string,
+    dateTo: string,
+    { filterGroup, filterTestAccounts }: InsightQueryFilters
+): InsightVizNode<TrendsQuery> {
     return {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -45,13 +61,19 @@ export function buildExceptionVolumeQuery(dateFrom: string, dateTo: string): Ins
             interval: 'day',
             dateRange: { date_from: dateFrom, date_to: dateTo },
             trendsFilter: { display: ChartDisplayType.ActionsBar },
+            filterTestAccounts,
+            properties: filterGroup as PropertyGroupFilter,
         },
         showHeader: false,
         showTable: false,
     }
 }
 
-export function buildCrashFreeSessionsQuery(dateFrom: string, dateTo: string): InsightVizNode<TrendsQuery> {
+export function buildCrashFreeSessionsQuery(
+    dateFrom: string,
+    dateTo: string,
+    { filterGroup, filterTestAccounts }: InsightQueryFilters
+): InsightVizNode<TrendsQuery> {
     return {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -85,6 +107,8 @@ export function buildCrashFreeSessionsQuery(dateFrom: string, dateTo: string): I
                 formulaNodes: [{ formula: '(A - B) / A * 100', custom_name: 'Crash-free sessions %' }],
                 aggregationAxisPostfix: '%',
             },
+            filterTestAccounts,
+            properties: filterGroup as PropertyGroupFilter,
         },
         showHeader: false,
         showTable: false,
