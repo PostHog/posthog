@@ -150,7 +150,7 @@
         }
     },
     "cohorts-remove-person-from-static-cohort-partial-update": {
-        "description": "Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). Idempotent: removing a person not in the cohort succeeds silently.",
+        "description": "Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort succeeds silently.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Remove person from static cohort",
