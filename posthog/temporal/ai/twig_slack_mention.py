@@ -13,9 +13,9 @@ TWIG_SLACK_PICKER_TIMEOUT_MINUTES = 15
 TWIG_SLACK_MENTION_PICKER_GUIDANCE = (
     "Please select the repository for this task. "
     "Or @mention me again and include the exact repository as `org/repo`. "
-    "You can also set a default for this channel with `@Twig default repo set` "
-    "or `@Twig default repo set org/repo`."
+    'You can also add routing rules with `@Twig rules add "description" [org/repo]`.'
 )
+TWIG_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this routing rule."
 
 
 @dataclass
@@ -31,6 +31,12 @@ class TwigSlackRepoDecisionData:
     repository: str | None
     reason: str
     repo_count: int
+
+
+@dataclass
+class TwigRulesCommandResult:
+    status: str  # "not_a_command" | "handled" | "needs_picker"
+    pending_rule_text: str | None = None
 
 
 @workflow.defn(name="twig-slack-mention-processing")
@@ -77,15 +83,48 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
             if not user_id:
                 return
 
-            handled_default_command = await _execute_twig_activity(
-                handle_twig_default_repo_command_activity,
+            rules_result = await _execute_twig_activity(
+                handle_twig_rules_command_activity,
                 inputs,
                 channel,
                 thread_ts,
                 slack_user_id,
                 user_id,
             )
-            if handled_default_command:
+            if rules_result.status == "handled":
+                return
+            if rules_result.status == "needs_picker":
+                await _execute_twig_activity(
+                    post_twig_repo_picker_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    event,
+                    workflow.info().workflow_id,
+                    TWIG_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                )
+                try:
+                    await workflow.wait_condition(
+                        lambda: self._selected_repo is not None,
+                        timeout=timedelta(minutes=TWIG_SLACK_PICKER_TIMEOUT_MINUTES),
+                    )
+                except TimeoutError:
+                    await _execute_twig_activity(post_twig_picker_timeout_activity, inputs, channel, thread_ts)
+                    return
+
+                if not self._selected_repo:
+                    return
+
+                await _execute_twig_activity(
+                    create_twig_routing_rule_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    user_id,
+                    rules_result.pending_rule_text,
+                    self._selected_repo,
+                )
                 return
 
             thread_messages = await _execute_twig_activity(
@@ -100,10 +139,8 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
             decision = await _execute_twig_activity(
                 select_twig_repository_activity,
                 inputs,
-                channel,
                 event.get("text", ""),
                 thread_messages,
-                user_id,
             )
 
             if decision.mode == "picker":
@@ -119,6 +156,7 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
                     slack_user_id,
                     event,
                     workflow.info().workflow_id,
+                    TWIG_SLACK_MENTION_PICKER_GUIDANCE,
                 )
                 try:
                     await workflow.wait_condition(
@@ -199,36 +237,21 @@ def resolve_twig_slack_user_activity(
     return user_context.user.id if user_context else None
 
 
-_MSG_NO_DEFAULT_REPO = (
-    "You don't have a default repository set. "
-    "Use `@Twig default repo set org/repo`, "
-    "or include `org/repo` directly in a single task request."
-)
-_MSG_NO_CONNECTED_REPOS = "I couldn't find any connected GitHub repositories for this project."
-_MSG_REPO_NOT_CONNECTED = (
-    "That repository is not connected to this project. Use `@Twig default repo show` to inspect current setting."
-)
-_MSG_PICKER_GUIDANCE = (
-    "Pick a default repository for future generic requests. "
-    "You can still override by explicitly writing `org/repo` in a task request."
-)
-
-
 @activity.defn
-def handle_twig_default_repo_command_activity(
+def handle_twig_rules_command_activity(
     inputs: TwigSlackMentionWorkflowInputs,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
     user_id: int,
-) -> bool:
+) -> TwigRulesCommandResult:
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.api import _parse_default_repo_command
+    from products.slack_app.backend.api import _parse_rules_command
 
-    default_repo_command = _parse_default_repo_command(inputs.event.get("text", ""))
-    if not default_repo_command:
-        return False
+    command = _parse_rules_command(inputs.event.get("text", ""))
+    if not command:
+        return TwigRulesCommandResult(status="not_a_command")
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -237,108 +260,123 @@ def handle_twig_default_repo_command_activity(
     )
     slack = SlackIntegration(integration)
 
-    if default_repo_command.action == "show":
-        _handle_default_repo_show(slack, integration, channel, thread_ts, user_id)
-    elif default_repo_command.action == "clear":
-        _handle_default_repo_clear(slack, integration, channel, thread_ts, user_id)
-    elif default_repo_command.action == "set":
-        _handle_default_repo_set(
-            slack,
-            integration,
-            channel,
-            thread_ts,
-            slack_user_id,
-            user_id,
-            default_repo_command.repository or "",
-            inputs.event,
+    if command.action == "list":
+        _handle_rules_list(slack, integration, channel, thread_ts)
+    elif command.action == "add":
+        if not command.repository:
+            return TwigRulesCommandResult(status="needs_picker", pending_rule_text=command.rule_text)
+        _handle_rules_add(slack, integration, channel, thread_ts, user_id, command.rule_text or "", command.repository)
+    elif command.action == "remove":
+        _handle_rules_remove(slack, integration, channel, thread_ts, command.rule_number)
+
+    return TwigRulesCommandResult(status="handled")
+
+
+def _handle_rules_list(slack: Any, integration: Any, channel: str, thread_ts: str) -> None:
+    from posthog.models.repo_routing_rule import RepoRoutingRule
+
+    rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
+    if not rules:
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text='No routing rules configured. Add one with `@Twig rules add "description" [org/repo]`. Omit the repo to pick from a list.',
         )
+        return
 
-    return True
-
-
-def _handle_default_repo_show(slack: Any, integration: Any, channel: str, thread_ts: str, user_id: int) -> None:
-    """Reply with the user's current default repo for this channel."""
-    from posthog.models.user_repo_preference import UserRepoPreference
-
-    default_repo = UserRepoPreference.get_default(
-        integration.team_id,
-        user_id,
-        UserRepoPreference.ScopeType.SLACK_CHANNEL,
-        channel,
+    lines = [f"{i + 1}. {r.rule_text} → `{r.repository}`" for i, r in enumerate(rules)]
+    slack.client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text="*Routing rules:*\n" + "\n".join(lines),
     )
-    text = f"Your default repository in this channel is `{default_repo}`." if default_repo else _MSG_NO_DEFAULT_REPO
-    slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
 
 
-def _handle_default_repo_clear(slack: Any, integration: Any, channel: str, thread_ts: str, user_id: int) -> None:
-    """Clear the user's default repo for this channel and confirm."""
-    from posthog.models.user_repo_preference import UserRepoPreference
-
-    cleared = UserRepoPreference.clear_default(
-        integration.team_id,
-        user_id,
-        UserRepoPreference.ScopeType.SLACK_CHANNEL,
-        channel,
-    )
-    text = (
-        "Cleared your default repository for this channel."
-        if cleared
-        else "You don't have a default repository set for this channel."
-    )
-    slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
-
-
-def _handle_default_repo_set(
+def _handle_rules_add(
     slack: Any,
     integration: Any,
     channel: str,
     thread_ts: str,
-    slack_user_id: str,
     user_id: int,
-    command_repo: str,
-    event: dict[str, Any],
+    rule_text: str,
+    repository: str,
 ) -> None:
-    """Set or prompt for the user's default repo for this channel."""
-    from posthog.models.user_repo_preference import UserRepoPreference
+    from posthog.models.repo_routing_rule import RepoRoutingRule
 
-    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names, _post_repo_picker_message
+    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
 
     all_repos = _get_full_repo_names(integration)
-
     if not all_repos:
-        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=_MSG_NO_CONNECTED_REPOS)
-        return
-
-    if not command_repo:
-        _post_repo_picker_message(
-            slack=slack,
-            integration=integration,
+        slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
-            event_text=event.get("text", ""),
-            user_message_ts=event.get("ts"),
-            guidance=_MSG_PICKER_GUIDANCE,
-            action_id="twig_default_repo_select",
+            text="No connected GitHub repositories found for this project.",
         )
         return
 
-    explicit_repo = _extract_explicit_repo(command_repo, all_repos)
-    if not explicit_repo:
-        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=_MSG_REPO_NOT_CONNECTED)
+    matched_repo = _extract_explicit_repo(repository, all_repos)
+    if not matched_repo:
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=f"Repository `{repository}` is not connected to this project.",
+        )
         return
 
-    UserRepoPreference.set_default(
-        integration.team_id,
-        user_id,
-        UserRepoPreference.ScopeType.SLACK_CHANNEL,
-        channel,
-        repository=explicit_repo,
+    current_max = (
+        RepoRoutingRule.objects.filter(team_id=integration.team_id)
+        .order_by("-priority")
+        .values_list("priority", flat=True)
+        .first()
+    )
+    max_priority = (current_max + 1) if current_max is not None else 0
+    RepoRoutingRule.objects.create(
+        team_id=integration.team_id,
+        rule_text=rule_text,
+        repository=matched_repo,
+        priority=max_priority,
+        created_by_id=user_id,
     )
     slack.client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
-        text=f"Set your default repository for this channel to `{explicit_repo}`.",
+        text=f"Added rule: {rule_text} → `{matched_repo}`",
+    )
+
+
+def _handle_rules_remove(
+    slack: Any,
+    integration: Any,
+    channel: str,
+    thread_ts: str,
+    rule_number: int | None,
+) -> None:
+    from posthog.models.repo_routing_rule import RepoRoutingRule
+
+    if rule_number is None or rule_number < 1:
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text="Please provide a valid rule number. Use `@Twig rules list` to see current rules.",
+        )
+        return
+
+    rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
+    if rule_number > len(rules):
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=f"Rule #{rule_number} does not exist. There are {len(rules)} rule(s). Use `@Twig rules list` to see them.",
+        )
+        return
+
+    rule = rules[rule_number - 1]
+    rule_text = rule.rule_text
+    rule.delete()
+    slack.client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=f"Removed rule #{rule_number}: {rule_text}",
     )
 
 
@@ -366,13 +404,10 @@ def collect_twig_thread_messages_activity(
 @activity.defn
 def select_twig_repository_activity(
     inputs: TwigSlackMentionWorkflowInputs,
-    channel: str,
     event_text: str,
     thread_messages: list[dict[str, str]],
-    user_id: int,
 ) -> TwigSlackRepoDecisionData:
     from posthog.models.integration import Integration
-    from posthog.models.user import User
 
     from products.slack_app.backend.api import _get_full_repo_names, select_repository
 
@@ -382,13 +417,10 @@ def select_twig_repository_activity(
         integration_id=inputs.slack_team_id,
     )
     all_repos = _get_full_repo_names(integration)
-    user = User.objects.get(id=user_id)
     decision = select_repository(
         event_text=event_text,
         thread_messages=thread_messages,
         integration=integration,
-        user=user,
-        channel=channel,
         all_repos=all_repos,
     )
     return TwigSlackRepoDecisionData(
@@ -427,6 +459,7 @@ def post_twig_repo_picker_activity(
     slack_user_id: str,
     event: dict[str, Any],
     workflow_id: str,
+    guidance: str,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
@@ -447,7 +480,7 @@ def post_twig_repo_picker_activity(
         slack_user_id=slack_user_id,
         event_text=event.get("text", ""),
         user_message_ts=event.get("ts"),
-        guidance=TWIG_SLACK_MENTION_PICKER_GUIDANCE,
+        guidance=guidance,
         action_id="twig_repo_select",
         workflow_id=workflow_id,
     )
@@ -558,6 +591,63 @@ def create_twig_task_for_repo_activity(
                     "mentioning_slack_user_id": slack_user_id,
                 },
             )
+
+
+@activity.defn
+def create_twig_routing_rule_activity(
+    inputs: TwigSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    user_id: int,
+    rule_text: str,
+    repository: str,
+) -> None:
+    import structlog
+
+    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.repo_routing_rule import RepoRoutingRule
+
+    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+
+    log = structlog.get_logger(__name__)
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+        kind="slack-twig",
+        integration_id=inputs.slack_team_id,
+    )
+    slack = SlackIntegration(integration)
+
+    all_repos = _get_full_repo_names(integration)
+    matched_repo = _extract_explicit_repo(repository, all_repos)
+    if not matched_repo:
+        log.warning("twig_rules_add_repo_no_longer_connected", repo=repository, team_id=integration.team_id)
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=f"Repository `{repository}` is no longer connected to this project.",
+        )
+        return
+
+    current_max = (
+        RepoRoutingRule.objects.filter(team_id=integration.team_id)
+        .order_by("-priority")
+        .values_list("priority", flat=True)
+        .first()
+    )
+    max_priority = (current_max + 1) if current_max is not None else 0
+    RepoRoutingRule.objects.create(
+        team_id=integration.team_id,
+        rule_text=rule_text,
+        repository=matched_repo,
+        priority=max_priority,
+        created_by_id=user_id,
+    )
+    slack.client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=f"Added rule: {rule_text} → `{matched_repo}`",
+    )
 
 
 @activity.defn

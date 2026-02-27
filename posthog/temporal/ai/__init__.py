@@ -31,17 +31,16 @@ from posthog.temporal.ai.slack_conversation import (
     process_slack_conversation_activity,
 )
 from posthog.temporal.ai.twig_slack_interactivity import (
-    TwigSlackDefaultRepoSelectionWorkflow,
     TwigSlackTerminateTaskWorkflow,
-    process_twig_default_repo_selection_activity,
     process_twig_terminate_task_activity,
 )
 from posthog.temporal.ai.twig_slack_mention import (
     TwigSlackMentionWorkflow,
     collect_twig_thread_messages_activity,
+    create_twig_routing_rule_activity,
     create_twig_task_for_repo_activity,
     forward_twig_followup_activity,
-    handle_twig_default_repo_command_activity,
+    handle_twig_rules_command_activity,
     post_twig_internal_error_activity,
     post_twig_no_repos_activity,
     post_twig_picker_timeout_activity,
@@ -100,7 +99,6 @@ AI_WORKFLOWS = [
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
     TwigSlackMentionWorkflow,
-    TwigSlackDefaultRepoSelectionWorkflow,
     TwigSlackTerminateTaskWorkflow,
 ]
 
@@ -114,8 +112,9 @@ AI_ACTIVITIES = [
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
     resolve_twig_slack_user_activity,
-    handle_twig_default_repo_command_activity,
+    handle_twig_rules_command_activity,
     collect_twig_thread_messages_activity,
+    create_twig_routing_rule_activity,
     select_twig_repository_activity,
     post_twig_no_repos_activity,
     post_twig_repo_picker_activity,
@@ -123,7 +122,6 @@ AI_ACTIVITIES = [
     forward_twig_followup_activity,
     post_twig_picker_timeout_activity,
     post_twig_internal_error_activity,
-    process_twig_default_repo_selection_activity,
     process_twig_terminate_task_activity,
 ]
 

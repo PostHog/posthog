@@ -35,11 +35,7 @@ from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
 )
-from posthog.temporal.ai.twig_slack_interactivity import (
-    TwigSlackDefaultRepoSelectionWorkflow,
-    TwigSlackInteractivityInputs,
-    TwigSlackTerminateTaskWorkflow,
-)
+from posthog.temporal.ai.twig_slack_interactivity import TwigSlackInteractivityInputs, TwigSlackTerminateTaskWorkflow
 from posthog.temporal.ai.twig_slack_mention import TwigSlackMentionWorkflow, TwigSlackMentionWorkflowInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -78,9 +74,11 @@ class RepoDecision:
 
 
 @dataclass
-class DefaultRepoCommand:
-    action: Literal["set", "show", "clear"]
+class RulesCommand:
+    action: Literal["list", "add", "remove"]
+    rule_text: str | None = None
     repository: str | None = None
+    rule_number: int | None = None
 
 
 def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
@@ -641,22 +639,36 @@ def _strip_bot_mentions(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
-def _parse_default_repo_command(text: str) -> DefaultRepoCommand | None:
+def _parse_rules_command(text: str) -> RulesCommand | None:
     cleaned = _strip_bot_mentions(text).strip()
     if not cleaned:
         return None
 
-    clear_match = re.fullmatch(r"default\s+repo\s+clear", cleaned, flags=re.IGNORECASE)
-    if clear_match:
-        return DefaultRepoCommand(action="clear")
+    list_match = re.fullmatch(r"rules\s+list", cleaned, flags=re.IGNORECASE)
+    if list_match:
+        return RulesCommand(action="list")
 
-    show_match = re.fullmatch(r"default\s+repo\s+show", cleaned, flags=re.IGNORECASE)
-    if show_match:
-        return DefaultRepoCommand(action="show")
+    add_with_repo_match = re.fullmatch(
+        r'rules\s+add\s+"([^"]+)"\s+([\w.-]+/[\w.-]+)',
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if add_with_repo_match:
+        return RulesCommand(
+            action="add", rule_text=add_with_repo_match.group(1), repository=add_with_repo_match.group(2)
+        )
 
-    set_match = re.fullmatch(r"default\s+repo\s+set(?:\s+([\w.-]+/[\w.-]+))?", cleaned, flags=re.IGNORECASE)
-    if set_match:
-        return DefaultRepoCommand(action="set", repository=set_match.group(1))
+    add_no_repo_match = re.fullmatch(
+        r'rules\s+add\s+"([^"]+)"',
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if add_no_repo_match:
+        return RulesCommand(action="add", rule_text=add_no_repo_match.group(1))
+
+    remove_match = re.fullmatch(r"rules\s+remove\s+(\d+)", cleaned, flags=re.IGNORECASE)
+    if remove_match:
+        return RulesCommand(action="remove", rule_number=int(remove_match.group(1)))
 
     return None
 
@@ -811,8 +823,6 @@ def select_repository(
     event_text: str,
     thread_messages: list[dict[str, str]],
     integration: Integration,
-    user: User,
-    channel: str,
     all_repos: list[str],
 ) -> RepoDecision:
     if not all_repos:
@@ -825,44 +835,86 @@ def select_repository(
     if explicit_repo:
         return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_called=False)
 
-    from posthog.models.user_repo_preference import UserRepoPreference
+    matched = _match_repo_rule(event_text, thread_messages, integration.team_id, all_repos)
+    if matched:
+        return RepoDecision(mode="auto", repository=matched, reason="rule_match", llm_called=True)
 
-    user_default_repo = UserRepoPreference.get_default(
-        integration.team_id,
-        user.id,
-        UserRepoPreference.ScopeType.SLACK_CHANNEL,
-        channel,
-    )
-    if user_default_repo and user_default_repo in all_repos:
-        return RepoDecision(mode="auto", repository=user_default_repo, reason="user_default_repo", llm_called=False)
+    return RepoDecision(mode="picker", repository=None, reason="no_rule_match", llm_called=False)
 
-    if user_default_repo and user_default_repo not in all_repos:
-        UserRepoPreference.clear_default(
-            integration.team_id,
-            user.id,
-            UserRepoPreference.ScopeType.SLACK_CHANNEL,
-            channel,
-        )
 
-    if not user_default_repo:
-        other_channel_defaults_count = (
-            UserRepoPreference.objects.filter(
-                team_id=integration.team_id,
-                user_id=user.id,
-                scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
-            )
-            .exclude(scope_id=channel)
-            .count()
-        )
+def _match_repo_rule(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+    team_id: int,
+    all_repos: list[str],
+) -> str | None:
+    from posthog.models.repo_routing_rule import RepoRoutingRule
+
+    rules = list(RepoRoutingRule.objects.filter(team_id=team_id).order_by("priority", "id"))
+    if not rules:
+        logger.info("twig_rule_match_no_rules", team_id=team_id)
+        return None
+
+    _MAX_RULES_FOR_LLM = 20
+
+    connected_set = {r.lower() for r in all_repos}
+    eligible_rules = [r for r in rules if r.repository.lower() in connected_set][:_MAX_RULES_FOR_LLM]
+    if not eligible_rules:
         logger.info(
-            "twig_default_repo_not_found_for_channel",
-            team_id=integration.team_id,
-            user_id=user.id,
-            channel=channel,
-            other_channel_defaults_count=other_channel_defaults_count,
+            "twig_rule_match_no_eligible_rules",
+            team_id=team_id,
+            rule_repos=[r.repository for r in rules],
+            connected_repos=all_repos,
         )
+        return None
 
-    return RepoDecision(mode="picker", repository=None, reason="no_explicit_multi_repo", llm_called=False)
+    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    rules_block = "\n".join(f"{i}: {r.rule_text} -> {r.repository}" for i, r in enumerate(eligible_rules))
+
+    prompt = (
+        "You are a routing classifier. Given a Slack conversation and a numbered list of rules, "
+        'return the JSON object {"rule_index": <int>} for the best-matching rule, '
+        'or {"rule_index": null} if none match.\n\n'
+        f"Rules:\n{rules_block}\n\n"
+        f"Conversation:\n{conversation}\n\n"
+        f"Latest message: {event_text}\n\n"
+        "Respond with ONLY the JSON object, no other text."
+    )
+
+    try:
+        from posthog.llm.gateway_client import get_llm_client
+
+        client = get_llm_client("twig")
+        response = client.chat.completions.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=64,
+            temperature=0,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        # Strip markdown code fences if the LLM wrapped the response
+        if content.startswith("```"):
+            content = content.strip("`").removeprefix("json").strip()
+        logger.info("twig_rule_match_llm_response", content=content, team_id=team_id)
+        parsed = json.loads(content)
+        idx = parsed.get("rule_index")
+        if idx is None:
+            logger.info("twig_rule_match_llm_returned_null", team_id=team_id)
+            return None
+        if not isinstance(idx, int) or idx < 0 or idx >= len(eligible_rules):
+            logger.warning("twig_rule_match_invalid_index", index=idx, rule_count=len(eligible_rules))
+            return None
+
+        matched_repo = eligible_rules[idx].repository
+        canonical = next((r for r in all_repos if r.lower() == matched_repo.lower()), None)
+        if not canonical:
+            logger.warning("twig_rule_match_repo_not_connected", repo=matched_repo)
+            return None
+        logger.info("twig_rule_match_success", repo=canonical, rule_index=idx, team_id=team_id)
+        return canonical
+    except Exception:
+        logger.exception("twig_rule_match_failed", team_id=team_id)
+        return None
 
 
 def route_twig_event_to_relevant_region(
@@ -1066,7 +1118,7 @@ def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
 def _handle_repo_picker_options(payload: dict) -> JsonResponse:
     """Return filtered repo options for the external_select picker."""
     action = payload.get("action_id") or (payload.get("actions", [{}])[0].get("action_id", ""))
-    if action not in {"twig_repo_select", "twig_default_repo_select"}:
+    if action != "twig_repo_select":
         return JsonResponse({"options": []})
 
     context_token = _extract_context_token(payload)
@@ -1135,8 +1187,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
 def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
     """Signal Temporal mention workflow for repo submit."""
     actions = payload.get("actions", [])
-    action = next((a for a in actions if a.get("action_id") in {"twig_repo_select", "twig_default_repo_select"}), None)
-    action_id = action.get("action_id") if action else None
+    action = next((a for a in actions if a.get("action_id") == "twig_repo_select"), None)
     selected_repo = action.get("selected_option", {}).get("value") if action else None
 
     context_token = _extract_context_token(payload)
@@ -1178,47 +1229,23 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
                 thread_ts=thread_ts,
             )
 
-    if action_id == "twig_repo_select":
-        if not selected_repo:
-            return HttpResponse(status=200)
-
-        if not workflow_id:
-            logger.info("twig_repo_submit_missing_workflow_id")
-            post_selection_expired()
-            return HttpResponse(status=200)
-
-        try:
-            client = sync_connect()
-            handle = client.get_workflow_handle(workflow_id)
-            asyncio.run(handle.signal(TwigSlackMentionWorkflow.repo_selected, selected_repo))
-            return HttpResponse(status=200)
-        except Exception as e:
-            logger.warning("twig_repo_submit_signal_failed", workflow_id=workflow_id, error=str(e))
-            post_selection_expired()
-            return HttpResponse(status=200)
-
-    if action_id == "twig_default_repo_select":
-        action_ts = action.get("action_ts") if action else ""
-        team_id = payload.get("team", {}).get("id", "")
-        user_id = payload.get("user", {}).get("id", "")
-        workflow_id = f"twig-default-repo-select:{team_id}:{user_id}:{action_ts or context_token}"
-        try:
-            client = sync_connect()
-            asyncio.run(
-                client.start_workflow(
-                    TwigSlackDefaultRepoSelectionWorkflow.run,
-                    TwigSlackInteractivityInputs(payload=payload),
-                    id=workflow_id,
-                    task_queue=settings.MAX_AI_TASK_QUEUE,
-                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                )
-            )
-        except Exception as e:
-            logger.warning("twig_default_repo_submit_start_failed", workflow_id=workflow_id, error=str(e))
+    if not selected_repo:
         return HttpResponse(status=200)
 
-    return HttpResponse(status=200)
+    if not workflow_id:
+        logger.info("twig_repo_submit_missing_workflow_id")
+        post_selection_expired()
+        return HttpResponse(status=200)
+
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        asyncio.run(handle.signal(TwigSlackMentionWorkflow.repo_selected, selected_repo))
+        return HttpResponse(status=200)
+    except Exception as e:
+        logger.warning("twig_repo_submit_signal_failed", workflow_id=workflow_id, error=str(e))
+        post_selection_expired()
+        return HttpResponse(status=200)
 
 
 def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
@@ -1332,7 +1359,7 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if payload_type == "block_actions":
         actions = payload.get("actions", [])
         for action in actions:
-            if action.get("action_id") in {"twig_repo_select", "twig_default_repo_select"}:
+            if action.get("action_id") == "twig_repo_select":
                 return _handle_repo_picker_submit(payload)
             if action.get("action_id") == "twig_terminate_task":
                 return _handle_terminate_task_submit(payload)

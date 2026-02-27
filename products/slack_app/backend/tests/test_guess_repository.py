@@ -7,15 +7,16 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
+from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.user_repo_preference import UserRepoPreference
 
 from products.slack_app.backend.api import (
-    DefaultRepoCommand,
+    RulesCommand,
     _extract_explicit_repo,
     _get_full_repo_names,
-    _parse_default_repo_command,
+    _match_repo_rule,
+    _parse_rules_command,
     select_repository,
 )
 
@@ -168,7 +169,6 @@ class TestSelectRepository:
     def setup(self, db):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create(email="test@example.com", distinct_id="user-1")
 
         self.slack_integration = Integration.objects.create(
             team=self.team,
@@ -178,15 +178,12 @@ class TestSelectRepository:
         )
 
         self.thread_messages = [{"user": "Dev", "text": "please update readme"}]
-        self.channel = "C001"
 
     def test_single_connected_repo_auto(self):
         decision = select_repository(
             event_text="please update readme",
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
-            user=self.user,
-            channel=self.channel,
             all_repos=["posthog/posthog"],
         )
 
@@ -200,8 +197,6 @@ class TestSelectRepository:
             event_text="fix posthog/posthog-js",
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
-            user=self.user,
-            channel=self.channel,
             all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
         )
 
@@ -210,117 +205,58 @@ class TestSelectRepository:
         assert decision.reason == "explicit_mention"
         assert decision.llm_called is False
 
-    def test_explicit_repo_with_bot_tag_noise_auto(self):
+    def test_explicit_repo_takes_precedence_over_rules(self):
+        RepoRoutingRule.objects.create(
+            team=self.team,
+            rule_text="anything about JS",
+            repository="posthog/posthog",
+            priority=0,
+        )
+
         decision = select_repository(
-            event_text="<@U123> fix posthog/posthog-js",
+            event_text="fix posthog/posthog-js",
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
-            user=self.user,
-            channel=self.channel,
-            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
+            all_repos=["posthog/posthog", "posthog/posthog-js"],
         )
 
         assert decision.mode == "auto"
         assert decision.repository == "posthog/posthog-js"
         assert decision.reason == "explicit_mention"
-        assert decision.llm_called is False
 
-    def test_no_explicit_multi_repo_prefers_picker(self):
+    @patch("products.slack_app.backend.api._match_repo_rule", return_value="posthog/posthog-js")
+    def test_rule_match_auto(self, _mock_match):
+        decision = select_repository(
+            event_text="fix the JS SDK bug",
+            thread_messages=self.thread_messages,
+            integration=self.slack_integration,
+            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
+        )
+
+        assert decision.mode == "auto"
+        assert decision.repository == "posthog/posthog-js"
+        assert decision.reason == "rule_match"
+        assert decision.llm_called is True
+
+    @patch("products.slack_app.backend.api._match_repo_rule", return_value=None)
+    def test_no_rule_match_picker(self, _mock_match):
         decision = select_repository(
             event_text="fix other/repo",
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
-            user=self.user,
-            channel=self.channel,
             all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
         )
 
         assert decision.mode == "picker"
         assert decision.repository is None
-        assert decision.reason == "no_explicit_multi_repo"
+        assert decision.reason == "no_rule_match"
         assert decision.llm_called is False
-
-    def test_user_default_repo_auto(self):
-        UserRepoPreference.objects.create(
-            team=self.team,
-            user=self.user,
-            scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
-            scope_id=self.channel,
-            repository="posthog/posthog-js",
-        )
-
-        decision = select_repository(
-            event_text="add yolo to readme",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            user=self.user,
-            channel=self.channel,
-            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
-        )
-
-        assert decision.mode == "auto"
-        assert decision.repository == "posthog/posthog-js"
-        assert decision.reason == "user_default_repo"
-        assert decision.llm_called is False
-
-    def test_user_default_repo_is_channel_scoped(self):
-        UserRepoPreference.objects.create(
-            team=self.team,
-            user=self.user,
-            scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
-            scope_id="C_OTHER",
-            repository="posthog/posthog-js",
-        )
-
-        decision = select_repository(
-            event_text="add yolo to readme",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            user=self.user,
-            channel=self.channel,
-            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
-        )
-
-        assert decision.mode == "picker"
-        assert decision.reason == "no_explicit_multi_repo"
-
-    def test_invalid_user_default_repo_is_cleared(self):
-        UserRepoPreference.objects.create(
-            team=self.team,
-            user=self.user,
-            scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
-            scope_id=self.channel,
-            repository="posthog/deleted-repo",
-        )
-
-        decision = select_repository(
-            event_text="add yolo to readme",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            user=self.user,
-            channel=self.channel,
-            all_repos=["posthog/posthog", "posthog/posthog-js"],
-        )
-
-        assert decision.mode == "picker"
-        assert decision.reason == "no_explicit_multi_repo"
-        assert (
-            UserRepoPreference.objects.filter(
-                team=self.team,
-                user=self.user,
-                scope_type=UserRepoPreference.ScopeType.SLACK_CHANNEL,
-                scope_id=self.channel,
-            ).count()
-            == 0
-        )
 
     def test_no_repos_picker(self):
         decision = select_repository(
             event_text="add yolo to readme",
             thread_messages=self.thread_messages,
             integration=self.slack_integration,
-            user=self.user,
-            channel=self.channel,
             all_repos=[],
         )
 
@@ -330,41 +266,176 @@ class TestSelectRepository:
         assert decision.llm_called is False
 
 
-class TestParseDefaultRepoCommand:
+class TestMatchRepoRule:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def test_no_rules_returns_none(self):
+        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/repo"])
+        assert result is None
+
+    def test_no_eligible_rules_returns_none(self):
+        RepoRoutingRule.objects.create(
+            team=self.team,
+            rule_text="JS issues",
+            repository="org/disconnected-repo",
+            priority=0,
+        )
+        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/repo"])
+        assert result is None
+
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    def test_llm_returns_valid_index(self, mock_get_client):
+        RepoRoutingRule.objects.create(
+            team=self.team,
+            rule_text="JS SDK issues",
+            repository="org/js-sdk",
+            priority=0,
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"rule_index": 0}'
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
+
+        result = _match_repo_rule(
+            "fix the JS SDK", [{"user": "Dev", "text": "fix the JS SDK"}], self.team.id, ["org/js-sdk", "org/other"]
+        )
+        assert result == "org/js-sdk"
+
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    def test_llm_returns_null_index(self, mock_get_client):
+        RepoRoutingRule.objects.create(
+            team=self.team,
+            rule_text="JS SDK issues",
+            repository="org/js-sdk",
+            priority=0,
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"rule_index": null}'
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
+
+        result = _match_repo_rule(
+            "unrelated request", [{"user": "Dev", "text": "unrelated"}], self.team.id, ["org/js-sdk"]
+        )
+        assert result is None
+
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    def test_llm_returns_invalid_index(self, mock_get_client):
+        RepoRoutingRule.objects.create(
+            team=self.team,
+            rule_text="JS SDK issues",
+            repository="org/js-sdk",
+            priority=0,
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"rule_index": 99}'
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
+
+        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
+        assert result is None
+
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    def test_llm_failure_returns_none(self, mock_get_client):
+        RepoRoutingRule.objects.create(
+            team=self.team,
+            rule_text="JS SDK issues",
+            repository="org/js-sdk",
+            priority=0,
+        )
+
+        mock_get_client.return_value.chat.completions.create.side_effect = RuntimeError("LLM down")
+
+        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
+        assert result is None
+
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    def test_llm_invalid_json_returns_none(self, mock_get_client):
+        RepoRoutingRule.objects.create(
+            team=self.team,
+            rule_text="JS SDK issues",
+            repository="org/js-sdk",
+            priority=0,
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "not json"
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
+
+        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
+        assert result is None
+
+
+class TestParseRulesCommand:
     @parameterized.expand(
         [
-            ("show", "default repo show", DefaultRepoCommand(action="show")),
-            ("clear", "default repo clear", DefaultRepoCommand(action="clear")),
-            ("set_bare", "default repo set", DefaultRepoCommand(action="set")),
-            ("set_with_repo", "default repo set org/repo", DefaultRepoCommand(action="set", repository="org/repo")),
-            ("case_insensitive", "Default Repo Show", DefaultRepoCommand(action="show")),
-            ("extra_whitespace", "default  repo   show", DefaultRepoCommand(action="show")),
-            ("bot_mention", "<@U123BOT> default repo clear", DefaultRepoCommand(action="clear")),
+            ("list", "rules list", RulesCommand(action="list")),
+            ("case_insensitive", "Rules List", RulesCommand(action="list")),
             (
-                "dots_hyphens_in_repo",
-                "default repo set my-org/my.repo-name",
-                DefaultRepoCommand(action="set", repository="my-org/my.repo-name"),
+                "add",
+                'rules add "JS SDK issues" org/js-sdk',
+                RulesCommand(action="add", rule_text="JS SDK issues", repository="org/js-sdk"),
+            ),
+            (
+                "add_with_dots",
+                'rules add "fix frontend" my-org/my.repo',
+                RulesCommand(action="add", rule_text="fix frontend", repository="my-org/my.repo"),
+            ),
+            ("remove", "rules remove 3", RulesCommand(action="remove", rule_number=3)),
+            (
+                "bot_mention_list",
+                "<@U123BOT> rules list",
+                RulesCommand(action="list"),
+            ),
+            (
+                "add_no_repo",
+                'rules add "JS SDK issues"',
+                RulesCommand(action="add", rule_text="JS SDK issues"),
+            ),
+            (
+                "bot_mention_add",
+                '<@U123BOT> rules add "backend bugs" posthog/posthog',
+                RulesCommand(action="add", rule_text="backend bugs", repository="posthog/posthog"),
+            ),
+            (
+                "bot_mention_add_no_repo",
+                '<@U123BOT> rules add "backend bugs"',
+                RulesCommand(action="add", rule_text="backend bugs"),
+            ),
+            (
+                "bot_mention_remove",
+                "<@U123BOT> rules remove 1",
+                RulesCommand(action="remove", rule_number=1),
             ),
         ]
     )
     def test_parses_command(self, _name, text, expected):
-        assert _parse_default_repo_command(text) == expected
+        assert _parse_rules_command(text) == expected
 
     @parameterized.expand(
         [
             ("empty", ""),
             ("just_mention", "<@U123BOT>"),
             ("random_text", "fix the bug in posthog-js"),
-            ("partial_command", "default repo"),
-            ("unknown_action", "default repo delete"),
-            ("repo_without_action", "default repo org/repo"),
+            ("partial_command", "rules"),
+            ("unknown_action", "rules delete"),
+            ("add_no_quotes", "rules add JS issues org/repo"),
+            ("remove_no_number", "rules remove"),
+            ("old_default_repo", "default repo show"),
         ]
     )
     def test_returns_none_for_non_commands(self, _name, text):
-        assert _parse_default_repo_command(text) is None
+        assert _parse_rules_command(text) is None
 
 
-class TestHandleDefaultRepoCommandActivity:
+class TestHandleRulesCommandActivity:
     @pytest.fixture(autouse=True)
     def setup(self, db):
         self.organization = Organization.objects.create(name="Test Org")
@@ -392,82 +463,188 @@ class TestHandleDefaultRepoCommandActivity:
         )
 
     @patch("posthog.models.integration.SlackIntegration")
-    def test_show_returns_current_default(self, mock_slack_cls):
+    def test_list_empty_rules(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        UserRepoPreference.set_default(
-            self.team.id,
-            self.user.id,
-            UserRepoPreference.ScopeType.SLACK_CHANNEL,
-            self.channel,
-            repository="posthog/posthog",
-        )
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_rules_command_activity
 
-        from posthog.temporal.ai.twig_slack_mention import handle_twig_default_repo_command_activity
-
-        result = handle_twig_default_repo_command_activity(
-            self._make_inputs("<@U123> default repo show"),
+        result = handle_twig_rules_command_activity(
+            self._make_inputs("<@U123> rules list"),
             self.channel,
             self.thread_ts,
             self.slack_user_id,
             self.user.id,
         )
 
-        assert result is True
-        mock_slack.client.chat_postMessage.assert_called_once()
+        assert result.status == "handled"
         msg = mock_slack.client.chat_postMessage.call_args
-        assert "posthog/posthog" in msg.kwargs["text"]
+        assert "No routing rules" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
-    def test_clear_returns_cleared_message(self, mock_slack_cls):
+    def test_list_shows_rules(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        UserRepoPreference.set_default(
-            self.team.id,
-            self.user.id,
-            UserRepoPreference.ScopeType.SLACK_CHANNEL,
-            self.channel,
-            repository="posthog/posthog",
+        RepoRoutingRule.objects.create(
+            team=self.team, rule_text="JS SDK bugs", repository="posthog/posthog-js", priority=0
+        )
+        RepoRoutingRule.objects.create(
+            team=self.team, rule_text="Backend issues", repository="posthog/posthog", priority=1
         )
 
-        from posthog.temporal.ai.twig_slack_mention import handle_twig_default_repo_command_activity
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_rules_command_activity
 
-        result = handle_twig_default_repo_command_activity(
-            self._make_inputs("<@U123> default repo clear"),
+        result = handle_twig_rules_command_activity(
+            self._make_inputs("<@U123> rules list"),
             self.channel,
             self.thread_ts,
             self.slack_user_id,
             self.user.id,
         )
 
-        assert result is True
+        assert result.status == "handled"
         msg = mock_slack.client.chat_postMessage.call_args
-        assert "Cleared" in msg.kwargs["text"]
-        assert (
-            UserRepoPreference.get_default(
-                self.team.id, self.user.id, UserRepoPreference.ScopeType.SLACK_CHANNEL, self.channel
-            )
-            is None
+        assert "JS SDK bugs" in msg.kwargs["text"]
+        assert "Backend issues" in msg.kwargs["text"]
+
+    @patch(
+        "products.slack_app.backend.api._get_full_repo_names", return_value=["posthog/posthog", "posthog/posthog-js"]
+    )
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_add_with_repo_creates_rule(self, mock_slack_cls, _mock_repos):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_rules_command_activity
+
+        result = handle_twig_rules_command_activity(
+            self._make_inputs('<@U123> rules add "JS SDK bugs" posthog/posthog-js'),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
         )
 
-    @patch("products.slack_app.backend.api._post_repo_picker_message")
+        assert result.status == "handled"
+        rule = RepoRoutingRule.objects.get(team=self.team)
+        assert rule.rule_text == "JS SDK bugs"
+        assert rule.repository == "posthog/posthog-js"
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert "Added rule" in msg.kwargs["text"]
+
+    def test_add_without_repo_returns_needs_picker(self):
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_rules_command_activity
+
+        result = handle_twig_rules_command_activity(
+            self._make_inputs('<@U123> rules add "JS SDK bugs"'),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "needs_picker"
+        assert result.pending_rule_text == "JS SDK bugs"
+
     @patch("products.slack_app.backend.api._get_full_repo_names", return_value=["posthog/posthog"])
     @patch("posthog.models.integration.SlackIntegration")
-    def test_set_without_repo_posts_picker(self, mock_slack_cls, _mock_repos, mock_picker):
+    def test_add_rejects_disconnected_repo(self, mock_slack_cls, _mock_repos):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        from posthog.temporal.ai.twig_slack_mention import handle_twig_default_repo_command_activity
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_rules_command_activity
 
-        result = handle_twig_default_repo_command_activity(
-            self._make_inputs("<@U123> default repo set"),
+        result = handle_twig_rules_command_activity(
+            self._make_inputs('<@U123> rules add "JS bugs" posthog/nonexistent'),
             self.channel,
             self.thread_ts,
             self.slack_user_id,
             self.user.id,
         )
 
-        assert result is True
-        mock_picker.assert_called_once()
+        assert result.status == "handled"
+        assert RepoRoutingRule.objects.filter(team=self.team).count() == 0
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert "not connected" in msg.kwargs["text"]
+
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_remove_deletes_rule(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        RepoRoutingRule.objects.create(team=self.team, rule_text="First rule", repository="org/repo", priority=0)
+        RepoRoutingRule.objects.create(team=self.team, rule_text="Second rule", repository="org/repo2", priority=1)
+
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_rules_command_activity
+
+        result = handle_twig_rules_command_activity(
+            self._make_inputs("<@U123> rules remove 1"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "handled"
+        assert RepoRoutingRule.objects.filter(team=self.team).count() == 1
+        remaining = RepoRoutingRule.objects.get(team=self.team)
+        assert remaining.rule_text == "Second rule"
+
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_remove_invalid_number(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        RepoRoutingRule.objects.create(team=self.team, rule_text="Only rule", repository="org/repo", priority=0)
+
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_rules_command_activity
+
+        result = handle_twig_rules_command_activity(
+            self._make_inputs("<@U123> rules remove 5"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "handled"
+        assert RepoRoutingRule.objects.filter(team=self.team).count() == 1
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert "does not exist" in msg.kwargs["text"]
+
+    def test_non_command_returns_not_a_command(self):
+        from posthog.temporal.ai.twig_slack_mention import handle_twig_rules_command_activity
+
+        result = handle_twig_rules_command_activity(
+            self._make_inputs("<@U123> fix the bug in posthog-js"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "not_a_command"
+
+
+class TestRepoRoutingRuleModel:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        self.org = Organization.objects.create(name="Test Org")
+        self.team_a = Team.objects.create(organization=self.org, name="Team A")
+        self.team_b = Team.objects.create(organization=self.org, name="Team B")
+
+    def test_ordering_by_priority_then_id(self):
+        r2 = RepoRoutingRule.objects.create(team=self.team_a, rule_text="Second", repository="org/b", priority=1)
+        r1 = RepoRoutingRule.objects.create(team=self.team_a, rule_text="First", repository="org/a", priority=0)
+
+        rules = list(RepoRoutingRule.objects.filter(team=self.team_a))
+        assert rules == [r1, r2]
+
+    def test_team_scoping(self):
+        RepoRoutingRule.objects.create(team=self.team_a, rule_text="Team A rule", repository="org/a", priority=0)
+        RepoRoutingRule.objects.create(team=self.team_b, rule_text="Team B rule", repository="org/b", priority=0)
+
+        team_a_rules = list(RepoRoutingRule.objects.filter(team=self.team_a))
+        assert len(team_a_rules) == 1
+        assert team_a_rules[0].rule_text == "Team A rule"
