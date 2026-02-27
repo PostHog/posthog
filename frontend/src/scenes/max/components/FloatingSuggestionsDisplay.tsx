@@ -80,7 +80,7 @@ export function FloatingSuggestionsDisplay({
                 <Tooltip
                     title={
                         !dataProcessingAccepted
-                            ? dataProcessingApprovalDisabledReason || 'Please accept OpenAI processing data'
+                            ? dataProcessingApprovalDisabledReason || 'Please accept AI data processing'
                             : undefined
                     }
                 >
