@@ -1,4 +1,5 @@
 import time
+import uuid
 from collections.abc import Callable
 from typing import Optional, TypeVar
 
@@ -46,9 +47,9 @@ class QueryCoalescer:
     In dry-run mode, followers emit metrics but execute independently (no waiting).
     """
 
-    def __init__(self, cache_key: str, query_id: str, *, dry_run: bool = False):
+    def __init__(self, cache_key: str, query_id: Optional[str] = None, *, dry_run: bool = False):
         self.cache_key = cache_key
-        self.query_id = query_id
+        self.query_id = query_id or uuid.uuid4().hex
         self.dry_run = dry_run
         self._lock_value: str = ""
         self._is_leader: bool = False
