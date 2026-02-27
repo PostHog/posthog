@@ -602,6 +602,8 @@ public:
     antlr4::tree::TerminalNode *ALL();
     antlr4::tree::TerminalNode *UNION();
     antlr4::tree::TerminalNode *DISTINCT();
+    antlr4::tree::TerminalNode *BY();
+    IdentifierContext *identifier();
     antlr4::tree::TerminalNode *INTERSECT();
 
 

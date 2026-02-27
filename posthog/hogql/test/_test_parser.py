@@ -1533,6 +1533,30 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_union_by_name(self):
+            self.assertEqual(
+                self._select("select 1 as a, 2 as b union by name select 3 as b, 4 as a"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(
+                        select=[
+                            ast.Alias(alias="a", expr=ast.Constant(value=1)),
+                            ast.Alias(alias="b", expr=ast.Constant(value=2)),
+                        ]
+                    ),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            set_operator="UNION BY NAME",
+                            select_query=ast.SelectQuery(
+                                select=[
+                                    ast.Alias(alias="b", expr=ast.Constant(value=3)),
+                                    ast.Alias(alias="a", expr=ast.Constant(value=4)),
+                                ]
+                            ),
+                        )
+                    ],
+                ),
+            )
+
         def test_nested_selects(self):
             self.assertEqual(
                 self._select("(select 1 intersect select 2) union all (select 3 except select 4)"),
