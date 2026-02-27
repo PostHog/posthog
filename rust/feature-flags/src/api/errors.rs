@@ -520,10 +520,19 @@ impl IntoResponse for FlagError {
             }
             FlagError::PersonhogError { ref code, ref message } => {
                 tracing::error!("Personhog service error ({}): {}", code, message);
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Person data service is currently unavailable. Please try again later.".to_string(),
-                )
+                match code {
+                    tonic::Code::Unavailable
+                    | tonic::Code::DeadlineExceeded
+                    | tonic::Code::ResourceExhausted
+                    | tonic::Code::Aborted => (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Person data service is currently unavailable. Please try again later.".to_string(),
+                    ),
+                    _ => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "An internal error occurred while fetching person data. Please try again later.".to_string(),
+                    ),
+                }
             }
             FlagError::CookielessError(err) => {
                 match err {
