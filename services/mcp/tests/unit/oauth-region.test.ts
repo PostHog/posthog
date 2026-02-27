@@ -30,24 +30,8 @@ describe('OAuth Region Routing', () => {
     })
 
     describe('getAuthorizationServerUrl', () => {
-        it('returns EU URL when region is eu', () => {
-            expect(getAuthorizationServerUrl('eu')).toBe('https://eu.posthog.com')
-        })
-
-        it('returns EU URL when region is EU (case insensitive)', () => {
-            expect(getAuthorizationServerUrl('EU')).toBe('https://eu.posthog.com')
-        })
-
-        it('returns US URL when region is us', () => {
-            expect(getAuthorizationServerUrl('us')).toBe('https://us.posthog.com')
-        })
-
-        it('returns US URL when region is null', () => {
-            expect(getAuthorizationServerUrl(null)).toBe('https://us.posthog.com')
-        })
-
-        it('returns US URL for unknown region', () => {
-            expect(getAuthorizationServerUrl('unknown')).toBe('https://us.posthog.com')
+        it('returns oauth proxy URL', () => {
+            expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
         })
     })
 
