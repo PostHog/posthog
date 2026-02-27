@@ -18706,17 +18706,17 @@
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
                 },
-                "totalCost": {
-                    "type": "number"
-                },
-                "totalLatency": {
-                    "type": "number"
-                },
                 "tools": {
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "totalCost": {
+                    "type": "number"
+                },
+                "totalLatency": {
+                    "type": "number"
                 },
                 "traceName": {
                     "type": "string"
