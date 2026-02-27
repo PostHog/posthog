@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { USER_AGENT } from '@/lib/constants'
+import { getUserAgent } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import {
@@ -125,6 +125,7 @@ export type Result<T, E = Error> = { success: true; data: T } | { success: false
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
+    clientIdentifier?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -154,7 +155,7 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchWithSchema` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': USER_AGENT,
+            'User-Agent': getUserAgent(this.config.clientIdentifier),
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'

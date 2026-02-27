@@ -314,7 +314,17 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     events(({ actions, values, props }) => ({
         afterMount: () => {
-            if (props.experiment || values.experiment.id !== 'new') {
+            // When opened with an existing experiment (e.g. revisiting an
+            // incomplete draft), always sync the reducer to the prop value.
+            // This handles the case where a kea logic instance is reused
+            // across re-renders — the reducer's initial value was captured
+            // at first mount and won't reflect newer props without this.
+            if (props.experiment) {
+                actions.setExperiment(props.experiment)
+                return
+            }
+
+            if (values.experiment.id !== 'new') {
                 return
             }
 
