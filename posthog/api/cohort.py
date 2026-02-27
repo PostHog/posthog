@@ -12,7 +12,6 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
-from dateutil import parser as date_parser
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
@@ -74,7 +73,7 @@ from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.queries.actor_base_query import get_serialized_people
-from posthog.queries.base import property_group_to_Q, relative_date_parse_for_feature_flag_matching
+from posthog.queries.base import determine_parsed_date_for_property_matching, property_group_to_Q
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
@@ -232,31 +231,9 @@ class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
 
 
 # Date operators that require date value validation
-DATE_OPERATORS = ("is_date_after", "is_date_before", "is_date_exact")
-
-
-def is_valid_date_value(value: Any) -> bool:
-    """
-    Validate that a value can be parsed as a date for date operators.
-    Accepts:
-    - Relative date strings: -7d, 30d, -1w, -1m, -1y, -1h, etc. (with overflow protection)
-    - ISO 8601 date/datetime strings: 2024-01-15, 2024-01-15T10:30:00Z, etc.
-    """
-    if value is None:
-        return False
-
-    str_value = str(value)
-
-    # Check relative date format using existing utility (includes overflow protection)
-    if relative_date_parse_for_feature_flag_matching(str_value) is not None:
-        return True
-
-    # Try parsing as a date/datetime
-    try:
-        date_parser.parse(str_value)
-        return True
-    except (ValueError, TypeError):
-        return False
+# Note: is_date_exact is not yet supported (see posthog/models/property/util.py)
+# Keep in sync with OperatorType in posthog/models/property/property.py
+DATE_OPERATORS = ("is_date_after", "is_date_before")
 
 
 class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
@@ -282,9 +259,13 @@ class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
         if missing:
             raise ValueError(f"Missing required keys for person filter: {', '.join(missing)}")
 
-        # Validate date values for date operators
+        return self
+
+    @model_validator(mode="after")
+    def _validate_date_value(self):
         if self.operator in DATE_OPERATORS and self.value is not None:
-            if not is_valid_date_value(self.value):
+            parsed_date = determine_parsed_date_for_property_matching(self.value)
+            if not parsed_date:
                 raise ValueError(
                     f"Invalid date value '{self.value}' for operator '{self.operator}'. "
                     f"Expected a relative date (e.g., '-7d', '30d') or an ISO 8601 date (e.g., '2024-01-15')."
