@@ -158,7 +158,7 @@ function ErrorTrackingAlertingInner(): JSX.Element {
                 })
             }}
             onEditHogFunction={(hogFunction) => {
-                posthog.capture('error_tracking_alert_edited', {
+                posthog.capture('error_tracking_alert_edit_clicked', {
                     hog_function_id: hogFunction.id,
                 })
             }}
