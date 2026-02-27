@@ -87,6 +87,10 @@ export class BatchExportHogFunctionService {
 
         const result = await this.hogExecutor.executeWithAsyncFunctions(invocation)
 
+        // TODO: Follow up - we might want to more accuratelt link an execution to the fact it came from a batch export
+        // We have the parent_id but that overrides the function id which is not always what we want
+        // Likely after v0 we will want to add an extra field or concept depending on whether it is a backfill vs a standard run
+
         await this.hogFunctionMonitoringService.queueInvocationResults([result])
         void this.promiseScheduler.schedule(
             Promise.all([this.hogFunctionMonitoringService.flush(), this.hogWatcher.observeResultsBuffered(result)])
