@@ -507,9 +507,9 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         displayFormatter: (toolCall) => {
             const widgetDef = toolCall.args?.recordings_filters
                 ? ({
-                    widget: 'recordings',
-                    args: toolCall.args.recordings_filters as RecordingUniversalFilters,
-                } as const)
+                      widget: 'recordings',
+                      args: toolCall.args.recordings_filters as RecordingUniversalFilters,
+                  } as const)
                 : null
             if (toolCall.status === 'completed') {
                 return ['Filtered recordings', widgetDef]
