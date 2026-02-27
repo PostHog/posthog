@@ -710,17 +710,6 @@ class BigQueryClient:
 
         self.logger.info("Waiting for BigQuery load job", format=format, table_id=table.name)
 
-        result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
-
-        return result
-
-    def _run_load_job(self, file, bq_table, job_config):
-        """Run a BigQuery LoadJob and return its result.
-
-        This method blocks and should only be run on an executor.
-
-        Ensures we retry on transient ``TooManyRequests`` errors.
-        """
         initial_retry = 1
         backoff_factor = 2
         max_retry = 32
@@ -728,16 +717,7 @@ class BigQueryClient:
 
         while True:
             try:
-                load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-                result = load_job.result()
-            except Forbidden as err:
-                if err.reason == "quotaExceeded":
-                    self.external_logger.exception(
-                        "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
-                    )
-                    raise BigQueryQuotaExceededError(err.message) from err
-
-                raise
+                result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
             except (TooManyRequests, ServiceUnavailable, GatewayTimeout, InternalServerError) as err:
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
                 self.logger.exception(
@@ -755,10 +735,31 @@ class BigQueryClient:
                     backoff=backoff,
                     error_code=err.code,
                 )
-                time.sleep(backoff)
+
+                await asyncio.sleep(backoff)
                 attempt += 1
+
             else:
                 return result
+
+    def _run_load_job(self, file, bq_table, job_config):
+        """Run a BigQuery LoadJob and return its result.
+
+        This method blocks and should only be run on an executor.
+        """
+        try:
+            load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
+            result = load_job.result()
+        except Forbidden as err:
+            if err.reason == "quotaExceeded":
+                self.external_logger.exception(
+                    "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
+                )
+                raise BigQueryQuotaExceededError(err.message) from err
+
+            raise
+        else:
+            return result
 
 
 class MissingRequiredPermissionsError(Exception):

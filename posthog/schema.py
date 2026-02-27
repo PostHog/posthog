@@ -18210,6 +18210,13 @@ class EndpointRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bucket_overrides: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Per-column bucket function overrides for range variable materialization."
+            " Keys are column names, values are bucket keys (hour, day, week, month)."
+        ),
+    )
     cache_age_seconds: float | None = None
     derived_from_insight: str | None = None
     description: str | None = None
