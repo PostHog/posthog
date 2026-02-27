@@ -53,6 +53,9 @@ pub trait GlobalRateLimiter: Send + Sync {
         timestamp: Option<DateTime<Utc>>,
     ) -> EvalResult;
 
+    /// Returns true if the key is registered in the custom_keys map
+    fn is_custom_key(&self, key: &str) -> bool;
+
     /// Close the update channel and flush remaining update records to global cache
     fn shutdown(&mut self);
 }
@@ -68,8 +71,6 @@ pub struct GlobalRateLimiterConfig {
     /// Time bucket granularity (e.g., 10 seconds) - keys seen are accumulated into this
     /// granularity of time interval, and evaluated over window_interval for rate limiting
     pub bucket_interval: Duration,
-    /// The interval over which a key will be rate limited if it exceeds the threshold
-    pub rate_limit_interval: Duration,
     /// Redis key prefix (not including final separator)
     pub redis_key_prefix: String,
     /// How long to cache globally before refreshing from Redis
@@ -98,10 +99,9 @@ pub struct GlobalRateLimiterConfig {
 impl Default for GlobalRateLimiterConfig {
     fn default() -> Self {
         Self {
-            global_threshold: 100_000,
+            global_threshold: 1_000_000,
             window_interval: Duration::from_secs(60),
-            bucket_interval: Duration::from_secs(10),
-            rate_limit_interval: Duration::from_secs(60),
+            bucket_interval: Duration::from_secs(20),
             redis_key_prefix: "@posthog/global_rate_limiter".to_string(),
             // 10 minutes - long enough to benefit from hot cache under high cardinality
             local_cache_ttl: Duration::from_secs(600),
@@ -227,6 +227,8 @@ pub struct GlobalRateLimitResponse {
     pub window_interval: Duration,
     /// Rate at which the sliding window will be updated
     pub update_interval: Duration,
+    /// Whether this limit was applied via a custom key override
+    pub is_custom_limited: bool,
 }
 
 /// Reason for failing open (not enforcing rate limit)
@@ -283,6 +285,10 @@ impl GlobalRateLimiter for GlobalRateLimiterImpl {
     ) -> EvalResult {
         self.check_limit_internal(CheckMode::Custom, key, count, timestamp)
             .await
+    }
+
+    fn is_custom_key(&self, key: &str) -> bool {
+        self.config.custom_keys.contains_key(key)
     }
 
     fn shutdown(&mut self) {
@@ -389,6 +395,7 @@ impl GlobalRateLimiterImpl {
                 window_end: entry.window_end,
                 window_interval: self.config.window_interval,
                 update_interval: self.config.bucket_interval,
+                is_custom_limited: mode == CheckMode::Custom,
             })
         } else {
             metrics::counter!(
@@ -549,10 +556,12 @@ impl GlobalRateLimiterImpl {
             })
             .sum();
 
-        // expires_at = timestamp + (bucket_interval / 2)
-        let half_bucket =
-            chrono::Duration::milliseconds(self.config.bucket_interval.as_millis() as i64 / 2);
-        let expires_at = timestamp + half_bucket;
+        // Refresh from Redis at most once per bucket interval — the read window
+        // only includes completed buckets so more frequent checks add overhead
+        // without improving accuracy.
+        let staleness =
+            chrono::Duration::milliseconds(self.config.bucket_interval.as_millis() as i64);
+        let expires_at = timestamp + staleness;
 
         Ok(CacheEntry {
             count,
@@ -704,7 +713,6 @@ mod tests {
             global_threshold: 10,
             window_interval: Duration::from_secs(60),
             bucket_interval: Duration::from_secs(10),
-            rate_limit_interval: Duration::from_secs(60),
             redis_key_prefix: "test:".to_string(),
             global_cache_ttl: Duration::from_secs(300),
             local_cache_ttl: Duration::from_secs(1),
@@ -918,6 +926,7 @@ mod tests {
         assert_eq!(response.window_interval, Duration::from_secs(60));
         // update_interval is bucket_interval (rate at which window updates)
         assert_eq!(response.update_interval, Duration::from_secs(10));
+        assert!(!response.is_custom_limited);
     }
 
     #[tokio::test]
@@ -1021,9 +1030,9 @@ mod tests {
     #[test]
     fn test_config_defaults() {
         let config = GlobalRateLimiterConfig::default();
-        assert_eq!(config.global_threshold, 100_000);
+        assert_eq!(config.global_threshold, 1_000_000);
         assert_eq!(config.window_interval, Duration::from_secs(60));
-        assert_eq!(config.bucket_interval, Duration::from_secs(10));
+        assert_eq!(config.bucket_interval, Duration::from_secs(20));
         assert_eq!(config.redis_key_prefix, "@posthog/global_rate_limiter");
         assert_eq!(config.global_cache_ttl, Duration::from_secs(300));
         assert_eq!(config.local_cache_ttl, Duration::from_secs(600));
@@ -1080,10 +1089,11 @@ mod tests {
         // count 5 >= limit 5, should be limited
         let result = limiter.check_custom_limit("custom_key", 1, None).await;
 
-        assert!(
-            matches!(result, EvalResult::Limited(_)),
-            "Should be Limited when reaching custom limit, got {result:?}"
-        );
+        let response = match result {
+            EvalResult::Limited(r) => r,
+            other => panic!("Should be Limited when reaching custom limit, got {other:?}"),
+        };
+        assert!(response.is_custom_limited);
     }
 
     #[tokio::test]
@@ -1115,6 +1125,29 @@ mod tests {
             matches!(result, EvalResult::Allowed),
             "Should return Allowed when under custom limit, got {result:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_is_custom_key() {
+        let client = Arc::new(MockRedisClient::new()) as Arc<dyn Client + Send + Sync>;
+        let mut config = test_config();
+        config.custom_keys.insert("registered".to_string(), 42);
+
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        assert!(limiter.is_custom_key("registered"));
+        assert!(!limiter.is_custom_key("unknown"));
+        assert!(!limiter.is_custom_key(""));
+    }
+
+    #[tokio::test]
+    async fn test_is_custom_key_empty_map() {
+        let client = Arc::new(MockRedisClient::new()) as Arc<dyn Client + Send + Sync>;
+        let config = test_config();
+
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        assert!(!limiter.is_custom_key("anything"));
     }
 
     #[tokio::test]

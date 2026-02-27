@@ -27,7 +27,7 @@ from posthog.rate_limit import LLMAnalyticsSentimentBurstThrottle, LLMAnalyticsS
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.sentiment.constants import (
     BATCH_MAX_TRACE_IDS,
-    CACHE_TTL,
+    CACHE_KEY_PREFIX,
     MAX_RETRY_ATTEMPTS,
     WORKFLOW_NAME,
     WORKFLOW_TIMEOUT_BATCH_SECONDS,
@@ -87,7 +87,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     ]
 
     def _get_cache_key(self, trace_id: str) -> str:
-        return f"llm_sentiment:{self.team_id}:{trace_id}"
+        return f"{CACHE_KEY_PREFIX}:{self.team_id}:{trace_id}"
 
     def _execute_workflow(
         self,
@@ -109,7 +109,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 WORKFLOW_NAME,
                 workflow_input,
                 id=workflow_id,
-                task_queue=settings.LLMA_TASK_QUEUE,
+                task_queue=settings.LLMA_SENTIMENT_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 retry_policy=RetryPolicy(maximum_attempts=MAX_RETRY_ATTEMPTS),
                 task_timeout=timedelta(seconds=WORKFLOW_TIMEOUT_BATCH_SECONDS),
@@ -163,17 +163,12 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     date_to=date_to,
                 )
 
-                to_cache: dict[str, dict] = {}
                 for tid in misses:
                     trace_result = batch_results.get(tid)
                     if trace_result:
                         results[tid] = trace_result
-                        to_cache[self._get_cache_key(tid)] = trace_result
                     else:
                         results[tid] = {"error": "Failed to compute sentiment"}
-
-                if to_cache:
-                    cache.set_many(to_cache, timeout=CACHE_TTL)
 
             except Exception as e:
                 logger.exception(

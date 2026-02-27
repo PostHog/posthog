@@ -366,7 +366,8 @@
                 "survey",
                 "onboarding",
                 "research",
-                "flags"
+                "flags",
+                "llm_analytics"
             ],
             "type": "string"
         },
@@ -1998,8 +1999,10 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
+                "upsert_alert",
                 "finalize_plan",
-                "recommend_products"
+                "recommend_products",
+                "search_llm_traces"
             ],
             "type": "string"
         },
@@ -2134,6 +2137,10 @@
         "AssistantTrendsDisplayType": {
             "anyOf": [
                 {
+                    "const": "Auto",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsLineGraph",
                     "type": "string"
                 },
@@ -2261,6 +2268,7 @@
                     "default": "ActionsLineGraph",
                     "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
+                        "Auto",
                         "ActionsLineGraph",
                         "ActionsBar",
                         "ActionsUnstackedBar",
@@ -8048,6 +8056,7 @@
         },
         "ChartDisplayType": {
             "enum": [
+                "Auto",
                 "ActionsLineGraph",
                 "ActionsBar",
                 "ActionsUnstackedBar",
@@ -11896,6 +11905,13 @@
         "EndpointRequest": {
             "additionalProperties": false,
             "properties": {
+                "bucket_overrides": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
+                    "type": "object"
+                },
                 "cache_age_seconds": {
                     "type": "number"
                 },
@@ -11955,6 +11971,10 @@
                 "limit": {
                     "$ref": "#/definitions/integer",
                     "description": "Maximum number of results to return. If not provided, returns all results."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
                 },
                 "refresh": {
                     "$ref": "#/definitions/EndpointRefreshMode",
@@ -16422,7 +16442,7 @@
             "type": "array"
         },
         "FunnelVizType": {
-            "enum": ["steps", "time_to_convert", "trends"],
+            "enum": ["steps", "time_to_convert", "trends", "flow"],
             "type": "string"
         },
         "FunnelsActorsQuery": {
@@ -17192,56 +17212,6 @@
         "HogLanguage": {
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
             "type": "string"
-        },
-        "HogQLASTQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "explain": {
-                    "deprecated": "use modifiers.debug instead",
-                    "type": "boolean"
-                },
-                "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
-                },
-                "kind": {
-                    "const": "HogQLASTQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "name": {
-                    "description": "Client provided name of the query",
-                    "type": "string"
-                },
-                "query": {
-                    "type": "object"
-                },
-                "response": {
-                    "$ref": "#/definitions/HogQLQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "values": {
-                    "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
-                    "type": "object"
-                },
-                "variables": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/HogQLVariable"
-                    },
-                    "description": "Variables to be substituted into the query",
-                    "type": "object"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "query"],
-            "type": "object"
         },
         "HogQLAutocomplete": {
             "additionalProperties": false,
@@ -18690,7 +18660,8 @@
                 "vercel",
                 "azure-blob",
                 "firebase",
-                "jira"
+                "jira",
+                "pinterest-ads"
             ],
             "type": "string"
         },
@@ -19701,7 +19672,8 @@
                 "CTR",
                 "Reported Conversion",
                 "Reported Conversion Value",
-                "Reported ROAS"
+                "Reported ROAS",
+                "Cost per Reported Conversion"
             ],
             "type": "string"
         },
@@ -21499,6 +21471,7 @@
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
                 },
+                "result": {},
                 "type": {
                     "const": "insight",
                     "type": "string"
@@ -21966,7 +21939,6 @@
                 "PersonsNode",
                 "HogQuery",
                 "HogQLQuery",
-                "HogQLASTQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
                 "ActorsQuery",
@@ -22794,57 +22766,6 @@
         "PlanningStepStatus": {
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
-        },
-        "PlaywrightWorkspaceSetupData": {
-            "additionalProperties": false,
-            "properties": {
-                "organization_name": {
-                    "type": "string"
-                },
-                "skip_onboarding": {
-                    "type": "boolean"
-                },
-                "use_current_time": {
-                    "type": "boolean"
-                }
-            },
-            "type": "object"
-        },
-        "PlaywrightWorkspaceSetupResult": {
-            "additionalProperties": false,
-            "properties": {
-                "organization_id": {
-                    "type": "string"
-                },
-                "organization_name": {
-                    "type": "string"
-                },
-                "personal_api_key": {
-                    "type": "string"
-                },
-                "team_id": {
-                    "type": "string"
-                },
-                "team_name": {
-                    "type": "string"
-                },
-                "user_email": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "organization_id",
-                "team_id",
-                "organization_name",
-                "team_name",
-                "user_id",
-                "user_email",
-                "personal_api_key"
-            ],
-            "type": "object"
         },
         "ProductAnalyticsInsightQueryNode": {
             "anyOf": [
@@ -27729,9 +27650,6 @@
                     "$ref": "#/definitions/HogQLAutocomplete"
                 },
                 {
-                    "$ref": "#/definitions/HogQLASTQuery"
-                },
-                {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
@@ -32151,38 +32069,6 @@
                 "results",
                 "timezone"
             ],
-            "type": "object"
-        },
-        "TestSetupRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "data": {
-                    "type": "object"
-                }
-            },
-            "type": "object"
-        },
-        "TestSetupResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "available_tests": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "error": {
-                    "type": "string"
-                },
-                "result": {},
-                "success": {
-                    "type": "boolean"
-                },
-                "test_name": {
-                    "type": "string"
-                }
-            },
-            "required": ["success", "test_name"],
             "type": "object"
         },
         "TikTokAdsDefaultSources": {

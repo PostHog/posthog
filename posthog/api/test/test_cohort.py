@@ -3101,6 +3101,113 @@ email@example.org,
         self.assertEqual(response.status_code, 201)
         self.assertNotEqual(response.json()["id"], None)
 
+    @parameterized.expand(
+        [
+            ("is_date_after", "garbage"),
+            ("is_date_before", "garbage"),
+            ("is_date_after", "-99999d"),  # Overflow - numbers >= 10,000 are rejected
+            ("is_date_before", "10000d"),  # Overflow - exactly 10,000 is rejected
+            ("is_date_after", ""),  # Empty string
+            ("is_date_before", "9999999999"),  # Very large numeric string causes OverflowError
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_date_operator_invalid_value(self, operator, value, patch_capture):
+        # Test that date operators reject invalid date values
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort with invalid date",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "created_at",
+                                "type": "person",
+                                "operator": operator,
+                                "value": value,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid date value", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("is_date_after", "-7d"),  # Relative date
+            ("is_date_after", "30d"),  # Relative date without minus
+            ("is_date_before", "-1w"),  # Relative date weeks
+            ("is_date_before", "-1m"),  # Relative date months
+            ("is_date_after", "-1y"),  # Relative date years
+            ("is_date_after", "-24h"),  # Relative date hours
+            ("is_date_after", "9999d"),  # Boundary: 9999 is valid (10000 is rejected)
+            ("is_date_after", "2024-01-15"),  # ISO date
+            ("is_date_before", "2024-01-15T10:30:00Z"),  # ISO datetime
+            ("is_date_after", "2024-01-15T10:30:00+00:00"),  # ISO datetime with timezone
+            ("is_date_after", "January 15, 2024"),  # Human readable date
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_date_operator_valid_value(self, operator, value, patch_capture):
+        # Test that date operators accept valid date values
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": f"cohort with valid date {operator} {value}",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "created_at",
+                                "type": "person",
+                                "operator": operator,
+                                "value": value,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertNotEqual(response.json()["id"], None)
+
+    @parameterized.expand(
+        [
+            ("exact", "garbage"),  # Non-date operator accepts any string
+            ("icontains", "not-a-date"),  # Non-date operator accepts any string
+            ("regex", ".*"),  # Non-date operator accepts any string
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_non_date_operator_accepts_any_value(self, operator, value, patch_capture):
+        # Regression test: non-date operators should still accept non-date values
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": f"cohort with {operator} operator",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "some_prop",
+                                "type": "person",
+                                "operator": operator,
+                                "value": value,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertNotEqual(response.json()["id"], None)
+
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_cohort_filter(self, patch_capture):
         # First create a cohort to reference

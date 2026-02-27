@@ -12,6 +12,8 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
 from posthog.models.event.util import create_event
@@ -87,7 +89,13 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         self._create_ai_events(self.team, distinct_id, "$ai_trace", 2)
         self._create_ai_events(self.team, distinct_id, "$ai_metric", 1)
         self._create_ai_events(self.team, distinct_id, "$ai_feedback", 4)
-        self._create_ai_events(self.team, distinct_id, "$ai_evaluation", 6)
+        self._create_ai_events(
+            self.team, distinct_id, "$ai_evaluation", 3, properties={"$ai_evaluation_key_type": "posthog"}
+        )
+        self._create_ai_events(
+            self.team, distinct_id, "$ai_evaluation", 2, properties={"$ai_evaluation_key_type": "byok"}
+        )
+        self._create_ai_events(self.team, distinct_id, "$ai_evaluation", 1)
         # Create events with cost and token properties
         self._create_ai_events(
             self.team,
@@ -127,6 +135,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert metrics.ai_metric_count == 1
         assert metrics.ai_feedback_count == 4
         assert metrics.ai_evaluation_count == 6
+        assert metrics.ai_trial_evaluation_count == 3
 
         # Verify cost metrics (3 events with costs)
         assert metrics.total_cost == pytest.approx(0.045, rel=1e-6)  # 3 * 0.015
@@ -366,7 +375,12 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
 
         # Create comprehensive AI events for team 1
         self._create_ai_events(self.team, distinct_id_1, "$ai_generation", 10)
-        self._create_ai_events(self.team, distinct_id_1, "$ai_evaluation", 5)
+        self._create_ai_events(
+            self.team, distinct_id_1, "$ai_evaluation", 3, properties={"$ai_evaluation_key_type": "posthog"}
+        )
+        self._create_ai_events(
+            self.team, distinct_id_1, "$ai_evaluation", 2, properties={"$ai_evaluation_key_type": "byok"}
+        )
         self._create_ai_events(
             self.team,
             distinct_id_1,
@@ -432,6 +446,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_1_report["organization_name"] == self.organization.name
         assert org_1_report["ai_generation_count"] == 13  # 10 + 3
         assert org_1_report["ai_evaluation_count"] == 5
+        assert org_1_report["ai_trial_evaluation_count"] == 3
         assert org_1_report["llm_prompt_fetched_count"] == 4
         assert org_1_report["total_ai_cost_usd"] == pytest.approx(0.150, rel=1e-6)  # 3 * 0.050
         assert org_1_report["input_cost_usd"] == pytest.approx(0.060, rel=1e-6)  # 3 * 0.020
@@ -547,8 +562,12 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         # Create events for both teams
         self._create_ai_events(self.team, distinct_id_1, "$ai_generation", 10)
         self._create_ai_events(team_2, distinct_id_2, "$ai_generation", 5)
-        self._create_ai_events(self.team, distinct_id_1, "$ai_evaluation", 3)
-        self._create_ai_events(team_2, distinct_id_2, "$ai_evaluation", 2)
+        self._create_ai_events(
+            self.team, distinct_id_1, "$ai_evaluation", 3, properties={"$ai_evaluation_key_type": "posthog"}
+        )
+        self._create_ai_events(
+            team_2, distinct_id_2, "$ai_evaluation", 2, properties={"$ai_evaluation_key_type": "posthog"}
+        )
 
         # Generate reports
         org_reports = _get_all_llm_analytics_reports(period_start, period_end)
@@ -560,6 +579,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         # Counts should be aggregated across both teams
         assert org_report["ai_generation_count"] == 15  # 10 + 5
         assert org_report["ai_evaluation_count"] == 5  # 3 + 2
+        assert org_report["ai_trial_evaluation_count"] == 5  # 3 + 2
 
     def test_dimension_breakdown_aggregation_across_teams(self) -> None:
         """Test that dimension breakdowns are correctly aggregated across teams in the same org."""
@@ -929,3 +949,46 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         report_dict = call_args[1]["report_dict"]
         assert report_dict["ai_generation_count"] == 5
         assert report_dict["ai_embedding_count"] == 0  # Jan 9th events not included
+
+    @parameterized.expand(
+        [
+            ("mixed", 5, 3, 2, 5),
+            ("only_byok", 0, 4, 0, 0),
+            ("only_posthog", 3, 0, 0, 3),
+            ("no_key_type", 0, 0, 5, 0),
+        ],
+    )
+    def test_trial_evaluation_count(
+        self, _name: str, posthog_count: int, byok_count: int, no_key_count: int, expected: int
+    ) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+
+        if posthog_count:
+            self._create_ai_events(
+                self.team,
+                distinct_id,
+                "$ai_evaluation",
+                posthog_count,
+                properties={"$ai_evaluation_key_type": "posthog"},
+            )
+        if byok_count:
+            self._create_ai_events(
+                self.team,
+                distinct_id,
+                "$ai_evaluation",
+                byok_count,
+                properties={"$ai_evaluation_key_type": "byok"},
+            )
+        if no_key_count:
+            self._create_ai_events(self.team, distinct_id, "$ai_evaluation", no_key_count)
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+
+        total = posthog_count + byok_count + no_key_count
+        metrics = all_metrics[self.team.id]
+        assert metrics.ai_evaluation_count == total
+        assert metrics.ai_trial_evaluation_count == expected

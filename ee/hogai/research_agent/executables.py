@@ -49,8 +49,7 @@ class ResearchAgentToolsExecutable(PlanModeToolsExecutable):
     def transition_supermode(self) -> AgentMode:
         return AgentMode.RESEARCH
 
-    @property
-    def transition_prompt(self) -> str:
+    async def get_transition_prompt(self) -> str:
         return SWITCH_TO_RESEARCH_MODE_PROMPT
 
     def _should_transition(self, state: AssistantState, result: PartialAssistantState) -> bool:

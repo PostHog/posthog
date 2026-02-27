@@ -1,10 +1,9 @@
 import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
-import { BuiltLogic, useMountedLogic, useValues } from 'kea'
+import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
-import { VimMode, initVimMode } from 'monaco-vim'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -18,6 +17,7 @@ import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
+import { setupVimMode } from 'lib/monaco/vimMode'
 import { inStorybookTestRunner } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -148,7 +148,7 @@ export function CodeEditor({
     // Keep a ref to the editor for cleanup - ensures we can dispose it even if state is stale
     const editorRef = useRef<importedEditor.IStandaloneCodeEditor | null>(null)
 
-    const vimModeRef = useRef<VimMode | null>(null)
+    const vimModeRef = useRef<{ dispose: () => void } | null>(null)
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
 
     const [realKey] = useState(() => codeEditorIndex++)
@@ -166,6 +166,9 @@ export function CodeEditor({
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
+
+    const { vimCommandHistory } = useValues(builtCodeEditorLogic)
+    const { appendVimCommand } = useActions(builtCodeEditorLogic)
 
     const { isVisible } = usePageVisibility()
 
@@ -248,7 +251,10 @@ export function CodeEditor({
         }
 
         if (enableVimMode && vimStatusBarRef.current) {
-            vimModeRef.current = initVimMode(editor, vimStatusBarRef.current)
+            vimModeRef.current = setupVimMode(editor, vimStatusBarRef.current, {
+                initialHistory: vimCommandHistory,
+                onCommandExecuted: appendVimCommand,
+            })
         } else if (vimModeRef.current) {
             vimModeRef.current.dispose()
             vimModeRef.current = null
