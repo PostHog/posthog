@@ -135,7 +135,7 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal, org
 
     workflow = wait_for_workflow_in_status(
         temporal,
-        workflow_id=batch_export_backfill["backfill_id"],
+        workflow_id=batch_export_backfill["backfill_workflow_id"],
         status=temporalio.client.WorkflowExecutionStatus.CANCELED,
     )
     assert workflow.status == temporalio.client.WorkflowExecutionStatus.CANCELED

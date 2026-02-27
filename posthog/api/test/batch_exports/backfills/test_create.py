@@ -127,7 +127,7 @@ def test_batch_export_backfill_for_daily_schedule(
     expected_workflow_id = _get_expected_backfill_workflow_id(
         batch_export_id, "2026-01-01", "2026-01-02", timezone, offset_hour
     )
-    assert response.json()["backfill_id"] == expected_workflow_id
+    assert response.json()["backfill_workflow_id"] == expected_workflow_id
 
 
 def test_batch_export_backfill_for_daily_schedule_with_datetime_strings_fails(
@@ -199,7 +199,7 @@ def test_batch_export_backfill_for_weekly_schedule(
     expected_workflow_id = _get_expected_backfill_workflow_id(
         batch_export_id, start_date, end_date, timezone, offset_hour
     )
-    assert response.json()["backfill_id"] == expected_workflow_id
+    assert response.json()["backfill_workflow_id"] == expected_workflow_id
 
 
 def test_batch_export_backfill_for_weekly_schedule_with_datetime_strings_fails(
@@ -414,7 +414,10 @@ def test_batch_export_backfill_created_in_timezone(client: HttpClient, temporal,
     data = response.json()
 
     assert response.status_code == status.HTTP_200_OK, data
-    assert data["backfill_id"] == f"{batch_export_id}-Backfill-2021-01-01T05:00:00+00:00-2021-10-01T04:00:00+00:00"
+    assert (
+        data["backfill_workflow_id"]
+        == f"{batch_export_id}-Backfill-2021-01-01T05:00:00+00:00-2021-10-01T04:00:00+00:00"
+    )
 
 
 def test_batch_export_earliest_backfill_rejected_without_feature_flag(
@@ -464,4 +467,4 @@ def test_batch_export_earliest_backfill_allowed_with_feature_flag(
             "2021-01-01T01:00:00+00:00",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert "backfill_id" in response.json()
+        assert "backfill_workflow_id" in response.json()
