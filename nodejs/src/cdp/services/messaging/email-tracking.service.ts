@@ -173,7 +173,7 @@ export class EmailTrackingService {
 
         const rateBreach =
             sends >= MIN_SENDS_FOR_RATE_CHECK &&
-            (bounceRate > BOUNCE_RATE_THRESHOLD || complaintRate > COMPLAINT_RATE_THRESHOLD)
+            (bounceRate >= BOUNCE_RATE_THRESHOLD || complaintRate >= COMPLAINT_RATE_THRESHOLD)
 
         if (!rateBreach) {
             return
