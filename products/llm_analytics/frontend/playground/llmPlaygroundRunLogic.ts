@@ -8,9 +8,10 @@ import { uuid } from 'lib/utils'
 
 import type { ModelOption } from '../byokModelPickerLogic'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { llmPlaygroundModelLogic, resolveProviderKeyForPrompt } from './llmPlaygroundModelLogic'
+import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
 import type { llmPlaygroundRunLogicType } from './llmPlaygroundRunLogicType'
+import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
 
 interface ToolCallChunk {
     id?: string
@@ -119,7 +120,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             llmProviderKeysLogic,
             ['providerKeys'],
         ],
-        actions: [llmPlaygroundPromptsLogic, [], llmPlaygroundModelLogic, []],
     })),
 
     actions({
@@ -183,7 +183,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
             const abortController = new AbortController()
             try {
-                const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }: any) => {
+                const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
                     const liveItemId = uuid()
                     let responseUsage: ComparisonItem['usage'] = {}
                     let ttftMs: number | null = null

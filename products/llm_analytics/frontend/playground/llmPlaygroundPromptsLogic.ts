@@ -6,8 +6,8 @@ import { urls } from 'scenes/urls'
 
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { normalizeRole } from '../utils'
-import { isTraceLikeSelection } from './llmPlaygroundModelLogic'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
+import { isTraceLikeSelection } from './playgroundModelMatching'
 
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type ReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | null
