@@ -44,6 +44,8 @@ import {
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
 
+const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
     insight: QueryBasedInsightModel
@@ -140,7 +142,7 @@ function InsightCardInternal(
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { ref: inViewRef, inView } = useInView()
+    const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
     const { isVisible: isPageVisible } = usePageVisibility()
 
     /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
@@ -149,9 +151,9 @@ function InsightCardInternal(
      * We add an extra check to make sure all insights are visible in Storybook.
      */
     const isVisible =
-        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === true
-            ? (inView && isPageVisible) || inStorybook() || inStorybookTestRunner()
-            : true
+        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === false
+            ? true
+            : IS_STORYBOOK || placement === DashboardPlacement.Export || (inView && isPageVisible)
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 

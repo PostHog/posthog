@@ -152,6 +152,16 @@ function ErrorTrackingAlertingInner(): JSX.Element {
         <HogFunctionList
             forceFilterGroups={HOG_FUNCTION_FILTER_LIST}
             type="internal_destination"
+            onDeleteHogFunction={(hogFunction) => {
+                posthog.capture('error_tracking_alert_deleted', {
+                    hog_function_id: hogFunction.id,
+                })
+            }}
+            onEditHogFunction={(hogFunction) => {
+                posthog.capture('error_tracking_alert_edit_clicked', {
+                    hog_function_id: hogFunction.id,
+                })
+            }}
             extraControls={
                 <LemonButton
                     type="primary"
