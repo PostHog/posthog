@@ -6,13 +6,12 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
-import { QUESTION_SUGGESTIONS_DATA, SuggestionGroup, maxLogic } from '../maxLogic'
+import { SuggestionGroup, SuggestionItem, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { checkSuggestionRequiresUserInput, stripSuggestionPlaceholders } from '../utils'
 
 function useSuggestionHandling(): {
     handleSuggestionGroupClick: (group: SuggestionGroup) => void
-    handleSuggestionClick: (suggestion: { content: string }) => void
+    handleSuggestionClick: (suggestion: SuggestionItem) => void
 } {
     const { setQuestion, focusInput, setActiveGroup } = useActions(maxLogic)
     const { askMax } = useActions(maxThreadLogic)
@@ -27,8 +26,8 @@ function useSuggestionHandling(): {
 
         // If there's only one suggestion, we can just ask Max directly
         if (group.suggestions.length <= 1) {
-            if (checkSuggestionRequiresUserInput(group.suggestions[0].content)) {
-                setQuestion(stripSuggestionPlaceholders(group.suggestions[0].content))
+            if (group.suggestions[0].requiresUserInput) {
+                setQuestion(group.suggestions[0].content)
                 focusInput()
             } else {
                 setQuestion(group.suggestions[0].content)
@@ -39,9 +38,9 @@ function useSuggestionHandling(): {
         }
     }
 
-    const handleSuggestionClick = (suggestion: { content: string }): void => {
-        if (checkSuggestionRequiresUserInput(suggestion.content)) {
-            setQuestion(stripSuggestionPlaceholders(suggestion.content))
+    const handleSuggestionClick = (suggestion: SuggestionItem): void => {
+        if (suggestion.requiresUserInput) {
+            setQuestion(suggestion.content)
             focusInput()
         } else {
             setQuestion(suggestion.content)
@@ -58,6 +57,7 @@ function useSuggestionHandling(): {
 
 interface FloatingSuggestionsDisplayProps {
     dataProcessingAccepted: boolean
+    suggestionsData: readonly SuggestionGroup[]
     type?: 'primary' | 'secondary' | 'tertiary'
     additionalSuggestions?: React.ReactNode[]
 }
@@ -65,6 +65,7 @@ interface FloatingSuggestionsDisplayProps {
 export function FloatingSuggestionsDisplay({
     type = 'secondary',
     dataProcessingAccepted,
+    suggestionsData,
     additionalSuggestions,
 }: FloatingSuggestionsDisplayProps): JSX.Element | null {
     const { activeSuggestionGroup } = useValues(maxLogic)
@@ -76,7 +77,7 @@ export function FloatingSuggestionsDisplay({
             <>
                 <Tooltip title={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}>
                     <ul className="flex items-center justify-center flex-wrap gap-1.5">
-                        {QUESTION_SUGGESTIONS_DATA.map((group) => (
+                        {suggestionsData.map((group) => (
                             <li key={group.label}>
                                 <LemonButton
                                     key={group.label}

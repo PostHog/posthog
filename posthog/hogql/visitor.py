@@ -411,6 +411,9 @@ class CloningVisitor(Visitor[Any]):
             name=node.name,
             expr=self.visit(node.expr),
             cte_type=node.cte_type,
+            recursive=node.recursive,
+            materialized=node.materialized,
+            columns=list(node.columns) if node.columns else None,
         )
 
     def visit_alias(self, node: ast.Alias):

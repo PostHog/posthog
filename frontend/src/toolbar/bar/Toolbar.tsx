@@ -29,9 +29,9 @@ import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
 import { AnimatedLogomark } from 'lib/brand/Logomark'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
@@ -40,11 +40,11 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
 import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
-import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
-import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
+import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
@@ -52,7 +52,7 @@ import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
 import { ToolbarButton } from './ToolbarButton'
 
-const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
+const HELP_URL = 'https://posthog.com/docs/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 function EnabledStatusItem({ label, value }: { label: string; value: boolean }): JSX.Element {
     return (

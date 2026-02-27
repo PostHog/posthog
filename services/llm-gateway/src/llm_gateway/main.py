@@ -23,7 +23,11 @@ from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
-from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
+from llm_gateway.rate_limiting.cost_throttles import (
+    ProductCostThrottle,
+    UserCostBurstThrottle,
+    UserCostSustainedThrottle,
+)
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 
@@ -128,19 +132,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
             ProductCostThrottle(redis=app.state.redis),
-            UserCostThrottle(redis=app.state.redis),
+            UserCostBurstThrottle(redis=app.state.redis),
+            UserCostSustainedThrottle(redis=app.state.redis),
         ]
     )
     logger.info("Throttle runner initialized")
 
     logger.info(
-        "product_cost_limits_configured",
-        limits={
+        "rate_limits_configured",
+        product_cost_limits={
             k: {"limit_usd": v.limit_usd, "window_seconds": v.window_seconds}
             for k, v in settings.product_cost_limits.items()
         },
-        default_user_limit_usd=settings.default_user_cost_limit_usd,
-        default_user_window_seconds=settings.default_user_cost_window_seconds,
+        user_cost_limits={
+            k: {
+                "burst_limit_usd": v.burst_limit_usd,
+                "burst_window_seconds": v.burst_window_seconds,
+                "sustained_limit_usd": v.sustained_limit_usd,
+                "sustained_window_seconds": v.sustained_window_seconds,
+            }
+            for k, v in settings.user_cost_limits.items()
+        },
+        user_cost_limits_disabled=settings.user_cost_limits_disabled,
     )
 
     init_callbacks()

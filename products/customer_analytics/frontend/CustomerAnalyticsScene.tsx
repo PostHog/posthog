@@ -12,8 +12,8 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -24,12 +24,12 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
-import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { FeedbackBanner } from './components/FeedbackBanner'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
+import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
 export const scene: SceneExport = {

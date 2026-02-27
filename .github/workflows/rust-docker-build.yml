@@ -63,6 +63,9 @@ jobs:
                     - image: personhog-router
                       dockerfile: ./rust/Dockerfile
                       project: wqvvpmzgbk
+                    - image: kafka-assigner
+                      dockerfile: ./rust/Dockerfile
+                      project: 6kjc85bwm7
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -86,6 +89,7 @@ jobs:
             kafka-deduplicator_digest: ${{ steps.digest.outputs.kafka-deduplicator_digest }}
             personhog-replica_digest: ${{ steps.digest.outputs.personhog-replica_digest }}
             personhog-router_digest: ${{ steps.digest.outputs.personhog-router_digest }}
+            kafka-assigner_digest: ${{ steps.digest.outputs.kafka-assigner_digest }}
         defaults:
             run:
                 working-directory: rust
@@ -250,6 +254,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.personhog-router_digest }}'
+                    - release: kafka-assigner
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.kafka-assigner_digest }}'
         steps:
             - name: get deployer token
               id: deployer

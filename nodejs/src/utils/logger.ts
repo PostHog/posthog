@@ -109,6 +109,13 @@ export class Logger {
 
 export const logger = new Logger(defaultConfig.PLUGIN_SERVER_MODE ?? 'MAIN')
 
+export function serializeError(error: unknown): Record<string, unknown> | unknown {
+    if (error instanceof Error) {
+        return { name: error.name, message: error.message }
+    }
+    return error
+}
+
 export async function shutdownLogger(): Promise<void> {
     await logger.shutdown()
 }

@@ -25,6 +25,7 @@ export type SettingSectionId =
     | 'environment-product-analytics'
     | 'environment-privacy'
     | 'environment-revenue-analytics'
+    | 'environment-llm-analytics'
     | 'environment-marketing-analytics'
     | 'environment-web-analytics'
     | 'environment-replay'
@@ -66,7 +67,8 @@ export type SettingSectionId =
     | 'user-customization'
     | 'user-danger-zone'
     | 'user-feature-previews'
-    | 'mcp-server'
+    | 'posthog-mcp'
+    | 'mcp-servers'
 
 export type SettingId =
     | 'snippet-v2'
@@ -120,6 +122,7 @@ export type SettingId =
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
+    | 'error-tracking-spike-detection'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
@@ -166,6 +169,7 @@ export type SettingId =
     | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
+    | 'llm-analytics-byok'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
@@ -182,7 +186,8 @@ export type SettingId =
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
-    | 'mcp-server-configure'
+    | 'posthog-mcp-configure'
+    | 'mcp-servers-manage'
     | 'activity-log-settings'
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
@@ -195,7 +200,6 @@ export type SettingId =
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
-    | 'sql-editor-tab-preference'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

@@ -69,6 +69,7 @@ rules:
                               |Cohort
                               |Comment
                               |Conversation
+                              |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
@@ -98,6 +99,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
+                              |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingStackFrame
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
@@ -149,6 +151,7 @@ rules:
                               |SharingConfiguration
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalSourceConfig
                               |SingleSessionSummary
                               |Subscription
                               |Survey
@@ -228,6 +231,7 @@ rules:
                         |Cohort
                         |Comment
                         |Conversation
+                        |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
@@ -257,6 +261,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
+                        |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
@@ -308,6 +313,7 @@ rules:
                         |SharingConfiguration
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalSourceConfig
                         |SingleSessionSummary
                         |Subscription
                         |Survey
@@ -695,6 +701,7 @@ rules:
                               |FileSystemViewLog
                               |InsightViewed
                               |KernelRuntime
+                              |MCPServerInstallation
                               |PersistedFolder
                               |SessionRecordingViewed
                               |UserHomeSettings

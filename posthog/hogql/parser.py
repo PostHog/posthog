@@ -432,7 +432,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return select_query
 
     def visitWithClause(self, ctx: HogQLParser.WithClauseContext):
-        return self.visit(ctx.withExprList())
+        ctes: dict[str, ast.CTE] = self.visit(ctx.withExprList())
+        if ctx.RECURSIVE():
+            for name in ctes:
+                ctes[name].recursive = True
+        return ctes
 
     def visitTopClause(self, ctx: HogQLParser.TopClauseContext):
         raise NotImplementedError(f"Unsupported node: TopClause")
@@ -1050,7 +1054,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
         subquery = self.visit(ctx.selectSetStmt())
         name = self.visit(ctx.identifier())
-        return ast.CTE(name=name, expr=subquery, cte_type="subquery")
+        materialized = None if not ctx.MATERIALIZED() else ctx.NOT() is None
+        columns = None
+        if column_name_list := ctx.withExprColumnNameList():
+            columns = [self.visit(ident) for ident in column_name_list.identifier()]
+        return ast.CTE(
+            name=name,
+            expr=subquery,
+            columns=columns,
+            cte_type="subquery",
+            materialized=materialized,
+        )
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())

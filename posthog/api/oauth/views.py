@@ -246,7 +246,9 @@ class OAuthValidator(OAuth2Validator):
             scoped_teams = grant.scoped_teams
             scoped_organizations = grant.scoped_organizations
 
-        if request.decoded_body:
+        # Only fall back to the authorization code when no other scope source exists,
+        # so a `code` param injected into a refresh request cannot escalate scopes.
+        if scoped_teams is None and scoped_organizations is None and request.decoded_body:
             try:
                 code = dict(request.decoded_body).get("code", None)
                 if code:
@@ -580,6 +582,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             }
             if access_token.application:
                 data["client_id"] = access_token.application.client_id
+                data["client_name"] = access_token.application.name
             return JsonResponse(data)
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
@@ -600,6 +603,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             }
             if refresh_token.application:
                 data["client_id"] = refresh_token.application.client_id
+                data["client_name"] = refresh_token.application.name
             return JsonResponse(data)
 
         return JsonResponse({"active": False}, status=200)

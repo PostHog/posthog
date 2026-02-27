@@ -11,10 +11,11 @@ from django.utils import timezone
 
 import requests
 
-from posthog.models.event_definition import EventDefinition
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.security.outbound_proxy import external_requests
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.tasks.backend.models import Task
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,7 @@ def _refresh_installation_token(integration: Integration) -> None:
 
 def _github_get(access_token: str, path: str, params: dict[str, Any] | None = None) -> requests.Response:
     url = f"https://api.github.com{path}"
-    return requests.get(
+    return external_requests.get(
         url,
         params=params,
         timeout=GITHUB_REQUEST_TIMEOUT_SECONDS,

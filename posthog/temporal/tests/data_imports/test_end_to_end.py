@@ -81,6 +81,7 @@ from posthog.temporal.data_imports.workflow_activities.calculate_table_size impo
     calculate_table_size_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
+from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -459,7 +460,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                 workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
-                activities=ACTIVITIES,  # type: ignore
+                activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
@@ -2669,7 +2670,7 @@ async def test_billing_limits_too_many_rows(team, postgres_config, postgres_conn
     await postgres_connection.commit()
 
     with (
-        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("ee.api.billing.external_requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
         await sync_to_async(License.objects.create)(
@@ -2739,7 +2740,7 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
     await postgres_connection.commit()
 
     with (
-        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("ee.api.billing.external_requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
         with freeze_time("2023-01-01"):

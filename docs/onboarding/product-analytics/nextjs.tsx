@@ -56,7 +56,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 language: 'bash',
                                 file: '.env.local',
                                 code: dedent`
-                                    NEXT_PUBLIC_POSTHOG_KEY=<ph_project_api_key>
+                                    NEXT_PUBLIC_POSTHOG_KEY=<ph_project_token>
                                     NEXT_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
