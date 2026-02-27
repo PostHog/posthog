@@ -62,9 +62,9 @@ function ChoosePathStep(): JSX.Element {
         useActions(productSelectionLogic)
 
     const aiRecommendationsEnabled = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'test')
-    const headingFlag = useFeatureFlag('ONBOARDING_PRODUCT_SELECTION_HEADING')
-    const headingPayload = headingFlag ? getFeatureFlagPayload('onboarding-product-selection-heading') : undefined
-    const headingCopy = headingPayload as { heading?: string; subheading?: string } | undefined
+    const headingCopy = getFeatureFlagPayload('onboarding-product-selection-heading') as
+        | { heading?: string; subheading?: string }
+        | undefined
     const heading = headingCopy?.heading ?? 'What do you want to do with PostHog?'
     const defaultSubheading = aiRecommendationsEnabled
         ? "Describe your goals and we'll recommend the right products for you"
