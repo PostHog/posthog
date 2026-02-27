@@ -6062,7 +6062,7 @@ dependencies = [
  "common-database",
  "common-metrics",
  "envconfig",
- "health",
+ "lifecycle",
  "personhog-proto",
  "rand 0.8.5",
  "serde_json",

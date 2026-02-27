@@ -9,7 +9,10 @@ import { cn } from 'lib/utils/css-classes'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
-import { maxLogic } from '../maxLogic'
+import { AgentMode } from '~/queries/schema/schema-assistant-messages'
+
+import { QUESTION_SUGGESTIONS_DATA, RESEARCH_SUGGESTIONS_DATA, maxLogic } from '../maxLogic'
+import { maxThreadLogic } from '../maxThreadLogic'
 import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
 import { SidebarQuestionInput } from './SidebarQuestionInput'
 
@@ -20,6 +23,7 @@ export function SidebarQuestionInputWithSuggestions({
 }): JSX.Element {
     const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
+    const { agentMode } = useValues(maxThreadLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
 
     const [settingsModalOpen, setSettingsModalOpen] = useState(false)
@@ -31,7 +35,9 @@ export function SidebarQuestionInputWithSuggestions({
     const tip =
         !coreMemoryLoading && !coreMemory?.text
             ? 'Tip: Run /init to initialize PostHog AI in this project'
-            : 'Try PostHog AI for…'
+            : agentMode === AgentMode.Research
+              ? 'Try PostHog AI Research Mode for…'
+              : 'Try PostHog AI for…'
 
     return (
         <DismissableLayer
@@ -54,6 +60,9 @@ export function SidebarQuestionInputWithSuggestions({
                 <FloatingSuggestionsDisplay
                     type="secondary"
                     dataProcessingAccepted={dataProcessingAccepted}
+                    suggestionsData={
+                        agentMode === AgentMode.Research ? RESEARCH_SUGGESTIONS_DATA : QUESTION_SUGGESTIONS_DATA
+                    }
                     additionalSuggestions={[
                         <LemonButton
                             key="edit-max-memory"

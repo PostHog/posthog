@@ -28,6 +28,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { inboxSceneLogic } from './inboxSceneLogic'
+import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesModal } from './SourcesModal'
 import { SignalReport, SignalReportArtefact } from './types'
 
@@ -115,16 +116,11 @@ function ReportListSkeleton({ active = true }: { active?: boolean }): JSX.Elemen
 }
 
 function ReportListPane(): JSX.Element {
-    const {
-        filteredReports,
-        reportsLoading,
-        searchQuery,
-        reports,
-        selectedReportId,
-        hasNoSources,
-        shouldShowEnablingCtaOnMobile,
-    } = useValues(inboxSceneLogic)
-    const { setSearchQuery, openSourcesModal } = useActions(inboxSceneLogic)
+    const { filteredReports, reportsLoading, searchQuery, reports, selectedReportId, shouldShowEnablingCtaOnMobile } =
+        useValues(inboxSceneLogic)
+    const { hasNoSources } = useValues(signalSourcesLogic)
+    const { setSearchQuery } = useActions(inboxSceneLogic)
+    const { openSourcesModal } = useActions(signalSourcesLogic)
     const scrollRef = useRef<HTMLDivElement>(null)
     const [isScrollable, setIsScrollable] = useState(false)
 
@@ -242,9 +238,9 @@ function ArtefactCard({ artefact }: { artefact: SignalReportArtefact }): JSX.Ele
 }
 
 function ReportDetailPane(): JSX.Element {
-    const { selectedReport, hasNoSources, shouldShowEnablingCtaOnMobile, artefacts, artefactsLoading } =
-        useValues(inboxSceneLogic)
-    const { openSourcesModal } = useActions(inboxSceneLogic)
+    const { selectedReport, shouldShowEnablingCtaOnMobile, artefacts, artefactsLoading } = useValues(inboxSceneLogic)
+    const { hasNoSources } = useValues(signalSourcesLogic)
+    const { openSourcesModal } = useActions(signalSourcesLogic)
 
     const baseClasses = 'flex-1 min-w-0 h-full self-start bg-surface-primary overflow-y-auto flex flex-col'
 
@@ -350,8 +346,10 @@ function ReportDetailPane(): JSX.Element {
 }
 
 export function InboxScene(): JSX.Element {
-    const { isRunningSessionAnalysis, enabledSourcesCount } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis, openSourcesModal } = useActions(inboxSceneLogic)
+    const { isRunningSessionAnalysis } = useValues(inboxSceneLogic)
+    const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { enabledSourcesCount } = useValues(signalSourcesLogic)
+    const { openSourcesModal } = useActions(signalSourcesLogic)
     const { isDev } = useValues(preflightLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 

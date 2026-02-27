@@ -48,6 +48,7 @@ class AgentMode(StrEnum):
     ONBOARDING = "onboarding"
     RESEARCH = "research"
     FLAGS = "flags"
+    LLM_ANALYTICS = "llm_analytics"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -370,8 +371,10 @@ class AssistantTool(StrEnum):
     MANAGE_MEMORIES = "manage_memories"
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
+    UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
     RECOMMEND_PRODUCTS = "recommend_products"
+    SEARCH_LLM_TRACES = "search_llm_traces"
 
 
 class AssistantToolCall(BaseModel):
@@ -2847,7 +2850,6 @@ class NodeKind(StrEnum):
     PERSONS_NODE = "PersonsNode"
     HOG_QUERY = "HogQuery"
     HOG_QL_QUERY = "HogQLQuery"
-    HOG_QLAST_QUERY = "HogQLASTQuery"
     HOG_QL_METADATA = "HogQLMetadata"
     HOG_QL_AUTOCOMPLETE = "HogQLAutocomplete"
     ACTORS_QUERY = "ActorsQuery"
@@ -15724,28 +15726,6 @@ class GroupsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class HogQLASTQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    explain: bool | None = None
-    filters: HogQLFilters | None = None
-    kind: Literal["HogQLASTQuery"] = "HogQLASTQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    name: str | None = Field(default=None, description="Client provided name of the query")
-    query: dict[str, Any]
-    response: HogQLQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    values: dict[str, Any] | None = Field(
-        default=None,
-        description=("Constant values that can be referenced with the {placeholder} syntax in the query"),
-    )
-    variables: dict[str, HogQLVariable] | None = Field(
-        default=None, description="Variables to be substituted into the query"
-    )
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18927,7 +18907,6 @@ class MaxInsightContext(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19037,7 +19016,6 @@ class QueryRequest(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19141,7 +19119,6 @@ class QuerySchemaRoot(
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19215,7 +19192,6 @@ class QuerySchemaRoot(
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19294,7 +19270,6 @@ class QueryUpgradeRequest(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19373,7 +19348,6 @@ class QueryUpgradeResponse(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19578,7 +19552,6 @@ class VisualizationArtifactContent(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery

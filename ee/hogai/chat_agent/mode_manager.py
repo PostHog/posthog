@@ -16,6 +16,7 @@ from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import chat_agent_plan_error_tracking_agent, error_tracking_agent
 from ee.hogai.core.agent_modes.presets.flags import chat_agent_plan_flags_agent, flags_agent
+from ee.hogai.core.agent_modes.presets.llm_analytics import chat_agent_plan_llm_analytics_agent, llm_analytics_agent
 from ee.hogai.core.agent_modes.presets.onboarding import onboarding_agent
 from ee.hogai.core.agent_modes.presets.onboarding_prompt_builder import OnboardingPromptBuilder
 from ee.hogai.core.agent_modes.presets.product_analytics import (
@@ -31,6 +32,7 @@ from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.utils.feature_flags import (
     has_error_tracking_mode_feature_flag,
     has_flags_mode_feature_flag,
+    has_llm_analytics_mode_feature_flag,
     has_plan_mode_feature_flag,
     has_survey_mode_feature_flag,
 )
@@ -78,6 +80,8 @@ def get_plan_mode_registry(team: Team, user: User) -> dict[AgentMode, AgentModeD
         registry[AgentMode.FLAGS] = chat_agent_plan_flags_agent
     if has_survey_mode_feature_flag(team, user):
         registry[AgentMode.SURVEY] = survey_agent
+    if has_llm_analytics_mode_feature_flag(team, user):
+        registry[AgentMode.LLM_ANALYTICS] = chat_agent_plan_llm_analytics_agent
     return registry
 
 
@@ -93,6 +97,8 @@ def get_execution_mode_registry(team: Team, user: User) -> dict[AgentMode, Agent
         registry[AgentMode.SURVEY] = survey_agent
     if has_flags_mode_feature_flag(team, user):
         registry[AgentMode.FLAGS] = flags_agent
+    if has_llm_analytics_mode_feature_flag(team, user):
+        registry[AgentMode.LLM_ANALYTICS] = llm_analytics_agent
     return registry
 
 
@@ -147,6 +153,8 @@ class ChatAgentModeManager(AgentModeManager):
             registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
         if has_survey_mode_feature_flag(self._team, self._user):
             registry[AgentMode.SURVEY] = subagent_survey_agent
+        if has_llm_analytics_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.LLM_ANALYTICS] = llm_analytics_agent
         return registry
 
     @property

@@ -53,6 +53,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -189,6 +190,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const siteUrl = preflight?.site_url || window.location.origin
 
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+
+    useMaxTool({
+        identifier: 'upsert_alert',
+        active: canCreateAlertForInsight && hasDashboardItemId && !!insight.id,
+        context: useMemo(
+            () => ({
+                insight_id: insight.id,
+                insight_short_id: insight.short_id,
+                insight_name: insight.name || insight.derived_name,
+            }),
+            [insight.id, insight.short_id, insight.name, insight.derived_name]
+        ),
+    })
 
     async function handleDuplicateInsight(): Promise<void> {
         // We do not want to duplicate the dashboard filters that might be included in this insight
