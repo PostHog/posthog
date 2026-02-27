@@ -202,7 +202,7 @@ def mock_github_api(local_git_repo):
             callback=status_callback,
         )
 
-        rsps.status_checks = status_checks
+        rsps.status_checks = status_checks  # type: ignore[attr-defined]
         yield rsps
 
 

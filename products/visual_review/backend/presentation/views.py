@@ -10,7 +10,7 @@ Responsibilities:
 No business logic here - that belongs in logic.py via the facade.
 """
 
-from typing import cast
+from typing import Generic, TypeVar, cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -23,7 +23,14 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
-from ..facade.contracts import ApproveRunInput, UpdateRepoInput
+from ..facade.contracts import (
+    ApproveRunInput,
+    ApproveRunRequestInput,
+    CreateRepoInput,
+    CreateRunInput,
+    UpdateRepoInput,
+    UpdateRepoRequestInput,
+)
 from .serializers import (
     ApproveRunInputSerializer,
     CreateRepoInputSerializer,
@@ -36,6 +43,20 @@ from .serializers import (
     SnapshotSerializer,
     UpdateRepoInputSerializer,
 )
+
+_T = TypeVar("_T")
+
+
+class TypedRequest(ValidatedRequest, Generic[_T]):
+    """ValidatedRequest with a typed validated_data field.
+
+    DataclassSerializer.validated_data returns a dataclass instance, but
+    ValidatedRequest annotates it as dict[str, Any].  This subclass lets
+    view methods declare the actual type so the checker can follow along.
+    """
+
+    validated_data: _T  # type: ignore[assignment]
+
 
 # TODO: Add VISUAL_REVIEW to frontend/src/queries/schema/schema-general.ts ProductKey enum
 # and regenerate posthog/schema.py, then use ProductKey.VISUAL_REVIEW here
@@ -68,9 +89,11 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=CreateRepoInputSerializer,
         responses={201: OpenApiResponse(response=RepoSerializer)},
     )
-    def create(self, request: ValidatedRequest, **kwargs) -> Response:
+    def create(self, request: TypedRequest[CreateRepoInput], **kwargs) -> Response:
         """Create a new repo."""
         data = request.validated_data
+        if data.repo_external_id is None:
+            return Response({"detail": "repo_external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
         repo = api.create_repo(
             team_id=self.team_id,
             repo_external_id=data.repo_external_id,
@@ -91,7 +114,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=UpdateRepoInputSerializer,
         responses={200: OpenApiResponse(response=RepoSerializer)},
     )
-    def partial_update(self, request: ValidatedRequest, pk: str, **kwargs) -> Response:
+    def partial_update(self, request: TypedRequest[UpdateRepoRequestInput], pk: str, **kwargs) -> Response:
         """Update a repo's settings."""
         body = request.validated_data
         input_dto = UpdateRepoInput(
@@ -142,7 +165,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=CreateRunInputSerializer,
         responses={201: OpenApiResponse(response=CreateRunResultSerializer)},
     )
-    def create(self, request: ValidatedRequest, **kwargs) -> Response:
+    def create(self, request: TypedRequest[CreateRunInput], **kwargs) -> Response:
         """Create a new run from a CI manifest."""
         result = api.create_run(request.validated_data, team_id=self.team_id)
         return Response(CreateRunResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)
@@ -204,7 +227,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=RunSerializer)},
     )
     @action(detail=True, methods=["post"])
-    def approve(self, request: ValidatedRequest, pk: str, **kwargs) -> Response:
+    def approve(self, request: TypedRequest[ApproveRunRequestInput], pk: str, **kwargs) -> Response:
         """Approve visual changes for snapshots in this run."""
         body = request.validated_data
         input_dto = ApproveRunInput(
