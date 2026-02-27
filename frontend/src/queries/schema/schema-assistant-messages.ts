@@ -437,6 +437,7 @@ export type AssistantTool =
     | 'list_data'
     | 'finalize_plan'
     | 'recommend_products'
+    | 'search_llm_traces'
     | 'run_hog_eval_test'
 
 export enum AgentMode {
@@ -450,7 +451,7 @@ export enum AgentMode {
     Onboarding = 'onboarding',
     Research = 'research',
     Flags = 'flags',
-    Evaluations = 'evaluations',
+    LLMAnalytics = 'llm_analytics',
 }
 
 export enum SlashCommandName {

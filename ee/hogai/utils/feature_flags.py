@@ -116,9 +116,9 @@ def is_core_memory_disabled(team: Team, user: User) -> bool:
     )
 
 
-def has_evaluations_mode_feature_flag(team: Team, user: User) -> bool:
+def has_llm_analytics_mode_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
-        "posthog-ai-evaluations-mode",
+        "posthog-ai-llm-analytics-mode",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},

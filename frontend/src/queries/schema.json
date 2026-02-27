@@ -367,7 +367,7 @@
                 "onboarding",
                 "research",
                 "flags",
-                "evaluations"
+                "llm_analytics"
             ],
             "type": "string"
         },
@@ -2001,6 +2001,7 @@
                 "list_data",
                 "finalize_plan",
                 "recommend_products",
+                "search_llm_traces",
                 "run_hog_eval_test"
             ],
             "type": "string"
