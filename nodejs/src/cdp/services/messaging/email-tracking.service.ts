@@ -61,7 +61,7 @@ const REPUTATION_TTL_SECONDS = 86400 // 24h sliding window
 
 const BOUNCE_RATE_THRESHOLD = 0.02 // 2% — Google/Yahoo enforcement threshold
 const COMPLAINT_RATE_THRESHOLD = 0.001 // 0.1% — SES suspension threshold
-const MIN_SENDS_FOR_RATE_CHECK = 100 // avoid false positives on low volume
+const MIN_SENDS_FOR_RATE_CHECK = 250 // avoid false positives on low volume
 
 export class EmailTrackingService {
     private sesWebhookHandler: SesWebhookHandler

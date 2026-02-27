@@ -37,9 +37,9 @@ describe('EmailTrackingService (SES reputation - rate breaches)', () => {
     }
 
     beforeEach(() => {
-        const hogFunctionManager = { getHogFunction: () => null }
+        const hogFunctionManager = { getHogFunction: jest.fn().mockResolvedValue(null) }
         const hogFlowManager = {
-            getHogFlow: jest.fn((id: string) => (id === hogFlow.id ? hogFlow : null)),
+            getHogFlow: jest.fn((id: string) => Promise.resolve(id === hogFlow.id ? hogFlow : null)),
             disableHogFlow: jest.fn(() => true),
         }
         const hogFunctionMonitoringService = { queueAppMetric: jest.fn(), flush: jest.fn() }
@@ -62,8 +62,8 @@ describe('EmailTrackingService (SES reputation - rate breaches)', () => {
 
         // Pre-seed sends >= MIN_SENDS_FOR_RATE_CHECK and bounces such that bounceRate > BOUNCE_RATE_THRESHOLD
         const initial: any = {}
-        initial[`${prefix}/${hogFlow.id}/sends`] = '100' // MIN_SENDS_FOR_RATE_CHECK
-        initial[`${prefix}/${hogFlow.id}/bounces`] = '3' // bounceRate = 3/100 = 0.03 (> 0.02)
+        initial[`${prefix}/${hogFlow.id}/sends`] = '250' // MIN_SENDS_FOR_RATE_CHECK
+        initial[`${prefix}/${hogFlow.id}/bounces`] = '10' // bounceRate = 10/250 = 0.04 (> 0.02)
         initial[`${prefix}/${hogFlow.id}/complaints`] = '0'
         ;(service as any).redis = createRedisMock(initial) as any
         ;(service as any).sesWebhookHandler.handleWebhook = jest.fn().mockResolvedValue({
@@ -100,9 +100,9 @@ describe('EmailTrackingService (SES reputation - rate breaches)', () => {
         const prefix = process.env.NODE_ENV === 'test' ? '@posthog-test/email-reputation' : '@posthog/email-reputation'
 
         const initial: any = {}
-        initial[`${prefix}/${hogFlow.id}/sends`] = '100' // MIN_SENDS_FOR_RATE_CHECK
+        initial[`${prefix}/${hogFlow.id}/sends`] = '250' // MIN_SENDS_FOR_RATE_CHECK
         initial[`${prefix}/${hogFlow.id}/bounces`] = '0'
-        initial[`${prefix}/${hogFlow.id}/complaints`] = '1' // complaintRate = 1/100 = 0.01 (> 0.001)
+        initial[`${prefix}/${hogFlow.id}/complaints`] = '1' // complaintRate = 1/250 = 0.004 (> 0.001)
         ;(service as any).redis = createRedisMock(initial) as any
         ;(service as any).sesWebhookHandler.handleWebhook = jest.fn().mockResolvedValue({
             status: 200,
@@ -119,9 +119,9 @@ describe('EmailTrackingService (SES reputation - rate breaches)', () => {
         const prefix = process.env.NODE_ENV === 'test' ? '@posthog-test/email-reputation' : '@posthog/email-reputation'
 
         const initial: Record<string, string> = {}
-        initial[`${prefix}/${hogFlow.id}/sends`] = '100'
+        initial[`${prefix}/${hogFlow.id}/sends`] = '100000'
         initial[`${prefix}/${hogFlow.id}/bounces`] = '0'
-        initial[`${prefix}/${hogFlow.id}/complaints`] = '0' // complaintRate = 0
+        initial[`${prefix}/${hogFlow.id}/complaints`] = '0'
         ;(service as any).redis = createRedisMock(initial) as any
         ;(service as any).sesWebhookHandler.handleWebhook = jest.fn().mockResolvedValue({
             status: 200,
