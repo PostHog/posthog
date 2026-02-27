@@ -26,6 +26,20 @@ export function providerSortIndex(provider: string): number {
     return index === -1 ? PROVIDER_ORDER.length : index
 }
 
+/** Normalize provider aliases from traces/config into canonical LLMProvider keys. */
+export function normalizeLLMProvider(provider: string | undefined): LLMProvider | null {
+    if (!provider) {
+        return null
+    }
+
+    const normalized = provider.trim().toLowerCase()
+    if (normalized === 'google' || normalized === 'google-ai-studio') {
+        return 'gemini'
+    }
+
+    return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
+}
+
 export interface LLMProviderKey {
     id: string
     provider: LLMProvider
@@ -60,6 +74,26 @@ export function sortProviderKeys(keys: LLMProviderKey[]): LLMProviderKey[] {
 
         return a.id.localeCompare(b.id)
     })
+}
+
+export function sortedUsableProviderKeyIds(keys: LLMProviderKey[]): string[] {
+    return sortProviderKeys(keys)
+        .filter((key) => key.state !== 'invalid')
+        .map((key) => key.id)
+}
+
+export function firstUsableProviderKeyIdForProvider(
+    provider: string | undefined,
+    keys: LLMProviderKey[]
+): string | null {
+    const normalizedProvider = normalizeLLMProvider(provider)
+    if (!normalizedProvider) {
+        return null
+    }
+
+    return (
+        sortProviderKeys(keys).find((key) => key.state !== 'invalid' && key.provider === normalizedProvider)?.id ?? null
+    )
 }
 
 export interface EvaluationConfig {
