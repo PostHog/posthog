@@ -257,12 +257,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     class Meta:
         model = Dashboard
         fields = DASHBOARD_SHARED_FIELDS
-        read_only_fields = [
-            "creation_mode",
-            "effective_restriction_level",
-            "is_shared",
-            "user_access_level",
-        ]
+        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -296,12 +291,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "delete_insights",
             "_create_in_folder",
         ]
-        read_only_fields = [
-            "creation_mode",
-            "effective_restriction_level",
-            "is_shared",
-            "user_access_level",
-        ]
+        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
     def validate_filters(self, value) -> dict:
         if not isinstance(value, dict):
@@ -329,8 +319,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if use_dashboard:
             try:
                 existing_dashboard = Dashboard.objects.get(
-                    id=use_dashboard,
-                    team__project_id=self.context["get_team"]().project_id,
+                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
                 )
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
@@ -405,7 +394,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 **InsightSerializer(existing_tile.insight, context=self.context).data,
                 "id": None,  # to create a new Insight
                 "last_refresh": now(),
-                "name": ((existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None),
+                "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
             }
             new_data.pop("dashboards", None)
             new_tags = new_data.pop("tags", None)
@@ -467,9 +456,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 id=instance.team_id,
             ).update(primary_dashboard=None)
             group_type_mapping = GroupTypeMapping.objects.filter(
-                team=instance.team,
-                project_id=instance.team.project_id,
-                detail_dashboard_id=instance.id,
+                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
             if group_type_mapping:
                 group_type_mapping.detail_dashboard_id = None
@@ -1175,14 +1162,7 @@ class LegacyInsightViewSet(InsightViewSet):
 
 @mutable_receiver(model_activity_signal, sender=Dashboard)
 def handle_dashboard_change(
-    sender,
-    scope,
-    before_update,
-    after_update,
-    activity,
-    user,
-    was_impersonated=False,
-    **kwargs,
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     if before_update and after_update:
         before_deleted = getattr(before_update, "deleted", None)
