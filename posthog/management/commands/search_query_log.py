@@ -1,45 +1,46 @@
 """
 Management command to search query_log_archive for a specific query.
 
-The challenge: you can't just paste a query and do WHERE query = '...' because:
-  - ClickHouse adds indentation and formatting when it stores queries
-  - HogQL is compiled to ClickHouse SQL before execution, adding team guards, JOINs, etc.
-  - Different HogQL modifiers produce structurally different ClickHouse SQL
+The challenge: you can't do WHERE lc_query__query = '<paste>' because of indentation,
+whitespace, and literal value differences between what you pasted and what was stored.
 
-The solution: normalize first, then match by hash.
+The solution: normalizeQuery() on both sides. ClickHouse's normalizeQuery() strips all
+literal values ('pageview' → ?, 12345 → ?) and normalizes whitespace, so two queries that
+differ only in formatting or constants hash to the same value.
 
 Two modes:
 
-  --mode hash (default):
-    Computes cityHash64(normalizeQuery(<sql>)) — a pure ClickHouse expression, zero data scanned.
-    normalizeQuery() strips all literal values (dates, IDs, strings → '?') and normalizes whitespace.
-    The resulting hash matches the normalized_query_hash column in query_log_archive, which ClickHouse
-    populates automatically from system.query_log.
+  HogQL (default):
+    Searches lc_query__query — the original HogQL the user wrote, stored verbatim in
+    log_comment before any compilation or modifier application. Compares
+    cityHash64(normalizeQuery(lc_query__query)) = cityHash64(normalizeQuery(<your input>)).
+    Modifier-agnostic: finds the query regardless of what personsOnEventsMode, inCohortVia,
+    etc. were active. Requires a column scan within the team+date partition.
 
-    For HogQL input (--hogql flag): compiles the query to ClickHouse SQL first using the full pipeline
-    with default modifiers for the given team, then hashes the result.
+  --clickhouse-sql:
+    For when you have a raw ClickHouse SQL snippet (e.g. from a slow query report or CH
+    system.processes). Computes cityHash64(normalizeQuery(<sql>)) via a pure ClickHouse
+    expression (zero data scanned), then searches the indexed normalized_query_hash column.
 
-  --mode hogql_text:
-    Searches lc_query__query (the original HogQL stored in log_comment) by comparing
-    cityHash64(normalizeQuery(lc_query__query)) on both sides. Catches indentation and whitespace
-    differences in stored queries. Slower than hash mode but useful when you have a HogQL query
-    and the CH SQL hash doesn't match (e.g., modifiers have changed since the query ran).
-
-Results always include lc_modifiers so you can see exactly what was added before execution.
+Results always include lc_modifiers so you can see exactly what HogQL modifiers were
+added before execution (personsOnEventsMode, inCohortVia, etc.).
 
 Usage examples:
 
-  # Search for a HogQL query (compiles to CH SQL first, then matches by normalized hash)
-  python manage.py search_query_log --hogql --team-id 1234 --query "SELECT count() FROM events WHERE event = 'pageview'"
+  # Find all executions of a HogQL query for a team
+  python manage.py search_query_log --team-id 1234 \\
+    --query "SELECT count() FROM events WHERE event = 'pageview'"
 
-  # Search for a raw ClickHouse SQL query you found somewhere
-  python manage.py search_query_log --query "SELECT count() FROM posthog_db.sharded_events ..."
+  # Find a raw ClickHouse SQL query (e.g. from a slow query report)
+  python manage.py search_query_log --clickhouse-sql \\
+    --query "SELECT count() FROM posthog_db.sharded_events WHERE ..."
 
-  # Search by HogQL text (skips compilation, matches stored lc_query__query by normalized text)
-  python manage.py search_query_log --mode hogql_text --team-id 1234 --query "SELECT * FROM events"
+  # Search without team scope (slow on large clusters, adds a warning)
+  python manage.py search_query_log --query "SELECT ..."
 
-  # Search last 30 days, return up to 50 results
-  python manage.py search_query_log --hogql --team-id 1234 --days 30 --limit 50 --query "..."
+  # Go back 30 days, return up to 50 results
+  python manage.py search_query_log --team-id 1234 --days 30 --limit 50 \\
+    --query "SELECT ..."
 """
 
 import json
@@ -48,19 +49,19 @@ from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
-    help = "Search query_log_archive for a specific query using normalized hash matching"
+    help = "Search query_log_archive for a specific query using normalizeQuery() matching"
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--query",
             required=True,
-            help="Query to search for. HogQL if --hogql is set, otherwise raw ClickHouse SQL.",
+            help="Query to search for (HogQL by default, or ClickHouse SQL with --clickhouse-sql).",
         )
         parser.add_argument(
             "--team-id",
             type=int,
             dest="team_id",
-            help="Restrict search to a specific team. Required with --hogql. Without it, scans all teams (slow).",
+            help="Restrict search to a specific team. Without it, scans all teams (slow).",
         )
         parser.add_argument(
             "--days",
@@ -75,29 +76,13 @@ class Command(BaseCommand):
             help="Max results to return (default: 20).",
         )
         parser.add_argument(
-            "--hogql",
+            "--clickhouse-sql",
             action="store_true",
+            dest="clickhouse_sql",
             help=(
-                "Treat --query as HogQL. Compiles it to ClickHouse SQL using the PostHog pipeline "
-                "with default modifiers for --team-id, then searches by the resulting normalized hash. "
-                "Requires --team-id."
+                "Treat --query as raw ClickHouse SQL rather than HogQL. "
+                "Uses normalized_query_hash for a fast indexed lookup instead of scanning lc_query__query."
             ),
-        )
-        parser.add_argument(
-            "--mode",
-            choices=["hash", "hogql_text"],
-            default="hash",
-            help=(
-                "Search mode. "
-                "'hash' (default): match via normalized_query_hash (fast, indexed). "
-                "'hogql_text': match via normalizeQuery(lc_query__query) text comparison (slower, no index)."
-            ),
-        )
-        parser.add_argument(
-            "--show-sql",
-            action="store_true",
-            dest="show_sql",
-            help="Print the compiled ClickHouse SQL before searching (only relevant with --hogql).",
         )
 
     def handle(self, *args, **options):
@@ -105,87 +90,89 @@ class Command(BaseCommand):
         team_id: int | None = options.get("team_id")
         days: int = options["days"]
         limit: int = options["limit"]
-        is_hogql: bool = options["hogql"]
-        mode: str = options["mode"]
-        show_sql: bool = options["show_sql"]
-
-        if is_hogql and not team_id:
-            raise CommandError("--team-id is required when --hogql is specified (needed to compile the query).")
-
-        if mode == "hogql_text" and is_hogql:
-            # hogql_text mode searches lc_query__query directly; no compilation needed
-            self._search_by_hogql_text(query_input, team_id, days, limit)
-            return
-
-        if is_hogql:
-            ch_sql = self._compile_hogql(query_input, team_id)
-            if show_sql:
-                preview = ch_sql[:1000] + ("..." if len(ch_sql) > 1000 else "")
-                self.stdout.write(f"\nCompiled ClickHouse SQL:\n{preview}\n")
-        else:
-            ch_sql = query_input
-
-        self._search_by_hash(ch_sql, team_id, days, limit)
-
-    def _compile_hogql(self, hogql_query: str, team_id: int) -> str:
-        """Compile a HogQL query to ClickHouse SQL using the full PostHog pipeline."""
-        from posthog.hogql.context import HogQLContext
-        from posthog.hogql.modifiers import create_default_modifiers_for_team
-        from posthog.hogql.parser import parse_select
-        from posthog.hogql.printer.utils import prepare_and_print_ast
-
-        from posthog.models.team import Team
-
-        try:
-            team = Team.objects.get(pk=team_id)
-        except Team.DoesNotExist:
-            raise CommandError(f"Team {team_id} not found.")
-
-        modifiers = create_default_modifiers_for_team(team)
-        context = HogQLContext(
-            team_id=team_id,
-            team=team,
-            enable_select_queries=True,
-            modifiers=modifiers,
-        )
-
-        try:
-            node = parse_select(hogql_query)
-        except Exception as e:
-            raise CommandError(f"Failed to parse HogQL query: {e}") from e
-
-        try:
-            sql, _ = prepare_and_print_ast(node, context=context, dialect="clickhouse")
-        except Exception as e:
-            raise CommandError(f"Failed to compile HogQL to ClickHouse SQL: {e}") from e
-
-        return sql
-
-    def _compute_normalized_hash(self, ch_sql: str) -> int:
-        """
-        Compute cityHash64(normalizeQuery(ch_sql)) via ClickHouse.
-
-        This is a pure expression — ClickHouse evaluates it without scanning any table.
-        The result matches the normalized_query_hash column in query_log_archive.
-        """
-        from posthog.clickhouse.client.execute import sync_execute
-
-        result = sync_execute(
-            "SELECT cityHash64(normalizeQuery(%(query)s)) AS hash",
-            {"query": ch_sql},
-        )
-        return result[0][0]
-
-    def _search_by_hash(self, ch_sql: str, team_id: int | None, days: int, limit: int) -> None:
-        from posthog.clickhouse.client.execute import sync_execute
+        clickhouse_sql: bool = options["clickhouse_sql"]
 
         if not team_id:
             self.stderr.write(
                 "Warning: no --team-id specified. Searching across all teams may be slow on large clusters.\n"
             )
 
+        if clickhouse_sql:
+            self._search_by_ch_hash(query_input, team_id, days, limit)
+        else:
+            self._search_by_hogql(query_input, team_id, days, limit)
+
+    def _search_by_hogql(self, hogql_query: str, team_id: int | None, days: int, limit: int) -> None:
+        """
+        Search lc_query__query using normalizeQuery() on both sides.
+
+        lc_query__query stores the original HogQL the user wrote, before compilation or modifier
+        application. normalizeQuery() handles whitespace and literal differences, so the query you
+        paste doesn't need to match formatting exactly.
+        """
+        from posthog.clickhouse.client.execute import sync_execute
+
+        conditions = [
+            "lc_query__query != ''",
+            "is_initial_query = 1",
+            "cityHash64(normalizeQuery(lc_query__query)) = cityHash64(normalizeQuery(%(query)s))",
+            "event_date >= today() - %(days)s",
+        ]
+        params: dict = {"query": hogql_query, "days": days, "limit": limit}
+
+        if team_id:
+            conditions.append("team_id = %(team_id)s")
+            params["team_id"] = team_id
+
+        where = " AND ".join(conditions)
+
+        sql = f"""
+            SELECT
+                query_id,
+                initial_query_id,
+                query_start_time,
+                query_duration_ms,
+                read_rows,
+                read_bytes,
+                result_rows,
+                type,
+                exception_code,
+                exception,
+                lc_query__kind,
+                lc_query__query,
+                lc_modifiers,
+                lc_product,
+                lc_workload,
+                team_id
+            FROM query_log_archive
+            WHERE {where}
+            ORDER BY query_start_time DESC
+            LIMIT %(limit)s
+        """
+
         try:
-            normalized_hash = self._compute_normalized_hash(ch_sql)
+            rows = sync_execute(sql, params)
+        except Exception as e:
+            raise CommandError(f"Search query failed: {e}") from e
+
+        self._print_results(rows)
+
+    def _search_by_ch_hash(self, ch_sql: str, team_id: int | None, days: int, limit: int) -> None:
+        """
+        Compute the normalized_query_hash for the given ClickHouse SQL, then search by it.
+
+        The hash computation is a pure ClickHouse expression — no table scan, no data access.
+        The normalized_query_hash column in query_log_archive is populated by ClickHouse from
+        system.query_log using the same cityHash64(normalizeQuery(query)) formula.
+        """
+        from posthog.clickhouse.client.execute import sync_execute
+
+        try:
+            result = sync_execute(
+                "SELECT cityHash64(normalizeQuery(%(query)s)) AS hash",
+                {"query": ch_sql},
+            )
+            normalized_hash = result[0][0]
         except Exception as e:
             raise CommandError(f"Failed to compute normalized hash via ClickHouse: {e}") from e
 
@@ -207,7 +194,6 @@ class Command(BaseCommand):
             SELECT
                 query_id,
                 initial_query_id,
-                is_initial_query,
                 query_start_time,
                 query_duration_ms,
                 read_rows,
@@ -233,75 +219,12 @@ class Command(BaseCommand):
         except Exception as e:
             raise CommandError(f"Search query failed: {e}") from e
 
-        self._print_results(rows, mode="hash")
+        self._print_results(rows)
 
-    def _search_by_hogql_text(self, hogql_query: str, team_id: int | None, days: int, limit: int) -> None:
-        """
-        Search by comparing normalizeQuery() of the stored lc_query__query against the user input.
-
-        normalizeQuery() replaces literal values with '?' so queries that differ only in constants
-        (dates, IDs, event names) hash to the same value. Whitespace and indentation differences
-        are also absorbed.
-
-        Requires scanning the lc_query__query column within the team+date partition — no index help
-        beyond the partition pruning. Still fast for a single team over a short date range.
-        """
-        from posthog.clickhouse.client.execute import sync_execute
-
-        if not team_id:
-            self.stderr.write("Warning: no --team-id specified. hogql_text mode without a team will scan all teams.\n")
-
-        conditions = [
-            "lc_query__query != ''",
-            "is_initial_query = 1",
-            "cityHash64(normalizeQuery(lc_query__query)) = cityHash64(normalizeQuery(%(query)s))",
-            "event_date >= today() - %(days)s",
-        ]
-        params: dict = {"query": hogql_query, "days": days, "limit": limit}
-
-        if team_id:
-            conditions.append("team_id = %(team_id)s")
-            params["team_id"] = team_id
-
-        where = " AND ".join(conditions)
-
-        sql = f"""
-            SELECT
-                query_id,
-                initial_query_id,
-                is_initial_query,
-                query_start_time,
-                query_duration_ms,
-                read_rows,
-                read_bytes,
-                result_rows,
-                type,
-                exception_code,
-                exception,
-                lc_query__kind,
-                lc_query__query,
-                lc_modifiers,
-                lc_product,
-                lc_workload,
-                team_id
-            FROM query_log_archive
-            WHERE {where}
-            ORDER BY query_start_time DESC
-            LIMIT %(limit)s
-        """
-
-        try:
-            rows = sync_execute(sql, params)
-        except Exception as e:
-            raise CommandError(f"Search query failed: {e}") from e
-
-        self._print_results(rows, mode="hogql_text")
-
-    def _print_results(self, rows: list, mode: str) -> None:
+    def _print_results(self, rows: list) -> None:
         columns = [
             "query_id",
             "initial_query_id",
-            "is_initial_query",
             "query_start_time",
             "query_duration_ms",
             "read_rows",
@@ -320,11 +243,6 @@ class Command(BaseCommand):
 
         if not rows:
             self.stdout.write("No results found.\n")
-            if mode == "hash":
-                self.stdout.write(
-                    "Tip: if you provided HogQL, try --mode hogql_text which searches the stored "
-                    "HogQL text directly (handles cases where modifiers changed the compiled SQL).\n"
-                )
             return
 
         self.stdout.write(f"\nFound {len(rows)} result(s):\n")
@@ -335,7 +253,6 @@ class Command(BaseCommand):
             self.stdout.write(sep)
             self.stdout.write(f"query_id:         {data['query_id']}")
             self.stdout.write(f"initial_query_id: {data['initial_query_id']}")
-            self.stdout.write(f"is_initial:       {bool(data['is_initial_query'])}")
             self.stdout.write(f"time:             {data['query_start_time']}")
             self.stdout.write(f"duration_ms:      {data['query_duration_ms']:,}")
             self.stdout.write(f"read_rows:        {data['read_rows']:,}")
@@ -354,15 +271,13 @@ class Command(BaseCommand):
                 self.stdout.write(f"hogql_query:\n  {preview}")
 
             if data["lc_modifiers"]:
-                modifiers_str = _format_modifiers(data["lc_modifiers"])
-                self.stdout.write(f"modifiers:        {modifiers_str}")
+                self.stdout.write(f"modifiers:        {_format_modifiers(data['lc_modifiers'])}")
 
             exception_code = data["exception_code"]
             if exception_code and int(exception_code) != 0:
                 self.stdout.write(f"exception_code:   {exception_code}")
                 if data["exception"]:
-                    exc_preview = data["exception"][:200]
-                    self.stdout.write(f"exception:        {exc_preview}")
+                    self.stdout.write(f"exception:        {data['exception'][:200]}")
 
         self.stdout.write(sep)
 
