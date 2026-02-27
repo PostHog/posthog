@@ -13,11 +13,11 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPServerInstallation
-from .oauth import TokenRefreshError, refresh_oauth_token
+from .oauth import TokenRefreshError, is_token_expiring, refresh_oauth_token
 
 logger = structlog.get_logger(__name__)
 
-UPSTREAM_TIMEOUT = 60
+UPSTREAM_TIMEOUT = 180
 MAX_PROXY_BODY_SIZE = 1_048_576  # 1 MB
 
 
@@ -39,17 +39,8 @@ def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str
     return {}
 
 
-def is_token_expired(installation: MCPServerInstallation) -> bool:
-    sensitive = installation.sensitive_configuration or {}
-    retrieved_at = sensitive.get("token_retrieved_at")
-    expires_in = sensitive.get("expires_in")
-    if not retrieved_at or not expires_in:
-        return False
-    return time.time() > (int(retrieved_at) + int(expires_in) - 60)
-
-
 def ensure_valid_token(installation: MCPServerInstallation) -> None:
-    if not is_token_expired(installation):
+    if not is_token_expiring(installation.sensitive_configuration or {}):
         return
 
     sensitive = installation.sensitive_configuration or {}

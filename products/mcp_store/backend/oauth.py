@@ -1,3 +1,4 @@
+import time
 import base64
 import hashlib
 import secrets
@@ -109,6 +110,17 @@ def generate_pkce() -> tuple[str, str]:
     digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
     code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
     return code_verifier, code_challenge
+
+
+def is_token_expiring(sensitive: dict) -> bool:
+    try:
+        retrieved_at = float((sensitive or {}).get("token_retrieved_at", 0))
+        expires_in = float((sensitive or {}).get("expires_in", 0))
+    except (TypeError, ValueError):
+        return False
+    if not retrieved_at or not expires_in:
+        return False
+    return time.time() > retrieved_at + (expires_in / 2)
 
 
 class TokenRefreshError(Exception):

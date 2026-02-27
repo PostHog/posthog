@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from typing import Literal, Self
 
 import structlog
@@ -11,6 +10,8 @@ from posthog.schema import AssistantTool
 from posthog.models import Team, User
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
+
+from products.mcp_store.backend.oauth import is_token_expiring
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
@@ -186,7 +187,8 @@ class CallMCPServerTool(MaxTool):
             raise MaxToolFatalError(f"MCP server URL blocked by security policy")
 
     async def _try_proactive_token_refresh(self, server_url: str) -> None:
-        if not self._is_token_expiring(server_url):
+        inst = self._get_installation(server_url)
+        if not is_token_expiring(inst.get("sensitive_configuration") or {}):
             return
         try:
             await self._refresh_token_for_server(server_url)
@@ -203,22 +205,6 @@ class CallMCPServerTool(MaxTool):
                 f"Authentication failed for {server_url} and token refresh failed. "
                 "Ask the user to re-authenticate with this MCP server in the MCP store settings page."
             )
-
-    def _is_token_expiring(self, server_url: str) -> bool:
-        inst = self._get_installation(server_url)
-        sensitive = inst.get("sensitive_configuration") or {}
-
-        try:
-            token_retrieved_at = float(sensitive.get("token_retrieved_at", 0))
-            expires_in = float(sensitive.get("expires_in", 0))
-        except (TypeError, ValueError):
-            return False
-
-        if not token_retrieved_at or not expires_in:
-            return False
-
-        # Refreshing half way through expiry to be safe
-        return time.time() > token_retrieved_at + (expires_in / 2)
 
     async def _refresh_token_for_server(self, server_url: str) -> None:
         inst = self._get_installation(server_url)

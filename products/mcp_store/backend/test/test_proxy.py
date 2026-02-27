@@ -1,4 +1,5 @@
 import time
+import uuid
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
@@ -6,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.models import Organization, Team, User
 
 from products.mcp_store.backend.models import MCPServer, MCPServerInstallation
 
@@ -376,3 +379,142 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == 413
         assert response.json()["error"] == "Request body too large"
+
+
+class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    """Verify that the proxy endpoint enforces team and user isolation."""
+
+    JSON_RPC_BODY = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _proxy_url(self, installation_id: str, team_id: int | None = None) -> str:
+        tid = team_id if team_id is not None else self.team.id
+        return f"/api/environments/{tid}/mcp_server_installations/{installation_id}/proxy/"
+
+    def _create_installation(self, team, user, **kwargs) -> MCPServerInstallation:
+        defaults = {
+            "team": team,
+            "user": user,
+            "display_name": "Test Server",
+            "url": f"https://mcp-{uuid.uuid4().hex[:8]}.example.com/mcp",
+            "auth_type": "api_key",
+            "sensitive_configuration": {"api_key": "sk-secret"},
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def test_proxy_denies_access_to_other_users_installation_same_team(self):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        installation = self._create_installation(self.team, other_user)
+
+        response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_proxy_denies_access_to_installation_in_other_team(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_user = User.objects.create_and_join(other_org, "alien@other.com", "password")
+        installation = self._create_installation(other_team, other_user)
+
+        response = self.client.post(
+            self._proxy_url(installation.id, team_id=other_team.id), data=self.JSON_RPC_BODY, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_proxy_denies_cross_team_id_spoofing(self):
+        """URL uses team B's id but user is only a member of team A."""
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_user = User.objects.create_and_join(other_org, "alien@other.com", "password")
+        installation = self._create_installation(other_team, other_user)
+
+        response = self.client.post(
+            self._proxy_url(installation.id, team_id=other_team.id), data=self.JSON_RPC_BODY, format="json"
+        )
+
+        assert response.status_code in (
+            status.HTTP_403_FORBIDDEN,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_proxy_denies_unauthenticated_request(self):
+        installation = self._create_installation(self.team, self.user)
+        self.client.logout()
+
+        response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
+
+        assert response.status_code in (
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_proxy_returns_404_for_nonexistent_installation(self):
+        fake_id = uuid.uuid4()
+
+        response = self.client.post(self._proxy_url(str(fake_id)), data=self.JSON_RPC_BODY, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_does_not_leak_other_users_credentials(self, mock_client_cls):
+        """Even if the installation UUID is known, another user's secret must not be forwarded."""
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        installation = self._create_installation(
+            self.team,
+            other_user,
+            sensitive_configuration={"api_key": "sk-victim-secret"},
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        self._mock_client_with_response(mock_client_cls, mock_response)
+
+        response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_client_cls.assert_not_called()
+
+    def _mock_client_with_response(self, mock_client_cls, mock_response):
+        mock_client = MagicMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+        return mock_client
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_scopes_to_authenticated_user_not_installation_owner(self, mock_client_cls):
+        """The requesting user's identity gates access, not the installation's user field."""
+        installation = self._create_installation(self.team, self.user)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        self._mock_client_with_response(mock_client_cls, mock_response)
+
+        # Owner can access
+        response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
+        assert response.status_code == 200
+
+        # Different user in the same team cannot
+        other_user = User.objects.create_and_join(self.organization, "colleague@posthog.com", "password")
+        self.client.force_login(other_user)
+        response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_proxy_rejects_get_and_other_http_methods(self):
+        installation = self._create_installation(self.team, self.user)
+        url = self._proxy_url(installation.id)
+
+        for method in ("get", "put", "patch", "delete"):
+            response = getattr(self.client, method)(url, data=self.JSON_RPC_BODY, format="json")
+            assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED, (
+                f"Expected 405 for {method.upper()}, got {response.status_code}"
+            )
