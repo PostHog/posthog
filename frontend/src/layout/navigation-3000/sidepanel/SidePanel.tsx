@@ -77,7 +77,7 @@ export const SIDE_PANEL_TABS: Record<
     },
 
     [SidePanelTab.Activity]: {
-        label: 'Team activity',
+        label: 'Activity logs',
         Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
     },

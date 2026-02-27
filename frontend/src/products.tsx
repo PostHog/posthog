@@ -28,6 +28,7 @@ import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/querie
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import {
     ActionType,
+    ActivityScope,
     DashboardType,
     FileSystemIconColor,
     InsightSceneSource,
@@ -428,7 +429,7 @@ export const productConfiguration: Record<string, any> = {
     Logs: {
         projectBased: true,
         name: 'Logs',
-        activityScope: 'Logs',
+        activityScope: ActivityScope.LOG,
         layout: 'app-container',
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
