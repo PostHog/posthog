@@ -48,6 +48,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
 │  │     - Compute weighted_count from 2-epoch response            │  │
 │  │     - Measure drift vs local estimate                         │  │
 │  │     - Update CacheEntry (estimated_count, pressure, synced_at)│  │
+│  │     - Reset local_pending to 0 (Redis now includes our writes)│  │
 │  │     - Track tier transitions                                  │  │
 │  └───────────────────────────┬────────────────────────────────────┘  │
 │                              │                                       │
@@ -206,10 +207,16 @@ it's promoted to Low on the very next request — no waiting for a stale sync in
 struct CacheEntry {
     estimated_count: f64,    // weighted count from last Redis sync
     synced_at: Instant,      // when we last read from Redis
-    local_pending: u64,      // events counted locally since last sync
+    local_pending: u64,      // events counted locally since last sync, reset to 0 on sync
     pressure: f64,           // effective_level / threshold at last sync
 }
 ```
+
+`local_pending` is reset to 0 when fresh data arrives from Redis.
+Since `estimated_count` already includes events this node wrote via INCRBY across prior ticks,
+preserving `local_pending` would double-count them.
+Events arriving during the MGET window (~100ms) are briefly lost from the local estimate
+but are written to Redis on the next tick — the under-count is negligible (<0.002% of threshold).
 
 ### Redis Key Model
 
@@ -229,6 +236,8 @@ Only 2 keys per entity exist at any time (current + previous epoch).
 | `sync_interval` | 15s | Base staleness before re-sync |
 | `tick_interval` | 1s | Background pipeline cadence |
 | `global_threshold` | 1,000,000 | Default limit per window per entity |
+| `global_read_timeout` | 100ms | Timeout for batched MGET reads |
+| `global_write_timeout` | 100ms | Timeout for batched INCRBY writes |
 
 ## Request Flow
 

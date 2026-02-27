@@ -166,8 +166,8 @@ impl Default for GlobalRateLimiterConfig {
             redis_key_prefix: "@posthog/global_rate_limiter".to_string(),
             local_cache_ttl: Duration::from_secs(600),
             global_cache_ttl: window_interval.mul_f64(2.0),
-            global_read_timeout: Duration::from_millis(10),
-            global_write_timeout: Duration::from_millis(20),
+            global_read_timeout: Duration::from_millis(100),
+            global_write_timeout: Duration::from_millis(100),
             local_cache_max_entries: 300_000,
             channel_capacity: 1_000_000,
             custom_keys: HashMap::new(),
@@ -849,16 +849,16 @@ impl GlobalRateLimiterImpl {
                 }
             }
 
-            // Update cache with fresh data from Redis.
-            // Preserve any local_pending that accumulated since we started the sync.
-            let existing_pending = cache.get(key).map(|e| e.local_pending).unwrap_or(0);
-
+            // estimated_count from Redis already includes events this node wrote
+            // across prior ticks. Reset local_pending to avoid double-counting.
+            // Events arriving during the MGET window (~100ms) are lost from the
+            // local estimate but will be written to Redis on the next tick.
             cache.insert(
                 key.clone(),
                 CacheEntry {
                     estimated_count: estimated,
                     synced_at: now_instant,
-                    local_pending: existing_pending,
+                    local_pending: 0,
                     pressure,
                 },
             );
@@ -1074,8 +1074,8 @@ mod tests {
         assert_eq!(config.redis_key_prefix, "@posthog/global_rate_limiter");
         assert_eq!(config.global_cache_ttl, Duration::from_secs(120));
         assert_eq!(config.local_cache_ttl, Duration::from_secs(600));
-        assert_eq!(config.global_read_timeout, Duration::from_millis(10));
-        assert_eq!(config.global_write_timeout, Duration::from_millis(20));
+        assert_eq!(config.global_read_timeout, Duration::from_millis(100));
+        assert_eq!(config.global_write_timeout, Duration::from_millis(100));
         assert_eq!(config.local_cache_max_entries, 300_000);
         assert_eq!(config.channel_capacity, 1_000_000);
         assert!(config.custom_keys.is_empty());
@@ -1586,8 +1586,41 @@ mod tests {
             "pressure should be ~0.85, got {}",
             entry.pressure
         );
-        // local_pending preserved from before sync
-        assert_eq!(entry.local_pending, 3);
+        // local_pending reset to 0 on sync (avoids double-counting)
+        assert_eq!(entry.local_pending, 0);
+    }
+
+    #[test]
+    fn test_process_read_results_zeroes_local_pending() {
+        let config = test_config();
+        let now = DateTime::from_timestamp(90, 0).unwrap();
+
+        for prior_pending in [0u64, 1, 5, 100, 10_000] {
+            let cache = Cache::builder()
+                .max_capacity(100)
+                .time_to_live(Duration::from_secs(60))
+                .build();
+
+            cache.insert(
+                "key".to_string(),
+                CacheEntry {
+                    estimated_count: 0.0,
+                    synced_at: Instant::now() - Duration::from_secs(30),
+                    local_pending: prior_pending,
+                    pressure: 0.0,
+                },
+            );
+
+            let sync_keys = vec!["key".to_string()];
+            let results: Vec<Option<Vec<u8>>> = vec![Some(b"5".to_vec()), Some(b"2".to_vec())];
+            GlobalRateLimiterImpl::process_read_results(&config, &cache, &sync_keys, &results, now);
+
+            let entry = cache.get("key").unwrap();
+            assert_eq!(
+                entry.local_pending, 0,
+                "local_pending should be 0 after sync regardless of prior value ({prior_pending})"
+            );
+        }
     }
 
     #[test]
