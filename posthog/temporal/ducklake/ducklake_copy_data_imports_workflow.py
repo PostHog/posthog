@@ -199,7 +199,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
 
         staging_uri: str | None = None
         if not is_dev_mode():
-            catalog = get_ducklake_catalog_for_team(inputs.team_id)
+            catalog = await database_sync_to_async(get_ducklake_catalog_for_team)(inputs.team_id)
             if catalog:
                 staging_uri = compute_staging_uri(source_table_uri, catalog.bucket)
 

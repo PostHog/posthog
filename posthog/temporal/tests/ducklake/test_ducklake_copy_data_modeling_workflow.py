@@ -817,7 +817,7 @@ async def test_ducklake_copy_workflow_runs_when_feature_flag_enabled(monkeypatch
     call_counts = {"metadata": 0, "copy": 0}
 
     @temporal_activity.defn
-    async def metadata_stub(inputs: DataModelingDuckLakeCopyInputs):
+    async def metadata_stub(inputs: DataModelingDuckLakeCopyInputs) -> list[DuckLakeCopyModelMetadata]:
         call_counts["metadata"] += 1
 
         return [
@@ -895,7 +895,7 @@ async def test_ducklake_copy_workflow_calls_cleanup_after_verify(monkeypatch, at
     call_counts = {"metadata": 0, "copy": 0, "verify": 0, "cleanup": 0}
 
     @temporal_activity.defn
-    async def metadata_stub(inputs: DataModelingDuckLakeCopyInputs):
+    async def metadata_stub(inputs: DataModelingDuckLakeCopyInputs) -> list[DuckLakeCopyModelMetadata]:
         call_counts["metadata"] += 1
         return [
             DuckLakeCopyModelMetadata(

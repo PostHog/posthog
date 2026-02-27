@@ -712,7 +712,7 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
     call_counts = {"metadata": 0, "copy": 0, "verify": 0}
 
     @temporal_activity.defn
-    async def metadata_stub(inputs: DataImportsDuckLakeCopyInputs):
+    async def metadata_stub(inputs: DataImportsDuckLakeCopyInputs) -> list[DuckLakeCopyDataImportsMetadata]:
         call_counts["metadata"] += 1
         return [
             DuckLakeCopyDataImportsMetadata(
@@ -797,7 +797,7 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
     call_counts = {"metadata": 0, "copy": 0, "verify": 0, "cleanup": 0}
 
     @temporal_activity.defn
-    async def metadata_stub(inputs: DataImportsDuckLakeCopyInputs):
+    async def metadata_stub(inputs: DataImportsDuckLakeCopyInputs) -> list[DuckLakeCopyDataImportsMetadata]:
         call_counts["metadata"] += 1
         return [
             DuckLakeCopyDataImportsMetadata(
