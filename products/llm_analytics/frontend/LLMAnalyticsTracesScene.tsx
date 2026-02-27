@@ -88,10 +88,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             },
             person: llmAnalyticsColumnRenderers.person,
             sentiment: llmAnalyticsColumnRenderers.sentiment,
-            tools: {
-                title: 'Tools',
-                render: ToolsColumn,
-            },
+            tools: llmAnalyticsColumnRenderers.tools,
             errors: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
@@ -195,32 +192,6 @@ const CostColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 CostColumn.displayName = 'CostColumn'
-
-const MAX_VISIBLE_TOOLS = 5
-
-const ToolsColumn: QueryContextColumnComponent = ({ record }) => {
-    const row = record as LLMTrace
-    if (!row.tools || row.tools.length === 0) {
-        return <>–</>
-    }
-    const visible = row.tools.slice(0, MAX_VISIBLE_TOOLS)
-    const remaining = row.tools.length - MAX_VISIBLE_TOOLS
-    return (
-        <div className="flex flex-wrap gap-1">
-            {visible.map((tool) => (
-                <LemonTag key={tool} type="muted">
-                    {tool}
-                </LemonTag>
-            ))}
-            {remaining > 0 && (
-                <Tooltip title={row.tools.slice(MAX_VISIBLE_TOOLS).join(', ')}>
-                    <LemonTag type="muted">+{remaining} more</LemonTag>
-                </Tooltip>
-            )}
-        </div>
-    )
-}
-ToolsColumn.displayName = 'ToolsColumn'
 
 const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
