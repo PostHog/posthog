@@ -4,7 +4,17 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
+from parameterized import parameterized
+
+from posthog.schema import (
+    AlertState,
+    ChartDisplayType,
+    EventsNode,
+    IntervalType,
+    TrendsFilter,
+    TrendsFormulaNode,
+    TrendsQuery,
+)
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import AlertConfiguration, User
@@ -233,25 +243,6 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         check_alert(self.alert["id"])
 
         assert mock_send_notifications_for_breaches.call_count == 0
-
-    def test_send_error_while_calculating(
-        self, _mock_send_notifications_for_breaches: MagicMock, mock_send_notifications_for_errors: MagicMock
-    ) -> None:
-        with patch(
-            "posthog.tasks.alerts.trends.calculate_for_query_based_insight"
-        ) as mock_calculate_for_query_based_insight:
-            mock_calculate_for_query_based_insight.side_effect = Exception("Some error")
-
-            with freeze_time("2024-06-02T09:00:00.000Z"):
-                check_alert(self.alert["id"])
-                assert mock_send_notifications_for_errors.call_count == 1
-
-                latest_alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest(
-                    "created_at"
-                )
-
-                error_message = latest_alert_check.error["message"]
-                assert "Some error" in error_message
 
     def test_error_while_calculating_on_alert_in_firing_state(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_notifications_for_errors: MagicMock
@@ -700,40 +691,78 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             )
             check_alert(self.alert["id"])
 
-    def test_empty_results_within_bounds_does_not_fire(
-        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    @parameterized.expand(
+        [
+            ("within_bounds", 0, 100, AlertState.NOT_FIRING),
+            ("below_lower", 1, None, AlertState.FIRING),
+        ]
+    )
+    def test_empty_results_treated_as_zero(
+        self,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        _name: str,
+        lower: Optional[int],
+        upper: Optional[int],
+        expected_state: str,
     ) -> None:
-        self.set_thresholds(lower=0, upper=100)
+        self.set_thresholds(lower=lower, upper=upper)
         self._check_alert_with_mock_result([])
 
-        assert mock_send_notifications_for_breaches.call_count == 0
+        assert mock_send_errors.call_count == 0
 
         alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
-        assert alert_check.state == AlertState.NOT_FIRING
+        assert alert_check.state == expected_state
         assert alert_check.calculated_value == 0
 
-    def test_empty_results_below_threshold_fires(
-        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
-    ) -> None:
-        self.set_thresholds(lower=1)
-        self._check_alert_with_mock_result([])
-
-        assert mock_send_notifications_for_breaches.call_count == 1
-
-        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
-        assert alert_check.state == AlertState.FIRING
-        assert alert_check.calculated_value == 0
-
+    @parameterized.expand(
+        [
+            ("absolute_value", "absolute_value", False),
+            ("relative_increase", "relative_increase", True),
+            ("relative_decrease", "relative_decrease", True),
+        ]
+    )
     def test_none_result_produces_errored_state(
-        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+        self,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        _name: str,
+        condition_type: str,
+        time_series: bool,
     ) -> None:
-        self.set_thresholds(lower=0, upper=100)
-        self._check_alert_with_mock_result(None)
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_LINE_GRAPH if time_series else ChartDisplayType.BOLD_NUMBER,
+            ),
+            interval=IntervalType.WEEK if time_series else None,
+        ).model_dump()
+        insight = self.dashboard_api.create_insight(data={"name": "insight", "query": query_dict})[1]
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "test alert",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": condition_type},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0, "upper": 100}}},
+            },
+        ).json()
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            from posthog.caching.fetch_from_cache import InsightResult
+
+            mock_calculate.return_value = InsightResult(
+                result=None, last_refresh=None, cache_key=None, is_cached=False, timezone=None
+            )
+            check_alert(alert["id"])
 
         assert mock_send_notifications_for_breaches.call_count == 0
         assert mock_send_errors.call_count == 1
 
-        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.state == AlertState.ERRORED
         assert alert_check.error is not None
 
