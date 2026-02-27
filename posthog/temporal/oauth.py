@@ -28,7 +28,6 @@ def get_array_app() -> OAuthApplication:
 
 def get_default_scopes() -> list[str]:
     return [
-        "error_tracking:read",
         "user:read",
         "organization:read",
         "project:read",
