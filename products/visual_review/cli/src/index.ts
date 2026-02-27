@@ -14,7 +14,7 @@ import { resolve } from 'node:path'
 import { VisualReviewClient } from './client.js'
 import { hashImageWithDimensions } from './hasher.js'
 import { scanDirectory } from './scanner.js'
-import { readSnapshots } from './snapshots.js'
+import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
 
 program.name('vr').description('Visual Review CLI for snapshot testing').version('0.0.1')
 
@@ -26,11 +26,11 @@ program
     .requiredOption('--dir <path>', 'Directory containing PNG screenshots')
     .requiredOption('--type <type>', 'Run type (e.g., storybook, playwright)')
     .requiredOption('--baseline <path>', 'Path to snapshots.yml baseline file')
-    .requiredOption('--api <url>', 'API URL (e.g., http://localhost:8000)')
-    .requiredOption('--team <id>', 'Team ID')
-    .requiredOption('--project <id>', 'Project ID (UUID)')
-    .option('--branch <name>', 'Git branch name', getCurrentBranch())
-    .option('--commit <sha>', 'Git commit SHA', getCurrentCommit())
+    .option('--api <url>', 'API URL (overrides snapshots.yml config)')
+    .option('--team <id>', 'Team ID (overrides snapshots.yml config)')
+    .option('--repo <id>', 'Repo ID (UUID, default: inferred from git remote)')
+    .option('--branch <name>', 'Git branch name')
+    .option('--commit <sha>', 'Git commit SHA')
     .option('--pr <number>', 'PR number')
     .option('--token <value>', 'Personal API token (Authorization: Bearer)')
     .option('--cookie <value>', 'Session cookie for authentication')
@@ -74,11 +74,11 @@ interface SubmitOptions {
     dir: string
     type: string
     baseline: string
-    api: string
-    team: string
-    project: string
-    branch: string
-    commit: string
+    api?: string
+    team?: string
+    repo?: string
+    branch?: string
+    commit?: string
     pr?: string
     token?: string
     cookie?: string
@@ -107,6 +107,42 @@ function getCurrentCommit(): string {
     }
 }
 
+function inferRepoId(): string | undefined {
+    // Infer from git remote — the backend matches on repo_full_name
+    // so we pass the org/repo string and let the backend resolve the UUID
+    try {
+        const url = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
+        // Handle both HTTPS (https://github.com/org/repo.git) and SSH (git@github.com:org/repo.git)
+        const match = url.match(/github\.com[:/](.+?)(?:\.git)?$/)
+        return match?.[1]
+    } catch {
+        return undefined
+    }
+}
+
+function resolveConfig(options: SubmitOptions): { api: string; team: string; repo: string } {
+    const baselinePath = resolve(options.baseline)
+    const snapshotsFile = readSnapshotsFile(baselinePath)
+    const config = snapshotsFile?.config
+
+    const api = options.api ?? config?.api
+    if (!api) {
+        throw new Error('API URL required: pass --api or set config.api in snapshots.yml')
+    }
+
+    const team = options.team ?? config?.team
+    if (!team) {
+        throw new Error('Team ID required: pass --team or set config.team in snapshots.yml')
+    }
+
+    const repo = options.repo ?? inferRepoId()
+    if (!repo) {
+        throw new Error('Repo ID required: pass --repo or ensure git remote origin points to GitHub')
+    }
+
+    return { api, team, repo }
+}
+
 // --- Command implementations ---
 
 async function runVerify(options: VerifyOptions): Promise<number> {
@@ -120,7 +156,7 @@ async function runVerify(options: VerifyOptions): Promise<number> {
         return 1
     }
 
-    const baselineHashes = readSnapshots(baselinePath)
+    const baselineHashes = readBaselineHashes(baselinePath)
     if (Object.keys(baselineHashes).length === 0) {
         console.error('No baseline hashes found — run `vr submit` on a PR first')
         return 1
@@ -134,12 +170,17 @@ async function runVerify(options: VerifyOptions): Promise<number> {
     for (const { identifier, filePath } of scanned) {
         const data = readFileSync(filePath)
         const { hash } = await hashImageWithDimensions(data)
-        const baselineHash = baselineHashes[identifier]
+        const baselineSignedHash = baselineHashes[identifier]
 
-        if (!baselineHash) {
+        if (!baselineSignedHash) {
             added.push(identifier)
-        } else if (hash !== baselineHash) {
-            changed.push(identifier)
+        } else {
+            // Extract the plain content hash from the signed format: v1.<kid>.<hash>.<tag>
+            const parts = baselineSignedHash.split('.')
+            const baselineContentHash = parts.length === 4 ? parts[2] : baselineSignedHash
+            if (hash !== baselineContentHash) {
+                changed.push(identifier)
+            }
         }
     }
 
@@ -174,9 +215,11 @@ async function runVerify(options: VerifyOptions): Promise<number> {
 }
 
 async function runSubmit(options: SubmitOptions): Promise<number> {
+    const { api, team, repo } = resolveConfig(options)
+
     const client = new VisualReviewClient({
-        apiUrl: options.api,
-        teamId: options.team,
+        apiUrl: api,
+        teamId: team,
         token: options.token,
         sessionCookie: options.cookie,
     })
@@ -208,16 +251,19 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         snapshots.push({ identifier, hash, width, height, data })
     }
 
-    // 3. Read baseline hashes
+    // 3. Read baseline hashes (signed format — sent as-is, backend verifies)
     const baselinePath = resolve(options.baseline)
-    const baselineHashes = readSnapshots(baselinePath)
+    const baselineHashes = readBaselineHashes(baselinePath)
 
     // 4. Create run with manifest
+    const branch = options.branch ?? getCurrentBranch()
+    const commit = options.commit ?? getCurrentCommit()
+
     const result = await client.createRun({
-        repoId: options.project,
+        repoId: repo,
         runType: options.type,
-        commitSha: options.commit,
-        branch: options.branch,
+        commitSha: commit,
+        branch,
         prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
         snapshots: snapshots.map((s) => ({
             identifier: s.identifier,
