@@ -6,7 +6,7 @@ import { IconBell, IconList, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
-import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { HumanizedActivityLogItem, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -31,11 +31,13 @@ import {
     AccessControlResourceType,
     AvailableFeature,
     CyclotronJobFilterPropertyFilter,
+    InAppNotification,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { NotificationRow } from './NotificationRow'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
 
 const SCROLL_TRIGGER_OFFSET = 100
@@ -55,7 +57,7 @@ export const SidePanelActivity = (): JSX.Element => {
         useValues(sidePanelActivityLogic)
     const { setActiveTab, maybeLoadOlderActivity, setActiveFilters } = useActions(sidePanelActivityLogic)
 
-    const { hasNotifications, notifications, importantChangesLoading, hasUnread } =
+    const { hasNotifications, notifications, importantChangesLoading, hasUnread, realTimeNotificationsEnabled } =
         useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadImportantChanges } = useActions(sidePanelNotificationsLogic)
 
@@ -269,9 +271,15 @@ export const SidePanelActivity = (): JSX.Element => {
                                     {importantChangesLoading && !hasNotifications ? (
                                         <LemonSkeleton className="h-12 my-2" repeat={10} fade />
                                     ) : hasNotifications ? (
-                                        notifications.map((logItem, index) => (
-                                            <ActivityLogRow logItem={logItem} key={index} />
-                                        ))
+                                        realTimeNotificationsEnabled ? (
+                                            (notifications as InAppNotification[]).map((notification) => (
+                                                <NotificationRow key={notification.id} notification={notification} />
+                                            ))
+                                        ) : (
+                                            (notifications as HumanizedActivityLogItem[]).map((logItem, index) => (
+                                                <ActivityLogRow logItem={logItem} key={index} />
+                                            ))
+                                        )
                                     ) : (
                                         <div className="p-6 text-center border border-dashed rounded text-secondary">
                                             You're all caught up!
