@@ -1,4 +1,5 @@
 import time
+from datetime import UTC, datetime
 
 from unittest import mock
 
@@ -30,6 +31,9 @@ class TestQueryCoalescer(TestCase):
 
     def _lock_exists(self) -> bool:
         return self.redis.get(f"{LOCK_KEY_PREFIX}:{self.cache_key}") is not None
+
+    def _fresh_cache_data(self, **extra) -> dict:
+        return {"last_refresh": datetime.now(tz=UTC), **extra}
 
     # -- Lock lifecycle --
 
@@ -63,10 +67,8 @@ class TestQueryCoalescer(TestCase):
 
     @parameterized.expand(
         [
-            ("cache_hit", True, 0, False, {"results": [1]}, {"results": [1]}),
             ("leader_gone", False, 0, False, None, None),
             ("leader_expired", True, -60, False, None, None),
-            ("dry_run", True, 0, True, {"results": [1]}, None),
         ]
     )
     def test_wait_for_result(self, _name, has_lock, lock_age_offset, dry_run, cache_data, expected):
@@ -76,18 +78,42 @@ class TestQueryCoalescer(TestCase):
         result = coalescer._wait_for_result(lambda: cache_data, poll_interval=0, max_leader_age=30)
         self.assertEqual(result, expected)
 
+    def test_wait_returns_fresh_cache_hit(self):
+        self._set_lock()
+        coalescer = QueryCoalescer(self.cache_key, "follower")
+        fresh_data = self._fresh_cache_data(results=[1])
+        result = coalescer._wait_for_result(lambda: fresh_data, poll_interval=0, max_leader_age=30)
+        self.assertEqual(result, fresh_data)
+
+    def test_wait_ignores_stale_cache(self):
+        self._set_lock()
+        coalescer = QueryCoalescer(self.cache_key, "follower")
+        stale_data = {"last_refresh": datetime(2020, 1, 1, tzinfo=UTC), "results": [1]}
+        # Lock exists but cache is stale — should keep polling until max_leader_age
+        result = coalescer._wait_for_result(lambda: stale_data, poll_interval=0, max_leader_age=0.01)
+        self.assertIsNone(result)
+
+    def test_wait_skipped_in_dry_run(self):
+        self._set_lock()
+        coalescer = QueryCoalescer(self.cache_key, "follower", dry_run=True)
+        result = coalescer._wait_for_result(
+            lambda: self._fresh_cache_data(results=[1]), poll_interval=0, max_leader_age=30
+        )
+        self.assertIsNone(result)
+
     def test_wait_polls_until_cache_appears(self):
         self._set_lock()
         coalescer = QueryCoalescer(self.cache_key, "follower")
+        fresh_data = self._fresh_cache_data(ready=True)
         call_count = 0
 
         def delayed_cache():
             nonlocal call_count
             call_count += 1
-            return {"ready": True} if call_count >= 3 else None
+            return fresh_data if call_count >= 3 else None
 
         result = coalescer._wait_for_result(delayed_cache, poll_interval=0.01, max_leader_age=5)
-        self.assertEqual(result, {"ready": True})
+        self.assertEqual(result, fresh_data)
         self.assertEqual(call_count, 3)
 
     # -- run_coalesced end-to-end --
@@ -105,6 +131,7 @@ class TestQueryCoalescer(TestCase):
     def test_follower_returns_cached_result(self):
         self._set_lock()
         coalescer = QueryCoalescer(self.cache_key, "follower")
+        fresh_data = self._fresh_cache_data(results=[1])
         execute_called = False
 
         def should_not_execute():
@@ -114,7 +141,7 @@ class TestQueryCoalescer(TestCase):
 
         result = coalescer.run_coalesced(
             execute=should_not_execute,
-            get_cache_data=lambda: {"results": [1]},
+            get_cache_data=lambda: fresh_data,
             build_response=lambda data: data["results"],
         )
         self.assertEqual(result, [1])

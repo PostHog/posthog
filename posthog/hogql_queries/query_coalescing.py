@@ -53,6 +53,7 @@ class QueryCoalescer:
         self.dry_run = dry_run
         self._lock_value: str = ""
         self._is_leader: bool = False
+        self._created_at: float = time.time()
         self._redis = posthog_redis.get_client()
 
     @property
@@ -120,7 +121,7 @@ class QueryCoalescer:
 
         while (time.monotonic() - start) < max_leader_age:
             data = get_cache_data()
-            if data is not None:
+            if data is not None and self._is_fresh(data):
                 coalesce_wait_histogram.observe(time.monotonic() - start)
                 coalesce_counter.labels(outcome="follower_hit").inc()
                 return data
@@ -141,6 +142,16 @@ class QueryCoalescer:
 
         coalesce_counter.labels(outcome="follower_timeout").inc()
         return None
+
+    def _is_fresh(self, data: dict) -> bool:
+        last_refresh = data.get("last_refresh")
+        if last_refresh is None:
+            return False
+        if isinstance(last_refresh, str):
+            from datetime import datetime
+
+            last_refresh = datetime.fromisoformat(last_refresh)
+        return last_refresh.timestamp() >= self._created_at
 
     @staticmethod
     def _parse_lock_start_time(lock_value: str) -> Optional[float]:

@@ -584,6 +584,27 @@ class TestQueryCoalescing(BaseTest):
         coalescer = QueryCoalescer(cache_key, "test-query-id")
         self.assertTrue(coalescer._try_acquire())
 
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_coalesced_follower_recomputes_when_cache_is_stale(self, _mock_ff):
+        Runner = self.setup_test_query_runner_class()
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            runner = Runner(query={"some_attr": "bla"}, team=self.team)
+            initial_response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            self.assertEqual(initial_response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            self.assertEqual(initial_response.is_cached, False)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 48, 42)):
+            follower_runner = Runner(query={"some_attr": "bla"}, team=self.team)
+            with mock.patch(
+                "posthog.hogql_queries.query_coalescing.QueryCoalescer._try_acquire",
+                return_value=False,
+            ):
+                response = follower_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:48:42+00:00")
+            self.assertEqual(response.is_cached, False)
+
     def test_coalescing_redis_failure_degrades_gracefully(self):
         Runner = self.setup_test_query_runner_class()
         runner = Runner(query={"some_attr": "bla"}, team=self.team)
