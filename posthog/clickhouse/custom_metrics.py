@@ -116,6 +116,21 @@ def CUSTOM_METRICS_MERGE_FAILURES_VIEW():
     WHERE event_time >= now() - INTERVAL 15 MINUTE
       AND event_type = 'MergeParts'
       AND error > 0
+    UNION ALL
+    SELECT
+        'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name,
+        map('instance', hostName()) AS labels,
+        max(cnt) AS value,
+        'Max failed merge retries for any single table in the last 15 minutes' AS help,
+        'gauge' AS type
+    FROM (
+        SELECT count() AS cnt
+        FROM system.part_log
+        WHERE event_time >= now() - INTERVAL 15 MINUTE
+          AND event_type = 'MergeParts'
+          AND error > 0
+        GROUP BY database, `table`, partition_id
+    )
     """
 
 
