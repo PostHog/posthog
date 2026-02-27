@@ -228,4 +228,52 @@ describe('dateFilterLogic', () => {
             })
         }
     )
+
+    it('opens the CustomRelativeRange view', async () => {
+        logic.actions.openCustomRelativeRange()
+        await expectLogic(logic).toMatchValues({
+            isVisible: true,
+            view: DateFilterView.CustomRelativeRange,
+        })
+    })
+
+    it.each([
+        ['-15d', '-1d', true],
+        ['-7d', '-3d', true],
+        ['-2m', '-1m', true],
+        ['-30d', null, false],
+        [null, null, false],
+        ['2024-01-15', '2024-01-16', false],
+        ['-1dStart', '-1dEnd', false], // preset match should not be custom relative
+    ])('isCustomRelativeRange for %s / %s is %s', async (dateFrom, dateTo, expected) => {
+        const testLogic = dateFilterLogic({
+            key: `test-custom-relative-${dateFrom}-${dateTo}`,
+            onChange: jest.fn(),
+            dateFrom,
+            dateTo,
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+        })
+        testLogic.mount()
+
+        await expectLogic(testLogic).toMatchValues({
+            isCustomRelativeRange: expected,
+        })
+    })
+
+    it('shows the correct label for custom relative date ranges', async () => {
+        const testLogic = dateFilterLogic({
+            key: 'test-custom-relative-label',
+            onChange: jest.fn(),
+            dateFrom: '-15d',
+            dateTo: '-1d',
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+        })
+        testLogic.mount()
+
+        await expectLogic(testLogic).toMatchValues({
+            label: '15 days ago to 1 day ago',
+        })
+    })
 })

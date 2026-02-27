@@ -335,6 +335,15 @@ describe('lib/utils', () => {
                 )
             })
 
+            it('handles custom relative date ranges', () => {
+                expect(dateFilterToText('-15d', '-1d', 'default')).toEqual('15 days ago to 1 day ago')
+                expect(dateFilterToText('-7d', '-3d', 'default')).toEqual('7 days ago to 3 days ago')
+                expect(dateFilterToText('-2m', '-1m', 'default')).toEqual('2 months ago to 1 month ago')
+                expect(dateFilterToText('-4w', '-1w', 'default')).toEqual('4 weeks ago to 1 week ago')
+                expect(dateFilterToText('-24h', '-1h', 'default')).toEqual('24 hours ago to 1 hour ago')
+                expect(dateFilterToText('-2y', '-1y', 'default')).toEqual('2 years ago to 1 year ago')
+            })
+
             it('can have overridden date options', () => {
                 expect(dateFilterToText('-21d', null, 'default', [{ key: 'Last 3 weeks', values: ['-21d'] }])).toEqual(
                     'Last 3 weeks'
