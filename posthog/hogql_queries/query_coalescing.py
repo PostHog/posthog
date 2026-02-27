@@ -116,7 +116,7 @@ class QueryCoalescer:
         if self.dry_run:
             return None
 
-        # Read leader's start time once, cache entries must be newer than this to be considered fresh
+        # Cache entries must be newer than the leader's lock time to be considered fresh
         lock_value = self._redis.get(self._lock_key)
         if lock_value is None:
             coalesce_counter.labels(outcome="follower_leader_gone").inc()
@@ -143,7 +143,12 @@ class QueryCoalescer:
                 coalesce_counter.labels(outcome="follower_leader_gone").inc()
                 return None
 
-            if leader_start and (time.time() - leader_start) > max_leader_age:
+            # Re-parse the current lock's timestamp for the timeout check, in case a new
+            # leader took over after the original one failed to write to the cache
+            current_leader_start = self._parse_lock_start_time(
+                lock_value.decode("utf-8") if isinstance(lock_value, bytes) else lock_value
+            )
+            if current_leader_start and (time.time() - current_leader_start) > max_leader_age:
                 coalesce_counter.labels(outcome="follower_timeout").inc()
                 return None
 
