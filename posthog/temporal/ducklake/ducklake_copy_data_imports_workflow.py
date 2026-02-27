@@ -190,12 +190,10 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_schema_name=schema.name,
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
-                ducklake_schema_name=_sanitize_ducklake_identifier(
-                    f"{DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
-                    default_prefix=DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX,
-                ),
+                ducklake_schema_name="posthog_data_imports",
                 ducklake_table_name=_sanitize_ducklake_identifier(
-                    f"{source_type}_{normalized_name}_{schema.id.hex[:8]}", default_prefix="data_imports"
+                    f"{source_type}_{schema.source.prefix or ''}_{normalized_name}",
+                    default_prefix="data_imports",
                 ),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
