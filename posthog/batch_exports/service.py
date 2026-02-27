@@ -585,10 +585,16 @@ def running_runs_for_batch_export(batch_export_id: UUID):
 
 
 async def cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
-    """Cancel a running BatchExportBackfill and its associated runs.
+    """Cancel a running BatchExportBackfill and any associated runs (should only be one max).
 
-    Run cancellation is best-effort to ensure the backfill itself is always cancelled.
+    We cancel the backfill workflow first to prevent any new runs from starting.
     """
+    handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
+    await handle.cancel()
+
+    batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
+    await batch_export_backfill.asave()
+
     cancellable_statuses = [BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING]
     async for run in batch_export_backfill.runs.filter(status__in=cancellable_statuses):
         try:
@@ -599,18 +605,17 @@ async def cancel_running_batch_export_backfill(temporal: Client, batch_export_ba
         except Exception:
             logger.exception("Failed to cancel batch export run %s", run.id)
 
-    handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
-    await handle.cancel()
-
-    batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
-    await batch_export_backfill.asave()
-
 
 def sync_cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
-    """Cancel a running BatchExportBackfill and its associated runs.
+    """Cancel a running BatchExportBackfill and any associated runs (should only be one max).
 
-    Run cancellation is best-effort to ensure the backfill itself is always cancelled.
+    We cancel the backfill workflow first to prevent any new runs from starting.
     """
+    handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
+    async_to_sync(handle.cancel)()
+
+    batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
+    batch_export_backfill.save()
 
     cancellable_statuses = [BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING]
     for run in batch_export_backfill.runs.filter(status__in=cancellable_statuses):
@@ -618,12 +623,6 @@ def sync_cancel_running_batch_export_backfill(temporal: Client, batch_export_bac
             cancel_running_batch_export_run(temporal, run)
         except Exception:
             logger.exception("Failed to cancel batch export run %s", run.id)
-
-    handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
-    async_to_sync(handle.cancel)()
-
-    batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
-    batch_export_backfill.save()
 
 
 def cancel_running_batch_export_run(temporal: Client, batch_export_run: BatchExportRun) -> None:
