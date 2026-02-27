@@ -3,17 +3,17 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { ModelOption } from '../byokModelPickerLogic'
+import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic } from './llmPlaygroundRunLogic'
 
 const MOCK_MODEL_OPTIONS: ModelOption[] = [
-    { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '' },
-    { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'OpenAI', description: '' },
-    { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI', description: '' },
-    { id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' },
-    { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Anthropic', description: '' },
+    { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '', isRecommended: false },
+    { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'OpenAI', description: '', isRecommended: false },
+    { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI', description: '', isRecommended: false },
+    { id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '', isRecommended: false },
+    { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Anthropic', description: '', isRecommended: false },
 ]
 
 const DEFAULT_MODEL = 'gpt-5-mini'
@@ -102,6 +102,9 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
+            // Reload trial models so the empty mock takes effect
+            modelPickerLogic.actions.loadTrialModels()
+
             const emptyRunLogic = llmPlaygroundRunLogic()
             emptyRunLogic.mount()
 
@@ -188,6 +191,9 @@ describe('llmPlaygroundLogic', () => {
                     },
                 },
             })
+
+            // Reload trial models with the extended mock data
+            modelPickerLogic.actions.loadTrialModels()
 
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
@@ -440,14 +446,14 @@ describe('llmPlaygroundLogic', () => {
         })
     })
 
-    describe('loadModelOptions auto-correction', () => {
-        it('should auto-correct invalid model after loading options', async () => {
+    describe('loadTrialModels auto-correction', () => {
+        it('should auto-correct invalid model after loading trial models', async () => {
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
 
             llmPlaygroundPromptsLogic.actions.setModel('gpt-5-2025-08-07')
 
-            llmPlaygroundModelLogic.actions.loadModelOptions()
+            modelPickerLogic.actions.loadTrialModels()
 
             await expectLogic(testRunLogic).toFinishAllListeners()
 
@@ -469,9 +475,9 @@ describe('llmPlaygroundLogic', () => {
             testRunLogic.unmount()
         })
 
-        it('should preserve model options when reload fails', async () => {
+        it('should preserve trial models when reload fails', async () => {
             await expectLogic(runLogic).toFinishAllListeners()
-            expect(llmPlaygroundModelLogic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
 
             useMocks({
                 get: {
@@ -487,10 +493,10 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            llmPlaygroundModelLogic.actions.loadModelOptions()
+            modelPickerLogic.actions.loadTrialModels()
             await expectLogic(runLogic).toFinishAllListeners()
 
-            expect(llmPlaygroundModelLogic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
         })
     })
 

@@ -4,13 +4,8 @@ import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { byokModelPickerLogic, type ModelOption } from '../byokModelPickerLogic'
-import {
-    LLMProviderKey,
-    llmProviderKeysLogic,
-    normalizeLLMProvider,
-    providerSortIndex,
-} from '../settings/llmProviderKeysLogic'
+import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
+import { LLMProviderKey, llmProviderKeysLogic, normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import type { llmPlaygroundModelLogicType } from './llmPlaygroundModelLogicType'
 import { llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
 import {
@@ -55,16 +50,23 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                 'pendingTargetProvider',
                 'pendingTargetIsTrace',
             ],
-            byokModelPickerLogic,
-            ['byokModels', 'byokModelsLoading', 'hasByokKeys'],
+            modelPickerLogic,
+            [
+                'byokModels',
+                'byokModelsLoading',
+                'trialModels',
+                'trialModelsLoading',
+                'hasByokKeys',
+                'trialProviderModelGroups',
+            ],
             llmProviderKeysLogic,
             ['providerKeys', 'providerKeysLoading'],
         ],
         actions: [
             llmPlaygroundPromptsLogic,
             ['setupPlaygroundFromEvent', 'setModel', 'setPromptConfigs', 'clearPendingTargetModel'],
-            byokModelPickerLogic,
-            ['loadByokModelsSuccess', 'loadByokModelsFailure'],
+            modelPickerLogic,
+            ['loadByokModelsSuccess', 'loadByokModelsFailure', 'loadTrialModelsSuccess', 'loadTrialModelsFailure'],
             llmProviderKeysLogic,
             ['loadProviderKeys', 'loadProviderKeysSuccess', 'loadProviderKeysFailure'],
         ],
@@ -75,12 +77,11 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
     }),
 
     reducers({
-        modelOptionsErrorStatus: [
+        trialModelsErrorStatus: [
             null as number | null,
             {
-                loadModelOptions: () => null,
-                loadModelOptionsSuccess: () => null,
-                loadModelOptionsFailure: (_: number | null, { error }: { error: unknown }) => {
+                loadTrialModelsSuccess: () => null,
+                loadTrialModelsFailure: (_: number | null, { error }: { error: unknown }) => {
                     if (error instanceof ApiError) {
                         return error.status ?? null
                     }
@@ -112,93 +113,44 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                 loadByokModelsFailure: () => true,
             },
         ],
+        trialModelsSettled: [
+            false as boolean,
+            {
+                loadTrialModelsSuccess: () => true,
+                loadTrialModelsFailure: () => true,
+            },
+        ],
     }),
 
-    loaders(({ values }) => ({
-        modelOptions: {
-            __default: [] as ModelOption[],
-            loadModelOptions: async () => {
+    loaders(() => ({
+        evaluationConfig: {
+            __default: null as { active_provider_key: { id: string } | null } | null,
+            loadEvaluationConfig: async () => {
                 const teamId = teamLogic.values.currentTeamId
-
-                if (teamId) {
-                    try {
-                        const config = (await api.get(
-                            `/api/environments/${teamId}/llm_analytics/evaluation_config/`
-                        )) as { active_provider_key: { id: string } | null }
-                        llmPlaygroundModelLogic.actions.setActiveProviderKeyId(config?.active_provider_key?.id ?? null)
-                    } catch (e) {
-                        console.warn('Failed to load evaluation config', e)
-                    }
+                if (!teamId) {
+                    return null
                 }
-
-                const trialModels = (await api.get('/api/llm_proxy/models/')) as ModelOption[]
-                const options = trialModels ?? []
-                const pendingTargetModel = values.pendingTargetModel
-
-                const normalizedPrompts = values.promptConfigs.map((prompt, index) => {
-                    if (index === 0 && pendingTargetModel) {
-                        return prompt
+                try {
+                    return (await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)) as {
+                        active_provider_key: { id: string } | null
                     }
-                    if (values.hasByokKeys && prompt.selectedProviderKeyId) {
-                        return prompt
-                    }
-
-                    const closestMatch = matchClosestModel(prompt.model, options)
-                    if (prompt.model === closestMatch) {
-                        return prompt
-                    }
-                    return {
-                        ...prompt,
-                        model: closestMatch,
-                        selectedProviderKeyId: null,
-                    }
-                })
-
-                const changed = normalizedPrompts.some((prompt, index) => prompt !== values.promptConfigs[index])
-                if (changed) {
-                    llmPlaygroundModelLogic.actions.setPromptConfigs(normalizedPrompts)
+                } catch (e) {
+                    console.warn('Failed to load evaluation config', e)
+                    return null
                 }
-
-                return options
             },
         },
     })),
 
     selectors({
         effectiveModelOptions: [
-            (s) => [s.hasByokKeys, s.byokModels, s.modelOptions],
-            (hasByokKeys: boolean, byokModels: ModelOption[], modelOptions: ModelOption[]): ModelOption[] =>
-                hasByokKeys && byokModels.length > 0 ? byokModels : modelOptions,
+            (s) => [s.hasByokKeys, s.byokModels, s.trialModels],
+            (hasByokKeys: boolean, byokModels: ModelOption[], trialModels: ModelOption[]): ModelOption[] =>
+                hasByokKeys && byokModels.length > 0 ? byokModels : trialModels,
         ],
         allModelOptions: [
-            (s) => [s.modelOptions, s.byokModels],
-            (modelOptions: ModelOption[], byokModels: ModelOption[]): ModelOption[] => [...modelOptions, ...byokModels],
-        ],
-        groupedModelOptions: [
-            (s) => [s.modelOptions],
-            (modelOptions: ModelOption[]) => {
-                const options = Array.isArray(modelOptions) ? modelOptions : []
-                const byProvider: Record<string, ModelOption[]> = {}
-
-                for (const option of options) {
-                    const provider = option.provider || 'Unknown'
-                    if (!byProvider[provider]) {
-                        byProvider[provider] = []
-                    }
-                    byProvider[provider].push(option)
-                }
-
-                return Object.entries(byProvider)
-                    .sort(([a], [b]) => providerSortIndex(a) - providerSortIndex(b))
-                    .map(([provider, providerModels]) => ({
-                        title: provider,
-                        options: providerModels.map((option) => ({
-                            label: option.name,
-                            value: option.id,
-                            tooltip: option.description || `Provider: ${option.provider}`,
-                        })),
-                    }))
-            },
+            (s) => [s.trialModels, s.byokModels],
+            (trialModels: ModelOption[], byokModels: ModelOption[]): ModelOption[] => [...trialModels, ...byokModels],
         ],
         providerKeyForCurrentModel: [
             (s) => [s.activePromptConfig, s.effectiveModelOptions, s.providerKeys],
@@ -233,9 +185,47 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
         }
 
         return {
-            loadModelOptionsSuccess: () => {
-                const targetModelForFirstPrompt = values.pendingTargetModel
-                if (!targetModelForFirstPrompt) {
+            loadEvaluationConfigSuccess: ({
+                evaluationConfig,
+            }: {
+                evaluationConfig: { active_provider_key: { id: string } | null } | null
+            }) => {
+                actions.setActiveProviderKeyId(evaluationConfig?.active_provider_key?.id ?? null)
+            },
+            loadTrialModelsSuccess: ({ trialModels }: { trialModels: ModelOption[] }) => {
+                if (trialModels.length === 0) {
+                    return
+                }
+
+                // Normalize prompts to available trial models
+                const pendingTargetModel = values.pendingTargetModel
+
+                const normalizedPrompts = values.promptConfigs.map((prompt, index) => {
+                    if (index === 0 && pendingTargetModel) {
+                        return prompt
+                    }
+                    if (values.hasByokKeys && prompt.selectedProviderKeyId) {
+                        return prompt
+                    }
+
+                    const closestMatch = matchClosestModel(prompt.model, trialModels)
+                    if (prompt.model === closestMatch) {
+                        return prompt
+                    }
+                    return {
+                        ...prompt,
+                        model: closestMatch,
+                        selectedProviderKeyId: null,
+                    }
+                })
+
+                const changed = normalizedPrompts.some((prompt, index) => prompt !== values.promptConfigs[index])
+                if (changed) {
+                    actions.setPromptConfigs(normalizedPrompts)
+                }
+
+                // Handle pending target model
+                if (!pendingTargetModel) {
                     return
                 }
 
@@ -244,18 +234,18 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                 }
 
                 if (values.pendingTargetIsTrace) {
-                    applyPendingTraceSelection(targetModelForFirstPrompt)
+                    applyPendingTraceSelection(pendingTargetModel)
                     return
                 }
 
-                const normalizedPrompts = normalizePromptsToAvailableModels(
+                const normalizedPromptsWithTarget = normalizePromptsToAvailableModels(
                     values.promptConfigs,
-                    targetModelForFirstPrompt,
+                    pendingTargetModel,
                     values.effectiveModelOptions,
                     values.providerKeys
                 )
 
-                actions.setPromptConfigs(normalizedPrompts)
+                actions.setPromptConfigs(normalizedPromptsWithTarget)
                 actions.clearPendingTargetModel()
             },
             loadByokModelsSuccess: ({ byokModels }: { byokModels: ModelOption[] }) => {
@@ -313,6 +303,6 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
     }),
 
     afterMount(({ actions }) => {
-        actions.loadModelOptions()
+        actions.loadEvaluationConfig()
     }),
 ])

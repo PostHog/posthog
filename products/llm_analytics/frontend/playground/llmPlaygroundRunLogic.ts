@@ -6,7 +6,7 @@ import api, { ApiError, RateLimitError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { uuid } from 'lib/utils'
 
-import type { ModelOption } from '../byokModelPickerLogic'
+import type { ModelOption } from '../modelPickerLogic'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'

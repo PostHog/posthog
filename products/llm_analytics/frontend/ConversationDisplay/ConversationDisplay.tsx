@@ -9,7 +9,7 @@ import { EventType } from '~/types'
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
 import { llmPlaygroundPromptsLogic } from '../playground/llmPlaygroundPromptsLogic'
-import { normalizeMessages } from '../utils'
+import { normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 

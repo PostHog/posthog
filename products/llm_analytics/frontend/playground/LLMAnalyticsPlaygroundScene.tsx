@@ -18,7 +18,6 @@ import {
     LemonDropdown,
     LemonInput,
     LemonModal,
-    LemonSearchableSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -34,14 +33,16 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ByokModelPicker } from '../ByokModelPicker'
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
+import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
+import { modelPickerLogic } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
     llmPlaygroundPromptsLogic,
@@ -135,6 +136,7 @@ function usePromptConfig(promptId: string): PromptConfig | null {
 
 function RateLimitBanner(): JSX.Element | null {
     const { rateLimitedUntil } = useValues(llmPlaygroundRunLogic)
+    const { hasByokKeys } = useValues(modelPickerLogic)
 
     if (rateLimitedUntil === null || Date.now() >= rateLimitedUntil) {
         return null
@@ -145,6 +147,15 @@ function RateLimitBanner(): JSX.Element | null {
             You've hit the playground request limit for shared keys. You can make another request in{' '}
             <strong>{humanFriendlyDuration(Math.ceil((rateLimitedUntil - Date.now()) / 1000), { maxUnits: 1 })}</strong>
             .
+            {!hasByokKeys && (
+                <>
+                    {' '}
+                    <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                        Add your own API key
+                    </Link>{' '}
+                    to get higher rate limits.
+                </>
+            )}
         </LemonBanner>
     )
 }
@@ -341,7 +352,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     )
 }
 
-function getModelOptionsErrorMessage(errorStatus: number | null): string | null {
+function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
     if (errorStatus === null) {
         return null
     }
@@ -351,72 +362,53 @@ function getModelOptionsErrorMessage(errorStatus: number | null): string | null 
     return 'Failed to load models. Please refresh the page or try again later.'
 }
 
-function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
+function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
+    const { effectiveModelOptions, trialModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
     const {
-        effectiveModelOptions,
         hasByokKeys,
-        modelOptions,
-        modelOptionsLoading,
-        modelOptionsErrorStatus,
-        groupedModelOptions,
-    } = useValues(llmPlaygroundModelLogic)
-    const { loadModelOptions } = useActions(llmPlaygroundModelLogic)
+        providerModelGroups,
+        trialProviderModelGroups,
+        byokModelsLoading,
+        trialModelsLoading,
+        providerKeysLoading,
+    } = useValues(modelPickerLogic)
+    const { loadTrialModels } = useActions(modelPickerLogic)
     const { setModel } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-10" />
     }
 
-    if (hasByokKeys) {
-        const options = Array.isArray(effectiveModelOptions) ? effectiveModelOptions : []
-        const selectedModel = options.find((m) => m.id === prompt.model)
+    const selectedModel = effectiveModelOptions.find((m) => m.id === prompt.model)
 
-        return (
-            <ByokModelPicker
-                model={prompt.model}
-                selectedProviderKeyId={prompt.selectedProviderKeyId}
-                onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId, promptId)}
-                selectedModelName={selectedModel?.name}
-                data-attr={`playground-model-selector-${promptId}`}
-            />
-        )
-    }
-
-    const options = Array.isArray(modelOptions) ? modelOptions : []
-    const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
+    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
+    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+    const errorMessage = !hasByokKeys ? getTrialModelsErrorMessage(trialModelsErrorStatus) : null
+    const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !trialModelsLoading
 
     return (
         <>
-            {modelOptionsLoading && !options.length ? (
-                <LemonSkeleton className="h-10" />
-            ) : (
-                <LemonSearchableSelect
-                    className="w-full"
-                    placeholder="Select model"
-                    value={prompt.model}
-                    onChange={(value) => value && setModel(value, undefined, promptId)}
-                    options={groupedModelOptions}
-                    searchPlaceholder="Search models..."
-                    searchKeys={['label', 'value', 'tooltip']}
-                    loading={modelOptionsLoading}
-                    disabledReason={
-                        modelOptionsLoading
-                            ? 'Loading models...'
-                            : options.length === 0
-                              ? 'No models available'
-                              : undefined
-                    }
-                    data-attr={`playground-model-selector-${promptId}`}
-                />
-            )}
-            {options.length === 0 && !modelOptionsLoading && (
+            <ModelPicker
+                model={prompt.model}
+                selectedProviderKeyId={prompt.selectedProviderKeyId}
+                onSelect={(modelId, providerKeyId) => {
+                    const trialProvider = parseTrialProviderKeyId(providerKeyId)
+                    setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
+                }}
+                groups={groups}
+                loading={loading}
+                footerLink={getModelPickerFooterLink(hasByokKeys)}
+                selectedModelName={selectedModel?.name}
+                data-attr={`playground-model-selector-${promptId}`}
+            />
+            {showError && (
                 <div className="mt-1">
                     <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
                     <button
                         type="button"
                         className="text-xs text-link mt-1 underline"
-                        onClick={() => loadModelOptions()}
+                        onClick={() => loadTrialModels()}
                     >
                         Retry
                     </button>
@@ -493,7 +485,7 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-3">
             <div className="flex-1 min-w-[260px] max-w-lg">
-                <ModelPicker promptId={promptId} />
+                <PlaygroundModelPicker promptId={promptId} />
             </div>
 
             <LemonDropdown

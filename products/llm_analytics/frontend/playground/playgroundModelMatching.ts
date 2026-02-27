@@ -1,4 +1,4 @@
-import type { ModelOption } from '../byokModelPickerLogic'
+import type { ModelOption } from '../modelPickerLogic'
 import {
     firstUsableProviderKeyIdForProvider,
     type LLMProviderKey,
