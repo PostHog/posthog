@@ -30,16 +30,16 @@ class TestProjectAPI:
     def test_get_repo_returns_dto(self, team):
         created = api.create_repo(team_id=team.id, repo_external_id=11111, repo_full_name="org/test")
 
-        result = api.get_repo(created.id)
+        result = api.get_repo(created.id, team_id=team.id)
 
         assert result.id == created.id
         assert result.repo_full_name == "org/test"
 
-    def test_get_repo_not_found_raises(self):
+    def test_get_repo_not_found_raises(self, team):
         import uuid
 
         with pytest.raises(api.RepoNotFoundError):
-            api.get_repo(uuid.uuid4())
+            api.get_repo(uuid.uuid4(), team_id=team.id)
 
     def test_list_repos_returns_dtos(self, team):
         api.create_repo(team_id=team.id, repo_external_id=111, repo_full_name="org/first")
@@ -59,7 +59,8 @@ class TestProjectAPI:
             UpdateRepoInput(
                 repo_id=created.id,
                 baseline_file_paths={"storybook": ".storybook/snapshots.yml"},
-            )
+            ),
+            team_id=team.id,
         )
 
         assert result.baseline_file_paths == {"storybook": ".storybook/snapshots.yml"}
@@ -89,7 +90,8 @@ class TestRunAPI:
                     SnapshotManifestItem(identifier="Button", content_hash="hash1", width=100, height=200),
                     SnapshotManifestItem(identifier="Card", content_hash="hash2", width=150, height=250),
                 ],
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         assert isinstance(result.run_id, UUID)
@@ -109,7 +111,8 @@ class TestRunAPI:
                 commit_sha="abc123",
                 branch="main",
                 snapshots=[],
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         result = api.get_run(create_result.run_id)
@@ -129,7 +132,8 @@ class TestRunAPI:
                     SnapshotManifestItem(identifier="Button", content_hash="hash1"),
                     SnapshotManifestItem(identifier="Card", content_hash="hash2"),
                 ],
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         snapshots = api.get_run_snapshots(create_result.run_id)
@@ -149,7 +153,8 @@ class TestRunAPI:
                 commit_sha="abc123",
                 branch="main",
                 snapshots=[],
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         result = api.complete_run(create_result.run_id)
@@ -170,7 +175,8 @@ class TestRunAPI:
                     SnapshotManifestItem(identifier="Button", content_hash="new_hash"),
                 ],
                 baseline_hashes={"Button": "old_hash"},
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         result = api.complete_run(create_result.run_id)
@@ -202,7 +208,8 @@ class TestApproveRunAPI:
                 branch="main",
                 snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
                 baseline_hashes={"Button": "old_hash"},
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         result = api.approve_run(

@@ -19,16 +19,16 @@ class TestProjectOperations:
     def test_get_repo(self, team):
         repo = logic.create_repo(team_id=team.id, repo_external_id=11111, repo_full_name="org/test")
 
-        retrieved = logic.get_repo(repo.id)
+        retrieved = logic.get_repo(repo.id, team_id=team.id)
 
         assert retrieved.id == repo.id
         assert retrieved.repo_full_name == "org/test"
 
-    def test_get_repo_not_found(self):
+    def test_get_repo_not_found(self, team):
         import uuid
 
         with pytest.raises(logic.RepoNotFoundError):
-            logic.get_repo(uuid.uuid4())
+            logic.get_repo(uuid.uuid4(), team_id=team.id)
 
     def test_list_repos_for_team(self, team):
         logic.create_repo(team_id=team.id, repo_external_id=111, repo_full_name="org/first")
@@ -122,6 +122,7 @@ class TestRunOperations:
     def test_create_run_basic(self, repo):
         run, uploads = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123def456",
             branch="main",
@@ -149,6 +150,7 @@ class TestRunOperations:
 
         run, uploads = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.PLAYWRIGHT,
             commit_sha="abc",
             branch="feat",
@@ -171,6 +173,7 @@ class TestRunOperations:
 
         run, _uploads = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc",
             branch="main",
@@ -191,6 +194,7 @@ class TestRunOperations:
 
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc",
             branch="main",
@@ -214,6 +218,7 @@ class TestRunOperations:
     def test_get_run(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc",
             branch="main",
@@ -235,6 +240,7 @@ class TestRunOperations:
     def test_mark_run_processing(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc",
             branch="main",
@@ -250,6 +256,7 @@ class TestRunOperations:
     def test_mark_run_completed_success(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc",
             branch="main",
@@ -272,6 +279,7 @@ class TestRunOperations:
     def test_mark_run_completed_with_error(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc",
             branch="main",
@@ -298,6 +306,7 @@ class TestApproveRun:
         )
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc",
             branch="main",
@@ -334,6 +343,7 @@ class TestGetRunSnapshots:
     def test_get_run_snapshots(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc",
             branch="main",
@@ -369,6 +379,7 @@ class TestCommitStatusChecks:
     def test_create_run_posts_pending_status(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
             repo_id=github_repo.id,
+            team_id=github_repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123",
             branch="main",
@@ -386,6 +397,7 @@ class TestCommitStatusChecks:
     def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
             repo_id=github_repo.id,
+            team_id=github_repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123",
             branch="main",
@@ -403,6 +415,7 @@ class TestCommitStatusChecks:
     def test_complete_run_posts_failure_when_changes_detected(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
             repo_id=github_repo.id,
+            team_id=github_repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123",
             branch="main",
@@ -424,6 +437,7 @@ class TestCommitStatusChecks:
     def test_complete_run_posts_error_on_failure(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
             repo_id=github_repo.id,
+            team_id=github_repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123",
             branch="main",
@@ -442,6 +456,7 @@ class TestCommitStatusChecks:
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
         run, _ = logic.create_run(
             repo_id=github_repo.id,
+            team_id=github_repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123",
             branch="main",
@@ -468,6 +483,7 @@ class TestCommitStatusChecks:
         # No mock_github_api/mock_github_integration — should not raise
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123",
             branch="main",
@@ -488,6 +504,7 @@ class TestCommitStatusChecks:
 
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123",
             branch="main",
@@ -512,6 +529,7 @@ class TestRunSupersession:
     def _create_run(self, repo, *, branch="feat/x", run_type=RunType.STORYBOOK, commit_sha="abc"):
         run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=run_type,
             commit_sha=commit_sha,
             branch=branch,
@@ -631,6 +649,7 @@ class TestRunSupersession:
     def test_clean_run_not_superseded(self, repo):
         clean_run, _ = logic.create_run(
             repo_id=repo.id,
+            team_id=repo.team_id,
             run_type=RunType.STORYBOOK,
             commit_sha="clean",
             branch="feat/x",

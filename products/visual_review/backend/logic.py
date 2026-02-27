@@ -68,9 +68,9 @@ class BaselineFilePathNotConfiguredError(Exception):
 # --- Repo Operations ---
 
 
-def get_repo(repo_id: UUID) -> Repo:
+def get_repo(repo_id: UUID, team_id: int) -> Repo:
     try:
-        return Repo.objects.get(id=repo_id)
+        return Repo.objects.get(id=repo_id, team_id=team_id)
     except Repo.DoesNotExist as e:
         raise RepoNotFoundError(f"Repo {repo_id} not found") from e
 
@@ -89,9 +89,10 @@ def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> Rep
 
 def update_repo(
     repo_id: UUID,
+    team_id: int,
     baseline_file_paths: dict[str, str] | None = None,
 ) -> Repo:
-    repo = get_repo(repo_id)
+    repo = get_repo(repo_id, team_id)
     if baseline_file_paths is not None:
         repo.baseline_file_paths = baseline_file_paths
     repo.save()
@@ -232,6 +233,7 @@ def get_run_with_snapshots(run_id: UUID) -> Run:
 @transaction.atomic
 def create_run(
     repo_id: UUID,
+    team_id: int,
     run_type: str,
     commit_sha: str,
     branch: str,
@@ -246,7 +248,7 @@ def create_run(
     Returns the run and list of upload targets for missing artifacts.
     Each upload target has: content_hash, url, fields
     """
-    repo = get_repo(repo_id)
+    repo = get_repo(repo_id, team_id)
 
     # Supersede old runs before inserting the new one. The unique constraint
     # on (repo, branch, run_type) WHERE superseded_by IS NULL fires per-

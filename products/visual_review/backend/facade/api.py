@@ -106,8 +106,8 @@ def _to_repo(repo) -> contracts.Repo:
 # --- Repo API ---
 
 
-def get_repo(repo_id: UUID) -> contracts.Repo:
-    repo = logic.get_repo(repo_id)
+def get_repo(repo_id: UUID, team_id: int) -> contracts.Repo:
+    repo = logic.get_repo(repo_id, team_id)
     return _to_repo(repo)
 
 
@@ -121,9 +121,10 @@ def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> con
     return _to_repo(repo)
 
 
-def update_repo(input: contracts.UpdateRepoInput) -> contracts.Repo:
+def update_repo(input: contracts.UpdateRepoInput, team_id: int) -> contracts.Repo:
     repo = logic.update_repo(
         repo_id=input.repo_id,
+        team_id=team_id,
         baseline_file_paths=input.baseline_file_paths,
     )
     return _to_repo(repo)
@@ -141,7 +142,7 @@ def get_review_state_counts(team_id: int) -> dict[str, int]:
     return logic.get_review_state_counts(team_id)
 
 
-def create_run(input: contracts.CreateRunInput) -> contracts.CreateRunResult:
+def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.CreateRunResult:
     snapshots = [
         {
             "identifier": s.identifier,
@@ -155,6 +156,7 @@ def create_run(input: contracts.CreateRunInput) -> contracts.CreateRunResult:
 
     run, uploads = logic.create_run(
         repo_id=input.repo_id,
+        team_id=team_id,
         run_type=input.run_type,
         commit_sha=input.commit_sha,
         branch=input.branch,

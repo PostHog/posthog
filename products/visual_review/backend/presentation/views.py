@@ -82,7 +82,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         """Get a repo by ID."""
         try:
-            repo = api.get_repo(UUID(pk))
+            repo = api.get_repo(UUID(pk), team_id=self.team_id)
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RepoSerializer(instance=repo).data)
@@ -100,7 +100,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
         try:
-            repo = api.update_repo(input_dto)
+            repo = api.update_repo(input_dto, team_id=self.team_id)
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RepoSerializer(instance=repo).data)
@@ -144,7 +144,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: ValidatedRequest, **kwargs) -> Response:
         """Create a new run from a CI manifest."""
-        result = api.create_run(request.validated_data)
+        result = api.create_run(request.validated_data, team_id=self.team_id)
         return Response(CreateRunResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: RunSerializer})

@@ -97,7 +97,8 @@ class TestRunViewSet(APIBaseTest):
                 commit_sha="abc123",
                 branch="main",
                 snapshots=[],
-            )
+            ),
+            team_id=self.team.id,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/")
@@ -118,7 +119,8 @@ class TestRunViewSet(APIBaseTest):
                     SnapshotManifestItem(identifier="Button", content_hash="h1"),
                     SnapshotManifestItem(identifier="Card", content_hash="h2"),
                 ],
-            )
+            ),
+            team_id=self.team.id,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/")
@@ -140,7 +142,8 @@ class TestRunViewSet(APIBaseTest):
                 commit_sha="abc123",
                 branch="main",
                 snapshots=[],
-            )
+            ),
+            team_id=self.team.id,
         )
 
         response = self.client.post(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/complete/")
@@ -166,7 +169,8 @@ class TestRunViewSet(APIBaseTest):
                 branch="main",
                 snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
                 baseline_hashes={"Button": "old_hash"},
-            )
+            ),
+            team_id=self.team.id,
         )
 
         response = self.client.post(

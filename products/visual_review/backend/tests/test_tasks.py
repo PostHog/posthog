@@ -14,7 +14,7 @@ from products.visual_review.backend.tasks.tasks import _process_diffs, process_r
 class TestProcessRunDiffs:
     @pytest.fixture
     def repo(self, team):
-        return api.create_repo(team_id=team.id, name="Test")
+        return api.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
     def test_process_run_diffs_completes_run(self, repo):
         # Create run without any changed snapshots
@@ -25,7 +25,8 @@ class TestProcessRunDiffs:
                 commit_sha="abc123",
                 branch="main",
                 snapshots=[SnapshotManifestItem(identifier="Button", content_hash="hash1")],
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         # Process (should complete immediately since no changed snapshots need diffing)
@@ -44,7 +45,8 @@ class TestProcessRunDiffs:
                 commit_sha="abc123",
                 branch="main",
                 snapshots=[],
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         with patch("products.visual_review.backend.tasks.tasks._process_diffs") as mock:
@@ -74,7 +76,8 @@ class TestProcessRunDiffs:
                 branch="main",
                 snapshots=[SnapshotManifestItem(identifier="Button", content_hash="same_hash")],
                 baseline_hashes={"Button": "same_hash"},
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         # Process - should skip unchanged snapshot
@@ -94,7 +97,8 @@ class TestProcessRunDiffs:
                 branch="main",
                 snapshots=[SnapshotManifestItem(identifier="NewComponent", content_hash="new_hash")],
                 baseline_hashes={},  # No baseline
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         # Process - should skip new snapshot (no baseline to diff against)
@@ -126,7 +130,8 @@ class TestProcessRunDiffs:
                 branch="main",
                 snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
                 baseline_hashes={"Button": "old_hash"},
-            )
+            ),
+            team_id=repo.team_id,
         )
 
         # Process - should attempt to diff but fail because artifacts aren't in storage
