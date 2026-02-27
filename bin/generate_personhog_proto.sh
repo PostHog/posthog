@@ -28,11 +28,17 @@ python -m grpc_tools.protoc \
     $PROTO_FILES
 
 echo "Rewriting imports with protoletariat..."
+FDSET=$(mktemp)
+python -m grpc_tools.protoc \
+    --proto_path="$PROTO_DIR" \
+    --descriptor_set_out="$FDSET" \
+    --include_imports \
+    $PROTO_FILES
 protol \
     --create-package \
     --in-place \
     --python-out "$OUT_DIR" \
-    protoc --proto-path "$PROTO_DIR" \
-    $PROTO_FILES
+    raw "$FDSET"
+rm -f "$FDSET"
 
 echo "Done. Generated files are in $OUT_DIR"
