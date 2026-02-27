@@ -41,12 +41,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     props({} as LLMEvaluationsLogicProps),
     key((props) => props.tabId ?? 'default'),
     connect(() => ({
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            llmProviderKeysLogic,
-            ['providerKeys'],
-        ],
+        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys']],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
     })),
 

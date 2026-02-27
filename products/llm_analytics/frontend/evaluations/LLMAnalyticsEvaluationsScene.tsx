@@ -19,9 +19,9 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -61,10 +61,7 @@ function getActiveTab(
 
     const normalizedPathname = removeProjectIdIfPresent(pathname)
     const offlineEvaluationsPath = urls.llmAnalyticsOfflineEvaluations()
-    if (
-        normalizedPathname === offlineEvaluationsPath ||
-        normalizedPathname.startsWith(`${offlineEvaluationsPath}/`)
-    ) {
+    if (normalizedPathname === offlineEvaluationsPath || normalizedPathname.startsWith(`${offlineEvaluationsPath}/`)) {
         return 'offline-evals'
     }
 

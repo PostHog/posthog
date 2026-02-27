@@ -156,7 +156,9 @@ function MetricCell({ value }: { value?: OfflineMetricValue }): JSX.Element {
             <div>Status: {getStatusLabel(status)}</div>
             {value.resultType ? <div>Type: {value.resultType}</div> : null}
             {value.score !== null ? <div>Raw score: {formatMetricScore(value.score)}</div> : null}
-            {normalizedPercentage !== null ? <div>Normalized score: {formatMetricPercentage(normalizedPercentage)}</div> : null}
+            {normalizedPercentage !== null ? (
+                <div>Normalized score: {formatMetricPercentage(normalizedPercentage)}</div>
+            ) : null}
             {value.scoreMin !== null && value.scoreMax !== null ? (
                 <div>
                     Range: {value.scoreMin} to {value.scoreMax}
@@ -176,7 +178,11 @@ function MetricCell({ value }: { value?: OfflineMetricValue }): JSX.Element {
             <MetricCellWrapper
                 value={value}
                 metricDetails={metricDetails}
-                children={<span><LemonTag type={getStatusType(status)}>{getStatusLabel(status)}</LemonTag></span>}
+                children={
+                    <span>
+                        <LemonTag type={getStatusType(status)}>{getStatusLabel(status)}</LemonTag>
+                    </span>
+                }
             />
         )
     }
@@ -190,7 +196,11 @@ function MetricCell({ value }: { value?: OfflineMetricValue }): JSX.Element {
             <MetricCellWrapper
                 value={value}
                 metricDetails={metricDetails}
-                children={<span><LemonTag type={booleanTagType}>{booleanLabel}</LemonTag></span>}
+                children={
+                    <span>
+                        <LemonTag type={booleanTagType}>{booleanLabel}</LemonTag>
+                    </span>
+                }
             />
         )
     }
@@ -200,7 +210,11 @@ function MetricCell({ value }: { value?: OfflineMetricValue }): JSX.Element {
             <MetricCellWrapper
                 value={value}
                 metricDetails={metricDetails}
-                children={<span><LemonTag type="muted">No score</LemonTag></span>}
+                children={
+                    <span>
+                        <LemonTag type="muted">No score</LemonTag>
+                    </span>
+                }
             />
         )
     }
@@ -270,7 +284,12 @@ function experimentsTableColumns(
             title: 'Experiment',
             key: 'experimentId',
             render: (_, experiment) => (
-                <Link to={combineUrl(urls.llmAnalyticsOfflineEvaluationExperiment(experiment.experimentId), searchParams).url}>
+                <Link
+                    to={
+                        combineUrl(urls.llmAnalyticsOfflineEvaluationExperiment(experiment.experimentId), searchParams)
+                            .url
+                    }
+                >
                     <EntityNameCell name={experiment.experimentName} id={experiment.experimentId} />
                 </Link>
             ),
@@ -411,7 +430,8 @@ export function OfflineEvaluationsTab({ tabId }: { tabId?: string }): JSX.Elemen
                     <div>
                         <h2 className="text-xl font-semibold">Offline evals</h2>
                         <p className="text-muted">
-                            Explore offline experiments from <code>$ai_evaluation</code> events grouped by experiment ID.
+                            Explore offline experiments from <code>$ai_evaluation</code> events grouped by experiment
+                            ID.
                         </p>
                     </div>
                     <LemonButton
