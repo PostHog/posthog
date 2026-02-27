@@ -102,15 +102,16 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(({ props }) => ({
+        nodeType: [() => [], (): string => (props.isProfileMode ? 'profile' : 'journey')],
         nodes: [
-            (s) => [s.visibleStepsWithConversionMetrics, s.isStepOptional],
-            (steps, isStepOptional): Node<FunnelFlowNodeData>[] =>
+            (s) => [s.visibleStepsWithConversionMetrics, s.isStepOptional, s.nodeType],
+            (steps, isStepOptional, nodeType): Node<FunnelFlowNodeData>[] =>
                 steps.map((step, index) => {
                     const optional = isStepOptional(index + 1)
                     return {
                         id: `step-${index}`,
-                        type: optional ? 'optional' : 'mandatory',
+                        type: nodeType,
                         data: { step, stepIndex: index, isOptional: optional },
                         position: { x: 0, y: 0 },
                         width: NODE_WIDTH,
@@ -121,8 +122,8 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                 }),
         ],
         edges: [
-            (s) => [s.nodes],
-            (nodes): Edge[] =>
+            (s) => [s.nodes, s.nodeType],
+            (nodes, nodeType): Edge[] =>
                 nodes.slice(0, -1).map((node, index) => {
                     const targetNode = nodes[index + 1]
                     const touchesOptionalStep = targetNode.data.isOptional
@@ -130,7 +131,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                         id: `edge-${index}`,
                         source: node.id,
                         target: targetNode.id,
-                        type: 'funnelFlow',
+                        type: nodeType,
                         sourceHandle: `${node.id}-source`,
                         targetHandle: `${targetNode.id}-target`,
                         markerEnd: { type: MarkerType.ArrowClosed },
@@ -143,7 +144,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                     }
                 }),
         ],
-    }),
+    })),
 
     subscriptions(({ actions, values }) => ({
         nodes: async () => {

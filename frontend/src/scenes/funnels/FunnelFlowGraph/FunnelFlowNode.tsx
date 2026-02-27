@@ -32,7 +32,11 @@ function OptionalChip(): JSX.Element {
     )
 }
 
-function ProfileFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
+export const ProfileFlowNode = React.memo(function ProfileFlowNode({
+    data,
+}: {
+    data: FunnelFlowNodeData
+}): JSX.Element {
     const { step, stepIndex, isOptional } = data
     const isCompleted = step.count > 0
 
@@ -61,9 +65,13 @@ function ProfileFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
             </div>
         </div>
     )
-}
+})
 
-function JourneyFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
+export const JourneyFlowNode = React.memo(function JourneyFlowNode({
+    data,
+}: {
+    data: FunnelFlowNodeData
+}): JSX.Element {
     const { step, stepIndex, isOptional } = data
     const isFirstStep = stepIndex === 0
     const { insightProps } = useValues(insightLogic)
@@ -155,13 +163,4 @@ function JourneyFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
             </div>
         </div>
     )
-}
-
-export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-
-    if (insightProps.isProfileMode) {
-        return <ProfileFlowNode data={data} />
-    }
-    return <JourneyFlowNode data={data} />
 })

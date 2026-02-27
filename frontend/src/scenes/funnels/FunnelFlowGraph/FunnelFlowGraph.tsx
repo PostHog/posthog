@@ -17,17 +17,18 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { FunnelFlowEdge } from './FunnelFlowEdge'
+import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
 import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
-import { FunnelFlowNode } from './FunnelFlowNode'
+import { JourneyFlowNode, ProfileFlowNode } from './FunnelFlowNode'
 
 const NODE_TYPES = {
-    mandatory: FunnelFlowNode,
-    optional: FunnelFlowNode,
+    journey: JourneyFlowNode,
+    profile: ProfileFlowNode,
 } as NodeTypes
 
 const EDGE_TYPES = {
-    funnelFlow: FunnelFlowEdge,
+    journey: JourneyFlowEdge,
+    profile: ProfileFlowEdge,
 } as EdgeTypes
 
 const FIT_VIEW_OPTIONS = {

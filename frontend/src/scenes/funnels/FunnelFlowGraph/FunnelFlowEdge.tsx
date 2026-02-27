@@ -9,16 +9,7 @@ import { formatConvertedCount, formatConvertedPercentage } from '../funnelUtils'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { FunnelFlowEdgeData } from './funnelFlowGraphLogic'
 
-export function FunnelFlowEdge(props: EdgeProps<Edge<FunnelFlowEdgeData>>): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-
-    if (insightProps.isProfileMode) {
-        return <ProfileFlowEdge {...props} />
-    }
-    return <JourneyFlowEdge {...props} />
-}
-
-function ProfileFlowEdge({
+export function ProfileFlowEdge({
     sourceX,
     sourceY,
     targetX,
@@ -43,7 +34,7 @@ function ProfileFlowEdge({
     return <BaseEdge path={edgePath} markerEnd={markerEnd} style={{ stroke: edgeColor, strokeWidth: 2 }} />
 }
 
-function JourneyFlowEdge({
+export function JourneyFlowEdge({
     sourceX,
     sourceY,
     targetX,
