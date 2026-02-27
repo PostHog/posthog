@@ -334,6 +334,7 @@ export type HogFunctionInputSchemaType = {
         | 'dictionary'
         | 'choice'
         | 'json'
+        | 'hogql'
         | 'integration'
         | 'integration_field'
         | 'email'
