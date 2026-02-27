@@ -82,7 +82,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                                         )}
                                         <span
                                             className={cn(
-                                                'hidden @[540px]/side-panel:block text-tertiary group-hover:text-primary',
+                                                'hidden @[540px]/side-panel:block text-tertiary group-hover:text-primary whitespace-nowrap',
                                                 activeTab === tab ? 'text-primary' : 'text-tertiary'
                                             )}
                                         >
