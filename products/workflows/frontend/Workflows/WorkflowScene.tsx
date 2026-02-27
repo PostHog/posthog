@@ -114,10 +114,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     return (
         <SceneContent className="h-full flex flex-col grow">
-            <BindLogic
-                logic={workflowLogic}
-                props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}
-            >
+            <BindLogic logic={workflowLogic} props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}>
                 <WorkflowSceneHeader {...props} />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (

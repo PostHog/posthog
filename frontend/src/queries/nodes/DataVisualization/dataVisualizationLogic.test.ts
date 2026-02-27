@@ -221,7 +221,7 @@ describe('dataVisualizationLogic', () => {
         })
 
         await expectLogic(logic).toMatchValues({
-            effectiveVisualizationType: ChartDisplayType.ActionsBar,
+            effectiveVisualizationType: ChartDisplayType.ActionsLineGraph,
         })
     })
 
@@ -270,7 +270,26 @@ describe('dataVisualizationLogic', () => {
         })
 
         await expectLogic(logic).toMatchValues({
-            effectiveVisualizationType: ChartDisplayType.ActionsBar,
+            effectiveVisualizationType: ChartDisplayType.ActionsLineGraph,
+        })
+    })
+
+    it('respects explicit line chart display even when auto would choose heatmap', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['bucket', 'flag_state', 'reverse_proxy'],
+            types: [
+                ['bucket', 'String'],
+                ['flag_state', 'String'],
+                ['reverse_proxy', 'Float64'],
+            ],
+            results: [['2025-01-01', 'control', 0.2]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            autoVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
+            effectiveVisualizationType: ChartDisplayType.ActionsLineGraph,
         })
     })
 

@@ -2,8 +2,9 @@ import { useActions } from 'kea'
 
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { isExperimentMetric } from '~/queries/utils'
+import { ExposureCriteriaModal } from '~/scenes/experiments/ExperimentView/ExposureCriteria'
 import { ExperimentMetricModal } from '~/scenes/experiments/Metrics/ExperimentMetricModal'
 import {
     METRIC_CONTEXTS,
@@ -24,6 +25,7 @@ export type MetricsPanelProps = {
     onSaveMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onDeleteMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onSaveSharedMetrics: (metrics: ExperimentMetric[], context: MetricContext) => void
+    onSaveExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => void
     compact?: boolean
 }
 
@@ -41,6 +43,7 @@ export const MetricsPanel = ({
     onSaveMetric,
     onDeleteMetric,
     onSaveSharedMetrics,
+    onSaveExposureCriteria,
     compact,
 }: MetricsPanelProps): JSX.Element => {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
@@ -109,6 +112,7 @@ export const MetricsPanel = ({
                     closeSharedMetricModal()
                 }}
             />
+            <ExposureCriteriaModal onSave={onSaveExposureCriteria} />
         </div>
     )
 }

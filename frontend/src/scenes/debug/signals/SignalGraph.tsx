@@ -44,7 +44,7 @@ export function SignalGraph({
     return (
         <div
             ref={containerRef}
-            className="relative w-full h-full overflow-hidden z-0"
+            className="relative w-full min-h-160 overflow-hidden z-0"
             onMouseMove={onMouseMove}
             onClick={() => {
                 if (didDragRef.current) {

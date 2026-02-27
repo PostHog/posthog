@@ -181,7 +181,9 @@ class TestExternalDataSchema(APIBaseTest):
         payload = response.json()
 
         assert payload == {
-            "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+            "incremental_fields": [
+                {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+            ],
             "incremental_available": True,
             "append_available": True,
             "full_refresh_available": True,

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,24 +10,46 @@ use limiters::global_rate_limiter::{
     EvalResult, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiter,
     GlobalRateLimiterConfig, GlobalRateLimiterImpl as CommonGlobalRateLimiterImpl,
 };
-use tracing::error;
+use tracing::{error, info};
 
 #[cfg(test)]
 use chrono::DateTime;
+
+pub enum GlobalRateLimitKey<'a> {
+    Token(&'a str),
+    TokenDistinctId(&'a str, &'a str),
+}
+
+impl<'a> GlobalRateLimitKey<'a> {
+    pub fn to_cache_key(&self) -> Cow<'a, str> {
+        match self {
+            Self::Token(t) => Cow::Borrowed(t),
+            Self::TokenDistinctId(t, d) => Cow::Owned(format!("{t}:{d}")),
+        }
+    }
+}
 
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
 }
 
 impl GlobalRateLimiter {
-    pub fn new(
+    /// Build a GlobalRateLimiter from the capture config. If a dedicated Redis URL is
+    /// configured, creates a separate client (optionally with read/write split). Falls
+    /// back to `shared_redis` when no dedicated URL is set.
+    pub async fn try_from_config(
+        config: &Config,
+        shared_redis: Arc<dyn Client + Send + Sync>,
+    ) -> anyhow::Result<Self> {
+        let redis_client = Self::build_redis_client(config, shared_redis).await?;
+        Self::new(config, vec![redis_client])
+    }
+
+    fn new(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
-        let redis_prefix = format!(
-            "@posthog/capture/global_rate_limiter/{}",
-            config.capture_mode.as_tag()
-        );
+        let redis_prefix = format!("@posthog/capture/grl/{}", config.capture_mode.as_tag());
 
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: config.global_rate_limit_threshold,
@@ -34,6 +57,7 @@ impl GlobalRateLimiter {
             bucket_interval: Duration::from_secs(config.global_rate_limit_bucket_interval_secs),
             redis_key_prefix: redis_prefix,
             custom_keys: Self::format_custom_keys(config.global_rate_limit_overrides_csv.as_ref()),
+            local_cache_max_entries: config.global_rate_limit_local_cache_max_entries,
             ..Default::default()
         };
 
@@ -90,6 +114,56 @@ impl GlobalRateLimiter {
     // trigger shutdown and stop pushing updates to global cache
     pub fn shutdown(&mut self) {
         self.limiter.shutdown();
+    }
+
+    async fn build_redis_client(
+        config: &Config,
+        shared_redis: Arc<dyn Client + Send + Sync>,
+    ) -> anyhow::Result<Arc<dyn Client + Send + Sync>> {
+        let Some(ref writer_url) = config.global_rate_limit_redis_url else {
+            return Ok(shared_redis);
+        };
+
+        let response_timeout = config
+            .global_rate_limit_redis_response_timeout_ms
+            .unwrap_or(config.redis_response_timeout_ms);
+        let connection_timeout = config
+            .global_rate_limit_redis_connection_timeout_ms
+            .unwrap_or(config.redis_connection_timeout_ms);
+        let response_timeout = if response_timeout == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(response_timeout))
+        };
+        let connection_timeout = if connection_timeout == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(connection_timeout))
+        };
+
+        if let Some(ref reader_url) = config.global_rate_limit_redis_reader_url {
+            info!("Global rate limiter using read/write split Redis client");
+            let rw_config = common_redis::ReadWriteClientConfig::new(
+                writer_url.clone(),
+                reader_url.clone(),
+                common_redis::CompressionConfig::disabled(),
+                common_redis::RedisValueFormat::default(),
+                response_timeout,
+                connection_timeout,
+            );
+            Ok(Arc::new(rw_config.build().await?))
+        } else {
+            Ok(Arc::new(
+                common_redis::RedisClient::with_config(
+                    writer_url.clone(),
+                    common_redis::CompressionConfig::disabled(),
+                    common_redis::RedisValueFormat::default(),
+                    response_timeout,
+                    connection_timeout,
+                )
+                .await?,
+            ))
+        }
     }
 
     #[cfg(test)]
@@ -267,5 +341,33 @@ mod tests {
             vec!["is_custom_key", "check_custom_limit"],
             "must NOT call check_limit when key is registered as custom"
         );
+    }
+
+    #[test]
+    fn test_global_rate_limit_key_to_cache_key() {
+        let cases: Vec<(GlobalRateLimitKey, &str, bool)> = vec![
+            (GlobalRateLimitKey::Token("abc"), "abc", true),
+            (GlobalRateLimitKey::Token(""), "", true),
+            (
+                GlobalRateLimitKey::TokenDistinctId("abc", "xyz"),
+                "abc:xyz",
+                false,
+            ),
+            (
+                GlobalRateLimitKey::TokenDistinctId("abc", ""),
+                "abc:",
+                false,
+            ),
+        ];
+
+        for (key, expected, expect_borrowed) in cases {
+            let result = key.to_cache_key();
+            assert_eq!(&*result, expected, "key={expected}");
+            assert_eq!(
+                matches!(result, Cow::Borrowed(_)),
+                expect_borrowed,
+                "key={expected}: expected borrowed={expect_borrowed}"
+            );
+        }
     }
 }

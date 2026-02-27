@@ -193,7 +193,11 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
                 queries.extend(list(extract_select_queries(join.table)))
                 break
 
-            if isinstance(join.table, ast.Placeholder):
+            if join.table_args is not None:
+                # Table functions like numbers(), s3(), etc. are not real parents
+                join = join.next_join
+                continue
+            elif isinstance(join.table, ast.Placeholder):
                 parent_name = join.table.field
             elif isinstance(join.table, ast.Field):
                 parent_name = ".".join(str(s) for s in join.table.chain)
