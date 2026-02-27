@@ -30,7 +30,7 @@ export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WAR
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
-export const LOG_TOTAL_LIMIT = 250
+export const LOG_GROUP_TOTAL_LOGS_LIMIT = 500
 
 export type LogsViewerLogicProps = {
     logicKey?: string
@@ -157,7 +157,7 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
             LIMIT ${LOG_GROUP_LIMIT}
         )
         ORDER BY timestamp DESC
-        LIMIT ${LOG_TOTAL_LIMIT}`
+        LIMIT ${LOG_GROUP_TOTAL_LOGS_LIMIT}`
 
     const response = await api.queryHogQL(
         query,
