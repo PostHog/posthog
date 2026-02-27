@@ -80,6 +80,13 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     except (ValueError, TypeError):
         playback_speed = 1
 
+    # Custom recording FPS (used to control final video frame rate after speed correction)
+    try:
+        recording_fps_raw = asset.export_context.get("recording_fps")
+        recording_fps = max(1, min(120, int(recording_fps_raw))) if recording_fps_raw is not None else None
+    except (ValueError, TypeError):
+        recording_fps = None
+
     url_params = {
         "token": access_token,
         "t": ts,
@@ -106,6 +113,7 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
         "tmp_ext": tmp_ext,
         "duration": duration,
         "playback_speed": playback_speed,
+        "recording_fps": recording_fps,
     }
 
 
@@ -182,6 +190,7 @@ def record_and_persist_video_activity(build: dict[str, Any]) -> None:
                 recording_duration=build["duration"],
                 playback_speed=build.get("playback_speed", 1),
                 use_puppeteer=build.get("use_puppeteer", False),
+                recording_fps=build.get("recording_fps"),
             ),
         )
         if inactivity_periods:
