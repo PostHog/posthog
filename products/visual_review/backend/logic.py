@@ -18,6 +18,7 @@ import structlog
 
 from .facade.enums import ReviewState, RunStatus, SnapshotResult
 from .models import Artifact, Repo, Run, RunSnapshot
+from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
@@ -230,6 +231,38 @@ def get_run_with_snapshots(run_id: UUID) -> Run:
         raise RunNotFoundError(f"Run {run_id} not found") from e
 
 
+def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str, str]:
+    """Verify HMAC signatures on baseline hashes from the CLI.
+
+    Accepts a dict of ``{identifier: signed_hash_string}``. Returns a
+    dict of ``{identifier: plain_content_hash}`` for entries with valid
+    signatures. Invalid or unsigned entries are silently dropped —
+    they'll be treated as having no baseline (result = NEW).
+    """
+    if not raw_hashes:
+        return {}
+
+    keys = repo.signing_keys or {}
+    if not keys:
+        return {}
+
+    repo_id = str(repo.id)
+    verified: dict[str, str] = {}
+
+    for identifier, signed_hash in raw_hashes.items():
+        content_hash = verify_signed_hash(repo_id, identifier, signed_hash, keys)
+        if content_hash is not None:
+            verified[identifier] = content_hash
+        else:
+            logger.debug(
+                "visual_review.baseline_hash_rejected",
+                identifier=identifier,
+                reason="invalid_signature",
+            )
+
+    return verified
+
+
 @transaction.atomic
 def create_run(
     repo_id: UUID,
@@ -249,6 +282,10 @@ def create_run(
     Each upload target has: content_hash, url, fields
     """
     repo = get_repo(repo_id, team_id)
+
+    # Verify HMAC signatures on baseline hashes before trusting them.
+    # Unsigned or invalid hashes are silently dropped (treated as no baseline → NEW).
+    verified_baselines = _verify_baseline_hashes(repo, baseline_hashes)
 
     # Supersede old runs before inserting the new one. The unique constraint
     # on (repo, branch, run_type) WHERE superseded_by IS NULL fires per-
@@ -298,7 +335,7 @@ def create_run(
     for snap in snapshots:
         identifier = snap["identifier"]
         current_hash = snap["content_hash"]
-        baseline_hash = baseline_hashes.get(identifier)
+        baseline_hash = verified_baselines.get(identifier)
 
         all_hashes.add(current_hash)
         hash_metadata[current_hash] = {
@@ -608,11 +645,15 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
     }
 
 
-def _fetch_baseline_file(github, repo_full_name: str, file_path: str, branch: str) -> tuple[dict[str, str], str | None]:
+def _fetch_baseline_file(
+    github, repo_full_name: str, file_path: str, branch: str
+) -> tuple[dict[str, dict], str | None]:
     """
     Fetch current baseline file content from GitHub.
 
-    Returns (snapshots dict, file SHA for update). If file doesn't exist, returns ({}, None).
+    Returns ``(snapshots_dict, file_sha)``. Snapshots dict maps
+    identifier to ``{hash: "v1.kid.hash.tag"}`` (the signed format).
+    If the file doesn't exist, returns ``({}, None)``.
     """
     import base64
 
@@ -645,21 +686,51 @@ def _fetch_baseline_file(github, repo_full_name: str, file_path: str, branch: st
     if not parsed or parsed.get("version") != 1:
         return {}, file_sha
 
-    return parsed.get("snapshots", {}), file_sha
+    raw_snapshots = parsed.get("snapshots", {})
+
+    normalized: dict[str, dict] = {}
+    for identifier, value in raw_snapshots.items():
+        if isinstance(value, dict) and "hash" in value:
+            normalized[identifier] = value
+    return normalized, file_sha
 
 
-def _build_snapshots_yaml(current_baselines: dict[str, str], updates: list[dict]) -> str:
-    """Build updated snapshots.yml content."""
+def _build_snapshots_yaml(
+    repo: Repo,
+    current_baselines: dict[str, dict],
+    updates: list[dict],
+) -> str:
+    """Build updated snapshots.yml with HMAC-signed hashes.
+
+    Each snapshot value is ``{hash: "v1.<kid>.<sha256hex>.<mac>"}``
+    where the MAC binds the hash to the repo and identifier.
+
+    *current_baselines* maps identifier to ``{hash: signed_hash_str}``.
+    *updates* is a list of ``{identifier, new_hash}`` where ``new_hash``
+    is a plain content hash — it gets signed here.
+    """
+    from django.conf import settings
+
     import yaml
+
+    kid, secret_hex = repo.get_active_signing_key()
+    repo_id = str(repo.id)
 
     merged = dict(current_baselines)
     for update in updates:
-        merged[update["identifier"]] = update["new_hash"]
+        identifier = update["identifier"]
+        content_hash = update["new_hash"]
+        signed = sign_snapshot_hash(repo_id, identifier, content_hash, secret_hex, kid)
+        merged[identifier] = {"hash": signed}
 
     sorted_snapshots = dict(sorted(merged.items()))
 
-    data = {
+    data: dict = {
         "version": 1,
+        "config": {
+            "api": settings.SITE_URL,
+            "team": str(repo.team_id),
+        },
         "snapshots": sorted_snapshots,
     }
 
@@ -761,7 +832,7 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
     current_baselines, file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, pr_info["head_ref"])
 
     updates = [{"identifier": s["identifier"], "new_hash": s["new_hash"]} for s in approved_snapshots]
-    new_content = _build_snapshots_yaml(current_baselines, updates)
+    new_content = _build_snapshots_yaml(repo, current_baselines, updates)
 
     # Use GitHubIntegration.update_file() - it expects just the repo name, not full path
     # The org comes from github.organization()

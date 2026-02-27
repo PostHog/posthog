@@ -1,5 +1,7 @@
 """Django models for visual_review."""
 
+from __future__ import annotations
+
 import uuid
 
 from django.db import models
@@ -29,6 +31,11 @@ class Repo(models.Model):
     # e.g., {"storybook": ".storybook/snapshots.yml", "playwright": "playwright/snapshots.yml"}
     baseline_file_paths = models.JSONField(default=dict, blank=True)
 
+    # HMAC signing keys for baseline hash verification: {kid: secret_hex}
+    # Supports key rotation — new signatures use the latest key, verification
+    # accepts any valid kid. Auto-generated on first use.
+    signing_keys = models.JSONField(default=dict, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -39,6 +46,23 @@ class Repo(models.Model):
 
     def __str__(self) -> str:
         return self.repo_full_name
+
+    def get_active_signing_key(self) -> tuple[str, str]:
+        """Return ``(kid, secret_hex)`` for the active signing key.
+
+        Auto-generates a key on first access and persists it.
+        """
+        from .signing import generate_signing_key
+
+        keys: dict[str, str] = self.signing_keys or {}
+        if keys:
+            kid = max(keys)  # lexicographic latest
+            return kid, keys[kid]
+
+        kid, secret_hex = generate_signing_key()
+        self.signing_keys = {kid: secret_hex}
+        self.save(update_fields=["signing_keys"])
+        return kid, secret_hex
 
 
 class Artifact(models.Model):
