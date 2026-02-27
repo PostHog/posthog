@@ -61,12 +61,18 @@ class PostHogClient:
     (since the SDK doesn't support querying).
     """
 
-    # HTTP client configuration
-    HTTP_TIMEOUT_SECONDS = 30
+    # HogQL HTTP client configuration
+    HTTP_CONNECT_TIMEOUT_SECONDS = 5
+    HTTP_READ_TIMEOUT_SECONDS = 30
     HTTP_RETRY_TOTAL = 3
     HTTP_RETRY_BACKOFF_FACTOR = 0.5
-    # Retry on server errors only (not rate limiting - retrying immediately won't help)
     HTTP_RETRY_STATUS_FORCELIST = (500, 502, 503, 504)
+
+    # SDK capture retry configuration (the SDK's own urllib3 retries don't cover
+    # POST read errors because POST is not in urllib3's default allowed_methods)
+    CAPTURE_RETRY_MAX_ATTEMPTS = 5
+    CAPTURE_RETRY_INITIAL_BACKOFF_SECONDS = 1.0
+    CAPTURE_RETRY_BACKOFF_FACTOR = 1.3
 
     def __init__(self, config: Config, posthog_sdk: "Posthog"):
         self.config = config
@@ -78,7 +84,7 @@ class PostHogClient:
         self._test_start_date = (datetime.now(UTC) - timedelta(days=1)).date()
 
     def _create_http_session(self) -> requests.Session:
-        """Create an HTTP session with retry logic for transient failures."""
+        """Create an HTTP session with urllib3 retry logic for transient failures."""
         session = requests.Session()
         retry_strategy = Retry(
             total=self.HTTP_RETRY_TOTAL,
@@ -86,13 +92,41 @@ class PostHogClient:
             status_forcelist=self.HTTP_RETRY_STATUS_FORCELIST,
             allowed_methods=["GET", "POST"],
             raise_on_status=False,  # We handle status codes ourselves
-            connect=self.HTTP_RETRY_TOTAL,  # Retry on connection errors
-            read=self.HTTP_RETRY_TOTAL,  # Retry on read timeouts
+            connect=self.HTTP_RETRY_TOTAL,
+            read=self.HTTP_RETRY_TOTAL,
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("https://", adapter)
         session.mount("http://", adapter)
         return session
+
+    def _retry_on_error(self, fn: Callable[[], T], description: str) -> T:
+        """Retry a function on transient errors with exponential backoff.
+
+        Used for SDK capture calls where urllib3's built-in retries don't cover
+        POST read errors. Retries on connection errors and timeouts only.
+        No initial delay — the first attempt runs immediately. On failure, waits
+        1s, 1.3s, 1.69s, 2.2s, 2.86s (~9s total) before giving up.
+        """
+        backoff = self.CAPTURE_RETRY_INITIAL_BACKOFF_SECONDS
+        for attempt in range(self.CAPTURE_RETRY_MAX_ATTEMPTS + 1):
+            try:
+                return fn()
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                if attempt == self.CAPTURE_RETRY_MAX_ATTEMPTS:
+                    raise
+                logger.warning(
+                    "Transient error, retrying",
+                    description=description,
+                    attempt=attempt + 1,
+                    max_attempts=self.CAPTURE_RETRY_MAX_ATTEMPTS + 1,
+                    next_backoff_seconds=backoff,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                time.sleep(backoff)
+                backoff *= self.CAPTURE_RETRY_BACKOFF_FACTOR
+        raise RuntimeError("unreachable")
 
     def capture_event(
         self,
@@ -111,11 +145,14 @@ class PostHogClient:
             sdk_host=self.config.api_host,
         )
 
-        self._posthog.capture(
-            distinct_id=distinct_id,
-            event=event_name,
-            properties=properties or {},
-            uuid=event_uuid,
+        self._retry_on_error(
+            lambda: self._posthog.capture(
+                distinct_id=distinct_id,
+                event=event_name,
+                properties=properties or {},
+                uuid=event_uuid,
+            ),
+            description=f"capture event {event_uuid}",
         )
 
         logger.info("Event captured", event_uuid=event_uuid)
@@ -129,7 +166,10 @@ class PostHogClient:
         person as `distinct_id`.
         """
         logger.info("Creating alias", alias=alias, distinct_id=distinct_id)
-        self._posthog.alias(alias, distinct_id)
+        self._retry_on_error(
+            lambda: self._posthog.alias(alias, distinct_id),
+            description=f"alias {alias} -> {distinct_id}",
+        )
         logger.info("Alias created", alias=alias, distinct_id=distinct_id)
 
     def merge_dangerously(self, merge_into_distinct_id: str, merge_from_distinct_id: str) -> str:
@@ -157,11 +197,14 @@ class PostHogClient:
             event_uuid=event_uuid,
         )
 
-        self._posthog.capture(
-            distinct_id=merge_into_distinct_id,
-            event="$merge_dangerously",
-            properties={"alias": merge_from_distinct_id},
-            uuid=event_uuid,
+        self._retry_on_error(
+            lambda: self._posthog.capture(
+                distinct_id=merge_into_distinct_id,
+                event="$merge_dangerously",
+                properties={"alias": merge_from_distinct_id},
+                uuid=event_uuid,
+            ),
+            description=f"merge dangerously {merge_from_distinct_id} -> {merge_into_distinct_id}",
         )
 
         logger.info("Merge event captured", event_uuid=event_uuid)
@@ -257,7 +300,7 @@ class PostHogClient:
     def _execute_hogql_query_all(self, query: str, values: dict[str, Any]) -> list[dict[str, Any]]:
         """Execute a HogQL query and return all rows as a list of dicts.
 
-        Uses a session with automatic retry on transient HTTP errors (5xx).
+        Uses a session with urllib3 retry on transient HTTP errors (5xx, connection, read).
         """
         url = f"{self.config.api_host}/api/projects/{self.config.project_id}/query/"
 
@@ -272,7 +315,7 @@ class PostHogClient:
                 "refresh": "force_blocking",
             },
             headers={"Authorization": f"Bearer {self.config.personal_api_key}"},
-            timeout=self.HTTP_TIMEOUT_SECONDS,
+            timeout=(self.HTTP_CONNECT_TIMEOUT_SECONDS, self.HTTP_READ_TIMEOUT_SECONDS),
         )
 
         if response.status_code == 404:

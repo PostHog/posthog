@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { USER_AGENT } from '@/lib/constants'
+import { getUserAgent } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import {
@@ -125,6 +125,7 @@ export type Result<T, E = Error> = { success: true; data: T } | { success: false
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
+    clientIdentifier?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -154,7 +155,7 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchWithSchema` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': USER_AGENT,
+            'User-Agent': getUserAgent(this.config.clientIdentifier),
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
@@ -166,6 +167,38 @@ export class ApiClient {
                 ...options?.headers,
             },
         })
+    }
+
+    /**
+     * Generic HTTP request with auth, rate limiting, and retries.
+     * Used by generated tool handlers to avoid duplicating endpoint-specific methods.
+     */
+    async request<T = unknown>(opts: {
+        method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
+        path: string
+        body?: Record<string, unknown>
+        query?: Record<string, string | number | undefined>
+    }): Promise<T> {
+        const searchParams = new URLSearchParams()
+        if (opts.query) {
+            for (const [k, v] of Object.entries(opts.query)) {
+                if (v !== undefined) {
+                    searchParams.append(k, String(v))
+                }
+            }
+        }
+        const qs = searchParams.toString()
+        const url = `${this.baseUrl}${opts.path}${qs ? `?${qs}` : ''}`
+
+        const result = await this.fetchWithSchema(url, z.any(), {
+            method: opts.method,
+            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+        })
+
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data as T
     }
 
     private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
