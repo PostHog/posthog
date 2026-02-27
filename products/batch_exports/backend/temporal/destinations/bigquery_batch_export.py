@@ -740,7 +740,7 @@ class BigQueryClient:
                 raise
             except (TooManyRequests, ServiceUnavailable, GatewayTimeout, InternalServerError):
                 self.logger.exception(
-                    "LoadJob rate limit exceeded",
+                    "LoadJob transient error encountered",
                     attempt=attempt,
                 )
                 time.sleep(min(max_retry, initial_retry * (backoff_factor**attempt)))
