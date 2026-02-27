@@ -9,9 +9,10 @@ import {
     NodeTypes,
     ReactFlow,
     ReactFlowProvider,
+    useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -31,22 +32,50 @@ const EDGE_TYPES = {
     profile: ProfileFlowEdge,
 } as EdgeTypes
 
-const FIT_VIEW_OPTIONS = {
+const JOURNEY_FIT_VIEW_OPTIONS = {
     padding: 0.2,
     maxZoom: 1,
 }
 
+const PROFILE_FIT_VIEW_OPTIONS = {
+    padding: 0.1,
+    maxZoom: 2,
+}
+
+const PROFILE_GRAPH_HEIGHT = 140
+
 function FunnelFlowGraphContent(): JSX.Element {
+    const containerRef = useRef<HTMLDivElement>(null)
+    const { fitView: fitViewImperative } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
     const { insightProps } = useValues(insightLogic)
-    const { laidOutNodes, edges } = useValues(funnelFlowGraphLogic(insightProps))
+    const { laidOutNodes, edges, nodeType } = useValues(funnelFlowGraphLogic(insightProps))
+    const isProfileMode = nodeType === 'profile'
+    const fitViewOptions = isProfileMode ? PROFILE_FIT_VIEW_OPTIONS : JOURNEY_FIT_VIEW_OPTIONS
+
+    useEffect(() => {
+        const container = containerRef.current
+        if (!container) {
+            return
+        }
+
+        const observer = new ResizeObserver(() => {
+            fitViewImperative(fitViewOptions)
+        })
+        observer.observe(container)
+        return () => observer.disconnect()
+    }, [fitViewImperative, fitViewOptions])
 
     const closeOpenPopovers = useCallback(() => {
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
     }, [])
 
     return (
-        <div className="relative w-full" style={{ height: 'var(--insight-viz-min-height)' }}>
+        <div
+            ref={containerRef}
+            className="relative w-full"
+            style={{ height: isProfileMode ? PROFILE_GRAPH_HEIGHT : 'var(--insight-viz-min-height)' }}
+        >
             <ReactFlow
                 nodes={laidOutNodes}
                 edges={edges}
@@ -55,7 +84,7 @@ function FunnelFlowGraphContent(): JSX.Element {
                 nodesDraggable={false}
                 nodesConnectable={false}
                 fitView
-                fitViewOptions={FIT_VIEW_OPTIONS}
+                fitViewOptions={fitViewOptions}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 proOptions={{ hideAttribution: true }}
                 elevateNodesOnSelect={false}
@@ -64,9 +93,9 @@ function FunnelFlowGraphContent(): JSX.Element {
                 onPaneClick={closeOpenPopovers}
                 onNodeClick={closeOpenPopovers}
             >
-                <Background gap={36} variant={BackgroundVariant.Dots} />
-                <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
-                {laidOutNodes.length > 4 && (
+                {!isProfileMode && <Background gap={36} variant={BackgroundVariant.Dots} />}
+                {!isProfileMode && <Controls showInteractive={false} fitViewOptions={fitViewOptions} />}
+                {!isProfileMode && laidOutNodes.length > 4 && (
                     <MiniMap
                         zoomable
                         pannable

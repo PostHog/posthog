@@ -76,7 +76,7 @@ export function EntityFilterInfo({
                 <span
                     className={clsx(
                         'EntityFilterInfo max-w-100 text-secondary text-xs',
-                        !isColumn && 'ml-1',
+                        isColumn ? (icon ? 'ml-5' : '') : 'ml-1',
                         !allowWrap && 'whitespace-nowrap truncate'
                     )}
                     title={name}

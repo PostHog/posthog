@@ -17,7 +17,7 @@ export function ProfileFlowEdge({
     sourcePosition,
     targetPosition,
     markerEnd,
-    data,
+    style,
 }: EdgeProps<Edge<FunnelFlowEdgeData>>): JSX.Element {
     const [edgePath] = getSmoothStepPath({
         sourceX,
@@ -28,10 +28,7 @@ export function ProfileFlowEdge({
         targetPosition,
     })
 
-    const isCompleted = data!.step.count > 0
-    const edgeColor = isCompleted ? 'var(--success)' : 'var(--border)'
-
-    return <BaseEdge path={edgePath} markerEnd={markerEnd} style={{ stroke: edgeColor, strokeWidth: 2 }} />
+    return <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
 }
 
 export function JourneyFlowEdge({
