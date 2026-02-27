@@ -1870,38 +1870,60 @@ class GitHubIntegration:
                 },
             )
 
-        response = fetch()
+        transient_status_codes = {502, 503, 504}
 
-        # If unauthorized, try a single refresh and retry
-        if response.status_code == 401:
+        for attempt in range(2):
+            response = fetch()
+
+            # If unauthorized, try a single refresh and retry
+            if response.status_code == 401:
+                try:
+                    self.refresh_access_token()
+                except Exception:
+                    logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                else:
+                    response = fetch()
+
             try:
-                self.refresh_access_token()
+                body = response.json()
             except Exception:
-                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-            else:
-                response = fetch()
+                if response.status_code in transient_status_codes and attempt == 0:
+                    logger.info(
+                        "GitHubIntegration: list_repositories retrying transient non-JSON response",
+                        status_code=response.status_code,
+                    )
+                    continue
 
-        try:
-            body = response.json()
-        except Exception:
+                logger.warning(
+                    "GitHubIntegration: list_repositories non-JSON response",
+                    status_code=response.status_code,
+                )
+                return []
+
+            repositories = body.get("repositories")
+            if response.status_code == 200 and isinstance(repositories, list):
+                names: list[str] = [
+                    repo["name"]
+                    for repo in repositories
+                    if isinstance(repo, dict) and isinstance(repo.get("name"), str)
+                ]
+                return names
+
+            if response.status_code in transient_status_codes and attempt == 0:
+                logger.info(
+                    "GitHubIntegration: list_repositories retrying transient error",
+                    status_code=response.status_code,
+                    error=body if isinstance(body, dict) else None,
+                )
+                continue
+
             logger.warning(
-                "GitHubIntegration: list_repositories non-JSON response",
+                "GitHubIntegration: failed to list repositories",
                 status_code=response.status_code,
+                error=body if isinstance(body, dict) else None,
             )
             return []
 
-        repositories = body.get("repositories")
-        if response.status_code == 200 and isinstance(repositories, list):
-            names: list[str] = [
-                repo["name"] for repo in repositories if isinstance(repo, dict) and isinstance(repo.get("name"), str)
-            ]
-            return names
-
-        logger.warning(
-            "GitHubIntegration: failed to list repositories",
-            status_code=response.status_code,
-            error=body if isinstance(body, dict) else None,
-        )
         return []
 
     def get_top_starred_repository(self) -> str | None:

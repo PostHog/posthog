@@ -38,7 +38,12 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         if input.sandbox_cleaned:
             if pr_url:
                 handler.update_reaction("white_check_mark")
+                if _is_pr_opened_notified(task_run):
+                    handler.delete_progress()
+                    return
+
                 handler.post_pr_opened_sandbox_cleaned(pr_url, task_url)
+                _mark_pr_opened_notified(task_run)
             elif task_run.status == TaskRun.Status.CANCELLED:
                 handler.update_reaction("white_check_mark")
                 handler.post_cancelled(task_url)
@@ -50,6 +55,9 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
         if task_run.status == TaskRun.Status.COMPLETED:
             handler.update_reaction("white_check_mark")
+            if task_run.error_message and "timed out" in task_run.error_message:
+                handler.delete_progress()
+                return
             handler.post_completion(pr_url, task_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
             handler.update_reaction("white_check_mark")
@@ -60,9 +68,12 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             handler.post_error(error, task_url)
         else:
             if pr_url:
-                _post_pr_opened_notification_once(task_run, context, handler, pr_url)
+                _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
+                handler.update_reaction("white_check_mark")
+                handler.delete_progress()
+                return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            handler.post_or_update_progress(stage, task_url, run_id=str(task_run.id), pr_url=pr_url)
+            handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 
@@ -82,14 +93,21 @@ def _get_stage_from_status(status: str, stage: str | None = None) -> str:
     return status_map.get(status, "In progress...")
 
 
-def _post_pr_opened_notification_once(task_run, context, handler, pr_url: str) -> None:
-    state = task_run.state or {}
-    if state.get("slack_pr_opened_notified"):
+def _post_pr_opened_notification_once(task_run, handler, pr_url: str, task_url: str) -> None:
+    if _is_pr_opened_notified(task_run):
         return
 
-    mention_prefix = f"<@{context.mentioning_slack_user_id}> " if context.mentioning_slack_user_id else ""
-    handler.post_thread_message(f"{mention_prefix}Pull request opened. Sandbox still running.")
+    handler.post_pr_opened(pr_url, task_url)
 
+    _mark_pr_opened_notified(task_run)
+
+
+def _is_pr_opened_notified(task_run) -> bool:
+    return bool((task_run.state or {}).get("slack_pr_opened_notified"))
+
+
+def _mark_pr_opened_notified(task_run) -> None:
+    state = task_run.state or {}
     state["slack_pr_opened_notified"] = True
     task_run.state = state
     task_run.save(update_fields=["state", "updated_at"])

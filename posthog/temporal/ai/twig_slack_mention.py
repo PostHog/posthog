@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from temporalio import activity, workflow
@@ -752,6 +752,25 @@ def forward_twig_followup_activity(
             status_code=result.status_code,
         )
         if result.retryable and result.status_code == 504:
+            timeout_reply_text = _extract_recent_assistant_text_from_logs(task_run)
+            if timeout_reply_text:
+                _set_followup_done_reaction(slack, channel, user_message_ts, "white_check_mark")
+                mention_prefix = f"<@{slack_user_id}> " if slack_user_id else ""
+                slack.client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text=f"{mention_prefix}{timeout_reply_text}",
+                )
+                _delete_followup_progress(
+                    integration_id=inputs.integration_id,
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    user_message_ts=user_message_ts,
+                    mentioning_slack_user_id=mapping.mentioning_slack_user_id,
+                )
+                return True
+
+            _set_followup_done_reaction(slack, channel, user_message_ts, "x")
             slack.client.chat_postMessage(
                 channel=channel,
                 thread_ts=thread_ts,
@@ -762,6 +781,7 @@ def forward_twig_followup_activity(
             )
             return True
 
+        _set_followup_done_reaction(slack, channel, user_message_ts, "x")
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
@@ -769,25 +789,213 @@ def forward_twig_followup_activity(
         )
         return True
 
-    if user_message_ts:
-        try:
-            slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name="eyes")
-        except Exception:
-            pass
-        try:
-            slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="white_check_mark")
-        except Exception:
-            pass
+    _set_followup_done_reaction(slack, channel, user_message_ts, "white_check_mark")
+
+    reply_text = _resolve_followup_reply_text(task_run, getattr(result, "data", None))
+    if not reply_text:
+        reply_text = "I processed your message but couldn't fetch the reply text. Check logs."
 
     mention_prefix = f"<@{slack_user_id}> " if slack_user_id else ""
     slack.client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
-        text=f"{mention_prefix}Got it, done!",
+        text=f"{mention_prefix}{reply_text}",
+    )
+
+    _delete_followup_progress(
+        integration_id=inputs.integration_id,
+        channel=channel,
+        thread_ts=thread_ts,
+        user_message_ts=user_message_ts,
+        mentioning_slack_user_id=mapping.mentioning_slack_user_id,
     )
 
     log.info("twig_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
     return True
+
+
+def _resolve_followup_reply_text(task_run: Any, command_result_data: Any) -> str | None:
+    command_text = _extract_assistant_text_from_command_result(command_result_data)
+    if command_text:
+        return command_text
+    return _extract_recent_assistant_text_from_logs(task_run)
+
+
+def _delete_followup_progress(
+    integration_id: int,
+    channel: str,
+    thread_ts: str,
+    user_message_ts: str | None,
+    mentioning_slack_user_id: str | None,
+) -> None:
+    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+
+    try:
+        SlackThreadHandler(
+            SlackThreadContext(
+                integration_id=integration_id,
+                channel=channel,
+                thread_ts=thread_ts,
+                user_message_ts=user_message_ts,
+                mentioning_slack_user_id=mentioning_slack_user_id,
+            )
+        ).delete_progress()
+    except Exception:
+        pass
+
+
+def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str | None, done_emoji: str) -> None:
+    if not user_message_ts:
+        return
+
+    for stale_emoji in ("eyes", "seedling"):
+        try:
+            slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name=stale_emoji)
+        except Exception:
+            pass
+
+    try:
+        slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name=done_emoji)
+    except Exception:
+        pass
+
+
+def _extract_assistant_text_from_command_result(command_result_data: Any) -> str | None:
+    if not isinstance(command_result_data, dict):
+        return None
+
+    result = command_result_data.get("result")
+    if isinstance(result, dict):
+        direct_text = result.get("assistant_message") or result.get("output_text")
+        if isinstance(direct_text, str) and direct_text.strip():
+            return direct_text.strip()
+
+        messages = result.get("messages")
+        if isinstance(messages, list):
+            for message in reversed(messages):
+                if not isinstance(message, dict) or message.get("role") != "assistant":
+                    continue
+                text = _extract_text_from_message_payload(message)
+                if text:
+                    return text
+
+        if result.get("role") == "assistant":
+            return _extract_text_from_message_payload(result)
+
+    return None
+
+
+def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text" and isinstance(part.get("text"), str):
+                text = part["text"].strip()
+                if text:
+                    text_parts.append(text)
+        if text_parts:
+            return "\n".join(text_parts)
+
+    text_value = message.get("text")
+    if isinstance(text_value, str) and text_value.strip():
+        return text_value.strip()
+
+    return None
+
+
+def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
+    from posthog.storage import object_storage
+
+    raw_log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    if isinstance(raw_log_content, bytes):
+        log_content = raw_log_content.decode("utf-8", errors="ignore")
+    else:
+        log_content = str(raw_log_content)
+
+    if not log_content.strip():
+        return None
+
+    latest_text: str | None = None
+    latest_agent_timestamp: datetime | None = None
+    latest_user_timestamp: datetime | None = None
+    cutoff = datetime.utcnow() - timedelta(minutes=5)
+
+    for line in log_content.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        notification = entry.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != "session/update":
+            continue
+
+        params = notification.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if not isinstance(update, dict):
+            continue
+
+        timestamp = _parse_iso_datetime(entry.get("timestamp"))
+        if timestamp and timestamp < cutoff:
+            continue
+
+        session_update = update.get("sessionUpdate")
+        if session_update in {"user_message", "user_message_chunk"}:
+            if timestamp and (latest_user_timestamp is None or timestamp >= latest_user_timestamp):
+                latest_user_timestamp = timestamp
+            continue
+
+        if session_update not in {"agent_message", "agent_message_chunk"}:
+            continue
+
+        content = update.get("content")
+        text: str | None = None
+        if isinstance(content, dict) and content.get("type") == "text" and isinstance(content.get("text"), str):
+            candidate = content["text"].strip()
+            text = candidate or None
+        elif isinstance(update.get("message"), str):
+            candidate = update["message"].strip()
+            text = candidate or None
+
+        if not text:
+            continue
+
+        if latest_agent_timestamp is None or (timestamp and timestamp >= latest_agent_timestamp):
+            latest_agent_timestamp = timestamp
+            latest_text = text
+
+    if not latest_text:
+        return None
+
+    if latest_agent_timestamp and latest_user_timestamp and latest_agent_timestamp < latest_user_timestamp:
+        return None
+
+    return latest_text
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+
+    normalized = value.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is not None:
+        return parsed.replace(tzinfo=None)
+    return parsed
 
 
 @activity.defn

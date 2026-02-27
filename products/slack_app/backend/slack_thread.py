@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -123,73 +122,24 @@ class SlackThreadHandler:
         self,
         stage: str,
         task_url: str | None = None,
-        run_id: str | None = None,
-        pr_url: str | None = None,
     ) -> None:
         """Post a new progress message or update the existing one."""
-        if pr_url:
-            text = (
-                f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\n"
-                "Pull request opened. Sandbox still running.\n"
-                f"Stage: {stage}"
-            )
-        else:
-            text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
+        text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
 
         if task_url:
-            actions: list[dict[str, Any]] = [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "View agent logs", "emoji": True},
-                    "url": task_url,
-                }
-            ]
-
-            if pr_url:
-                actions.insert(
-                    0,
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "View PR", "emoji": True},
-                        "url": pr_url,
-                    },
-                )
-
-            if run_id:
-                terminate_value = json.dumps(
-                    {
-                        "run_id": run_id,
-                        "integration_id": self.context.integration_id,
-                        "mentioning_slack_user_id": self.context.mentioning_slack_user_id,
-                        "thread_ts": self.context.thread_ts,
-                    }
-                )
-                actions.append(
-                    {
-                        "type": "button",
-                        "action_id": "twig_terminate_task",
-                        "style": "danger",
-                        "text": {"type": "plain_text", "text": "X", "emoji": True},
-                        "value": terminate_value,
-                        "confirm": {
-                            "title": {"type": "plain_text", "text": "Terminate task?"},
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": "This will stop the current run and clean up its sandbox.",
-                            },
-                            "confirm": {"type": "plain_text", "text": "Terminate"},
-                            "deny": {"type": "plain_text", "text": "Keep running"},
-                        },
-                    }
-                )
-
             blocks.append(
                 {
                     "type": "actions",
-                    "elements": actions,
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "View agent logs", "emoji": True},
+                            "url": task_url,
+                        }
+                    ],
                 }
             )
 
@@ -216,7 +166,7 @@ class SlackThreadHandler:
 
     def post_pr_opened_sandbox_cleaned(self, pr_url: str, task_url: str) -> None:
         """Post final PR message after sandbox cleanup."""
-        header = "*Pull request opened. Sandbox cleaned up.* :rocket:"
+        header = "*Pull request opened* :rocket:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -238,6 +188,40 @@ class SlackThreadHandler:
         ]
 
         self._delete_progress_and_post(header, blocks)
+
+    def post_pr_opened(self, pr_url: str, task_url: str) -> None:
+        """Post PR opened message with action buttons."""
+        mention_prefix = f"<@{self.context.mentioning_slack_user_id}> " if self.context.mentioning_slack_user_id else ""
+        header = f"{mention_prefix}Pull request opened."
+
+        blocks: list[dict[str, Any]] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": header}},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+                        "url": pr_url,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "url": task_url,
+                    },
+                ],
+            },
+        ]
+
+        try:
+            self._get_client().chat_postMessage(
+                channel=self.context.channel,
+                thread_ts=self.context.thread_ts,
+                text=header,
+                blocks=blocks,
+            )
+        except Exception as e:
+            logger.warning("slack_post_pr_opened_failed", error=str(e))
 
     def post_thread_message(self, text: str) -> None:
         """Post a plain message in the existing thread."""
@@ -320,19 +304,21 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(header, blocks)
 
-    def _delete_progress_and_post(self, text: str, blocks: list[dict[str, Any]]) -> None:
-        """Delete progress message if exists and post final message."""
+    def delete_progress(self) -> None:
+        """Delete the progress message if it exists."""
         try:
             client = self._get_client()
             progress_ts = self._find_progress_message_ts()
-
             if progress_ts:
-                try:
-                    client.chat_delete(channel=self.context.channel, ts=progress_ts)
-                except Exception as e:
-                    logger.warning("slack_delete_progress_failed", error=str(e))
+                client.chat_delete(channel=self.context.channel, ts=progress_ts)
+        except Exception as e:
+            logger.warning("slack_delete_progress_failed", error=str(e))
 
-            client.chat_postMessage(
+    def _delete_progress_and_post(self, text: str, blocks: list[dict[str, Any]]) -> None:
+        """Delete progress message if exists and post final message."""
+        try:
+            self.delete_progress()
+            self._get_client().chat_postMessage(
                 channel=self.context.channel,
                 thread_ts=self.context.thread_ts,
                 text=text,

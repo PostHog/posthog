@@ -143,7 +143,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
             elif timed_out:
-                await self._update_task_run_status("cancelled", error_message="Run timed out due to inactivity")
+                await self._update_task_run_status("completed", error_message="Run timed out due to inactivity")
 
             await self._post_slack_update()
 

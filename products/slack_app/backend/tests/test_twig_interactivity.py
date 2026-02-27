@@ -170,11 +170,15 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         assert response.json()["options"] == []
 
+    @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
-    def test_submit_signals_temporal_workflow(self, mock_config, mock_sync_connect, mock_asyncio_run):
+    def test_submit_signals_temporal_workflow(
+        self, mock_config, mock_sync_connect, mock_asyncio_run, mock_webclient_class
+    ):
         mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_webclient_class.return_value = MagicMock()
         self.context_payload["workflow_id"] = "twig-mention-T12345:C001:1234.5678"
         cache.set(f"twig_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
 
@@ -196,6 +200,7 @@ class TestRepoPickerOptions(TestCase):
         mock_sync_connect.assert_called_once()
         mock_sync_connect.return_value.get_workflow_handle.assert_called_once_with("twig-mention-T12345:C001:1234.5678")
         mock_asyncio_run.assert_called_once()
+        mock_webclient_class.return_value.chat_update.assert_called_once()
 
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")

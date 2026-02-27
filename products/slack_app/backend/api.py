@@ -1241,11 +1241,52 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
         asyncio.run(handle.signal(TwigSlackMentionWorkflow.repo_selected, selected_repo))
+        _replace_repo_picker_with_selection(payload, context, selected_repo)
         return HttpResponse(status=200)
     except Exception as e:
         logger.warning("twig_repo_submit_signal_failed", workflow_id=workflow_id, error=str(e))
         post_selection_expired()
         return HttpResponse(status=200)
+
+
+def _replace_repo_picker_with_selection(payload: dict, context: dict | None, selected_repo: str) -> None:
+    integration_id = context.get("integration_id") if context else None
+    slack_team_id = payload.get("team", {}).get("id")
+    channel = context.get("channel") if context else payload.get("channel", {}).get("id")
+    message_ts = payload.get("message", {}).get("ts")
+
+    if not integration_id or not slack_team_id or not channel or not message_ts:
+        logger.info(
+            "twig_repo_submit_missing_picker_update_context",
+            integration_id=integration_id,
+            slack_team_id=slack_team_id,
+            channel=channel,
+            message_ts=message_ts,
+        )
+        return
+
+    try:
+        integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
+        slack = SlackIntegration(integration)
+        text = f"Repository selected: `{selected_repo}`"
+        slack.client.chat_update(
+            channel=channel,
+            ts=message_ts,
+            text=text,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*Repository selected:* `{selected_repo}`"},
+                }
+            ],
+        )
+    except Exception:
+        logger.warning(
+            "twig_repo_submit_picker_update_failed",
+            integration_id=integration_id,
+            channel=channel,
+            message_ts=message_ts,
+        )
 
 
 def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
