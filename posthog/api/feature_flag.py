@@ -696,9 +696,9 @@ class FeatureFlagSerializer(
         ):
             raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
 
-        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+        if not re.match(r"^[a-zA-Z0-9_.-]+$", value):
             raise serializers.ValidationError(
-                "Only letters, numbers, hyphens (-) & underscores (_) are allowed.",
+                "Only letters, numbers, periods (.), hyphens (-) & underscores (_) are allowed.",
                 code="invalid_key",
             )
 
