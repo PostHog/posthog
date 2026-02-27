@@ -534,7 +534,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if expires_in := token_data.get("expires_in"):
             sensitive_config["expires_in"] = expires_in
 
-        existing = MCPServerInstallation.objects.filter(team_id=self.team_id, user=request.user, server=server).first()
+        existing = MCPServerInstallation.objects.filter(
+            team_id=self.team_id, user=cast(User, request.user), server=server
+        ).first()
 
         install_url = existing.url if existing else server.url
         display_name = existing.display_name if existing else server.name
