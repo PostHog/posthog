@@ -548,7 +548,7 @@ class EventViewSet(
         # in the future.
         chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
         date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-        date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+        date_to = timezone.now().astimezone(query_params.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
 
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
@@ -588,11 +588,12 @@ class EventViewSet(
             conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
 
         if query_params.value:
+            escaped = query_params.value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
                     left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{query_params.value}%"),
+                    right=ast.Constant(value=f"%{escaped}%"),
                 )
             )
 
