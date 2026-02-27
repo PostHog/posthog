@@ -528,7 +528,7 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
-            {(!compact || showDescription) && !!description && (
+            {showDescription && !!description && (
                 <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                     {description}
                 </LemonMarkdown>
