@@ -198,14 +198,8 @@ POSTHOG_SLACK_SCOPE = ",".join(
         *(
             [  # New scopes that came with the update adding PostHog AI integration with Slack
                 "app_mentions:read",
-                "assistant:write",
                 "channels:history",
-                "channels:join",
-                "chat:write.public",
-                "commands",
                 "groups:history",
-                "im:history",
-                "im:write",
                 "links:read",
                 "links:write",
                 "reactions:read",

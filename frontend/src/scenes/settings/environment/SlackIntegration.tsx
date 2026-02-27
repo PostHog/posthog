@@ -34,16 +34,10 @@ const getSlackAppManifest = (): any => ({
         scopes: {
             bot: [
                 'app_mentions:read',
-                'assistant:write',
                 'channels:history',
-                'channels:join',
                 'channels:read',
                 'chat:write',
-                'chat:write.public',
-                'commands',
                 'groups:history',
-                'im:history',
-                'im:write',
                 'links:read',
                 'links:write',
                 'reactions:read',
