@@ -515,7 +515,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 if (filters.aggregation_group_type_index != null) {
                     return aggregationLabel(filters.aggregation_group_type_index).plural
                 }
-                return 'users'
+                return 'profiles'
             },
         ],
         filtersTaxonomicOptions: [
