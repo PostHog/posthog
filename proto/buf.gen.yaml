@@ -4,5 +4,5 @@ plugins:
       out: ../posthog/personhog_client/proto/generated
     - protoc_builtin: pyi
       out: ../posthog/personhog_client/proto/generated
-    - protoc_builtin: grpc_python
+    - remote: buf.build/grpc/python
       out: ../posthog/personhog_client/proto/generated

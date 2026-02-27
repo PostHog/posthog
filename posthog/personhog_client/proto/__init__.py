@@ -1,14 +1,4 @@
-# ruff: noqa: E402, F401
-import os
-import sys
-
-# Generated proto stubs use absolute imports from the proto package root
-# (e.g. `from personhog.types.v1 import ...`). Add the generated directory
-# to sys.path so these resolve correctly.
-_generated_dir = os.path.join(os.path.dirname(__file__), "generated")
-if _generated_dir not in sys.path:
-    sys.path.insert(0, _generated_dir)
-
+# ruff: noqa: F401
 from posthog.personhog_client.proto.generated.personhog.service.v1.service_pb2_grpc import PersonHogServiceStub
 from posthog.personhog_client.proto.generated.personhog.types.v1.cohort_pb2 import (
     CheckCohortMembershipRequest,

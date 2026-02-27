@@ -23,6 +23,7 @@ class HashKeyOverride(_message.Message):
     HASH_KEY_FIELD_NUMBER: _ClassVar[int]
     feature_flag_key: str
     hash_key: str
+
     def __init__(self, feature_flag_key: _Optional[str] = ..., hash_key: _Optional[str] = ...) -> None: ...
 
 class HashKeyOverrideContext(_message.Message):
@@ -35,6 +36,7 @@ class HashKeyOverrideContext(_message.Message):
     distinct_id: str
     overrides: _containers.RepeatedCompositeFieldContainer[HashKeyOverride]
     existing_feature_flag_keys: _containers.RepeatedScalarFieldContainer[str]
+
     def __init__(
         self,
         person_id: _Optional[int] = ...,
@@ -53,6 +55,7 @@ class GetHashKeyOverrideContextRequest(_message.Message):
     distinct_ids: _containers.RepeatedScalarFieldContainer[str]
     check_person_exists: bool
     read_options: _common_pb2.ReadOptions
+
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -65,6 +68,7 @@ class GetHashKeyOverrideContextResponse(_message.Message):
     __slots__ = ("results",)
     RESULTS_FIELD_NUMBER: _ClassVar[int]
     results: _containers.RepeatedCompositeFieldContainer[HashKeyOverrideContext]
+
     def __init__(self, results: _Optional[_Iterable[_Union[HashKeyOverrideContext, _Mapping]]] = ...) -> None: ...
 
 class UpsertHashKeyOverridesRequest(_message.Message):
@@ -77,6 +81,7 @@ class UpsertHashKeyOverridesRequest(_message.Message):
     distinct_ids: _containers.RepeatedScalarFieldContainer[str]
     hash_key: str
     feature_flag_keys: _containers.RepeatedScalarFieldContainer[str]
+
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -89,16 +94,19 @@ class UpsertHashKeyOverridesResponse(_message.Message):
     __slots__ = ("inserted_count",)
     INSERTED_COUNT_FIELD_NUMBER: _ClassVar[int]
     inserted_count: int
+
     def __init__(self, inserted_count: _Optional[int] = ...) -> None: ...
 
 class DeleteHashKeyOverridesByTeamsRequest(_message.Message):
     __slots__ = ("team_ids",)
     TEAM_IDS_FIELD_NUMBER: _ClassVar[int]
     team_ids: _containers.RepeatedScalarFieldContainer[int]
+
     def __init__(self, team_ids: _Optional[_Iterable[int]] = ...) -> None: ...
 
 class DeleteHashKeyOverridesByTeamsResponse(_message.Message):
     __slots__ = ("deleted_count",)
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
+
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...

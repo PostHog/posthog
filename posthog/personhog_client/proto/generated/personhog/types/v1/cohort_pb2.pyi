@@ -23,6 +23,7 @@ class CohortMembership(_message.Message):
     IS_MEMBER_FIELD_NUMBER: _ClassVar[int]
     cohort_id: int
     is_member: bool
+
     def __init__(self, cohort_id: _Optional[int] = ..., is_member: bool = ...) -> None: ...
 
 class CheckCohortMembershipRequest(_message.Message):
@@ -33,6 +34,7 @@ class CheckCohortMembershipRequest(_message.Message):
     person_id: int
     cohort_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
+
     def __init__(
         self,
         person_id: _Optional[int] = ...,
@@ -44,4 +46,5 @@ class CohortMembershipResponse(_message.Message):
     __slots__ = ("memberships",)
     MEMBERSHIPS_FIELD_NUMBER: _ClassVar[int]
     memberships: _containers.RepeatedCompositeFieldContainer[CohortMembership]
+
     def __init__(self, memberships: _Optional[_Iterable[_Union[CohortMembership, _Mapping]]] = ...) -> None: ...
