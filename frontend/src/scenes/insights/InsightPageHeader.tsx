@@ -23,12 +23,12 @@ import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import {
     TEMPLATE_LINK_HEADING,
     TEMPLATE_LINK_PII_WARNING,
     TEMPLATE_LINK_TOOLTIP,
 } from 'lib/components/Sharing/templateLinkMessages'
+import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
@@ -45,29 +45,28 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
-import { projectLogic } from 'scenes/projectLogic'
+import { useMaxTool } from 'scenes/max/useMaxTool'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
@@ -107,7 +106,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightLoading,
         derivedName,
     } = useValues(insightLogic(insightLogicProps))
-    const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } =
+    const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight, duplicateInsight, deleteInsight } =
         useActions(insightLogic(insightLogicProps))
 
     // insightDataLogic
@@ -138,7 +137,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { tags: allExistingTags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { currentProjectId } = useValues(projectLogic)
     const { push } = useActions(router)
     const [tags, setTags] = useState(insight.tags)
     const { posthogTablesMap, allTables } = useValues(databaseTableListLogic)
@@ -149,7 +147,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
-    const [endpointModalOpen, setEndpointModalOpen] = useState<boolean>(false)
     const [tablePreviewModalOpen, setTablePreviewModalOpen] = useState<boolean>(false)
     const [terraformModalOpen, setTerraformModalOpen] = useState<boolean>(false)
     const [selectedPreviewColumn, setSelectedPreviewColumn] = useState<string | null>('event_person_id')
@@ -193,6 +190,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const siteUrl = preflight?.site_url || window.location.origin
 
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+
+    useMaxTool({
+        identifier: 'upsert_alert',
+        active: canCreateAlertForInsight && hasDashboardItemId && !!insight.id,
+        context: useMemo(
+            () => ({
+                insight_id: insight.id,
+                insight_short_id: insight.short_id,
+                insight_name: insight.name || insight.derived_name,
+            }),
+            [insight.id, insight.short_id, insight.name, insight.derived_name]
+        ),
+    })
 
     async function handleDuplicateInsight(): Promise<void> {
         // We do not want to duplicate the dashboard filters that might be included in this insight
@@ -261,8 +271,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     )}
                     <NewDashboardModal />
                     <EndpointFromInsightModal
-                        isOpen={endpointModalOpen}
-                        closeModal={() => setEndpointModalOpen(false)}
                         tabId={insightProps.tabId || ''}
                         insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
                         insightShortId={insight.short_id}
@@ -448,7 +456,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <ButtonPrimitive
                                 onClick={() => {
                                     openCreateFromInsightModal()
-                                    setEndpointModalOpen(true)
                                 }}
                                 menuItem
                             >
@@ -581,16 +588,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             disabled={!!disabledReason}
                                             {...(disabledReason && { tooltip: disabledReason })}
                                             data-attr={`${RESOURCE_TYPE}-delete`}
-                                            onClick={() =>
-                                                void deleteInsightWithUndo({
-                                                    object: insight as QueryBasedInsightModel,
-                                                    endpoint: `projects/${currentProjectId}/insights`,
-                                                    callback: () => {
-                                                        reloadSavedInsights()
-                                                        push(urls.savedInsights())
-                                                    },
-                                                })
-                                            }
+                                            onClick={() => deleteInsight(dashboardId ?? null)}
                                         >
                                             <IconTrash />
                                             Delete insight

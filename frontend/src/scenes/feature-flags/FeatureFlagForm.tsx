@@ -50,13 +50,14 @@ import { FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
-import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
+        originalFeatureFlag,
         multivariateEnabled,
         variants,
         nonEmptyVariants,
@@ -214,7 +215,21 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <LemonField
                                     name="key"
                                     label="Flag key"
-                                    info="Unique identifier used in your code. Cannot be changed after creation."
+                                    info="Unique identifier used in your code."
+                                    help={
+                                        !isNewFeatureFlag &&
+                                        originalFeatureFlag &&
+                                        featureFlag.key !== originalFeatureFlag.key ? (
+                                            <span className="text-warning">
+                                                <b>Warning! </b>Changing this key will break any existing code that
+                                                references it (e.g.{' '}
+                                                <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
+                                                    getFeatureFlag('{originalFeatureFlag.key}')
+                                                </code>
+                                                ). Make sure to update all SDK calls and integrations.
+                                            </span>
+                                        ) : undefined
+                                    }
                                 >
                                     {({ value, onChange }) => (
                                         <LemonInput
@@ -562,8 +577,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <>
                                                 Returns <code className="text-xs">true</code> or{' '}
                                                 <code className="text-xs">false</code> based on targeting rules. You can
-                                                optionally attach a JSON payload when the flag is{' '}
-                                                <code className="text-xs">true</code>.
+                                                optionally attach a JSON payload that will be available on the flag when
+                                                it evaluates to <code className="text-xs">true</code>.
                                             </>
                                         )}
                                     </div>
@@ -733,7 +748,13 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             When the flag evaluates to{' '}
                                                             <code className="text-xs">true</code>, this payload will be
                                                             available via{' '}
-                                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                                            <code className="text-xs">getFeatureFlagPayload</code>.{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads"
+                                                                target="_blank"
+                                                            >
+                                                                Learn more
+                                                            </Link>
                                                         </div>
                                                         <Group name={['filters', 'payloads']}>
                                                             <LemonField name="true">
@@ -756,6 +777,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
+                                        isDisabled={!featureFlag.active}
                                     />
                                 </div>
                             )}

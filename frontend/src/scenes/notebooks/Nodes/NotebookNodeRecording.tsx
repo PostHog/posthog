@@ -10,11 +10,11 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { parseTimestampToMs } from 'lib/utils/timestamps'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,

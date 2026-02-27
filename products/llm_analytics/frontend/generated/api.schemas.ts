@@ -232,8 +232,8 @@ export interface ClusteringRunRequestApi {
 * `kmeans` - kmeans */
     clustering_method?: ClusteringMethodEnumApi
     /**
-     * Minimum cluster size as fraction of total samples (e.g., 0.05 = 5%)
-     * @minimum 0.05
+     * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
+     * @minimum 0.02
      * @maximum 0.5
      */
     min_cluster_size_fraction?: number
@@ -386,6 +386,58 @@ export interface PatchedLLMProviderKeyApi {
     readonly created_by?: UserBasicApi
     /** @nullable */
     readonly last_used_at?: string | null
+}
+
+export interface SentimentRequestApi {
+    /**
+     * @minItems 1
+     * @maxItems 5
+     */
+    trace_ids: string[]
+    force_refresh?: boolean
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export type MessageSentimentApiScores = { [key: string]: number }
+
+export interface MessageSentimentApi {
+    label: string
+    score: number
+    scores: MessageSentimentApiScores
+}
+
+export type GenerationSentimentApiScores = { [key: string]: number }
+
+export type GenerationSentimentApiMessages = { [key: string]: MessageSentimentApi }
+
+export interface GenerationSentimentApi {
+    label: string
+    score: number
+    scores: GenerationSentimentApiScores
+    messages: GenerationSentimentApiMessages
+}
+
+export type SentimentResponseApiScores = { [key: string]: number }
+
+export type SentimentResponseApiGenerations = { [key: string]: GenerationSentimentApi }
+
+export interface SentimentResponseApi {
+    trace_id: string
+    label: string
+    score: number
+    scores: SentimentResponseApiScores
+    generations: SentimentResponseApiGenerations
+    generation_count: number
+    message_count: number
+}
+
+export type SentimentBatchResponseApiResults = { [key: string]: SentimentResponseApi }
+
+export interface SentimentBatchResponseApi {
+    results: SentimentBatchResponseApiResults
 }
 
 /**
@@ -715,6 +767,10 @@ export type LlmAnalyticsProviderKeysListParams = {
      */
     offset?: number
 }
+
+export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 

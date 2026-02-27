@@ -19,6 +19,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.error_tracking",
+    "products.event_definitions",
     "products.llm_analytics",
     "products.logs",
 ]
@@ -42,6 +43,7 @@ depends_on = [
     "posthog",
     "products.data_warehouse",
     "products.error_tracking",
+    "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
     "products.llm_analytics",
@@ -64,6 +66,7 @@ depends_on = [
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
+    "products.event_definitions",
     "products.error_tracking",
     "products.experiments",
     "products.links",
@@ -147,6 +150,13 @@ path = "products.endpoints"
 depends_on = [
     "posthog",
     "products.data_warehouse",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.event_definitions"
+depends_on = [
+    "posthog",
 ]
 layer = "non_isolated"
 
@@ -279,6 +289,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.error_tracking",
+    "products.event_definitions",
     "products.llm_analytics",
     "products.slack_app",
 ]

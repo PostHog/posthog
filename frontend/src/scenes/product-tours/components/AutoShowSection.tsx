@@ -17,12 +17,12 @@ import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { AddEventButton } from 'scenes/surveys/AddEventButton'
+import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 import {
     SUPPORTED_OPERATORS,
     convertArrayToPropertyFilters,
     convertPropertyFiltersToArray,
 } from 'scenes/surveys/SurveyEventTrigger'
-import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
@@ -324,6 +324,9 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                         />
                     )}
                 </div>
+                {conditions.urlMatchType === SurveyMatchType.Exact && (
+                    <span className="text-xs text-muted">Trailing slashes are stripped when matching exact URLs.</span>
+                )}
             </div>
 
             <div>

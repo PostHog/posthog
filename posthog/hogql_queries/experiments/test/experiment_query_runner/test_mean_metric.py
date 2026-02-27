@@ -6,6 +6,8 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     EventsNode,
     ExperimentMeanMetric,
@@ -22,9 +24,19 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
+    snapshot_replace_all_numbers = True
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_sum_metric(self):
+    def test_property_sum_metric(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -45,7 +57,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         # Create events with different amounts for control vs test to provide variance
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -98,7 +110,9 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -113,9 +127,17 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2020-01-10T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_conversion_window_extends_to_last_exposure(self):
+    def test_conversion_window_extends_to_last_exposure(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -142,7 +164,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         feature_flag_property = f"$feature/{feature_flag.key}"
         distinct_id = "user_control_window"
@@ -173,16 +195,26 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
         self.assertEqual(result.baseline.sum, 25)
         self.assertEqual(result.baseline.number_of_samples, 1)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_outlier_handling_for_sum_metric(self):
+    def test_outlier_handling_for_sum_metric(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -256,9 +288,11 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -273,9 +307,17 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_outlier_handling_for_count_metric(self):
+    def test_outlier_handling_for_count_metric(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -351,9 +393,11 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -368,9 +412,17 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_unique_sessions_math_type(self):
+    def test_unique_sessions_math_type(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -444,9 +496,11 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -461,9 +515,17 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 3)
         self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_max_metric(self):
+    def test_property_max_metric(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -523,9 +585,11 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -540,9 +604,17 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_min_metric(self):
+    def test_property_min_metric(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -602,9 +674,11 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -619,9 +693,17 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_avg_metric(self):
+    def test_property_avg_metric(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -681,9 +763,11 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -698,9 +782,17 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_outlier_handling_with_ignore_zeros(self):
+    def test_outlier_handling_with_ignore_zeros(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -723,7 +815,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -785,7 +877,9 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -799,3 +893,198 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 10)
         self.assertEqual(control_variant.sum, 2300)
         self.assertEqual(test_variant.sum, 4450)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_count_unique_property_values_via_hogql(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, categories: list[str]) -> list[dict]:
+            purchase_events = [
+                {
+                    "event": "purchase",
+                    "timestamp": f"2024-01-02T12:01:{i:02d}",
+                    "properties": {
+                        ff_property: variant,
+                        "category": category,
+                    },
+                }
+                for i, category in enumerate(categories)
+            ]
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                *purchase_events,
+            ]
+
+        journeys_for(
+            {
+                # control_1: 3 events, 2 unique categories
+                "control_1": _create_events_for_user("control", ["electronics", "clothing", "electronics"]),
+                # control_2: 2 events, 2 unique categories
+                "control_2": _create_events_for_user("control", ["food", "clothing"]),
+                # control_3: exposed but no purchases → 0 unique categories
+                "control_3": _create_events_for_user("control", []),
+                # test_1: 4 events, 3 unique categories
+                "test_1": _create_events_for_user("test", ["electronics", "clothing", "food", "electronics"]),
+                # test_2: 3 events, 1 unique category
+                "test_2": _create_events_for_user("test", ["food", "food", "food"]),
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="uniqExact(properties.category)",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # control_1: 2 unique, control_2: 2 unique, control_3: 0 unique → sum = 4
+        self.assertEqual(control_variant.sum, 4)
+        self.assertEqual(control_variant.number_of_samples, 3)
+        # test_1: 3 unique, test_2: 1 unique → sum = 4
+        self.assertEqual(test_variant.sum, 4)
+        self.assertEqual(test_variant.number_of_samples, 2)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_count_distinct_property_values_via_hogql(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, categories: list[str]) -> list[dict]:
+            purchase_events = [
+                {
+                    "event": "purchase",
+                    "timestamp": f"2024-01-02T12:01:{i:02d}",
+                    "properties": {
+                        ff_property: variant,
+                        "category": category,
+                    },
+                }
+                for i, category in enumerate(categories)
+            ]
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                *purchase_events,
+            ]
+
+        journeys_for(
+            {
+                # control_1: 3 events, 2 unique categories
+                "control_1": _create_events_for_user("control", ["electronics", "clothing", "electronics"]),
+                # control_2: 2 events, 2 unique categories
+                "control_2": _create_events_for_user("control", ["food", "clothing"]),
+                # control_3: exposed but no purchases → 0 unique categories
+                "control_3": _create_events_for_user("control", []),
+                # test_1: 4 events, 3 unique categories
+                "test_1": _create_events_for_user("test", ["electronics", "clothing", "food", "electronics"]),
+                # test_2: 3 events, 1 unique category
+                "test_2": _create_events_for_user("test", ["food", "food", "food"]),
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="count(distinct properties.category)",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Same expected results as uniqExact test
+        # control_1: 2 unique, control_2: 2 unique, control_3: 0 unique → sum = 4
+        self.assertEqual(control_variant.sum, 4)
+        self.assertEqual(control_variant.number_of_samples, 3)
+        # test_1: 3 unique, test_2: 1 unique → sum = 4
+        self.assertEqual(test_variant.sum, 4)
+        self.assertEqual(test_variant.number_of_samples, 2)

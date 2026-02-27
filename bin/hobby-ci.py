@@ -402,6 +402,21 @@ runcmd:
             raise RuntimeError(f"Failed to update POSTHOG_NODE_TAG: {result['stderr']}")
         print(f"✅ Updated POSTHOG_NODE_TAG to {node_tag}")
 
+        # Update the baked-in image tags in docker-compose.yml.
+        # The hobby-installer substitutes $POSTHOG_APP_TAG and $POSTHOG_NODE_TAG literally
+        # into docker-compose.yml at install time, so updating .env alone has no effect on
+        # which image docker-compose pull/up uses.
+        print("📝 Updating baked-in image tags in docker-compose.yml...")
+        update_compose_cmd = (
+            f"cd /hobby && "
+            f"sed -i 's|posthog/posthog:[a-f0-9]\\{{40\\}}|posthog/posthog:{new_sha}|g' docker-compose.yml && "
+            f"sed -i 's|posthog/posthog-node:[^[:space:]]*|posthog/posthog-node:{node_tag}|g' docker-compose.yml"
+        )
+        result = self.run_ssh_command(update_compose_cmd, timeout=30)
+        if result["exit_code"] != 0:
+            raise RuntimeError(f"Failed to update docker-compose.yml: {result['stderr']}")
+        print("✅ Updated docker-compose.yml image tags")
+
         # Pull new images with retry logic
         print("🐋 Pulling new Docker images...")
         pull_cmd = 'cd /hobby && for attempt in 1 2 3; do echo "Pull attempt $attempt/3"; docker-compose pull && break || { echo "Pull failed, waiting 30s..."; sleep 30; }; done'

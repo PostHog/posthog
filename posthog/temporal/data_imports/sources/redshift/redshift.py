@@ -31,17 +31,19 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
-def filter_redshift_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+def filter_redshift_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
     """Filter columns that can be used as incremental fields for Redshift."""
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type in ("integer", "smallint", "bigint", "int", "int2", "int4", "int8"):
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
@@ -109,7 +111,7 @@ def get_redshift_row_count(
 
 def get_schemas(
     host: str, database: str, user: str, password: str, schema: str, port: int
-) -> dict[str, list[tuple[str, str]]]:
+) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from Redshift source schemas to sync."""
     connection = psycopg.connect(
         host=host,
@@ -128,7 +130,7 @@ def get_schemas(
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT table_name, column_name, data_type
+            SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
             WHERE table_schema = %(schema)s
             ORDER BY table_name ASC
@@ -137,9 +139,9 @@ def get_schemas(
         )
         result = cursor.fetchall()
 
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for row in result:
-            schema_list[row[0]].append((row[1], row[2]))
+            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     connection.close()
 

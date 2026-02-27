@@ -1554,6 +1554,30 @@ class TestManagementCommands(BaseTest):
         self.assertEqual(eval_tag_diff["cached_value"], ["original-tag-name"])
         self.assertEqual(eval_tag_diff["db_value"], ["renamed-tag-name"])
 
+        # Mismatch result should include db_data for cache fix optimization
+        self.assertIn("db_data", result)
+        self.assertIsInstance(result["db_data"], dict)
+
+    def test_verify_miss_includes_db_data(self):
+        """Test that cache miss result includes db_data for direct cache write."""
+        from posthog.models.feature_flag.flags_cache import clear_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+        result = verify_team_flags(self.team)
+
+        self.assertEqual(result["status"], "miss")
+        self.assertIn("db_data", result)
+        self.assertIsInstance(result["db_data"], dict)
+        self.assertIn("flags", result["db_data"])
+
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):
         """Test that fix failures are properly reported."""
