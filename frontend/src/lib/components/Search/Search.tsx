@@ -322,7 +322,7 @@ function SearchRoot({
         }
 
         return [...normalizedSuggestedItems, ...items]
-    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId])
+    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId, aiPreviewEnabled])
 
     useEffect(() => {
         if (!isActive) {
