@@ -42,7 +42,14 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ByokModelPicker } from '../ByokModelPicker'
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
-import { ComparisonItem, Message, MessageRole, PromptConfig, llmPlaygroundLogic } from './llmPlaygroundLogic'
+import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
+import {
+    llmPlaygroundPromptsLogic,
+    type Message,
+    type MessageRole,
+    type PromptConfig,
+} from './llmPlaygroundPromptsLogic'
+import { llmPlaygroundRunLogic, type ComparisonItem } from './llmPlaygroundRunLogic'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -60,12 +67,12 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
-    logic: llmPlaygroundLogic,
+    logic: llmPlaygroundRunLogic,
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
-    useMountedLogic(llmPlaygroundLogic)
+    useMountedLogic(llmPlaygroundRunLogic)
 
     return (
         <SceneContent className="h-full">
@@ -83,8 +90,10 @@ export function LLMAnalyticsPlaygroundScene(): JSX.Element {
 }
 
 function PlaygroundHeaderActions(): JSX.Element {
-    const { submitting: playgroundSubmitting, hasRunnablePrompts, activePromptId } = useValues(llmPlaygroundLogic)
-    const { submitPrompt, addPromptConfig } = useActions(llmPlaygroundLogic)
+    const { hasRunnablePrompts, activePromptId } = useValues(llmPlaygroundPromptsLogic)
+    const { addPromptConfig } = useActions(llmPlaygroundPromptsLogic)
+    const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
+    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
     return (
         <>
@@ -120,12 +129,12 @@ function PlaygroundHeaderActions(): JSX.Element {
 }
 
 function usePromptConfig(promptId: string): PromptConfig | null {
-    const { promptConfigs } = useValues(llmPlaygroundLogic)
+    const { promptConfigs } = useValues(llmPlaygroundPromptsLogic)
     return promptConfigs.find((prompt) => prompt.id === promptId) ?? null
 }
 
 function RateLimitBanner(): JSX.Element | null {
-    const { rateLimitedUntil } = useValues(llmPlaygroundLogic)
+    const { rateLimitedUntil } = useValues(llmPlaygroundRunLogic)
 
     if (rateLimitedUntil === null || Date.now() >= rateLimitedUntil) {
         return null
@@ -141,7 +150,7 @@ function RateLimitBanner(): JSX.Element | null {
 }
 
 function SubscriptionRequiredBanner(): JSX.Element | null {
-    const { subscriptionRequired } = useValues(llmPlaygroundLogic)
+    const { subscriptionRequired } = useValues(llmPlaygroundRunLogic)
 
     if (!subscriptionRequired) {
         return null
@@ -174,8 +183,9 @@ function PlaygroundLayout(): JSX.Element {
 }
 
 function PromptConfigsSection(): JSX.Element {
-    const { promptConfigs, activePromptId, comparisonItems } = useValues(llmPlaygroundLogic)
-    const { removePromptConfig, setActivePromptId } = useActions(llmPlaygroundLogic)
+    const { promptConfigs, activePromptId } = useValues(llmPlaygroundPromptsLogic)
+    const { removePromptConfig, setActivePromptId } = useActions(llmPlaygroundPromptsLogic)
+    const { comparisonItems } = useValues(llmPlaygroundRunLogic)
 
     const promptCount = promptConfigs.length
     const gridMinWidth = `calc(${promptCount} * 500px + ${Math.max(promptCount - 1, 0)} * 1rem)`
@@ -234,7 +244,7 @@ function PromptCard({
     onActivate: () => void
     onRemove: () => void
 }): JSX.Element {
-    const { submitting } = useValues(llmPlaygroundLogic)
+    const { submitting } = useValues(llmPlaygroundRunLogic)
 
     return (
         <div
@@ -350,8 +360,9 @@ function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
         modelOptionsLoading,
         modelOptionsErrorStatus,
         groupedModelOptions,
-    } = useValues(llmPlaygroundLogic)
-    const { setModel, loadModelOptions } = useActions(llmPlaygroundLogic)
+    } = useValues(llmPlaygroundModelLogic)
+    const { loadModelOptions } = useActions(llmPlaygroundModelLogic)
+    const { setModel } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-10" />
@@ -417,7 +428,7 @@ function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
 
 function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmPlaygroundLogic)
+    const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <div className="p-3 text-xs text-muted">Prompt not found</div>
@@ -506,8 +517,8 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
 
 function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { submitting } = useValues(llmPlaygroundLogic)
-    const { addMessage } = useActions(llmPlaygroundLogic)
+    const { submitting } = useValues(llmPlaygroundRunLogic)
+    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-16" />
@@ -537,8 +548,9 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
 
 function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { submitting, localToolsJsonByPromptId } = useValues(llmPlaygroundLogic)
-    const { setTools, setLocalToolsJson } = useActions(llmPlaygroundLogic)
+    const { submitting } = useValues(llmPlaygroundRunLogic)
+    const { localToolsJsonByPromptId } = useValues(llmPlaygroundPromptsLogic)
+    const { setTools, setLocalToolsJson } = useActions(llmPlaygroundPromptsLogic)
     const [showEditModal, setShowEditModal] = useState(false)
     const [jsonError, setJsonError] = useState<string | null>(null)
 
@@ -645,8 +657,9 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { promptConfigs } = useValues(llmPlaygroundLogic)
-    const { setSystemPrompt, submitPrompt } = useActions(llmPlaygroundLogic)
+    const { promptConfigs } = useValues(llmPlaygroundPromptsLogic)
+    const { setSystemPrompt } = useActions(llmPlaygroundPromptsLogic)
+    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
     const [showEditModal, setShowEditModal] = useState(false)
     const [collapsed, setCollapsed] = useState(false)
 
@@ -769,7 +782,8 @@ function MessageDisplay({
     message: Message
     index: number
 }): JSX.Element {
-    const { updateMessage, deleteMessage, submitPrompt } = useActions(llmPlaygroundLogic)
+    const { updateMessage, deleteMessage } = useActions(llmPlaygroundPromptsLogic)
+    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
     const [collapsed, setCollapsed] = useState(false)
     const [showEditModal, setShowEditModal] = useState(false)
 

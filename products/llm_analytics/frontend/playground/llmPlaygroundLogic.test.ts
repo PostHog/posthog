@@ -4,7 +4,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ModelOption } from '../byokModelPickerLogic'
-import { llmPlaygroundLogic } from './llmPlaygroundLogic'
+import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
+import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import { llmPlaygroundRunLogic } from './llmPlaygroundRunLogic'
 
 const MOCK_MODEL_OPTIONS: ModelOption[] = [
     { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '' },
@@ -17,7 +19,7 @@ const MOCK_MODEL_OPTIONS: ModelOption[] = [
 const DEFAULT_MODEL = 'gpt-5-mini'
 
 describe('llmPlaygroundLogic', () => {
-    let logic: ReturnType<typeof llmPlaygroundLogic.build>
+    let runLogic: ReturnType<typeof llmPlaygroundRunLogic.build>
 
     beforeEach(() => {
         initKeaTests()
@@ -34,58 +36,57 @@ describe('llmPlaygroundLogic', () => {
             },
         })
 
-        logic = llmPlaygroundLogic()
-        logic.mount()
+        runLogic = llmPlaygroundRunLogic()
+        runLogic.mount()
     })
 
     afterEach(() => {
-        logic.unmount()
+        runLogic.unmount()
     })
 
     describe('closest model matching', () => {
         it('should return exact match when model exists', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            // Test through setupPlaygroundFromEvent
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'gpt-5',
                 input: 'test input',
             })
 
-            expect(logic.values.model).toBe('gpt-5')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5')
         })
 
         it('should match by longest prefix', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'gpt-5-mini-2025-08-07',
                 input: 'test input',
             })
 
-            expect(logic.values.model).toBe('gpt-5-mini')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5-mini')
         })
 
         it('should match shorter prefix when longer not available', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'gpt-5-2025-08-07',
                 input: 'test input',
             })
 
-            expect(logic.values.model).toBe('gpt-5')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5')
         })
 
         it('should return default model when no match found', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'llama-3-70b',
                 input: 'test input',
             })
 
-            expect(logic.values.model).toBe(DEFAULT_MODEL)
+            expect(llmPlaygroundPromptsLogic.values.model).toBe(DEFAULT_MODEL)
         })
 
         it('should handle empty model list gracefully', async () => {
@@ -101,74 +102,73 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const emptyLogic = llmPlaygroundLogic()
-            emptyLogic.mount()
+            const emptyRunLogic = llmPlaygroundRunLogic()
+            emptyRunLogic.mount()
 
-            await expectLogic(emptyLogic).toFinishAllListeners()
+            await expectLogic(emptyRunLogic).toFinishAllListeners()
 
-            emptyLogic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'gpt-5-2025-08-07',
                 input: 'test input',
             })
 
             // No models available yet, so preserve the requested model instead of guessing.
-            expect(emptyLogic.values.model).toBe('gpt-5-2025-08-07')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5-2025-08-07')
 
-            emptyLogic.unmount()
+            emptyRunLogic.unmount()
         })
     })
 
     describe('setupPlaygroundFromEvent model matching', () => {
         it('should resolve pending model after model options load when setup happens early', async () => {
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'gpt-5-2025-08-07',
                 input: 'test input',
             })
 
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            expect(logic.values.model).toBe('gpt-5')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5')
         })
 
         it('should set valid model directly', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'claude-3-opus',
                 input: 'test input',
             })
 
-            expect(logic.values.model).toBe('claude-3-opus')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('claude-3-opus')
         })
 
         it('should handle missing model in payload', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            const originalModel = logic.values.model
+            const originalModel = llmPlaygroundPromptsLogic.values.model
 
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 input: 'test input',
             })
 
-            expect(logic.values.model).toBe(originalModel)
+            expect(llmPlaygroundPromptsLogic.values.model).toBe(originalModel)
         })
 
         it('should preserve other payload data when model matching', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(runLogic).toFinishAllListeners()
 
             const testInput = 'Hello, world!'
             const testTools = [{ name: 'search', description: 'Search tool' }]
 
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'gpt-5-2025-08-07',
                 input: testInput,
                 tools: testTools,
             })
 
-            expect(logic.values.model).toBe('gpt-5')
-            expect(logic.values.tools).toEqual(testTools)
-            // Input gets processed into messages - check that it's handled
-            expect(logic.values.messages.length).toBeGreaterThan(0)
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5')
+            expect(llmPlaygroundPromptsLogic.values.tools).toEqual(testTools)
+            expect(llmPlaygroundPromptsLogic.values.messages.length).toBeGreaterThan(0)
         })
 
         it('should prefer longer prefix matches', async () => {
@@ -189,20 +189,20 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmPlaygroundLogic()
-            testLogic.mount()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
 
-            await expectLogic(testLogic).toFinishAllListeners()
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            testLogic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'gpt-5-mini-turbo-2025',
                 input: 'test',
             })
 
             // 'gpt-5-mini-turbo' is the longest prefix match (16 chars vs 10 for 'gpt-5-mini')
-            expect(testLogic.values.model).toBe('gpt-5-mini-turbo')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5-mini-turbo')
 
-            testLogic.unmount()
+            testRunLogic.unmount()
         })
 
         it('should keep trace model ID and map to the matching provider key', async () => {
@@ -215,7 +215,7 @@ describe('llmPlaygroundLogic', () => {
                 },
             ]
 
-            logic.unmount()
+            runLogic.unmount()
 
             useMocks({
                 get: {
@@ -234,20 +234,20 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmPlaygroundLogic()
-            testLogic.mount()
-            await expectLogic(testLogic).toFinishAllListeners()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            testLogic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'anthropic/claude-sonnet-4',
                 provider: 'gateway',
                 input: 'test input',
             })
 
-            expect(testLogic.values.model).toBe('anthropic/claude-sonnet-4')
-            expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('anthropic/claude-sonnet-4')
+            expect(llmPlaygroundPromptsLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
 
-            testLogic.unmount()
+            testRunLogic.unmount()
         })
 
         it('should keep trace model ID even when setup runs before keys/models load', async () => {
@@ -260,7 +260,7 @@ describe('llmPlaygroundLogic', () => {
                 },
             ]
 
-            logic.unmount()
+            runLogic.unmount()
 
             useMocks({
                 get: {
@@ -279,21 +279,21 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmPlaygroundLogic()
-            testLogic.mount()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
 
-            testLogic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'anthropic/claude-sonnet-4-5-20250929',
                 provider: 'gateway',
                 input: 'test input',
             })
 
-            await expectLogic(testLogic).toFinishAllListeners()
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            expect(testLogic.values.model).toBe('anthropic/claude-sonnet-4-5-20250929')
-            expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('anthropic/claude-sonnet-4-5-20250929')
+            expect(llmPlaygroundPromptsLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
 
-            testLogic.unmount()
+            testRunLogic.unmount()
         })
 
         it('should map gateway snapshot model IDs to the closest same-prefix catalog model', async () => {
@@ -306,7 +306,7 @@ describe('llmPlaygroundLogic', () => {
                 },
             ]
 
-            logic.unmount()
+            runLogic.unmount()
 
             useMocks({
                 get: {
@@ -325,26 +325,26 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmPlaygroundLogic()
-            testLogic.mount()
-            await expectLogic(testLogic).toFinishAllListeners()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            testLogic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'anthropic/claude-sonnet-4-5-20250929',
                 provider: 'gateway',
                 input: 'test input',
             })
 
-            expect(testLogic.values.model).toBe('anthropic/claude-sonnet-4.5')
-            expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('anthropic/claude-sonnet-4.5')
+            expect(llmPlaygroundPromptsLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
 
-            testLogic.unmount()
+            testRunLogic.unmount()
         })
 
         it('should consistently pick the first provider key by sorted order when multiple keys match', async () => {
             const byokModelId = 'anthropic/claude-sonnet-4'
 
-            logic.unmount()
+            runLogic.unmount()
 
             useMocks({
                 get: {
@@ -378,20 +378,20 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmPlaygroundLogic()
-            testLogic.mount()
-            await expectLogic(testLogic).toFinishAllListeners()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            testLogic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'anthropic/claude-sonnet-4',
                 provider: 'gateway',
                 input: 'test input',
             })
 
-            expect(testLogic.values.model).toBe(byokModelId)
-            expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-a')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe(byokModelId)
+            expect(llmPlaygroundPromptsLogic.values.selectedProviderKeyId).toBe('openrouter-key-a')
 
-            testLogic.unmount()
+            testRunLogic.unmount()
         })
 
         it('should keep trial model selection even when BYOK models are available', async () => {
@@ -404,7 +404,7 @@ describe('llmPlaygroundLogic', () => {
                 },
             ]
 
-            logic.unmount()
+            runLogic.unmount()
 
             useMocks({
                 get: {
@@ -423,63 +423,56 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmPlaygroundLogic()
-            testLogic.mount()
-            await expectLogic(testLogic).toFinishAllListeners()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            testLogic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 model: 'gpt-5-mini',
                 provider: 'gateway',
                 input: 'test input',
             })
 
-            expect(testLogic.values.model).toBe('gpt-5-mini')
-            expect(testLogic.values.selectedProviderKeyId).toBe(null)
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5-mini')
+            expect(llmPlaygroundPromptsLogic.values.selectedProviderKeyId).toBe(null)
 
-            testLogic.unmount()
+            testRunLogic.unmount()
         })
     })
 
     describe('loadModelOptions auto-correction', () => {
         it('should auto-correct invalid model after loading options', async () => {
-            // Create logic and mount
-            const testLogic = llmPlaygroundLogic()
-            testLogic.mount()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
 
-            // Set an invalid model that should be corrected
-            testLogic.actions.setModel('gpt-5-2025-08-07')
+            llmPlaygroundPromptsLogic.actions.setModel('gpt-5-2025-08-07')
 
-            // Manually trigger model options loading
-            testLogic.actions.loadModelOptions()
+            llmPlaygroundModelLogic.actions.loadModelOptions()
 
-            // Wait for the loader to finish
-            await expectLogic(testLogic).toFinishAllListeners()
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            // Model should be auto-corrected to closest match
-            expect(testLogic.values.model).toBe('gpt-5')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5')
 
-            testLogic.unmount()
+            testRunLogic.unmount()
         })
 
         it('should not change valid models during loading', async () => {
-            const testLogic = llmPlaygroundLogic()
-            testLogic.actions.setModel('claude-3-opus')
-            testLogic.mount()
+            llmPlaygroundPromptsLogic.actions.setModel('claude-3-opus')
 
-            await expectLogic(testLogic).toFinishAllListeners()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
 
-            // Valid model should remain unchanged
-            expect(testLogic.values.model).toBe('claude-3-opus')
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            testLogic.unmount()
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('claude-3-opus')
+
+            testRunLogic.unmount()
         })
 
         it('should preserve model options when reload fails', async () => {
-            // First: successfully load with the beforeEach mock
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            await expectLogic(runLogic).toFinishAllListeners()
+            expect(llmPlaygroundModelLogic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
 
-            // Now: override mocks so all model fetching fails
             useMocks({
                 get: {
                     '/api/llm_proxy/models/': () => {
@@ -494,65 +487,60 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            // Trigger reload
-            logic.actions.loadModelOptions()
-            await expectLogic(logic).toFinishAllListeners()
+            llmPlaygroundModelLogic.actions.loadModelOptions()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            // Should preserve existing options after failed reload
-            expect(logic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            expect(llmPlaygroundModelLogic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
         })
     })
 
     describe('Message Management', () => {
         it('should clear all messages when clearConversation is called', () => {
-            // Add some messages first
-            logic.actions.addMessage({ role: 'user', content: 'Hello' })
-            logic.actions.addMessage({ role: 'assistant', content: 'Hi there!' })
-            logic.actions.addMessage({ role: 'system', content: 'System message' })
+            llmPlaygroundPromptsLogic.actions.addMessage({ role: 'user', content: 'Hello' })
+            llmPlaygroundPromptsLogic.actions.addMessage({ role: 'assistant', content: 'Hi there!' })
+            llmPlaygroundPromptsLogic.actions.addMessage({ role: 'system', content: 'System message' })
 
-            expect(logic.values.messages).toHaveLength(3)
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(3)
 
-            logic.actions.clearConversation()
+            llmPlaygroundPromptsLogic.actions.clearConversation()
 
-            expect(logic.values.messages).toHaveLength(0)
-            expect(logic.values.messages).toEqual([])
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(0)
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([])
         })
 
         it('should delete message at specific index', () => {
-            logic.actions.setMessages([
+            llmPlaygroundPromptsLogic.actions.setMessages([
                 { role: 'user', content: 'First' },
                 { role: 'assistant', content: 'Second' },
                 { role: 'user', content: 'Third' },
             ])
 
-            logic.actions.deleteMessage(1)
+            llmPlaygroundPromptsLogic.actions.deleteMessage(1)
 
-            expect(logic.values.messages).toEqual([
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
                 { role: 'user', content: 'First' },
                 { role: 'user', content: 'Third' },
             ])
         })
 
         it('should handle deleteMessage with invalid indices gracefully', () => {
-            logic.actions.setMessages([{ role: 'user', content: 'Only message' }])
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Only message' }])
 
-            // Try to delete non-existent indices
-            logic.actions.deleteMessage(-1)
-            expect(logic.values.messages).toHaveLength(1)
+            llmPlaygroundPromptsLogic.actions.deleteMessage(-1)
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
 
-            logic.actions.deleteMessage(5)
-            expect(logic.values.messages).toHaveLength(1)
+            llmPlaygroundPromptsLogic.actions.deleteMessage(5)
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
 
-            // Original message should still be there
-            expect(logic.values.messages[0].content).toBe('Only message')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Only message')
         })
 
         it('should add messages with different roles', () => {
-            logic.actions.addMessage({ role: 'user', content: 'User message' })
-            logic.actions.addMessage({ role: 'assistant', content: 'Assistant message' })
-            logic.actions.addMessage({ role: 'system', content: 'System message' })
+            llmPlaygroundPromptsLogic.actions.addMessage({ role: 'user', content: 'User message' })
+            llmPlaygroundPromptsLogic.actions.addMessage({ role: 'assistant', content: 'Assistant message' })
+            llmPlaygroundPromptsLogic.actions.addMessage({ role: 'system', content: 'System message' })
 
-            expect(logic.values.messages).toEqual([
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
                 { role: 'user', content: 'User message' },
                 { role: 'assistant', content: 'Assistant message' },
                 { role: 'system', content: 'System message' },
@@ -560,60 +548,60 @@ describe('llmPlaygroundLogic', () => {
         })
 
         it('should add message with default values when partial message provided', () => {
-            logic.actions.addMessage({ content: 'Just content' })
+            llmPlaygroundPromptsLogic.actions.addMessage({ content: 'Just content' })
 
-            expect(logic.values.messages[0]).toEqual({
+            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({
                 role: 'user', // default role
                 content: 'Just content',
             })
 
-            logic.actions.addMessage({ role: 'assistant' })
+            llmPlaygroundPromptsLogic.actions.addMessage({ role: 'assistant' })
 
-            expect(logic.values.messages[1]).toEqual({
+            expect(llmPlaygroundPromptsLogic.values.messages[1]).toEqual({
                 role: 'assistant',
                 content: '', // default content
             })
         })
 
         it('should update message at specific index', () => {
-            logic.actions.setMessages([
+            llmPlaygroundPromptsLogic.actions.setMessages([
                 { role: 'user', content: 'Original' },
                 { role: 'assistant', content: 'Response' },
             ])
 
-            logic.actions.updateMessage(0, { content: 'Updated content' })
+            llmPlaygroundPromptsLogic.actions.updateMessage(0, { content: 'Updated content' })
 
-            expect(logic.values.messages[0]).toEqual({
+            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({
                 role: 'user',
                 content: 'Updated content',
             })
 
-            logic.actions.updateMessage(1, { role: 'user', content: 'Changed everything' })
+            llmPlaygroundPromptsLogic.actions.updateMessage(1, { role: 'user', content: 'Changed everything' })
 
-            expect(logic.values.messages[1]).toEqual({
+            expect(llmPlaygroundPromptsLogic.values.messages[1]).toEqual({
                 role: 'user',
                 content: 'Changed everything',
             })
         })
 
         it('should not update message with invalid index', () => {
-            logic.actions.setMessages([{ role: 'user', content: 'Original' }])
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Original' }])
 
-            const originalMessages = [...logic.values.messages]
+            const originalMessages = [...llmPlaygroundPromptsLogic.values.messages]
 
-            logic.actions.updateMessage(-1, { content: 'Should not update' })
-            expect(logic.values.messages).toEqual(originalMessages)
+            llmPlaygroundPromptsLogic.actions.updateMessage(-1, { content: 'Should not update' })
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual(originalMessages)
 
-            logic.actions.updateMessage(10, { content: 'Should not update' })
-            expect(logic.values.messages).toEqual(originalMessages)
+            llmPlaygroundPromptsLogic.actions.updateMessage(10, { content: 'Should not update' })
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual(originalMessages)
         })
     })
 
     describe('effectiveModelOptions', () => {
         it('should return trial models when no BYOK keys exist', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            expect(logic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
         })
 
         it('should return trial models when all keys are invalid', async () => {
@@ -629,14 +617,14 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmPlaygroundLogic()
-            testLogic.mount()
-            await expectLogic(testLogic).toFinishAllListeners()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            expect(testLogic.values.hasByokKeys).toBe(false)
-            expect(testLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            expect(llmPlaygroundModelLogic.values.hasByokKeys).toBe(false)
+            expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
 
-            testLogic.unmount()
+            testRunLogic.unmount()
         })
 
         it('should return trial models when provider keys API fails', async () => {
@@ -652,20 +640,19 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const testLogic = llmPlaygroundLogic()
-            testLogic.mount()
-            await expectLogic(testLogic).toFinishAllListeners()
+            const testRunLogic = llmPlaygroundRunLogic()
+            testRunLogic.mount()
+            await expectLogic(testRunLogic).toFinishAllListeners()
 
-            expect(testLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
 
-            testLogic.unmount()
+            testRunLogic.unmount()
         })
 
         it('should return BYOK models when valid keys exist and models have loaded', async () => {
             const byokModels: ModelOption[] = [{ id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI', description: '' }]
 
-            // Unmount the default logic first so llmProviderKeysLogic singleton resets
-            logic.unmount()
+            runLogic.unmount()
 
             useMocks({
                 get: {
@@ -684,12 +671,12 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            logic = llmPlaygroundLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
+            runLogic = llmPlaygroundRunLogic()
+            runLogic.mount()
+            await expectLogic(runLogic).toFinishAllListeners()
 
-            expect(logic.values.hasByokKeys).toBe(true)
-            expect(logic.values.effectiveModelOptions).toEqual(
+            expect(llmPlaygroundModelLogic.values.hasByokKeys).toBe(true)
+            expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(
                 byokModels.map((m) => ({ ...m, isRecommended: false, providerKeyId: 'key-1' }))
             )
         })
@@ -704,10 +691,10 @@ describe('llmPlaygroundLogic', () => {
                 { role: 'user', content: 'How are you?' },
             ]
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.systemPrompt).toBe('You are a helpful assistant.')
-            expect(logic.values.messages).toEqual([
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You are a helpful assistant.')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
                 { role: 'user', content: 'Hello' },
                 { role: 'assistant', content: 'Hi there!' },
                 { role: 'user', content: 'How are you?' },
@@ -723,12 +710,12 @@ describe('llmPlaygroundLogic', () => {
                 { role: 'assistant', content: 'Hi there!' },
             ]
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.systemPrompt).toBe(
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe(
                 'You are a helpful assistant.\n\nAlways respond in a friendly manner.\n\nUse markdown formatting when appropriate.'
             )
-            expect(logic.values.messages).toEqual([
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
                 { role: 'user', content: 'Hello' },
                 { role: 'assistant', content: 'Hi there!' },
             ])
@@ -741,9 +728,9 @@ describe('llmPlaygroundLogic', () => {
                 { role: 'model', content: 'Model response' },
             ]
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.messages).toEqual([
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
                 { role: 'user', content: 'Question' },
                 { role: 'assistant', content: 'AI response' },
                 { role: 'assistant', content: 'Model response' },
@@ -751,12 +738,14 @@ describe('llmPlaygroundLogic', () => {
         })
 
         it('should handle string input as initial user message', () => {
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 input: 'Simple string prompt',
             })
 
-            expect(logic.values.messages).toEqual([{ role: 'user', content: 'Simple string prompt' }])
-            expect(logic.values.systemPrompt).toBe('You are a helpful AI assistant.')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Simple string prompt' },
+            ])
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You are a helpful AI assistant.')
         })
 
         it('should handle object input with content field', () => {
@@ -765,9 +754,11 @@ describe('llmPlaygroundLogic', () => {
                 someOtherField: 'ignored',
             }
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.messages).toEqual([{ role: 'user', content: 'Content from object' }])
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Content from object' },
+            ])
         })
 
         it('should handle object input with non-string content field', () => {
@@ -775,13 +766,12 @@ describe('llmPlaygroundLogic', () => {
                 content: { nested: 'data', array: [1, 2, 3] },
             }
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.messages[0].role).toBe('user')
-            expect(logic.values.messages[0].content).toContain('"nested"')
-            expect(logic.values.messages[0].content).toContain('"data"')
-            // Check for array content in pretty-printed format
-            const content = logic.values.messages[0].content
+            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"nested"')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"data"')
+            const content = llmPlaygroundPromptsLogic.values.messages[0].content
             expect(content).toContain('1')
             expect(content).toContain('2')
             expect(content).toContain('3')
@@ -794,12 +784,12 @@ describe('llmPlaygroundLogic', () => {
                 anotherField: 123,
             }
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.messages[0].role).toBe('user')
-            expect(logic.values.messages[0].content).toContain('"someField"')
-            expect(logic.values.messages[0].content).toContain('"value"')
-            expect(logic.values.messages[0].content).toContain('123')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"someField"')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"value"')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('123')
         })
 
         it('should handle tools parameter', () => {
@@ -808,12 +798,12 @@ describe('llmPlaygroundLogic', () => {
                 { type: 'function', function: { name: 'calculator', description: 'Math tool' } },
             ]
 
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 input: 'Test',
                 tools,
             })
 
-            expect(logic.values.tools).toEqual(tools)
+            expect(llmPlaygroundPromptsLogic.values.tools).toEqual(tools)
         })
 
         it('should default messages with unknown roles to user', () => {
@@ -824,9 +814,9 @@ describe('llmPlaygroundLogic', () => {
                 { role: 'unknown', content: 'Also defaults to user' },
             ]
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.messages).toEqual([
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
                 { role: 'user', content: 'Valid user' },
                 { role: 'user', content: 'Unknown role defaults to user' },
                 { role: 'assistant', content: 'Valid assistant' },
@@ -840,11 +830,11 @@ describe('llmPlaygroundLogic', () => {
                 { role: 'assistant', content: ['array', 'content'] },
             ]
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.messages[0].content).toContain('"text"')
-            expect(logic.values.messages[0].content).toContain('"Complex content"')
-            expect(logic.values.messages[1].content).toContain('["array","content"]')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"text"')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"Complex content"')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('["array","content"]')
         })
 
         it('should extract plain text from trace-style content arrays', () => {
@@ -853,144 +843,142 @@ describe('llmPlaygroundLogic', () => {
                 { role: 'assistant', content: [{ text: 'PART 1/2: Let me check that.', type: 'text' }] },
             ]
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.messages).toEqual([
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
                 { role: 'user', content: 'hi' },
                 { role: 'assistant', content: 'PART 1/2: Let me check that.' },
             ])
         })
 
         it('should reset to default system prompt when none provided', () => {
-            logic.actions.setSystemPrompt('Custom prompt')
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('Custom prompt')
 
             const input = [
                 { role: 'user', content: 'No system message here' },
                 { role: 'assistant', content: 'Response' },
             ]
 
-            logic.actions.setupPlaygroundFromEvent({ input })
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.systemPrompt).toBe('You are a helpful AI assistant.')
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You are a helpful AI assistant.')
         })
 
         it('should preserve existing model if not provided in payload', () => {
-            logic.actions.setModel('claude-3-opus')
+            llmPlaygroundPromptsLogic.actions.setModel('claude-3-opus')
 
-            logic.actions.setupPlaygroundFromEvent({
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 input: 'Test without model',
             })
 
-            expect(logic.values.model).toBe('claude-3-opus')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('claude-3-opus')
         })
     })
 
     describe('Multi-prompt state management', () => {
         it('should start with a single prompt config', () => {
-            expect(logic.values.promptConfigs).toHaveLength(1)
-            expect(logic.values.activePromptId).toBe(logic.values.promptConfigs[0].id)
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.activePromptId).toBe(
+                llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            )
         })
 
         it('should duplicate the source prompt when adding a new prompt', () => {
-            const originalPrompt = logic.values.promptConfigs[0]
-            logic.actions.setSystemPrompt('Custom system prompt')
-            logic.actions.addMessage({ role: 'user', content: 'Hello' })
+            const originalPrompt = llmPlaygroundPromptsLogic.values.promptConfigs[0]
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('Custom system prompt')
+            llmPlaygroundPromptsLogic.actions.addMessage({ role: 'user', content: 'Hello' })
 
-            logic.actions.addPromptConfig(originalPrompt.id)
+            llmPlaygroundPromptsLogic.actions.addPromptConfig(originalPrompt.id)
 
-            expect(logic.values.promptConfigs).toHaveLength(2)
-            const newPrompt = logic.values.promptConfigs[1]
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs).toHaveLength(2)
+            const newPrompt = llmPlaygroundPromptsLogic.values.promptConfigs[1]
             expect(newPrompt.id).not.toBe(originalPrompt.id)
             expect(newPrompt.systemPrompt).toBe('Custom system prompt')
             expect(newPrompt.messages).toEqual([{ role: 'user', content: 'Hello' }])
         })
 
         it('should set activePromptId to the new prompt on add', () => {
-            const originalId = logic.values.promptConfigs[0].id
-            logic.actions.addPromptConfig(originalId)
+            const originalId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.addPromptConfig(originalId)
 
-            const newPrompt = logic.values.promptConfigs[1]
-            expect(logic.values.activePromptId).toBe(newPrompt.id)
+            const newPrompt = llmPlaygroundPromptsLogic.values.promptConfigs[1]
+            expect(llmPlaygroundPromptsLogic.values.activePromptId).toBe(newPrompt.id)
         })
 
         it('should fall back to last prompt when no sourcePromptId provided', () => {
-            logic.actions.addPromptConfig()
+            llmPlaygroundPromptsLogic.actions.addPromptConfig()
 
-            expect(logic.values.promptConfigs).toHaveLength(2)
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs).toHaveLength(2)
         })
 
         it('should remove a prompt config', () => {
-            const firstId = logic.values.promptConfigs[0].id
-            logic.actions.addPromptConfig(firstId)
-            expect(logic.values.promptConfigs).toHaveLength(2)
+            const firstId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.addPromptConfig(firstId)
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs).toHaveLength(2)
 
-            const secondId = logic.values.promptConfigs[1].id
-            logic.actions.removePromptConfig(secondId)
+            const secondId = llmPlaygroundPromptsLogic.values.promptConfigs[1].id
+            llmPlaygroundPromptsLogic.actions.removePromptConfig(secondId)
 
-            expect(logic.values.promptConfigs).toHaveLength(1)
-            expect(logic.values.promptConfigs[0].id).toBe(firstId)
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs[0].id).toBe(firstId)
         })
 
         it('should not allow removing the last prompt config', () => {
-            const onlyId = logic.values.promptConfigs[0].id
-            logic.actions.removePromptConfig(onlyId)
+            const onlyId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.removePromptConfig(onlyId)
 
-            expect(logic.values.promptConfigs).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs).toHaveLength(1)
         })
 
         it('should switch activePromptId when the active prompt is removed', () => {
-            const firstId = logic.values.promptConfigs[0].id
-            logic.actions.addPromptConfig(firstId)
-            const secondId = logic.values.promptConfigs[1].id
+            const firstId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.addPromptConfig(firstId)
+            const secondId = llmPlaygroundPromptsLogic.values.promptConfigs[1].id
 
-            // Second prompt is active after add
-            expect(logic.values.activePromptId).toBe(secondId)
+            expect(llmPlaygroundPromptsLogic.values.activePromptId).toBe(secondId)
 
-            logic.actions.removePromptConfig(secondId)
+            llmPlaygroundPromptsLogic.actions.removePromptConfig(secondId)
 
-            // Should fall back to first prompt
-            expect(logic.values.activePromptId).toBe(firstId)
+            expect(llmPlaygroundPromptsLogic.values.activePromptId).toBe(firstId)
         })
 
         it('should not change activePromptId when a non-active prompt is removed', () => {
-            const firstId = logic.values.promptConfigs[0].id
-            logic.actions.addPromptConfig(firstId)
-            const secondId = logic.values.promptConfigs[1].id
+            const firstId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.addPromptConfig(firstId)
+            const secondId = llmPlaygroundPromptsLogic.values.promptConfigs[1].id
 
-            // Switch back to first prompt
-            logic.actions.setActivePromptId(firstId)
-            expect(logic.values.activePromptId).toBe(firstId)
+            llmPlaygroundPromptsLogic.actions.setActivePromptId(firstId)
+            expect(llmPlaygroundPromptsLogic.values.activePromptId).toBe(firstId)
 
-            logic.actions.removePromptConfig(secondId)
+            llmPlaygroundPromptsLogic.actions.removePromptConfig(secondId)
 
-            expect(logic.values.activePromptId).toBe(firstId)
+            expect(llmPlaygroundPromptsLogic.values.activePromptId).toBe(firstId)
         })
 
         it('should target the first prompt when no promptId provided to setModel', () => {
-            const firstPrompt = logic.values.promptConfigs[0]
-            logic.actions.addPromptConfig(firstPrompt.id)
+            const firstPrompt = llmPlaygroundPromptsLogic.values.promptConfigs[0]
+            llmPlaygroundPromptsLogic.actions.addPromptConfig(firstPrompt.id)
 
-            logic.actions.setModel('claude-3-opus')
+            llmPlaygroundPromptsLogic.actions.setModel('claude-3-opus')
 
-            // Should update the first prompt (default target)
-            expect(logic.values.promptConfigs[0].model).toBe('claude-3-opus')
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs[0].model).toBe('claude-3-opus')
         })
 
         it('should target a specific prompt when promptId is provided', () => {
-            const firstId = logic.values.promptConfigs[0].id
-            logic.actions.addPromptConfig(firstId)
-            const secondId = logic.values.promptConfigs[1].id
+            const firstId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.addPromptConfig(firstId)
+            const secondId = llmPlaygroundPromptsLogic.values.promptConfigs[1].id
 
-            logic.actions.setSystemPrompt('Prompt 2 system', secondId)
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('Prompt 2 system', secondId)
 
-            expect(logic.values.promptConfigs[0].systemPrompt).not.toBe('Prompt 2 system')
-            expect(logic.values.promptConfigs[1].systemPrompt).toBe('Prompt 2 system')
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs[0].systemPrompt).not.toBe('Prompt 2 system')
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs[1].systemPrompt).toBe('Prompt 2 system')
         })
     })
 
     describe('Comparison items', () => {
         it('should start with empty comparison items', () => {
-            expect(logic.values.comparisonItems).toEqual([])
+            expect(llmPlaygroundRunLogic.values.comparisonItems).toEqual([])
         })
 
         it('should add items to comparison', () => {
@@ -1003,10 +991,10 @@ describe('llmPlaygroundLogic', () => {
                 response: 'Hello',
             }
 
-            logic.actions.addToComparison(item)
+            llmPlaygroundRunLogic.actions.addToComparison(item)
 
-            expect(logic.values.comparisonItems).toHaveLength(1)
-            expect(logic.values.comparisonItems[0]).toEqual(item)
+            expect(llmPlaygroundRunLogic.values.comparisonItems).toHaveLength(1)
+            expect(llmPlaygroundRunLogic.values.comparisonItems[0]).toEqual(item)
         })
 
         it('should update a comparison item by id', () => {
@@ -1019,14 +1007,14 @@ describe('llmPlaygroundLogic', () => {
                 response: '',
             }
 
-            logic.actions.addToComparison(item)
-            logic.actions.updateComparisonItem('test-1', { response: 'Updated response' })
+            llmPlaygroundRunLogic.actions.addToComparison(item)
+            llmPlaygroundRunLogic.actions.updateComparisonItem('test-1', { response: 'Updated response' })
 
-            expect(logic.values.comparisonItems[0].response).toBe('Updated response')
+            expect(llmPlaygroundRunLogic.values.comparisonItems[0].response).toBe('Updated response')
         })
 
         it('should clear comparison items on submitPrompt', () => {
-            logic.actions.addToComparison({
+            llmPlaygroundRunLogic.actions.addToComparison({
                 id: 'test-1',
                 promptId: 'prompt-1',
                 model: 'gpt-5',
@@ -1035,11 +1023,11 @@ describe('llmPlaygroundLogic', () => {
                 response: 'old response',
             })
 
-            expect(logic.values.comparisonItems).toHaveLength(1)
+            expect(llmPlaygroundRunLogic.values.comparisonItems).toHaveLength(1)
 
-            logic.actions.submitPrompt()
+            llmPlaygroundRunLogic.actions.submitPrompt()
 
-            expect(logic.values.comparisonItems).toEqual([])
+            expect(llmPlaygroundRunLogic.values.comparisonItems).toEqual([])
         })
     })
 
@@ -1048,12 +1036,12 @@ describe('llmPlaygroundLogic', () => {
             { index: -1, description: 'negative index' },
             { index: 5, description: 'out-of-bounds index' },
         ])('should not modify messages with $description', ({ index }) => {
-            logic.actions.setMessages([{ role: 'user', content: 'Only message' }])
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Only message' }])
 
-            logic.actions.deleteMessage(index)
+            llmPlaygroundPromptsLogic.actions.deleteMessage(index)
 
-            expect(logic.values.messages).toHaveLength(1)
-            expect(logic.values.messages[0].content).toBe('Only message')
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Only message')
         })
     })
 })

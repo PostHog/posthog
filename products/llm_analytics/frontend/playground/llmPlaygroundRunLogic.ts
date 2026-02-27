@@ -1,42 +1,16 @@
-import { router } from 'kea-router'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, RateLimitError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { isObject, uuid } from 'lib/utils'
-import { urls } from 'scenes/urls'
+import { uuid } from 'lib/utils'
 
 import type { ModelOption } from '../byokModelPickerLogic'
-import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
-import { normalizeRole } from '../utils'
-import {
-    isTraceLikeSelection,
-    matchClosestModelOption,
-    resolveProviderKeyForPrompt,
-    resolveTraceModelSelection,
-} from './llmPlaygroundModelLogic'
-import {
-    createPromptConfig,
-    DEFAULT_SYSTEM_PROMPT,
-    INITIAL_PROMPT,
-    Message,
-    PromptConfig,
-} from './llmPlaygroundPromptsLogic'
-
-interface RawMessage {
-    role: string
-    content: unknown
-}
-
-type ConversationRole = 'user' | 'assistant'
-
-enum InputMessageRole {
-    User = 'user',
-    Assistant = 'assistant',
-    AI = 'ai',
-    Model = 'model',
-}
+import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { llmPlaygroundModelLogic, resolveProviderKeyForPrompt } from './llmPlaygroundModelLogic'
+import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
+import type { llmPlaygroundRunLogicType } from './llmPlaygroundRunLogicType'
 
 interface ToolCallChunk {
     id?: string
@@ -56,62 +30,6 @@ interface UsageSummary {
     prompt_tokens?: number | null
     completion_tokens?: number | null
     total_tokens?: number | null
-}
-
-function extractTextFromMessagePart(part: unknown): string | null {
-    if (!isObject(part)) {
-        return null
-    }
-
-    if (typeof part.text === 'string' && part.text.trim().length > 0) {
-        return part.text
-    }
-
-    if (typeof part.content === 'string' && part.content.trim().length > 0) {
-        return part.content
-    }
-
-    if (typeof part.output_text === 'string' && part.output_text.trim().length > 0) {
-        return part.output_text
-    }
-
-    if (typeof part.value === 'string' && part.value.trim().length > 0) {
-        return part.value
-    }
-
-    return null
-}
-
-function normalizeMessageContent(content: unknown): string {
-    if (typeof content === 'string') {
-        return content
-    }
-
-    if (Array.isArray(content)) {
-        const extractedTextParts = content
-            .map(extractTextFromMessagePart)
-            .filter((part): part is string => part !== null)
-
-        if (extractedTextParts.length > 0) {
-            return extractedTextParts.join('\n\n')
-        }
-    }
-
-    return JSON.stringify(content)
-}
-
-function extractConversationMessage(rawMessage: RawMessage): { role: ConversationRole; content: string } {
-    const normalizedMessageRole = normalizeRole(rawMessage.role, InputMessageRole.User)
-    const enumMap: Partial<Record<string, ConversationRole>> = {
-        [InputMessageRole.User]: InputMessageRole.User,
-        [InputMessageRole.Assistant]: InputMessageRole.Assistant,
-    }
-    const enumRole: ConversationRole | undefined = enumMap[normalizedMessageRole]
-
-    return {
-        role: enumRole ?? InputMessageRole.User,
-        content: normalizeMessageContent(rawMessage.content),
-    }
 }
 
 function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolCallChunk): AggregatedToolCall[] {
@@ -189,60 +107,65 @@ export interface ComparisonItem {
     latencyMs?: number | null
 }
 
-export const runReducers = {
-    submitting: [
-        false as boolean,
-        {
-            submitPrompt: () => true,
-            finishSubmitPrompt: () => false,
-        },
-    ],
-    comparisonItems: [
-        [] as ComparisonItem[],
-        {
-            submitPrompt: () => [],
-            addToComparison: (state: ComparisonItem[], { item }: { item: ComparisonItem }) => [...state, item],
-            updateComparisonItem: (
-                state: ComparisonItem[],
-                { id, payload }: { id: string; payload: Partial<ComparisonItem> }
-            ) => state.map((item) => (item.id === id ? { ...item, ...payload } : item)),
-        },
-    ],
-    rateLimitedUntil: [
-        null as number | null,
-        {
-            setRateLimited: (_: number | null, { retryAfterSeconds }: { retryAfterSeconds: number }) =>
-                Date.now() + retryAfterSeconds * 1000,
-        },
-    ],
-    subscriptionRequired: [
-        false as boolean,
-        {
-            setSubscriptionRequired: (_: boolean, { required }: { required: boolean }) => required,
-        },
-    ],
-}
+export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
+    path(['products', 'llm_analytics', 'frontend', 'playground', 'llmPlaygroundRunLogic']),
 
-export function runListeners({
-    actions,
-    values,
-}: {
-    actions: any
-    values: any
-}): Record<string, (...args: any[]) => any> {
-    return {
-        removePromptConfig: ({ promptId }: { promptId: string }) => {
-            if (values.promptConfigs.length === 0) {
-                actions.setPromptConfigs([createPromptConfig({ id: INITIAL_PROMPT.id })])
-                actions.setActivePromptId(INITIAL_PROMPT.id)
-                return
-            }
+    connect(() => ({
+        values: [
+            llmPlaygroundPromptsLogic,
+            ['promptConfigs'],
+            llmPlaygroundModelLogic,
+            ['effectiveModelOptions', 'activeProviderKeyId'],
+            llmProviderKeysLogic,
+            ['providerKeys'],
+        ],
+        actions: [llmPlaygroundPromptsLogic, [], llmPlaygroundModelLogic, []],
+    })),
 
-            if (values.activePromptId === null || values.activePromptId === promptId) {
-                actions.setActivePromptId(values.promptConfigs[0]?.id ?? null)
-            }
-        },
+    actions({
+        submitPrompt: true,
+        finishSubmitPrompt: true,
+        addToComparison: (item: ComparisonItem) => ({ item }),
+        updateComparisonItem: (id: string, payload: Partial<ComparisonItem>) => ({ id, payload }),
+        setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
+        setSubscriptionRequired: (required: boolean) => ({ required }),
+    }),
 
+    reducers({
+        submitting: [
+            false as boolean,
+            {
+                submitPrompt: () => true,
+                finishSubmitPrompt: () => false,
+            },
+        ],
+        comparisonItems: [
+            [] as ComparisonItem[],
+            {
+                submitPrompt: () => [],
+                addToComparison: (state: ComparisonItem[], { item }: { item: ComparisonItem }) => [...state, item],
+                updateComparisonItem: (
+                    state: ComparisonItem[],
+                    { id, payload }: { id: string; payload: Partial<ComparisonItem> }
+                ) => state.map((item) => (item.id === id ? { ...item, ...payload } : item)),
+            },
+        ],
+        rateLimitedUntil: [
+            null as number | null,
+            {
+                setRateLimited: (_: number | null, { retryAfterSeconds }: { retryAfterSeconds: number }) =>
+                    Date.now() + retryAfterSeconds * 1000,
+            },
+        ],
+        subscriptionRequired: [
+            false as boolean,
+            {
+                setSubscriptionRequired: (_: boolean, { required }: { required: boolean }) => required,
+            },
+        ],
+    }),
+
+    listeners(({ actions, values }) => ({
         submitPrompt: async (_: unknown, breakpoint: () => void) => {
             const runnablePrompts = values.promptConfigs
                 .map((prompt: PromptConfig, index: number) => ({
@@ -431,89 +354,5 @@ export function runListeners({
                 actions.finishSubmitPrompt()
             }
         },
-
-        setupPlaygroundFromEvent: ({
-            payload,
-        }: {
-            payload: { model?: string; provider?: string; input?: any; tools?: any }
-        }) => {
-            const { model, provider, input, tools } = payload
-            const currentPrompt = values.promptConfigs[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
-            const promptId = currentPrompt.id
-            const traceLikeSelection = isTraceLikeSelection(model, provider)
-
-            if (model && values.providerKeysSettled && values.byokModelsSettled) {
-                if (traceLikeSelection) {
-                    const { resolvedModelId, providerKeyId } = resolveTraceModelSelection(
-                        model,
-                        normalizeLLMProvider(provider),
-                        values.allModelOptions,
-                        values.providerKeys
-                    )
-                    actions.setModel(resolvedModelId, providerKeyId, promptId)
-                } else {
-                    const matchedModel = matchClosestModelOption(
-                        model,
-                        values.effectiveModelOptions,
-                        values.providerKeys
-                    )
-                    actions.setModel(matchedModel?.id ?? model, matchedModel?.providerKeyId, promptId)
-                }
-                actions.clearPendingTargetModel()
-            }
-
-            if (tools) {
-                actions.setTools(tools, promptId)
-            }
-
-            let systemPromptContent: string | undefined = undefined
-            let conversationMessages: Message[] = []
-            let initialUserPrompt: string | undefined = undefined
-
-            if (input) {
-                try {
-                    if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
-                        const systemContents = input
-                            .filter((msg) => msg.role === 'system')
-                            .map((msg) => msg.content)
-                            .filter(
-                                (content): content is string => typeof content === 'string' && content.trim().length > 0
-                            )
-
-                        if (systemContents.length > 0) {
-                            systemPromptContent = systemContents.join('\n\n')
-                        }
-
-                        conversationMessages = input
-                            .filter((msg: RawMessage) => msg.role !== 'system')
-                            .map((msg: RawMessage) => extractConversationMessage(msg))
-                    } else if (typeof input === 'string') {
-                        initialUserPrompt = input
-                    } else if (isObject(input)) {
-                        if (typeof input.content === 'string') {
-                            initialUserPrompt = input.content
-                        } else if (input.content && typeof input.content !== 'string') {
-                            initialUserPrompt = JSON.stringify(input.content, null, 2)
-                        } else {
-                            initialUserPrompt = JSON.stringify(input, null, 2)
-                        }
-                    }
-                } catch (e) {
-                    console.error('Error processing input for playground:', e)
-                    initialUserPrompt = String(input)
-                    conversationMessages = []
-                }
-            }
-
-            actions.setSystemPrompt(systemPromptContent ?? DEFAULT_SYSTEM_PROMPT, promptId)
-
-            if (initialUserPrompt) {
-                conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
-            }
-
-            actions.setMessages(conversationMessages, promptId)
-            actions.setActivePromptId(promptId)
-            router.actions.push(urls.llmAnalyticsPlayground())
-        },
-    }
-}
+    })),
+])
