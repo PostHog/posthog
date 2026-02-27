@@ -47,6 +47,7 @@ export function DashboardItems(): JSX.Element {
         updateLayouts,
         updateContainerWidth,
         updateTileColor,
+        toggleTileDescription,
         removeTile,
         duplicateTile,
         refreshDashboardItem,
@@ -226,6 +227,7 @@ export function DashboardItems(): JSX.Element {
                                     apiError={apiError}
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
+                                    toggleShowDescription={() => toggleTileDescription(tile.id)}
                                     ribbonColor={tile.color}
                                     refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
