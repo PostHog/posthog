@@ -204,7 +204,7 @@ impl FlagError {
     pub fn is_token_not_found(&self) -> bool {
         matches!(
             self,
-            FlagError::TokenValidationError | FlagError::RowNotFound | FlagError::CacheMiss
+            FlagError::TokenValidationError | FlagError::RowNotFound
         )
     }
 
@@ -871,9 +871,9 @@ mod tests {
         // These errors mean the token definitively doesn't map to a team
         assert!(FlagError::TokenValidationError.is_token_not_found());
         assert!(FlagError::RowNotFound.is_token_not_found());
-        assert!(FlagError::CacheMiss.is_token_not_found());
 
         // Transient infrastructure errors should NOT be treated as "not found"
+        assert!(!FlagError::CacheMiss.is_token_not_found());
         assert!(!FlagError::RedisUnavailable.is_token_not_found());
         assert!(!FlagError::DatabaseUnavailable.is_token_not_found());
         assert!(!FlagError::TimeoutError(None).is_token_not_found());
