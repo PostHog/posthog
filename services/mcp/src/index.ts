@@ -205,7 +205,7 @@ const handleRequest = async (
     // Extract posthog/foo identifier from the client's User-Agent (e.g. "posthog/wizard")
     // so we can forward it in outgoing API requests for source attribution
     const clientUserAgent = request.headers.get('User-Agent') || ''
-    const clientIdentifierMatch = clientUserAgent.match(/posthog\/([\w-]+)/)
+    const clientIdentifierMatch = clientUserAgent.match(/posthog\/([\w.-]+)/)
     const clientIdentifier = clientIdentifierMatch ? clientIdentifierMatch[0] : undefined
 
     Object.assign(ctx.props, {

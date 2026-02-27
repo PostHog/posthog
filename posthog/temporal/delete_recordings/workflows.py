@@ -110,6 +110,7 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                 RecordingsWithPersonInput(
                     distinct_ids=input.distinct_ids,
                     team_id=input.team_id,
+                    config=input.config,
                     cursor=progress.cursor,
                     page_size=input.page_size,
                 ),
@@ -158,6 +159,7 @@ class DeleteRecordingsWithTeamWorkflow(PostHogWorkflow):
                 load_recordings_with_team_id,
                 RecordingsWithTeamInput(
                     team_id=input.team_id,
+                    config=input.config,
                     cursor=progress.cursor,
                     page_size=input.page_size,
                 ),
@@ -205,6 +207,7 @@ class DeleteRecordingsWithQueryWorkflow(PostHogWorkflow):
                 RecordingsWithQueryInput(
                     query=input.query,
                     team_id=input.team_id,
+                    config=input.config,
                     query_limit=input.query_limit,
                     cursor=progress.cursor,
                 ),

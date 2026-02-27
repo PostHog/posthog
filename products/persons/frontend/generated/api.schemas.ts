@@ -212,6 +212,87 @@ export interface PatchedPersonApi {
     readonly last_seen_at?: string | null
 }
 
+/**
+ * Person properties as they existed at the specified time
+ */
+export type PersonPropertiesAtTimeResponseApiProperties = { [key: string]: string | null }
+
+/**
+ * Serializer for the point-in-time query metadata.
+ */
+export interface PersonPropertiesAtTimeMetadataApi {
+    /** The timestamp that was queried in ISO format */
+    queried_timestamp: string
+    /** Whether $set_once operations were included */
+    include_set_once: boolean
+    /**
+     * The distinct_id parameter used in the request
+     * @nullable
+     */
+    distinct_id_used: string | null
+    /**
+     * The person_id parameter used in the request
+     * @nullable
+     */
+    person_id_used: string | null
+    /** Whether the query used 'distinct_id' or 'person_id' mode */
+    query_mode: string
+    /** All distinct_ids that were queried for this person */
+    distinct_ids_queried: string[]
+    /** Number of distinct_ids associated with this person */
+    distinct_ids_count: number
+}
+
+/**
+ * The parameters passed to the query
+ */
+export type PersonPropertiesAtTimeDebugApiParams = { [key: string]: unknown }
+
+export type PersonPropertiesAtTimeDebugApiEventsItem = { [key: string]: unknown }
+
+/**
+ * Serializer for the debug information (only available to staff users).
+ */
+export interface PersonPropertiesAtTimeDebugApi {
+    /** The ClickHouse query that was executed */
+    query: string
+    /** The parameters passed to the query */
+    params: PersonPropertiesAtTimeDebugApiParams
+    /** Number of events found */
+    events_found: number
+    /** Raw events that were used to build the properties */
+    events: PersonPropertiesAtTimeDebugApiEventsItem[]
+    /** Error message if debug query failed */
+    error?: string
+}
+
+/**
+ * Serializer for the point-in-time person properties response.
+ */
+export interface PersonPropertiesAtTimeResponseApi {
+    /** The person ID */
+    id: number
+    /** The person's display name */
+    name: string
+    /** All distinct IDs associated with this person */
+    distinct_ids: string[]
+    /** Person properties as they existed at the specified time */
+    properties: PersonPropertiesAtTimeResponseApiProperties
+    /** When the person was first created */
+    created_at: string
+    /** The person's UUID */
+    uuid: string
+    /**
+     * When the person was last seen
+     * @nullable
+     */
+    last_seen_at: string | null
+    /** Metadata about the point-in-time query */
+    point_in_time_metadata: PersonPropertiesAtTimeMetadataApi
+    /** Debug information (only available when debug=true and DEBUG=True) */
+    debug?: PersonPropertiesAtTimeDebugApi
+}
+
 export type PersonsListParams = {
     /**
      * Filter list by distinct id.
@@ -473,6 +554,38 @@ export type PersonsLifecycleRetrieveFormat =
     (typeof PersonsLifecycleRetrieveFormat)[keyof typeof PersonsLifecycleRetrieveFormat]
 
 export const PersonsLifecycleRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsPropertiesAtTimeRetrieveParams = {
+    /**
+     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
+     */
+    debug?: boolean
+    /**
+     * The distinct_id of the person (mutually exclusive with person_id)
+     */
+    distinct_id?: string
+    format?: PersonsPropertiesAtTimeRetrieveFormat
+    /**
+     * Whether to handle $set_once operations (default: false)
+     */
+    include_set_once?: boolean
+    /**
+     * The person_id (UUID) to build properties for (mutually exclusive with distinct_id)
+     */
+    person_id?: string
+    /**
+     * ISO datetime string for the point in time (e.g., '2023-06-15T14:30:00Z')
+     */
+    timestamp: string
+}
+
+export type PersonsPropertiesAtTimeRetrieveFormat =
+    (typeof PersonsPropertiesAtTimeRetrieveFormat)[keyof typeof PersonsPropertiesAtTimeRetrieveFormat]
+
+export const PersonsPropertiesAtTimeRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

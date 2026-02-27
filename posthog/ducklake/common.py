@@ -1,3 +1,18 @@
+"""DuckLake configuration helpers.
+
+Two-tier config system:
+- **Dev mode** (USE_LOCAL_SETUP=True): every helper returns hardcoded localhost
+  defaults from the DEFAULTS / DUCKGRES_DEFAULTS dicts, optionally overridden
+  by environment variables. No database rows need to exist.
+- **Production**: per-team config is read from the DuckLakeCatalog and
+  DuckgresServer models. The get_*_for_team() lookups return None only when
+  the row is genuinely missing; callers should treat that as an error or
+  provision the row via admin.
+
+The `get_team_config()` and `get_duckgres_config()` entry-points encapsulate
+this branching so callers don't need to check the mode themselves.
+"""
+
 from __future__ import annotations
 
 import os
@@ -8,7 +23,7 @@ import psycopg
 from psycopg import sql
 
 if TYPE_CHECKING:
-    from posthog.ducklake.models import DuckLakeCatalog
+    from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
 
 DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_HOST": "localhost",
@@ -84,6 +99,54 @@ def get_ducklake_catalog_for_team(team_id: int) -> DuckLakeCatalog | None:
     try:
         return DuckLakeCatalog.objects.get(team_id=team_id)
     except DuckLakeCatalog.DoesNotExist:
+        return None
+
+
+DUCKGRES_DEFAULTS: dict[str, str] = {
+    "DUCKGRES_HOST": "localhost",
+    "DUCKGRES_PORT": "5432",
+    "DUCKGRES_FLIGHT_PORT": "8815",
+    "DUCKGRES_DATABASE": "ducklake",
+    "DUCKGRES_USERNAME": "posthog",
+    "DUCKGRES_PASSWORD": "posthog",
+}
+
+
+def get_duckgres_config(team_id: int) -> dict[str, str]:
+    """Get duckgres connection config for a specific team.
+
+    In dev mode, returns localhost defaults from DUCKGRES_DEFAULTS (overridable
+    via env vars). In production, reads from the DuckgresServer model.
+    """
+    if is_dev_mode():
+        return {key: os.environ.get(key, default) or default for key, default in DUCKGRES_DEFAULTS.items()}
+
+    server = get_duckgres_server_for_team(team_id)
+    if server is not None:
+        return {
+            "DUCKGRES_HOST": server.host,
+            "DUCKGRES_PORT": str(server.port),
+            "DUCKGRES_FLIGHT_PORT": str(server.flight_port),
+            "DUCKGRES_DATABASE": server.database,
+            "DUCKGRES_USERNAME": server.username,
+            "DUCKGRES_PASSWORD": server.password,
+        }
+    raise ValueError(f"No DuckgresServer configured for team {team_id}")
+
+
+def get_duckgres_server_for_team(team_id: int) -> DuckgresServer | None:
+    """Look up DuckgresServer for a team.
+
+    Returns None if no team-specific server is configured or in dev mode.
+    """
+    if is_dev_mode():
+        return None
+
+    from posthog.ducklake.models import DuckgresServer
+
+    try:
+        return DuckgresServer.objects.get(team_id=team_id)
+    except DuckgresServer.DoesNotExist:
         return None
 
 
@@ -251,6 +314,8 @@ __all__ = [
     "escape",
     "get_config",
     "get_ducklake_connection_string",
+    "get_duckgres_config",
+    "get_duckgres_server_for_team",
     "get_team_config",
     "get_ducklake_data_path",
     "ensure_ducklake_catalog",

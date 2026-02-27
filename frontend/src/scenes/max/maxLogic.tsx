@@ -57,6 +57,7 @@ export type ThreadMessage = RootAssistantMessage & {
 
 export interface SuggestionItem {
     content: string
+    requiresUserInput?: boolean
 }
 
 export interface SuggestionGroup {
@@ -632,6 +633,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
             {
                 content: 'Calculate a conversion rate for <events or actions>…',
+                requiresUserInput: true,
             },
         ],
         tooltip: 'PostHog AI can generate insights from natural language and tweak existing ones.',
@@ -642,6 +644,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Write an SQL query to…',
+                requiresUserInput: true,
             },
         ],
         url: urls.sqlEditor(),
@@ -653,6 +656,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Find recordings for…',
+                requiresUserInput: true,
             },
         ],
         url: productUrls.replay(),
@@ -664,24 +668,31 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'How can I set up the session replay in <a framework or language>…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the feature flags in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the experiments in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the data warehouse in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the error tracking in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the LLM analytics in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the product analytics in…',
+                requiresUserInput: true,
             },
         ],
         tooltip: 'PostHog AI can help you set up PostHog SDKs in your stack.',
@@ -693,15 +704,19 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Create a flag to gradually roll out…',
+                requiresUserInput: true,
             },
             {
                 content: 'Create a flag that starts at 10% rollout for…',
+                requiresUserInput: true,
             },
             {
                 content: 'Create a multivariate flag for…',
+                requiresUserInput: true,
             },
             {
                 content: 'Create a beta testing flag for…',
+                requiresUserInput: true,
             },
         ],
     },
@@ -712,9 +727,11 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Create an experiment to test…',
+                requiresUserInput: true,
             },
             {
                 content: 'Set up an A/B test with a 70/30 split between control and test for…',
+                requiresUserInput: true,
             },
         ],
     },
@@ -759,6 +776,83 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         tooltip: 'PostHog AI has access to PostHog docs and can help you get the most out of PostHog.',
+    },
+]
+
+export const RESEARCH_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
+    {
+        label: 'User behavior',
+        icon: iconForType('product_analytics'),
+        suggestions: [
+            {
+                content: 'Investigate how retained users behave differently from churned ones',
+            },
+            {
+                content: 'Map the most common user journeys from sign-up to first value moment',
+            },
+            {
+                content: 'Compare behavior patterns between power users and casual users',
+            },
+        ],
+    },
+    {
+        label: 'Growth analysis',
+        icon: iconForType('product_analytics'),
+        suggestions: [
+            {
+                content: 'What are the strongest drivers of user activation?',
+            },
+            {
+                content: 'Compare funnel conversion rates across acquisition channels',
+            },
+            {
+                content: 'Which features correlate most with long-term retention?',
+            },
+        ],
+    },
+    {
+        label: 'Root cause analysis',
+        icon: iconForType('error_tracking'),
+        suggestions: [
+            {
+                content: 'Investigate why <metric> dropped last week',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Find what caused the spike in <event> on <date>',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Analyze where and why users drop off in the onboarding funnel',
+            },
+        ],
+    },
+    {
+        label: 'UX research',
+        icon: iconForType('session_replay'),
+        suggestions: [
+            {
+                content: 'Find session replays showing common user pain points or confusion',
+            },
+            {
+                content: 'Analyze how errors and crashes impact user experience and retention',
+            },
+        ],
+    },
+    {
+        label: 'Data deep dive',
+        icon: iconForType('insight/hog'),
+        suggestions: [
+            {
+                content: 'Build a comprehensive report on power user behavior and characteristics',
+            },
+            {
+                content: 'Run a cohort analysis comparing users by sign-up month',
+            },
+            {
+                content: 'Analyze LLM usage patterns and costs across features',
+            },
+        ],
     },
 ]
 

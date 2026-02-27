@@ -39,7 +39,7 @@ def build_trace_result(
     if not trace_pending:
         return TraceResult.neutral(trace_id), 0
 
-    gen_messages: dict[str, dict[int, dict[str, Any]]] = {}
+    gen_messages: dict[str, dict[str, dict[str, Any]]] = {}
     all_scores: list[dict[str, float]] = []
 
     for item, result in zip(trace_pending, trace_results):
@@ -48,7 +48,7 @@ def build_trace_result(
             "score": result.score,
             "scores": result.scores,
         }
-        gen_messages.setdefault(item.gen_uuid, {})[item.msg_index] = msg_dict
+        gen_messages.setdefault(item.gen_uuid, {})[str(item.msg_index)] = msg_dict
         all_scores.append(result.scores)
 
     generations: dict[str, Any] = {}

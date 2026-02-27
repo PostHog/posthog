@@ -1,11 +1,12 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
+use lifecycle::{ComponentOptions, Manager};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
-use tokio::signal;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -13,27 +14,11 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use health::readiness_handler;
 use personhog_replica::config::Config;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
 
 common_alloc::used!();
-
-async fn shutdown_signal() {
-    let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
-        .expect("failed to register SIGTERM handler");
-
-    let mut interrupt = signal::unix::signal(signal::unix::SignalKind::interrupt())
-        .expect("failed to register SIGINT handler");
-
-    tokio::select! {
-        _ = term.recv() => {},
-        _ = interrupt.recv() => {},
-    };
-
-    tracing::info!("Shutting down gracefully...");
-}
 
 async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
     match config.storage_backend.as_str() {
@@ -97,33 +82,74 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("Storage backend: {}", config.storage_backend);
 
-    // Start HTTP server for metrics and health checks
-    let metrics_port = config.metrics_port;
-    let health_router = Router::new()
-        .route("/_readiness", get(readiness_handler))
-        .route("/_liveness", get(|| async { "ok" }));
-    let metrics_router = setup_metrics_routes(health_router);
+    // Build lifecycle manager and register components
+    let mut manager = Manager::builder("personhog-replica").build();
 
+    let grpc_handle = manager.register(
+        "grpc_server",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+    );
+    let metrics_handle = manager.register(
+        "metrics_server",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    let metrics_shutdown = manager.shutdown_signal();
+
+    // Start the lifecycle monitor before spawning tasks
+    let monitor = manager.monitor_background();
+
+    // Metrics/health HTTP server
+    let metrics_port = config.metrics_port;
     tokio::spawn(async move {
+        // drop guard ensures any returned error is observed and triggers app shutdown
+        let _guard = metrics_handle.process_scope();
+
+        let health_router = Router::new()
+            .route(
+                "/_readiness",
+                get(move || {
+                    let r = readiness.clone();
+                    async move { r.check().await }
+                }),
+            )
+            .route("/_liveness", get(move || async move { liveness.check() }));
+        let router = setup_metrics_routes(health_router);
+
         let bind = format!("0.0.0.0:{metrics_port}");
         let listener = tokio::net::TcpListener::bind(&bind)
             .await
             .expect("Failed to bind metrics port");
         tracing::info!("Metrics server listening on {}", bind);
-        axum::serve(listener, metrics_router)
+        axum::serve(listener, router)
+            .with_graceful_shutdown(metrics_shutdown)
             .await
             .expect("Metrics server error");
+
+        // clean exit; report healthy shutdown
+        metrics_handle.work_completed();
     });
 
+    // gRPC server
     let storage = create_storage(&config).await;
     let service = PersonHogReplicaService::new(storage);
 
     tracing::info!("Starting gRPC server on {}", config.grpc_address);
 
+    // we use a health handle here to monitor and observe
+    // the gRPC component directly. On error exit, it reports
+    // as a failed shutdown
     Server::builder()
         .add_service(PersonHogReplicaServer::new(service))
-        .serve_with_shutdown(config.grpc_address, shutdown_signal())
+        .serve_with_shutdown(config.grpc_address, grpc_handle.shutdown_recv())
         .await?;
+    // clean exit; report healthy shutdown
+    grpc_handle.work_completed();
+
+    // report k8s, app, and component statuses and shut down
+    monitor.wait().await?;
 
     Ok(())
 }

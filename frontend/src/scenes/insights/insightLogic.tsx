@@ -13,6 +13,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -156,6 +157,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             redirectToInsight,
         }),
+        deleteInsight: (dashboardId: number | null) => ({ dashboardId }),
+        confirmDeleteInsight: (dashboardId: number | null) => ({ dashboardId }),
         setInsightFeedback: (feedback: 'liked' | 'disliked') => ({ feedback }),
     }),
     loaders(({ actions, values, props }) => ({
@@ -697,6 +700,45 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 logic.actions.addInsight(newInsight)
             }
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
+        },
+        deleteInsight: ({ dashboardId }) => {
+            LemonDialog.open({
+                title: 'Delete insight?',
+                description: 'Are you sure you want to delete this insight? This action can be undone.',
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: () => actions.confirmDeleteInsight(dashboardId),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
+        confirmDeleteInsight: async ({ dashboardId }) => {
+            const { insight, currentTeamId } = values
+            await deleteInsightWithUndo({
+                object: insight as QueryBasedInsightModel,
+                endpoint: `projects/${currentTeamId}/insights`,
+                callback: (undo: boolean) => {
+                    if (undo && dashboardId) {
+                        dashboardsModel
+                            .findMounted()
+                            ?.actions.updateDashboardInsight(
+                                { ...(insight as QueryBasedInsightModel), deleted: false },
+                                [dashboardId]
+                            )
+                    }
+                    actions.reloadSavedInsights()
+                },
+            })
+            if (dashboardId) {
+                router.actions.push(urls.dashboard(dashboardId))
+                dashboardsModel.actions.updateDashboardInsight(
+                    { ...(insight as QueryBasedInsightModel), deleted: true, dashboards: [] },
+                    [dashboardId]
+                )
+            } else {
+                router.actions.push(urls.savedInsights())
+            }
         },
         setInsightFeedback: ({ feedback }) => {
             const eventName = `customer-analytics-insight-${feedback}`
