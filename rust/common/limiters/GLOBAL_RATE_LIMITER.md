@@ -199,6 +199,8 @@ this reduces pipeline read volume by **~95%** compared to syncing every entity a
 If local traffic pushes an idle entity above the 10% boundary,
 it's promoted to Low on the very next request — no waiting for a stale sync interval.
 
+Tier boundaries are pressure-based (level / threshold), so they apply correctly to custom keys regardless of threshold magnitude. A custom key with a 100× higher limit than the default will sync at the same relative cadence when at equivalent pressure.
+
 ## Data Model
 
 ### CacheEntry (local moka LRU)

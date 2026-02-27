@@ -820,19 +820,19 @@ impl GlobalRateLimiterImpl {
 
             let estimated = weighted_count(prev_count, current_count, now, config.window_interval);
 
-            // Compute drift before updating (for observability)
-            if let Some(old_entry) = cache.get(key) {
-                let leak_rate = config.leak_rate();
-                let local_estimate = effective_level(&old_entry, leak_rate, now_instant);
-                let drift = (local_estimate - estimated).abs() / config.global_threshold as f64;
-                metrics::histogram!(GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM).record(drift);
-            }
-
             let threshold = config
                 .custom_keys
                 .get(key)
                 .copied()
                 .unwrap_or(config.global_threshold);
+
+            // Compute drift before updating (for observability)
+            if let Some(old_entry) = cache.get(key) {
+                let leak_rate = config.leak_rate_for(threshold);
+                let local_estimate = effective_level(&old_entry, leak_rate, now_instant);
+                let drift = (local_estimate - estimated).abs() / threshold as f64;
+                metrics::histogram!(GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM).record(drift);
+            }
             let pressure = estimated / threshold as f64;
 
             // Track tier transitions
@@ -1587,6 +1587,45 @@ mod tests {
             entry.pressure
         );
         // local_pending reset to 0 on sync (avoids double-counting)
+        assert_eq!(entry.local_pending, 0);
+    }
+
+    #[test]
+    fn test_process_read_results_custom_key_pressure() {
+        let mut config = test_config();
+        config.custom_keys.insert("custom_entity".to_string(), 100);
+        let cache = Cache::builder()
+            .max_capacity(100)
+            .time_to_live(Duration::from_secs(60))
+            .build();
+
+        cache.insert(
+            "custom_entity".to_string(),
+            CacheEntry {
+                estimated_count: 0.0,
+                synced_at: Instant::now() - Duration::from_secs(30),
+                local_pending: 3,
+                pressure: 0.0,
+            },
+        );
+
+        let sync_keys = vec!["custom_entity".to_string()];
+        let results: Vec<Option<Vec<u8>>> = vec![Some(b"7".to_vec()), Some(b"3".to_vec())];
+        let now = DateTime::from_timestamp(90, 0).unwrap();
+        GlobalRateLimiterImpl::process_read_results(&config, &cache, &sync_keys, &results, now);
+
+        let entry = cache.get("custom_entity").unwrap();
+        assert!(
+            (entry.estimated_count - 8.5).abs() < 0.01,
+            "estimated_count should be ~8.5, got {}",
+            entry.estimated_count
+        );
+        // pressure = 8.5 / 100 (custom threshold) = 0.085
+        assert!(
+            (entry.pressure - 0.085).abs() < 0.01,
+            "pressure should be ~0.085 for custom threshold 100, got {}",
+            entry.pressure
+        );
         assert_eq!(entry.local_pending, 0);
     }
 

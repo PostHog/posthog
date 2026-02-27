@@ -371,3 +371,52 @@ async fn test_limiter_correctly_limits_at_threshold() {
         "Should be Limited after sync reveals count over threshold, got {result:?}"
     );
 }
+
+#[tokio::test]
+async fn test_custom_key_high_threshold_sync_and_limit() {
+    let Some(redis) = setup_redis().await else {
+        return;
+    };
+
+    let key = format!("high_limit_{}", Utc::now().timestamp());
+    let mut config = test_config("custom_high");
+    config.global_threshold = 1000;
+    config.custom_keys.insert(key.clone(), 100_000);
+
+    let now = Utc::now();
+    let epoch = epoch_from_timestamp(now, config.window_interval);
+    let curr_key = epoch_key(&config.redis_key_prefix, &key, epoch);
+    let prev_key = epoch_key(&config.redis_key_prefix, &key, epoch - 1);
+
+    redis
+        .batch_incr_by_expire(vec![(curr_key.clone(), 50_000), (prev_key, 0)], 120)
+        .await
+        .unwrap();
+
+    let redis_arc: Arc<dyn Client + Send + Sync> = Arc::new(redis.clone());
+    let limiter = GlobalRateLimiterImpl::new(config.clone(), vec![redis_arc]).unwrap();
+
+    let _ = limiter.check_custom_limit(&key, 0, None).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let result = limiter.check_custom_limit(&key, 1, None).await;
+    assert!(
+        matches!(result, EvalResult::Allowed),
+        "Custom key at 50k/100k should be Allowed, got {result:?}"
+    );
+
+    redis
+        .batch_incr_by_expire(vec![(curr_key, 100_000)], 120)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(config.sync_interval + Duration::from_millis(300)).await;
+    let _ = limiter.check_custom_limit(&key, 0, None).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let result = limiter.check_custom_limit(&key, 1, None).await;
+    assert!(
+        matches!(result, EvalResult::Limited(_)),
+        "Custom key at 150k/100k should be Limited after sync, got {result:?}"
+    );
+}
