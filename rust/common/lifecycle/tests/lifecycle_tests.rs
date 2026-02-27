@@ -840,3 +840,35 @@ async fn mixed_component_timeout_outcomes() {
         .expect("timed out");
     assert!(result.is_ok());
 }
+
+/// Test shutdown trigger initiates shutdown. Use with_trap_signals(false) and
+/// with_prestop_check(false) for deterministic, signal-free shutdown control.
+#[tokio::test]
+async fn test_shutdown_trigger_initiates_shutdown() {
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_test_shutdown(shutdown_rx)
+        .build();
+
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    let comp = ComponentA {
+        handle: handle.clone(),
+    };
+    tokio::spawn(async move {
+        comp.process().await;
+    });
+    drop(handle);
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_tx.send(()).ok();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
