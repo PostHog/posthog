@@ -18,6 +18,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.support_slack import clear_supporthog_slack_token, save_supporthog_slack_token
 
 STATE_SALT = "conversations.supporthog.slack.oauth"
@@ -194,13 +195,13 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
         return _error_response(next_path, "forbidden_team_access", 403)
 
     with transaction.atomic():
-        conflicting_team = (
-            Team.objects.select_for_update()
-            .filter(conversations_settings__slack_team_id=slack_team_id)
-            .exclude(id=team.id)
+        conflicting_config = (
+            TeamConversationsSlackConfig.objects.select_for_update()
+            .filter(slack_team_id=slack_team_id)
+            .exclude(team_id=team.id)
             .first()
         )
-        if conflicting_team:
+        if conflicting_config:
             return _error_response(next_path, "slack_workspace_already_connected", 409)
 
         save_supporthog_slack_token(

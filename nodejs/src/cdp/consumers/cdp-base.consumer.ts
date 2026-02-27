@@ -1,10 +1,10 @@
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2 } from '~/common/redis/redis-v2'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
+import { createCdpCoreServices } from '../cdp-services'
 import { HogExecutorService } from '../services/hog-executor.service'
-import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -14,9 +14,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
-import { EmailService } from '../services/messaging/email.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
-import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
@@ -123,97 +121,27 @@ export abstract class CdpConsumerBase<THub extends CdpConsumerBaseHub = CdpConsu
     protected heartbeat = () => {}
 
     constructor(protected hub: THub) {
-        // CDP consumers use their own Redis instance with fallback to default
-        this.redis = createRedisV2PoolFromConfig({
-            connection: hub.CDP_REDIS_HOST
-                ? {
-                      url: hub.CDP_REDIS_HOST,
-                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                      name: 'cdp-redis',
-                  }
-                : { url: hub.REDIS_URL, name: 'cdp-redis-fallback' },
-            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-        })
-        this.hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
-        this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
-        this.hogWatcher = new HogWatcherService(
-            hub.teamManager,
-            {
-                hogCostTimingLowerMs: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                hogCostTiming: hub.CDP_WATCHER_HOG_COST_TIMING,
-                asyncCostTimingLowerMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
-                asyncCostTimingUpperMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
-                asyncCostTiming: hub.CDP_WATCHER_ASYNC_COST_TIMING,
-                sendEvents: hub.CDP_WATCHER_SEND_EVENTS,
-                bucketSize: hub.CDP_WATCHER_BUCKET_SIZE,
-                refillRate: hub.CDP_WATCHER_REFILL_RATE,
-                ttl: hub.CDP_WATCHER_TTL,
-                automaticallyDisableFunctions: hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
-                thresholdDegraded: hub.CDP_WATCHER_THRESHOLD_DEGRADED,
-                stateLockTtl: hub.CDP_WATCHER_STATE_LOCK_TTL,
-                observeResultsBufferTimeMs: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
-                observeResultsBufferMaxResults: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
-            },
-            this.redis
-        )
-        this.hogMasker = new HogMaskerService(this.redis)
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        const emailService = new EmailService(
-            {
-                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                sesRegion: hub.SES_REGION,
-                sesEndpoint: hub.SES_ENDPOINT,
-            },
-            hub.integrationManager,
-            hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
-        )
-        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        this.hogExecutor = new HogExecutorService(
-            {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                fetchRetries: hub.CDP_FETCH_RETRIES,
-                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-            },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService
-        )
-        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub.postgres)
-        this.hogFlowFunctionsService = new HogFlowFunctionsService(
-            this.hub.SITE_URL,
-            this.hogFunctionTemplateManager,
-            this.hogExecutor
-        )
+        const services = createCdpCoreServices(hub)
 
-        this.recipientsManager = new RecipientsManagerService(this.hub.postgres)
-        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
-        this.hogFlowExecutor = new HogFlowExecutorService(
-            this.hogFlowFunctionsService,
-            this.recipientPreferencesService
-        )
+        this.redis = services.redis
+        this.hogFunctionManager = services.hogFunctionManager
+        this.hogFlowManager = services.hogFlowManager
+        this.hogWatcher = services.hogWatcher
+        this.hogExecutor = services.hogExecutor
+        this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
+        this.hogFlowFunctionsService = services.hogFlowFunctionsService
+        this.recipientsManager = services.recipientsManager
+        this.recipientPreferencesService = services.recipientPreferencesService
+        this.hogFlowExecutor = services.hogFlowExecutor
+        this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
+        this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
 
-        this.personsManager = new PersonsManagerService(this.hub.personRepository)
-        this.groupsManager = new GroupsManagerService(this.hub.teamManager, this.hub.groupRepository)
-        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(
-            this.hub.kafkaProducer,
-            this.hub.internalCaptureService,
-            this.hub.teamManager,
-            this.hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-            this.hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
-        )
-        this.pluginDestinationExecutorService = new LegacyPluginExecutorService(
-            this.hub.postgres,
-            this.hub.geoipService
-        )
-        this.nativeDestinationExecutorService = new NativeDestinationExecutorService(this.hub)
-        this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(this.hub)
+        // Base-only services
+        this.hogMasker = new HogMaskerService(services.redis)
+        this.personsManager = new PersonsManagerService(hub.personRepository)
+        this.groupsManager = new GroupsManagerService(hub.teamManager, hub.groupRepository)
+        this.pluginDestinationExecutorService = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
     }
 
     public get service(): PluginServerService {

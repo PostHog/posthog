@@ -6,7 +6,6 @@ from posthog.schema import (
     CachedHogQLQueryResponse,
     DashboardFilter,
     DateRange,
-    HogQLASTQuery,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryResponse,
@@ -18,7 +17,6 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
@@ -28,7 +26,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
-    query: HogQLQuery | HogQLASTQuery
+    query: HogQLQuery
     cached_response: CachedHogQLQueryResponse
     settings: Optional[HogQLGlobalSettings]
 
@@ -57,10 +55,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
-            if isinstance(self.query, HogQLQuery):
-                parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
-            elif isinstance(self.query, HogQLASTQuery):
-                parsed_select = cast(ast.SelectQuery, deserialize_hx_ast(self.query.query))
+            parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):

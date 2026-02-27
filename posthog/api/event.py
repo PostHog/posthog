@@ -3,6 +3,7 @@ import time
 import uuid
 import random
 import urllib
+import builtins
 import dataclasses
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
@@ -487,6 +488,15 @@ class EventViewSet(
         self,
         query_params: EventValueQueryParams,
     ) -> response.Response:
+        from posthog.hogql_queries.property_values_query_runner import (
+            CachedPropertyValuesQueryResponse,
+            PropertyType,
+            PropertyValuesQuery,
+            PropertyValuesQueryResponse,
+            PropertyValuesQueryRunner,
+        )
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
         with tracer.start_as_current_span("events_api_event_property_values") as span:
             span.set_attribute("team_id", query_params.team.pk)
             span.set_attribute("property_key", query_params.key)
@@ -494,96 +504,123 @@ class EventViewSet(
             span.set_attribute("has_value_filter", query_params.value is not None)
             span.set_attribute("event_names_count", len(query_params.event_names) if query_params.event_names else 0)
 
-            date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-            date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
-
-            chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
-            conditions: list[ast.Expr] = [
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=date_from),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=date_to),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=chain),
-                    right=ast.Constant(value=None),
-                ),
+            property_filters = [
+                (param_key, param_value)
+                for param_key, param_value in query_params.items
+                if param_key.startswith("properties_") and isinstance(param_value, str)
             ]
-            # Handle property filters from query parameters
-            property_filter_count = 0
-            for param_key, param_value in query_params.items:
-                if param_key.startswith("properties_"):
-                    property_filter_count += 1
-                    property_key = param_key.replace("properties_", "", 1)
-                    try:
-                        # Expect properly encoded JSON from frontend
-                        property_values = (
-                            json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
-                        )
-                        conditions.append(create_property_conditions(property_key, property_values))
-                    except json.JSONDecodeError:
-                        # If not JSON, treat as single value
-                        conditions.append(create_property_conditions(property_key, param_value))
-            span.set_attribute("property_filter_count", property_filter_count)
+            span.set_attribute("property_filter_count", len(property_filters))
 
-            if query_params.event_names and len(query_params.event_names) > 0:
-                event_conditions: list[ast.Expr] = [
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=event_name),
-                    )
-                    for event_name in query_params.event_names
-                ]
-                if len(event_conditions) > 1:
-                    conditions.append(ast.Or(exprs=event_conditions))
-                else:
-                    conditions.append(event_conditions[0])
-            if query_params.value:
-                conditions.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.ILike,
-                        left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                        right=ast.Constant(value=f"%{query_params.value}%"),
-                    )
+            if property_filters:
+                # Ad-hoc filtered queries are not cached — run directly
+                return self._event_property_values_filtered(query_params, property_filters)
+
+            runner = PropertyValuesQueryRunner(
+                team=query_params.team,
+                query=PropertyValuesQuery(
+                    property_type=PropertyType.EVENT,
+                    property_key=query_params.key,
+                    is_column=query_params.is_column,
+                    search_value=query_params.value,
+                    event_names=query_params.event_names or None,
+                ),
+            )
+            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            span.set_attribute("result_count", len(result.results))
+            return self._return_with_short_cache([item.model_dump(exclude_none=True) for item in result.results])
+
+    def _event_property_values_filtered(
+        self,
+        query_params: EventValueQueryParams,
+        property_filters: builtins.list[tuple[str, str]],
+    ) -> response.Response:
+        # TODO: this duplicates most of PropertyValuesQueryRunner._event_query. We should prob extend
+        # PropertyValuesQuery with an optional property_filters field so the runner handles both paths
+        # in the future.
+        chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
+        date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
+        date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+
+        conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_from),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_to),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Field(chain=chain),
+                right=ast.Constant(value=None),
+            ),
+        ]
+
+        for param_key, param_value in property_filters:
+            filter_key = param_key.replace("properties_", "", 1)
+            try:
+                filter_values = json.loads(param_value)
+                conditions.append(create_property_conditions(filter_key, filter_values))
+            except json.JSONDecodeError:
+                conditions.append(create_property_conditions(filter_key, param_value))
+
+        if query_params.event_names:
+            event_conditions: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=name),
                 )
-            order_by = []
-            if query_params.value:
-                order_by = [
-                    ast.OrderExpr(
-                        expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
-                        order="ASC",
-                    )
-                ]
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=chain)],
-                distinct=True,
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                where=ast.And(exprs=conditions),
-                order_by=order_by,
-                limit=ast.Constant(value=10),
+                for name in query_params.event_names
+            ]
+            conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
+
+        if query_params.value:
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.ILike,
+                    left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
+                    right=ast.Constant(value=f"%{query_params.value}%"),
+                )
             )
 
-            result = execute_hogql_query(query, team=query_params.team)
+        order_by: list[ast.OrderExpr] = (
+            [
+                ast.OrderExpr(
+                    expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
+                    order="ASC",
+                )
+            ]
+            if query_params.value
+            else []
+        )
 
-            values = []
-            for value in result.results:
-                if isinstance(value[0], float | int | bool | uuid.UUID):
-                    values.append(value[0])
-                else:
-                    try:
-                        values.append(json.loads(value[0]))
-                    except json.JSONDecodeError:
-                        values.append(value[0])
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=chain)],
+            distinct=True,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=conditions),
+            order_by=order_by,
+            limit=ast.Constant(value=10),
+        )
 
-            span.set_attribute("result_count", len(values))
-            return self._return_with_short_cache([{"name": convert_property_value(value)} for value in flatten(values)])
+        result = execute_hogql_query(query, team=query_params.team)
+
+        values = []
+        for row in result.results:
+            if isinstance(row[0], float | int | bool | uuid.UUID):
+                values.append(row[0])
+            else:
+                try:
+                    values.append(json.loads(row[0]))
+                except json.JSONDecodeError:
+                    values.append(row[0])
+
+        return self._return_with_short_cache([{"name": convert_property_value(v)} for v in flatten(values)])
 
     @staticmethod
     def _return_with_short_cache(values) -> response.Response:

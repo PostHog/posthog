@@ -344,6 +344,85 @@ class TestLikeMatches(BaseTest):
 
 
 class TestUtils(BaseTest):
+    @parameterized.expand(
+        [
+            ("JOIN",),
+            ("INNER",),
+            ("INNER JOIN",),
+            ("LEFT JOIN",),
+            ("LEFT OUTER JOIN",),
+            ("RIGHT ANY JOIN",),
+            ("ASOF LEFT JOIN",),
+            ("GLOBAL LEFT JOIN",),
+        ]
+    )
+    def test_deserialize_hx_ast_allows_valid_join_types(self, join_type: str) -> None:
+        join_expr = deserialize_hx_ast(
+            {
+                "__hx_ast": "JoinExpr",
+                "join_type": join_type,
+                "table": {"__hx_ast": "Field", "chain": ["events"]},
+            }
+        )
+
+        assert isinstance(join_expr, ast.JoinExpr)
+        self.assertEqual(join_expr.join_type, join_type)
+
+    @parameterized.expand(
+        [
+            ("JOIN; SELECT 1",),
+            ("LEFT JOIN SETTINGS max_threads=1",),
+            ("GLOBAL JOIN; DROP TABLE events",),
+        ]
+    )
+    def test_deserialize_hx_ast_rejects_invalid_join_types(self, join_type: str) -> None:
+        with self.assertRaises(ValueError) as e:
+            deserialize_hx_ast(
+                {
+                    "__hx_ast": "JoinExpr",
+                    "join_type": join_type,
+                    "table": {"__hx_ast": "Field", "chain": ["events"]},
+                }
+            )
+
+        self.assertEqual(str(e.exception), f"Invalid join type: {join_type}")
+
+    @parameterized.expand(
+        [
+            ("ON",),
+            ("USING",),
+        ]
+    )
+    def test_deserialize_hx_ast_allows_valid_join_constraint_type(self, constraint_type: str) -> None:
+        join_constraint = deserialize_hx_ast(
+            {
+                "__hx_ast": "JoinConstraint",
+                "expr": {"__hx_ast": "Constant", "value": 1},
+                "constraint_type": constraint_type,
+            }
+        )
+
+        assert isinstance(join_constraint, ast.JoinConstraint)
+        self.assertEqual(join_constraint.constraint_type, constraint_type)
+
+    @parameterized.expand(
+        [
+            ("ON; SELECT 1",),
+            ("USING SETTINGS",),
+        ]
+    )
+    def test_deserialize_hx_ast_rejects_invalid_join_constraint_type(self, constraint_type: str) -> None:
+        with self.assertRaises(ValueError) as e:
+            deserialize_hx_ast(
+                {
+                    "__hx_ast": "JoinConstraint",
+                    "expr": {"__hx_ast": "Constant", "value": 1},
+                    "constraint_type": constraint_type,
+                }
+            )
+
+        self.assertEqual(str(e.exception), f"Invalid join constraint type: {constraint_type}")
+
     def test_deserialize_hx_ast(self):
         assert deserialize_hx_ast(
             {

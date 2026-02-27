@@ -23,6 +23,7 @@ use personhog_proto::personhog::types::v1::{
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::ReplicaBackend;
+use personhog_router::config::RetryConfig;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tokio::net::TcpListener;
@@ -306,7 +307,12 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
     let addr = listener.local_addr().unwrap();
 
     let replica_url = format!("http://{}", replica_addr);
-    let backend = ReplicaBackend::new(&replica_url, Duration::from_secs(5)).unwrap();
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    let backend = ReplicaBackend::new(&replica_url, Duration::from_secs(5), retry_config).unwrap();
     let router = PersonHogRouter::new(Arc::new(backend));
     let service = PersonHogRouterService::new(Arc::new(router));
 

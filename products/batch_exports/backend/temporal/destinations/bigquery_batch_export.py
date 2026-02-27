@@ -12,7 +12,15 @@ from django.conf import settings
 
 import pyarrow as pa
 import requests
-from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound, TooManyRequests
+from google.api_core.exceptions import (
+    Forbidden,
+    GatewayTimeout,
+    GoogleAPICallError,
+    InternalServerError,
+    NotFound,
+    ServiceUnavailable,
+    TooManyRequests,
+)
 from google.cloud import bigquery
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
@@ -730,12 +738,24 @@ class BigQueryClient:
                     raise BigQueryQuotaExceededError(err.message) from err
 
                 raise
-            except TooManyRequests:
+            except (TooManyRequests, ServiceUnavailable, GatewayTimeout, InternalServerError) as err:
+                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
                 self.logger.exception(
-                    "LoadJob rate limit exceeded",
-                    attempt=attempt,
+                    "LoadJob transient error encountered", attempt=attempt, backoff=backoff, error_code=err.code
                 )
-                time.sleep(min(max_retry, initial_retry * (backoff_factor**attempt)))
+                self.external_logger.error(  # noqa: TRY400
+                    "Encountered a service-side issue that will be retried in %d seconds, this is attempt number %d."
+                    " These type of errors indicate BigQuery may be under too much load from all sources. You may have"
+                    " to check with BigQuery if it keeps happening consistently."
+                    " Error: %s",
+                    backoff,
+                    attempt,
+                    err,
+                    attempt=attempt,
+                    backoff=backoff,
+                    error_code=err.code,
+                )
+                time.sleep(backoff)
                 attempt += 1
             else:
                 return result
