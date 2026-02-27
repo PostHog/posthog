@@ -6,6 +6,9 @@ from posthog.email import EmailMessage, is_email_available
 from posthog.models import User
 from posthog.utils import absolute_uri
 
+from products.notifications.backend.facade.api import NotificationData, create_notification
+from products.notifications.backend.facade.enums import NotificationType
+
 if TYPE_CHECKING:
     from posthog.approvals.models import Approval, ChangeRequest
 
@@ -95,6 +98,8 @@ def send_approval_requested_notification(change_request: "ChangeRequest") -> Non
     approvers = User.objects.filter(id__in=approver_ids)
     requester_name = _get_user_display_name(change_request.created_by)
 
+    change_request_url = _build_change_request_url(change_request)
+
     for approver in approvers:
         try:
             _send_approval_email(
@@ -111,6 +116,20 @@ def send_approval_requested_notification(change_request: "ChangeRequest") -> Non
                 approver_id=approver.id,
                 error=str(e),
             )
+
+        create_notification(
+            NotificationData(
+                recipient_id=approver.id,
+                notification_type=NotificationType.APPROVAL_REQUESTED,
+                title=f"{requester_name} needs your sign-off",
+                body=f"A change in {change_request.team.name} requires your approval",
+                team_id=change_request.team_id,
+                source_type="ChangeRequest",
+                source_id=str(change_request.id),
+                source_url=change_request_url,
+                actor_id=change_request.created_by_id,
+            )
+        )
 
 
 def send_approval_decision_notification(
@@ -147,6 +166,20 @@ def send_approval_decision_notification(
             approval_id=str(approval.id),
             error=str(e),
         )
+
+    create_notification(
+        NotificationData(
+            recipient_id=change_request.created_by.id,
+            notification_type=NotificationType.APPROVAL_RESOLVED,
+            title=subject,
+            body=f"Your change in {change_request.team.name} was {'approved' if is_approved else 'declined'}",
+            team_id=change_request.team_id,
+            source_type="ChangeRequest",
+            source_id=str(change_request.id),
+            source_url=_build_change_request_url(change_request),
+            actor_id=approval.created_by_id,
+        )
+    )
 
 
 def send_approval_expired_notification(change_request: "ChangeRequest") -> None:

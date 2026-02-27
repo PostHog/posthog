@@ -72,6 +72,7 @@ from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refr
 from posthog.utils import get_crontab, get_instance_region
 
 from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.notifications.backend.tasks.tasks import cleanup_old_notifications
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -536,4 +537,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="0"),
         deactivate_stale_materializations.s(),
         name="deactivate stale endpoint materializations",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="3", minute="0"),
+        cleanup_old_notifications.s(),
+        name="cleanup old notifications",
     )

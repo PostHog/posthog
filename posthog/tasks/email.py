@@ -40,6 +40,8 @@ from posthog.user_permissions import UserPermissions
 
 from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
+from products.notifications.backend.facade.api import NotificationData, create_notification
+from products.notifications.backend.facade.enums import NotificationType, Priority
 
 logger = structlog.get_logger(__name__)
 
@@ -392,6 +394,19 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
+        create_notification(
+            NotificationData(
+                recipient_id=membership.user.id,
+                notification_type=NotificationType.PIPELINE_FAILURE,
+                priority=Priority.URGENT,
+                title=f"Destination '{hog_function.name}' has been disabled",
+                body=f"Disabled due to high error rate in project '{team}'",
+                team_id=team.id,
+                source_type="HogFunction",
+                source_id=str(hog_function.id),
+                source_url=f"/project/{team.pk}/pipeline/destinations/hog-{hog_function.id}",
+            )
+        )
     message.send()
 
 
@@ -439,6 +454,19 @@ def send_batch_export_run_failure(
 
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
+        create_notification(
+            NotificationData(
+                recipient_id=membership.user.id,
+                notification_type=NotificationType.PIPELINE_FAILURE,
+                priority=Priority.URGENT,
+                title=f"Batch export '{batch_export_run.batch_export.name}' failed",
+                body=f"Run failed at {batch_export_run.last_updated_at.strftime('%I:%M%p %Z on %B %d')}",
+                team_id=team.id,
+                source_type="BatchExport",
+                source_id=str(batch_export_run.batch_export.id),
+                source_url=f"/project/{team.pk}/pipeline/destinations/batch-{batch_export_run.batch_export.id}",
+            )
+        )
     message.send()
 
 
@@ -791,6 +819,19 @@ def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> 
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
+        create_notification(
+            NotificationData(
+                recipient_id=membership.user.id,
+                notification_type=NotificationType.ISSUE_ASSIGNED,
+                title=f"Issue '{assignment.issue.name}' assigned to you",
+                body=f"Assigned by {assigner.first_name or assigner.email} in project '{team}'",
+                team_id=team.id,
+                source_type="ErrorTrackingIssue",
+                source_id=str(assignment.issue.id),
+                source_url=f"/project/{team.pk}/error_tracking/{assignment.issue.id}",
+                actor_id=assigner.id,
+            )
+        )
     message.send()
 
 

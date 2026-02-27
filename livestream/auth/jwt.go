@@ -46,7 +46,28 @@ func GetAuthClaims(header http.Header) (teamID int, token string, err error) {
 	}
 
 	return getDataFromClaims(claims)
+}
 
+func GetAuthClaimsWithUserID(header http.Header) (teamID int, userID int, token string, err error) {
+	claims, err := GetAuth(header)
+	if err != nil {
+		return 0, 0, "", err
+	}
+
+	team, ok := claims["team_id"].(float64)
+	if !ok {
+		return 0, 0, "", errors.New("invalid team_id")
+	}
+	token, ok = claims["api_token"].(string)
+	if !ok {
+		return 0, 0, "", errors.New("invalid api_token")
+	}
+	user, ok := claims["user_id"].(float64)
+	if !ok {
+		return 0, 0, "", errors.New("invalid user_id")
+	}
+
+	return int(team), int(user), token, nil
 }
 
 func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {

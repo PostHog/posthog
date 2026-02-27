@@ -14,6 +14,9 @@ from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
 
+from products.notifications.backend.facade.api import NotificationData, create_notification
+from products.notifications.backend.facade.enums import NotificationType, Priority
+
 logger = structlog.get_logger(__name__)
 
 
@@ -184,6 +187,23 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
 
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         message.send()
+
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    alert_url = f"{insight_url}?alert_id={alert.id}"
+    for user in alert.subscribed_users.filter(organization_membership__organization=alert.team.organization):
+        create_notification(
+            NotificationData(
+                recipient_id=user.id,
+                notification_type=NotificationType.ALERT_FIRING,
+                priority=Priority.URGENT,
+                title=f"Alert '{alert.name}' is firing",
+                body="; ".join(breaches[:3]),
+                team_id=alert.team_id,
+                source_type="AlertConfiguration",
+                source_id=str(alert.id),
+                source_url=alert_url,
+            )
+        )
 
     trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
 

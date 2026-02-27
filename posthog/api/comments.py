@@ -14,8 +14,11 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.models import User
 from posthog.models.comment import Comment
-from posthog.models.comment.utils import produce_discussion_mention_events
+from posthog.models.comment.utils import build_comment_item_url, produce_discussion_mention_events
 from posthog.tasks.email import send_discussions_mentioned
+
+from products.notifications.backend.facade.api import NotificationData, create_notification
+from products.notifications.backend.facade.enums import NotificationType
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -108,6 +111,25 @@ class CommentSerializer(serializers.ModelSerializer):
         if mentions:
             send_discussions_mentioned.delay(comment.id, mentions, slug)
             produce_discussion_mention_events(comment, mentions, slug)
+
+            href = build_comment_item_url(comment.scope, comment.item_id, slug)
+            commenter_name = comment.created_by.first_name if comment.created_by else "Someone"
+            for user_id in mentions:
+                if comment.created_by and user_id == comment.created_by.id:
+                    continue
+                create_notification(
+                    NotificationData(
+                        recipient_id=user_id,
+                        notification_type=NotificationType.COMMENT_MENTION,
+                        title=f"{commenter_name} mentioned you in a comment",
+                        body=comment.content[:200] if comment.content else "",
+                        team_id=validated_data["team_id"],
+                        source_type="Comment",
+                        source_id=str(comment.id),
+                        source_url=href,
+                        actor_id=comment.created_by.id if comment.created_by else None,
+                    )
+                )
 
         return comment
 
