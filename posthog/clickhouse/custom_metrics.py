@@ -108,7 +108,7 @@ def CUSTOM_METRICS_MERGE_FAILURES_VIEW():
     AS
     SELECT
         'ClickHouseCustomMetric_MergeFailures15m' AS name,
-        map('instance', hostName()) AS labels,
+        map('instance', hostname()) AS labels,
         count() AS value,
         'Number of failed merge operations in the last 15 minutes' AS help,
         'gauge' AS type
