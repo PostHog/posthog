@@ -866,6 +866,7 @@ export enum PropertyOperator {
 }
 
 export enum SavedInsightsTabs {
+    Home = 'home',
     All = 'all',
     History = 'history',
     Alerts = 'alerts',
@@ -1118,12 +1119,11 @@ export type RecordingConsoleLogV2 = {
     windowNumber?: number | '?' | undefined
     level: LogLevel
     content: string
+    count?: number
     // JS code associated with the log - implicitly the empty array when not provided
     lines?: string[]
     // stack trace associated with the log - implicitly the empty array when not provided
     trace?: string[]
-    // number of times this log message was seen - implicitly 1 when not provided
-    count?: number
 }
 
 export interface RecordingSegment {
@@ -2230,6 +2230,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     last_viewed_at?: string | null
+    viewers?: UserBasicType[]
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string

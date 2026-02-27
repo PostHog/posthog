@@ -6,6 +6,13 @@ import packageJson from '../../package.json'
 
 export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
 
+export function getUserAgent(clientIdentifier?: string): string {
+    if (clientIdentifier) {
+        return `${USER_AGENT}; for ${clientIdentifier}`
+    }
+    return USER_AGENT
+}
+
 // Region-specific PostHog API base URLs
 export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
 export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'

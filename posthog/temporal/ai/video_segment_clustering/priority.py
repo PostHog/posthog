@@ -11,7 +11,7 @@ from asgiref.sync import sync_to_async
 
 from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
-from posthog.temporal.ai.video_segment_clustering.models import VideoSegmentMetadata
+from posthog.temporal.ai.video_segment_clustering.models import VideoSegment
 
 
 def parse_datetime_as_utc(iso_string: str) -> datetime:
@@ -28,7 +28,7 @@ class TaskMetrics(TypedDict):
     last_occurrence_at: datetime | None
 
 
-async def calculate_task_metrics(team: Team, segments: list[VideoSegmentMetadata]) -> TaskMetrics:
+async def calculate_task_metrics(team: Team, segments: list[VideoSegment]) -> TaskMetrics:
     if not segments:
         return TaskMetrics(
             relevant_user_count=0,

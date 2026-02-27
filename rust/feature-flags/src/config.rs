@@ -485,6 +485,12 @@ pub struct Config {
     // without risking any data mutations.
     #[envconfig(from = "SKIP_WRITES", default = "false")]
     pub skip_writes: FlexBool,
+
+    // Explicit core count for thread pool sizing. Overrides available_parallelism()
+    // which reads the CFS quota (K8s CPU limit), not the CPU request.
+    // 0 = auto (use available_parallelism).
+    #[envconfig(from = "THREAD_POOL_CORES", default = "0")]
+    pub thread_pool_cores: usize,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -510,10 +516,24 @@ pub struct ThreadCounts {
 }
 
 impl ThreadCounts {
-    pub fn from_available_parallelism() -> Self {
-        let cores = std::thread::available_parallelism()
+    /// Build thread counts from an explicit core count, falling back to
+    /// `available_parallelism()` when `override_cores` is 0.
+    pub fn new(override_cores: usize) -> Self {
+        let detected = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
+
+        let cores = if override_cores > 0 {
+            override_cores
+        } else {
+            detected
+        };
+
+        eprintln!(
+            "thread pool core count resolved: override_cores={}, detected_cores={}, effective_cores={}",
+            override_cores, detected, cores,
+        );
+
         Self::from_cores(cores)
     }
 
@@ -661,6 +681,7 @@ impl Config {
             parallel_eval_threshold: 100,
             max_concurrent_batch_evals: 0,
             skip_writes: FlexBool(false),
+            thread_pool_cores: 0,
         }
     }
 
@@ -1129,6 +1150,21 @@ mod thread_counts_tests {
                 "tokio should get half the cores for {cores} cores"
             );
         }
+    }
+
+    #[test]
+    fn test_new_with_override_uses_override() {
+        let counts = ThreadCounts::new(8);
+        assert_eq!(counts.rayon_threads, 8);
+        assert_eq!(counts.tokio_workers, 4);
+    }
+
+    #[test]
+    fn test_new_with_zero_falls_back_to_detected() {
+        let counts = ThreadCounts::new(0);
+        // Should fall back to available_parallelism, which is always >= 1
+        assert!(counts.rayon_threads >= 1);
+        assert!(counts.tokio_workers >= 1);
     }
 }
 

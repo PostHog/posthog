@@ -10,7 +10,6 @@ The test data is stored in two files in this directory:
 """
 
 import gzip
-import json
 import uuid
 from pathlib import Path
 
@@ -32,7 +31,6 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     FetchSegmentsActivityInputs,
     FetchSegmentsResult,
     VideoSegment,
-    VideoSegmentMetadata,
 )
 
 pytestmark = [
@@ -42,8 +40,7 @@ pytestmark = [
 
 
 # Store test data globally so mocked activities can access it
-_test_segments: list[VideoSegmentMetadata] = []
-_test_video_segments: list[VideoSegment] = []  # With embeddings, for clustering activity
+_test_segments: list[VideoSegment] = []
 
 MOCK_STORAGE_KEY = "video_segment_clustering/test-mock/segments.json.gz"
 
@@ -77,48 +74,38 @@ def load_test_data() -> tuple[list[dict], np.ndarray]:
 @pytest.fixture
 def test_segments_and_embeddings():
     """Load test segments with their embeddings and populate global state for mocked activities."""
-    global _test_segments, _test_video_segments
+    global _test_segments
 
     segments, embeddings = load_test_data()
 
-    # Convert to VideoSegmentMetadata objects for the workflow (without embeddings)
     _test_segments = []
-    # Convert to VideoSegment objects for the clustering activity (with embeddings)
-    _test_video_segments = []
-
     for i, segment in enumerate(segments):
         metadata = segment.get("metadata", {})
-        common_fields = {
-            "document_id": segment["document_id"],
-            "session_id": metadata.get("session_id", ""),
-            "start_time": metadata.get("start_time", ""),
-            "end_time": metadata.get("end_time", ""),
-            "session_start_time": metadata.get("session_start_time", ""),
-            "session_end_time": metadata.get("session_end_time", ""),
-            "session_duration": metadata.get("session_duration", 0),
-            "session_active_seconds": metadata.get("session_active_seconds", 0),
-            "distinct_id": metadata.get("distinct_id", ""),
-            "content": segment["content"],
-        }
-        _test_segments.append(VideoSegmentMetadata(**common_fields))
-        _test_video_segments.append(VideoSegment(**common_fields, embedding=embeddings[i].tolist()))
+        _test_segments.append(
+            VideoSegment(
+                document_id=segment["document_id"],
+                session_id=metadata.get("session_id", ""),
+                start_time=metadata.get("start_time", ""),
+                end_time=metadata.get("end_time", ""),
+                session_start_time=metadata.get("session_start_time", ""),
+                session_end_time=metadata.get("session_end_time", ""),
+                session_duration=metadata.get("session_duration", 0),
+                session_active_seconds=metadata.get("session_active_seconds", 0),
+                distinct_id=metadata.get("distinct_id", ""),
+                content=segment["content"],
+                embedding=embeddings[i].tolist(),
+            )
+        )
 
     return {"segments": _test_segments, "embeddings": embeddings, "segment_count": len(segments)}
 
 
-async def _mock_load_fetch_result(key: str) -> tuple[list[str], list[str]]:
-    """Return test document_ids and distinct_ids for mock storage key."""
+async def _mock_load_fetch_result(key: str) -> tuple[list[VideoSegment], list[str]]:
+    """Return test segments and distinct_ids for mock storage key."""
     if key != MOCK_STORAGE_KEY:
         raise ValueError(f"Unknown storage key: {key}")
-    document_ids = [s.document_id for s in _test_segments]
     distinct_ids = list({s.distinct_id for s in _test_segments if s.distinct_id})
-    return document_ids, distinct_ids
-
-
-async def _mock_fetch_embeddings_by_document_ids(_team, document_ids: list[str]) -> list[VideoSegment]:
-    """Mock that returns pre-loaded VideoSegments with embeddings."""
-    doc_id_to_segment = {s.document_id: s for s in _test_video_segments}
-    return [doc_id_to_segment[doc_id] for doc_id in document_ids if doc_id in doc_id_to_segment]
+    return _test_segments, distinct_ids
 
 
 async def test_video_segment_clustering_workflow_emits_signals(ateam, test_segments_and_embeddings):
@@ -129,10 +116,6 @@ async def test_video_segment_clustering_workflow_emits_signals(ateam, test_segme
         task_queue = f"test-video-clustering-{uuid.uuid4()}"
 
         with (
-            patch(
-                "posthog.temporal.ai.video_segment_clustering.activities.a3_cluster_segments._fetch_embeddings_by_document_ids",
-                side_effect=_mock_fetch_embeddings_by_document_ids,
-            ),
             patch(
                 "posthog.temporal.ai.video_segment_clustering.activities.a3_cluster_segments.load_fetch_result",
                 side_effect=_mock_load_fetch_result,
@@ -187,19 +170,6 @@ async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_
         Cluster(cluster_id=1, segment_ids=[s.document_id for s in segments[3:6]], size=3),
     ]
 
-    def _metadata_row(seg: VideoSegmentMetadata):
-        metadata = {
-            "session_id": seg.session_id,
-            "start_time": seg.start_time,
-            "end_time": seg.end_time,
-            "distinct_id": seg.distinct_id,
-            "session_start_time": seg.session_start_time,
-            "session_end_time": seg.session_end_time,
-            "session_duration": seg.session_duration,
-            "session_active_seconds": seg.session_active_seconds,
-        }
-        return (seg.document_id, seg.content, json.dumps(metadata), None)
-
     inputs = EmitSignalsActivityInputs(
         team_id=ateam.id,
         clusters=clusters,
@@ -209,17 +179,10 @@ async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_
     mock_activity_info = MagicMock()
     mock_activity_info.workflow_id = "test-workflow-id"
 
-    mock_metadata_rows = [_metadata_row(s) for s in segments]
-
     with (
         patch(
             "posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters.load_fetch_result",
             side_effect=_mock_load_fetch_result,
-        ),
-        patch(
-            "posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters.fetch_video_segment_metadata_by_document_ids",
-            new_callable=AsyncMock,
-            return_value=mock_metadata_rows,
         ),
         patch(
             "posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters.emit_signal",

@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useFeatureFlagEnabled } from 'posthog-js/react'
+import { useFeatureFlagVariantKey } from 'posthog-js/react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -105,7 +105,8 @@ export function ErrorTrackingAlerting(): JSX.Element {
 function ErrorTrackingAlertingInner(): JSX.Element {
     const { alertCreationView, subTemplateIds } = useValues(alertWizardLogic)
     const { setAlertCreationView, resetWizard } = useActions(alertWizardLogic)
-    const isWizardEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.ERROR_TRACKING_ALERTS_WIZARD)
+    const wizardVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.ERROR_TRACKING_ALERTS_WIZARD)
+    const isWizardEnabled = wizardVariant === 'test'
 
     if (isWizardEnabled && alertCreationView === AlertCreationView.Wizard) {
         return (
