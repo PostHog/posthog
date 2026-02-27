@@ -22,47 +22,6 @@ from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
 
 
-def _is_decimal_precision_delta_error(e: BaseException) -> bool:
-    msg = str(e).lower()
-    return "decimal128" in msg and ("precision 38" in msg or "too large" in msg)
-
-
-def _find_incompatible_decimal_columns(batch_schema: pa.Schema, delta_table: deltalake.DeltaTable) -> set[str]:
-    """Return names of batch decimal columns whose type can't fit in the delta table's type."""
-    delta_schema = delta_table.schema().to_arrow()
-    result: set[str] = set()
-    for field in batch_schema:
-        if not pa.types.is_decimal(field.type):
-            continue
-        if isinstance(field.type, pa.Decimal256Type):
-            result.add(field.name)
-            continue
-        if field.name not in delta_schema.names:
-            continue
-        delta_field = delta_schema.field(field.name)
-        if not pa.types.is_decimal(delta_field.type):
-            continue
-        batch_int = field.type.precision - field.type.scale
-        delta_int = delta_field.type.precision - delta_field.type.scale
-        if batch_int > delta_int:
-            result.add(field.name)
-    return result
-
-
-def _convert_decimal_columns_to_string(table: pa.Table, columns: set[str] | None = None) -> pa.Table:
-    """Return a new table with specified (or all, if columns is None) decimal columns converted to string."""
-    result = table
-    for i, field in enumerate(table.schema):
-        if not pa.types.is_decimal(field.type):
-            continue
-        if columns is not None and field.name not in columns:
-            continue
-        col = result.column(field.name)
-        str_values = [str(v) if (v := x.as_py()) is not None else None for x in col]
-        result = result.set_column(i, field.name, pa.array(str_values, type=pa.string()))
-    return result
-
-
 class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
@@ -212,25 +171,43 @@ class DeltaTableHelper:
             if use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
-                def _do_merge(filtered_table: pa.Table, predicate: str):
-                    return (
-                        delta_table.merge(
-                            source=filtered_table,
-                            source_alias="source",
-                            target_alias="target",
-                            predicate=predicate,
-                            streamed_exec=True,
+                # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
+                unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
+
+                await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
+
+                for partition in unique_partitions:
+                    partition_predicate_ops = predicate_ops.copy()
+                    partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
+                    predicate = " AND ".join(partition_predicate_ops)
+
+                    filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
+
+                    await self._logger.adebug(f"Merging partition={partition} with predicate={predicate}")
+
+                    def _do_merge(filtered_table: pa.Table, predicate: str):
+                        return (
+                            delta_table.merge(
+                                source=filtered_table,
+                                source_alias="source",
+                                target_alias="target",
+                                predicate=predicate,
+                                streamed_exec=True,
+                            )
+                            .when_matched_update_all()
+                            .when_not_matched_insert_all()
+                            .execute()
                         )
-                        .when_matched_update_all()
-                        .when_not_matched_insert_all()
-                        .execute()
-                    )
+
+                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate)
+
+                    await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
             else:
 
-                def _do_merge_unpartitioned(merge_data: pa.Table, predicate_ops: list[str]):
+                def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
                         delta_table.merge(
-                            source=merge_data,
+                            source=data,
                             source_alias="source",
                             target_alias="target",
                             predicate=" AND ".join(predicate_ops),
@@ -241,39 +218,8 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-            merge_data = data
-            for merge_attempt in range(2):
-                try:
-                    if use_partitioning:
-                        unique_partitions = pc.unique(merge_data[PARTITION_KEY])  # type: ignore
-                        await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
-                        for partition in unique_partitions:
-                            partition_predicate_ops = predicate_ops.copy()
-                            partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
-                            predicate = " AND ".join(partition_predicate_ops)
-                            filtered_table = merge_data.filter(pc.equal(merge_data[PARTITION_KEY], partition))
-                            await self._logger.adebug(f"Merging partition={partition} with predicate={predicate}")
-                            merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate)
-                            await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
-                    else:
-                        merge_stats = await asyncio.to_thread(_do_merge_unpartitioned, merge_data, predicate_ops)
-                        await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
-                    break
-                except deltalake.exceptions.DeltaError as e:
-                    if not _is_decimal_precision_delta_error(e):
-                        raise
-                    if merge_attempt == 1:
-                        raise ValueError(
-                            "Decimal column in the table cannot hold this batch (e.g. 7+ integer digits). "
-                            "Run a full refresh for this schema once to update the table schema, then use incremental again."
-                        ) from e
-                    problematic = _find_incompatible_decimal_columns(merge_data.schema, delta_table)
-                    await self._logger.adebug(
-                        f"DeltaError (decimal precision on merge): converting columns {problematic or 'all'} to string, retrying",
-                        exc_info=e,
-                    )
-                    capture_exception(e)
-                    merge_data = _convert_decimal_columns_to_string(merge_data, problematic or None)
+                merge_stats = await asyncio.to_thread(_do_merge_unpartitioned, data, predicate_ops)
+                await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         elif (
             write_type == "full_refresh"
             or (write_type == "incremental" and delta_table is None)
@@ -319,23 +265,6 @@ class DeltaTableHelper:
                     mode=mode,
                     schema_mode="overwrite",
                 )
-            except deltalake.exceptions.DeltaError as e:
-                if _is_decimal_precision_delta_error(e):
-                    await self._logger.adebug(
-                        "DeltaError (decimal precision on schema merge): attempting overwrite schema",
-                        exc_info=e,
-                    )
-                    capture_exception(e)
-                    await asyncio.to_thread(
-                        deltalake.write_deltalake,
-                        table_or_uri=delta_table,
-                        data=data,
-                        partition_by=None,
-                        mode=mode,
-                        schema_mode="overwrite",
-                    )
-                else:
-                    raise
         elif write_type == "append":
             if delta_table is None:
                 storage_options = self._get_credentials()
@@ -350,31 +279,14 @@ class DeltaTableHelper:
 
             await self._logger.adebug(f"write_to_deltalake: write_type = append")
 
-            try:
-                await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=delta_table,
-                    data=data,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
-                    mode="append",
-                    schema_mode="merge",
-                )
-            except (deltalake.exceptions.SchemaMismatchError, deltalake.exceptions.DeltaError) as e:
-                if isinstance(e, deltalake.exceptions.DeltaError) and not _is_decimal_precision_delta_error(e):
-                    raise
-                await self._logger.adebug(
-                    "Schema merge failed (mismatch or decimal precision): attempting overwrite schema",
-                    exc_info=e,
-                )
-                capture_exception(e)
-                await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=delta_table,
-                    data=data,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
-                    mode="append",
-                    schema_mode="overwrite",
-                )
+            await asyncio.to_thread(
+                deltalake.write_deltalake,
+                table_or_uri=delta_table,
+                data=data,
+                partition_by=PARTITION_KEY if use_partitioning else None,
+                mode="append",
+                schema_mode="merge",
+            )
 
         delta_table = await self.get_delta_table()
         assert delta_table is not None
