@@ -17,7 +17,6 @@ class TestAITemporalModuleIntegrity:
             "VideoSegmentClusteringWorkflow",
             "VideoSegmentClusteringCoordinatorWorkflow",
             "TeamSignalGroupingWorkflow",
-            "EmitSignalWorkflow",
             "SignalReportSummaryWorkflow",
             "EmitEvalSignalWorkflow",
         ]

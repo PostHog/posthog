@@ -726,7 +726,7 @@ TYPE_EXAMPLES_CACHE_TTL = timedelta(minutes=5)
 
 
 async def _process_one_signal(inputs: EmitSignalInputs) -> str:
-    """Shared signal processing logic used by both EmitSignalWorkflow and TeamSignalGroupingWorkflow."""
+    """Process a single signal through the full grouping pipeline."""
     signal_id = str(uuid.uuid4())
 
     embedding_result, type_examples_result = await asyncio.gather(
