@@ -15,6 +15,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Cohort
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.util import recalculate_cohortpeople
@@ -155,6 +156,7 @@ class TestInlineCohortSubquery(BaseTest):
         )
         _create_event(distinct_id=distinct_id2, event=random_uuid, team=self.team)
         flush_persons_and_events()
+        sync_execute("OPTIMIZE TABLE person FINAL")
 
         return cohort, random_uuid
 

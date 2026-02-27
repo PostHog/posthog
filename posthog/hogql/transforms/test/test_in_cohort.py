@@ -1,5 +1,5 @@
 import pytest
-from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person, flush_persons_and_events
 
 from django.test import override_settings
 
@@ -11,6 +11,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
@@ -202,7 +203,7 @@ class TestInCohort(BaseTest):
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
 
 
-class TestInlineCohortLeftjoin(BaseTest):
+class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
     maxDiff = None
 
     def _setup_cohort_with_new_person_after_calculation(self):
@@ -232,6 +233,7 @@ class TestInlineCohortLeftjoin(BaseTest):
         )
         _create_event(distinct_id=distinct_id2, event=random_uuid, team=self.team)
         flush_persons_and_events()
+        sync_execute("OPTIMIZE TABLE person FINAL")
 
         return cohort, random_uuid
 
