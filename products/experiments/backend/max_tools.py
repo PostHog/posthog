@@ -13,6 +13,9 @@ from posthog.session_recordings.session_recording_api import list_recordings_fro
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
+
 from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
 
@@ -113,8 +116,6 @@ class CreateExperimentTool(MaxTool):
 
         @database_sync_to_async
         def create_experiment() -> Experiment:
-            from products.experiments.backend.experiment_service import ExperimentService
-
             existing_experiment = Experiment.objects.filter(team=self._team, name=name, deleted=False).first()
             if existing_experiment:
                 raise ValueError(f"An experiment with name '{name}' already exists")
@@ -306,8 +307,6 @@ class ExperimentSummaryTool(MaxTool):
 
     async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
         """Fetch experiment data from query runners and format it."""
-        from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
-
         data_service = ExperimentSummaryDataService(self._team)
 
         try:

@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
 import pydantic
@@ -42,6 +42,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
+from products.experiments.backend.experiment_service import ExperimentService
 from products.product_tours.backend.models import ProductTour
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
@@ -278,8 +279,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return self._validate_metrics_list(value)
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        from products.experiments.backend.experiment_service import ExperimentService
-
         feature_flag_key = validated_data.pop("get_feature_flag_key")
         saved_metrics_ids = validated_data.pop("saved_metrics_ids", None)
         create_in_folder = validated_data.pop("_create_in_folder", None)
@@ -1079,8 +1078,6 @@ class EnterpriseExperimentsViewSet(
         # Apply has_evaluation_tags filter
         has_evaluation_tags = request.query_params.get("has_evaluation_tags")
         if has_evaluation_tags is not None:
-            from django.db.models import Count
-
             filter_value = has_evaluation_tags.lower() in ("true", "1", "yes")
             queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
             if filter_value:
