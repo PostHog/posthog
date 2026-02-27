@@ -48,6 +48,7 @@ class AgentMode(StrEnum):
     ONBOARDING = "onboarding"
     RESEARCH = "research"
     FLAGS = "flags"
+    LLM_ANALYTICS = "llm_analytics"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -373,6 +374,7 @@ class AssistantTool(StrEnum):
     UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
     RECOMMEND_PRODUCTS = "recommend_products"
+    SEARCH_LLM_TRACES = "search_llm_traces"
 
 
 class AssistantToolCall(BaseModel):
@@ -18207,6 +18209,13 @@ class DatabaseSchemaQuery(BaseModel):
 class EndpointRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    bucket_overrides: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Per-column bucket function overrides for range variable materialization."
+            " Keys are column names, values are bucket keys (hour, day, week, month)."
+        ),
     )
     cache_age_seconds: float | None = None
     derived_from_insight: str | None = None

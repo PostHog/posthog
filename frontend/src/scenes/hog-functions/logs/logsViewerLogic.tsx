@@ -89,6 +89,7 @@ const buildBoundaryFilters = (request: LogEntryParams): string => {
         AND log_source_id = ${request.sourceId}
         AND timestamp > {filters.dateRange.from}
         AND timestamp < {filters.dateRange.to}
+        AND lower(level) IN (${hogql.raw(request.levels.map((level) => `'${level.toLowerCase()}'`).join(','))})
     `
 }
 

@@ -438,6 +438,7 @@ export type AssistantTool =
     | 'upsert_alert'
     | 'finalize_plan'
     | 'recommend_products'
+    | 'search_llm_traces'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -450,6 +451,7 @@ export enum AgentMode {
     Onboarding = 'onboarding',
     Research = 'research',
     Flags = 'flags',
+    LLMAnalytics = 'llm_analytics',
 }
 
 export enum SlashCommandName {
