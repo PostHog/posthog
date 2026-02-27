@@ -166,7 +166,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Dashboard loading and dashboard tile refreshes.
          */
-        loadDashboard: (payload: { action: DashboardLoadAction; refresh?: RefreshType }) => payload,
+        loadDashboard: (payload: { action: DashboardLoadAction }) => payload,
         /** Load dashboard with streaming tiles approach. */
         loadDashboardStreaming: (payload: { action: DashboardLoadAction; manualDashboardRefresh?: boolean }) => payload,
         /** Dashboard metadata loaded successfully. */
@@ -302,17 +302,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
-                loadDashboard: async ({ action, refresh }, breakpoint) => {
+                loadDashboard: async ({ action }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action)
 
                     await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl(
-                            refresh || 'force_cache',
-                            values.filtersOverrideForLoad,
-                            values.urlVariables
-                        )
+                        const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
