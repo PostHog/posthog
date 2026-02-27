@@ -50,9 +50,17 @@ def get_strategy(name: str):
         from pr_specificity_and_group_aware import PRSpecificityAndGroupAwareStrategy
 
         return PRSpecificityAndGroupAwareStrategy()
+    elif name == "pr_specificity_and_group_aware_v2":
+        from pr_specificity_and_group_aware_v2 import PRSpecificityAndGroupAwareV2Strategy
+
+        return PRSpecificityAndGroupAwareV2Strategy()
+    elif name == "pr_specificity_and_group_aware_v3":
+        from pr_specificity_and_group_aware_v3 import PRSpecificityAndGroupAwareV3Strategy
+
+        return PRSpecificityAndGroupAwareV3Strategy()
     else:
         raise ValueError(
-            f"Unknown strategy: {name}. Available: current, group_aware, verification_gate, multilink, pr_specificity, pr_specificity_and_group_aware"
+            f"Unknown strategy: {name}. Available: current, group_aware, verification_gate, multilink, pr_specificity, pr_specificity_and_group_aware, pr_specificity_and_group_aware_v2, pr_specificity_and_group_aware_v3"
         )
 
 
