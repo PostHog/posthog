@@ -762,16 +762,13 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 # if we release this to customers.
                 start_to_close_timeout = dt.timedelta(days=31)
             else:
-                # Allocate 5 minutes per expected number of runs to backfill as a timeout.
-                # The 5 minutes are just an assumption and we may tweak this in the future
-                backfill_duration = dt.datetime.fromisoformat(end_at) - dt.datetime.fromisoformat(start_at)
-                number_of_expected_runs = backfill_duration / dt.timedelta(seconds=interval_seconds)
-                start_to_close_timeout = dt.timedelta(minutes=5 * number_of_expected_runs)
+                # Else, allocate the duration of the backfill as a timeout (eg we assume backilling 3 hours of data should take less than 3 hours)
+                start_to_close_timeout = dt.datetime.fromisoformat(end_at) - dt.datetime.fromisoformat(start_at)
 
             backfill_schedule_inputs = BackfillScheduleInputs(
                 schedule_id=inputs.batch_export_id,
-                start_at=backfill_info.adjusted_start_at,
-                end_at=inputs.end_at,
+                start_at=start_at,
+                end_at=end_at,
                 frequency_seconds=interval_seconds,
                 start_delay=inputs.start_delay,
                 backfill_id=backfill_id,

@@ -2,15 +2,18 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/events"
+	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,4 +162,90 @@ func createJWTToken(audience string, claims jwt.MapClaims) string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, newClaims)
 	tokenString, _ := token.SignedString([]byte(viper.GetString("jwt.secret")))
 	return tokenString
+}
+
+func TestStatsHandler_ReadsFromRedis(t *testing.T) {
+	viper.Set("jwt.secret", "test-secret-for-stats")
+	apiToken := "phx_test_token"
+
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	rw := events.NewStatsInRedisFromClient(client)
+
+	ctx := context.Background()
+	require.NoError(t, rw.AddUser(ctx, apiToken, "user1"))
+	require.NoError(t, rw.AddUser(ctx, apiToken, "user2"))
+	require.NoError(t, rw.AddSession(ctx, apiToken, "sess1"))
+
+	stats := events.NewStatsKeeper()
+	sessionStats := events.NewSessionStatsKeeper(0, 0)
+
+	handler := StatsHandler(stats, sessionStats, rw)
+
+	token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id":   1,
+		"api_token": apiToken,
+	})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := handler(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		UsersOnProduct   int    `json:"users_on_product"`
+		ActiveRecordings int    `json:"active_recordings"`
+		Error            string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, 2, resp.UsersOnProduct)
+	assert.Equal(t, 1, resp.ActiveRecordings)
+	assert.Empty(t, resp.Error)
+}
+
+func TestStatsHandler_FallsBackToLocal(t *testing.T) {
+	viper.Set("jwt.secret", "test-secret-for-stats")
+	apiToken := "phx_test_token"
+
+	stats := events.NewStatsKeeper()
+	stats.GetStoreForToken(apiToken).Add("user1", events.NoSpaceType{})
+	stats.GetStoreForToken(apiToken).Add("user2", events.NoSpaceType{})
+	stats.GetStoreForToken(apiToken).Add("user3", events.NoSpaceType{})
+
+	sessionStats := events.NewSessionStatsKeeper(0, 0)
+	sessionStats.Add(apiToken, "sess1")
+	sessionStats.Add(apiToken, "sess2")
+
+	handler := StatsHandler(stats, sessionStats, nil)
+
+	token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id":   1,
+		"api_token": apiToken,
+	})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := handler(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		UsersOnProduct   int    `json:"users_on_product"`
+		ActiveRecordings int    `json:"active_recordings"`
+		Error            string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, 3, resp.UsersOnProduct)
+	assert.Equal(t, 2, resp.ActiveRecordings)
+	assert.Empty(t, resp.Error)
 }

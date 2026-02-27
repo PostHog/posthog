@@ -1,8 +1,11 @@
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 from celery import shared_task
 from playwright.sync_api import (
     Page,
+    ProxySettings,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
@@ -248,14 +251,20 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
     # Collect screenshots in-memory first to avoid Django ORM calls inside Playwright's async context
     snapshot_bytes: list[tuple[int, bytes]] = []
     with sync_playwright() as p:
+        launch_args = [
+            "--force-device-scale-factor=1",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-gpu",
+        ]
+        proxy_config: ProxySettings | None = None
+        if settings.OUTBOUND_PROXY_ENABLED and settings.OUTBOUND_PROXY_URL:
+            proxy_config = ProxySettings(server=settings.OUTBOUND_PROXY_URL)
+
         browser = p.chromium.launch(
             headless=True,  # TIP: for debugging, set to False
-            args=[
-                "--force-device-scale-factor=1",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-                "--disable-gpu",
-            ],
+            args=launch_args,
+            proxy=proxy_config,
         )
         try:
             for w in widths:
