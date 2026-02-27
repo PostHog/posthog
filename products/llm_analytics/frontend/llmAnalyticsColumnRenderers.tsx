@@ -493,13 +493,26 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             if (tools.length === 0) {
                 return <>–</>
             }
+            const MAX_VISIBLE = 5
+            const visible = tools.slice(0, MAX_VISIBLE)
+            const remaining = tools.length - MAX_VISIBLE
             return (
                 <div className="flex flex-wrap gap-1">
-                    {tools.map((tool) => (
+                    {visible.map((tool) => (
                         <LemonTag key={tool} type="muted">
                             {tool}
                         </LemonTag>
                     ))}
+                    {remaining > 0 && (
+                        <Tooltip
+                            title={tools
+                                .slice(MAX_VISIBLE)
+                                .map((t) => t)
+                                .join(', ')}
+                        >
+                            <LemonTag type="muted">+{remaining} more</LemonTag>
+                        </Tooltip>
+                    )}
                 </div>
             )
         },
