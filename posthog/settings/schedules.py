@@ -77,3 +77,15 @@ REALTIME_COHORT_CALCULATION_TEAMS: set[int] = {
 REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: float = get_from_env(
     "REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.0, type_cast=float
 )
+
+# Realtime cohort calculation schedule intervals (in minutes) based on duration percentiles
+# Faster cohorts (p90 and p95) run more frequently, slower cohorts run less frequently
+REALTIME_COHORT_CALCULATION_P0_P90_INTERVAL_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P0_P90_INTERVAL_MINUTES", 10, type_cast=int
+)
+REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES", 20, type_cast=int
+)
+REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES", 30, type_cast=int
+)
