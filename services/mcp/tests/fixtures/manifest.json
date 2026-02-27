@@ -1,0 +1,31 @@
+{
+    "version": "1.0",
+    "resources": [
+        {
+            "id": "feature-flags-react",
+            "name": "PostHog feature flags for React applications",
+            "description": "PostHog feature flags for React applications",
+            "tags": ["feature-flags", "react", "javascript"],
+            "uri": "posthog://skills/feature-flags/react",
+            "file": "feature-flags-react.zip",
+            "downloadUrl": "https://github.com/PostHog/context-mill/releases/download/v1.8.0/feature-flags-react.zip",
+            "resource": {
+                "mimeType": "text/plain",
+                "description": "PostHog feature flags for React applications. Run this command in Bash to install the skill.",
+                "text": "mkdir -p .claude/skills/posthog-feature-flags-react && curl -sL 'https://github.com/PostHog/context-mill/releases/download/v1.8.0/feature-flags-react.zip' -o /tmp/posthog-skill.zip && unzip -o /tmp/posthog-skill.zip -d .claude/skills/posthog-feature-flags-react"
+            }
+        },
+        {
+            "id": "identify-users",
+            "name": "Identifying Users",
+            "description": "How to identify users and associate events with them",
+            "tags": ["core", "users", "identity"],
+            "uri": "posthog://docs/identify-users",
+            "resource": {
+                "mimeType": "text/markdown",
+                "description": "How to identify users and associate events with them",
+                "text": "# Identify users - Docs\n\nLinking events to specific users enables you to build a full picture of how they're using your product across different sessions, devices, and platforms."
+            }
+        }
+    ]
+}

@@ -1,34 +1,13 @@
-import { strFromU8, unzipSync } from 'fflate'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 
-import { CONTEXT_MILL_URL } from '@/resources/index'
 import { loadContextMillManifest } from '@/resources/manifest-loader'
 
-describe('Context-Mill Manifest Integration', () => {
-    it('should fetch, unzip, and validate the manifest from GitHub releases', async () => {
-        // Fetch the resources ZIP
-        const response = await fetch(CONTEXT_MILL_URL)
-        expect(response.ok).toBe(true)
-
-        // Unzip the archive
-        const arrayBuffer = await response.arrayBuffer()
-        const uint8Array = new Uint8Array(arrayBuffer)
-        const archive = unzipSync(uint8Array)
-
-        // Verify archive is not empty
-        expect(Object.keys(archive).length).toBeGreaterThan(0)
-
-        // Verify manifest.json exists
-        const manifestData = archive['manifest.json']
-        expect(manifestData).toBeTruthy()
-        if (!manifestData) {
-            throw new Error('manifest.json not found in archive')
-        }
-
-        // Verify manifest is valid JSON
-        const manifestJson = strFromU8(manifestData)
+describe('Context-Mill Manifest', () => {
+    it('should parse and validate the manifest from fixture', () => {
+        const manifestJson = readFileSync(join(__dirname, '../fixtures/manifest.json'), 'utf-8')
         const manifest = JSON.parse(manifestJson)
-        expect(manifest).toBeTruthy()
 
         // Validate manifest structure using our loader (throws if invalid)
         const validatedManifest = loadContextMillManifest(manifest)
@@ -40,16 +19,25 @@ describe('Context-Mill Manifest Integration', () => {
         // Verify we have actual resources
         expect(validatedManifest.resources.length).toBeGreaterThan(0)
 
-        // Verify each resource has required fields and its file exists in archive
+        // Verify each resource has required fields
         for (const entry of validatedManifest.resources) {
             expect(entry.id).toBeTruthy()
             expect(entry.name).toBeTruthy()
             expect(entry.resource).toBeTruthy()
             expect(entry.resource.mimeType).toBeTruthy()
             expect(entry.resource.text).toBeTruthy()
-            if (entry.file) {
-                expect(archive[entry.file]).toBeTruthy()
-            }
         }
-    }, 30000) // 30 second timeout for network request
+    })
+
+    it('should include resources with and without file references', () => {
+        const manifestJson = readFileSync(join(__dirname, '../fixtures/manifest.json'), 'utf-8')
+        const manifest = JSON.parse(manifestJson)
+        const validatedManifest = loadContextMillManifest(manifest)
+
+        const withFile = validatedManifest.resources.filter((r) => r.file)
+        const withoutFile = validatedManifest.resources.filter((r) => !r.file)
+
+        expect(withFile.length).toBeGreaterThan(0)
+        expect(withoutFile.length).toBeGreaterThan(0)
+    })
 })
