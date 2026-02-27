@@ -161,7 +161,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _, kwargs = mock_client.build_request.call_args
         assert kwargs["headers"]["Mcp-Session-Id"] == "client-session-xyz"
 
-    @patch("products.mcp_store.backend.proxy.refresh_oauth_token")
+    @patch("products.mcp_store.backend.oauth.refresh_oauth_token")
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_proxy_refreshes_expired_oauth_token(self, mock_client_cls, mock_refresh):
         installation = self._create_oauth_installation(
@@ -194,7 +194,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _, kwargs = mock_client.build_request.call_args
         assert kwargs["headers"]["Authorization"] == "Bearer new-token-789"
 
-    @patch("products.mcp_store.backend.proxy.refresh_oauth_token")
+    @patch("products.mcp_store.backend.oauth.refresh_oauth_token")
     def test_proxy_returns_401_on_refresh_failure(self, mock_refresh):
         from products.mcp_store.backend.oauth import TokenRefreshError
 

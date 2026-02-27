@@ -1,5 +1,4 @@
 import json
-import time
 from typing import Any
 
 from django.http import HttpResponse, StreamingHttpResponse
@@ -13,7 +12,7 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPServerInstallation
-from .oauth import TokenRefreshError, is_token_expiring, refresh_oauth_token
+from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 
 logger = structlog.get_logger(__name__)
 
@@ -42,37 +41,7 @@ def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str
 def ensure_valid_token(installation: MCPServerInstallation) -> None:
     if not is_token_expiring(installation.sensitive_configuration or {}):
         return
-
-    sensitive = installation.sensitive_configuration or {}
-    refresh_token = sensitive.get("refresh_token")
-    if not refresh_token:
-        raise TokenRefreshError("No refresh token available")
-
-    server = installation.server
-    if not server or not server.oauth_metadata or not server.oauth_client_id:
-        raise TokenRefreshError("Missing OAuth server configuration")
-
-    token_url = server.oauth_metadata.get("token_endpoint")
-    if not token_url:
-        raise TokenRefreshError("Missing token endpoint")
-
-    token_data = refresh_oauth_token(
-        token_url=token_url,
-        refresh_token=refresh_token,
-        client_id=server.oauth_client_id,
-    )
-
-    new_sensitive = dict(sensitive)
-    new_sensitive["access_token"] = token_data["access_token"]
-    new_sensitive["token_retrieved_at"] = int(time.time())
-    if "refresh_token" in token_data:
-        new_sensitive["refresh_token"] = token_data["refresh_token"]
-    if "expires_in" in token_data:
-        new_sensitive["expires_in"] = token_data["expires_in"]
-    new_sensitive.pop("needs_reauth", None)
-
-    installation.sensitive_configuration = new_sensitive
-    installation.save(update_fields=["sensitive_configuration", "updated_at"])
+    refresh_installation_token(installation)
 
 
 def validate_installation_auth(installation: MCPServerInstallation) -> tuple[bool, HttpResponse | None]:
