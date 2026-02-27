@@ -15,7 +15,11 @@ export interface LLMAnalyticsGenerationsLogicProps {
     tabId?: string
 }
 
-export function getDefaultGenerationsColumns(showInputOutput: boolean, showSentiment: boolean = false): string[] {
+export function getDefaultGenerationsColumns(
+    showInputOutput: boolean,
+    showSentiment: boolean = false,
+    showTools: boolean = false
+): string[] {
     return [
         'uuid',
         'properties.$ai_trace_id',
@@ -23,6 +27,7 @@ export function getDefaultGenerationsColumns(showInputOutput: boolean, showSenti
         'person',
         ...(showSentiment ? ["'' -- Sentiment"] : []),
         "f'{properties.$ai_model}' -- Model",
+        ...(showTools ? ['properties.$ai_tools_called'] : []),
         "if(properties.$ai_is_error = 'true', '❌', '') -- Error",
         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
         "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
@@ -181,7 +186,8 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                         generationsColumns ||
                         getDefaultGenerationsColumns(
                             !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
-                            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
+                            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
                         ),
                     orderBy: [`${generationsSort.column} ${generationsSort.direction}`],
                     after: dateFilter.dateFrom || undefined,

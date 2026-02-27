@@ -191,7 +191,8 @@ function LLMAnalyticsGenerations(): JSX.Element {
             generationsQuery.source.select ||
             getDefaultGenerationsColumns(
                 !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
-                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
             )
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
@@ -225,7 +226,8 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 showSavedFilters: true,
                 defaultColumns: getDefaultGenerationsColumns(
                     !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
-                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
                 ),
             }}
             setQuery={(query) => {
@@ -286,6 +288,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                     },
                     person: llmAnalyticsColumnRenderers.person,
                     "'' -- Sentiment": llmAnalyticsColumnRenderers["'' -- Sentiment"],
+                    'properties.$ai_tools_called': llmAnalyticsColumnRenderers['properties.$ai_tools_called'],
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
                     },
@@ -518,6 +521,9 @@ function LLMAnalyticsSceneContent(): JSX.Element {
         'data-attr': 'errors-tab',
     })
 
+    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
+
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
         tabs.push({
             key: 'tools',
@@ -533,10 +539,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     }
 
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] || isEarlyAdopter) {
         tabs.push({
             key: 'sessions',
             label: 'Sessions',
@@ -568,8 +571,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
 
     const availableItemsInSidebar = useMemo(() => {
         return [
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] || isEarlyAdopter ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
                     onClick={() => toggleProduct('Clusters', true)}
@@ -593,7 +595,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     evaluations
                 </Link>
             ) : null,
-            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ? (
+            isPromptManagementEnabled ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
                     onClick={() => toggleProduct('Prompts', true)}
@@ -602,7 +604,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, searchParams, toggleProduct])
+    }, [featureFlags, isEarlyAdopter, isPromptManagementEnabled, searchParams, toggleProduct])
 
     return (
         <SceneContent>
