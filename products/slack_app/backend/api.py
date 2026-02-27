@@ -211,7 +211,7 @@ def resolve_slack_user(
                 slack_email = fresh_user_info.get("user", {}).get("profile", {}).get("email")  # type: ignore[call-overload]
 
         if not slack_email:
-            logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
+            logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
             _post_slack_user_feedback(
                 slack,
                 channel,
@@ -220,12 +220,16 @@ def resolve_slack_user(
                 (
                     "Sorry, I couldn't find your email address in Slack. "
                     "Please make sure your email is visible in your Slack profile, "
-                    "and that the app has `users:read.email` scope."
+                    "and contact the PostHog team if the issue persists."
                 ),
                 prefer_thread_message=True,
             )
             return None
 
+        # Trust model: Slack signature validation proves the payload is authentic.
+        # The email comes from Slack's `users.info` API via `users:read.email` scope, not from
+        # user-supplied input. Slack verifies emails at workspace sign-up, and admins control
+        # membership
         membership = (
             OrganizationMembership.objects.filter(
                 organization_id=integration.team.organization_id, user__email=slack_email
