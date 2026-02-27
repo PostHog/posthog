@@ -213,6 +213,14 @@ def complete_run(run_id: UUID) -> contracts.Run:
     return _to_run(run)
 
 
+def auto_approve_run(run_id: UUID, user_id: int) -> contracts.AutoApproveResult:
+    run, baseline_content = logic.auto_approve_run(run_id=run_id, user_id=user_id)
+    return contracts.AutoApproveResult(
+        run=_to_run(run),
+        baseline_content=baseline_content,
+    )
+
+
 def approve_run(input: contracts.ApproveRunInput) -> contracts.Run:
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
 

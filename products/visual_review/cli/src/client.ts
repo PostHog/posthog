@@ -7,6 +7,7 @@
 import type {
     ApproveSnapshotInputApi,
     ArtifactApi,
+    AutoApproveResultApi,
     CreateRunInputApi,
     CreateRunResultApi,
     RunApi,
@@ -156,6 +157,15 @@ export class VisualReviewClient {
         return this.request<RunApi>(`/visual_review/runs/${runId}/approve/`, {
             method: 'POST',
             body: JSON.stringify({ snapshots }),
+        })
+    }
+
+    /**
+     * Auto-approve all changes in a run and get signed baseline YAML.
+     */
+    async autoApproveRun(runId: string): Promise<AutoApproveResultApi> {
+        return this.request<AutoApproveResultApi>(`/visual_review/runs/${runId}/auto-approve/`, {
+            method: 'POST',
         })
     }
 }

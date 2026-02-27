@@ -11,6 +11,7 @@ from ..facade.contracts import (
     ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,
+    AutoApproveResult,
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
@@ -72,6 +73,11 @@ class UploadTargetSerializer(DataclassSerializer):
 class CreateRunResultSerializer(DataclassSerializer):
     class Meta:
         dataclass = CreateRunResult
+
+
+class AutoApproveResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = AutoApproveResult
 
 
 # --- Input Serializers ---

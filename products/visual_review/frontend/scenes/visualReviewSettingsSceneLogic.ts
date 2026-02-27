@@ -120,6 +120,17 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
             },
         ],
         existingRepoNames: [(s) => [s.repos], (repos): Set<string> => new Set(repos.map((r) => r.repo_full_name))],
+        githubManageAccessUrl: [
+            (s) => [s.integrations],
+            (integrations: any[] | null): string | null => {
+                const github = integrations?.find((i: { kind: string }) => i.kind === 'github')
+                const installationId = github?.config?.installation_id
+                if (installationId) {
+                    return `https://github.com/settings/installations/${installationId}`
+                }
+                return null
+            },
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [

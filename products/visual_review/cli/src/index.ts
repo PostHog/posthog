@@ -8,10 +8,10 @@
  */
 import { program } from 'commander'
 import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { VisualReviewClient } from './client.js'
+import { VisualReviewClient, type Run } from './client.js'
 import { hashImageWithDimensions } from './hasher.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
@@ -28,12 +28,13 @@ program
     .requiredOption('--baseline <path>', 'Path to snapshots.yml baseline file')
     .option('--api <url>', 'API URL (overrides snapshots.yml config)')
     .option('--team <id>', 'Team ID (overrides snapshots.yml config)')
-    .option('--repo <id>', 'Repo ID (UUID, default: inferred from git remote)')
+    .option('--repo <id>', 'Repo ID (UUID, overrides snapshots.yml config)')
     .option('--branch <name>', 'Git branch name')
     .option('--commit <sha>', 'Git commit SHA')
     .option('--pr <number>', 'PR number')
     .option('--token <value>', 'Personal API token (Authorization: Bearer)')
     .option('--cookie <value>', 'Session cookie for authentication')
+    .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
         try {
             const exitCode = await runSubmit(options)
@@ -82,6 +83,7 @@ interface SubmitOptions {
     pr?: string
     token?: string
     cookie?: string
+    autoApprove?: boolean
 }
 
 // --- Helpers ---
@@ -107,19 +109,6 @@ function getCurrentCommit(): string {
     }
 }
 
-function inferRepoId(): string | undefined {
-    // Infer from git remote — the backend matches on repo_full_name
-    // so we pass the org/repo string and let the backend resolve the UUID
-    try {
-        const url = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
-        // Handle both HTTPS (https://github.com/org/repo.git) and SSH (git@github.com:org/repo.git)
-        const match = url.match(/github\.com[:/](.+?)(?:\.git)?$/)
-        return match?.[1]
-    } catch {
-        return undefined
-    }
-}
-
 function resolveConfig(options: SubmitOptions): { api: string; team: string; repo: string } {
     const baselinePath = resolve(options.baseline)
     const snapshotsFile = readSnapshotsFile(baselinePath)
@@ -135,9 +124,9 @@ function resolveConfig(options: SubmitOptions): { api: string; team: string; rep
         throw new Error('Team ID required: pass --team or set config.team in snapshots.yml')
     }
 
-    const repo = options.repo ?? inferRepoId()
+    const repo = options.repo ?? config?.repo
     if (!repo) {
-        throw new Error('Repo ID required: pass --repo or ensure git remote origin points to GitHub')
+        throw new Error('Repo ID required: pass --repo or set config.repo in snapshots.yml')
     }
 
     return { api, team, repo }
@@ -212,6 +201,25 @@ async function runVerify(options: VerifyOptions): Promise<number> {
 
     log('All snapshots match baseline')
     return 0
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function waitForCompletion(client: VisualReviewClient, runId: string): Promise<Run> {
+    const maxAttempts = 60
+    const intervalMs = 2000
+
+    for (let i = 0; i < maxAttempts; i++) {
+        const run = await client.getRun(runId)
+        if (run.status === 'completed' || run.status === 'failed') {
+            return run
+        }
+        await sleep(intervalMs)
+    }
+
+    throw new Error(`Run did not complete within ${(maxAttempts * intervalMs) / 1000}s`)
 }
 
 async function runSubmit(options: SubmitOptions): Promise<number> {
@@ -296,15 +304,31 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     }
 
     // 6. Complete run
-    const run = await client.completeRun(result.run_id)
+    let run = await client.completeRun(result.run_id)
 
-    // 7. Print summary
+    // 7. Wait for diff processing if still running
+    if (run.status !== 'completed' && run.status !== 'failed') {
+        log('Waiting for diff processing...')
+        run = await waitForCompletion(client, result.run_id)
+    }
+
+    // 8. Print summary
     const s = run.summary
     log(
         `\nRun complete: ${s.total} snapshots — ${s.unchanged} unchanged, ${s.changed} changed, ${s.new} new, ${s.removed} removed`
     )
 
-    // 8. Exit code
+    // 9. Auto-approve if requested
+    if (options.autoApprove) {
+        log('Auto-approving all changes...')
+        const approveResult = await client.autoApproveRun(result.run_id)
+        const baselinePath = resolve(options.baseline)
+        writeFileSync(baselinePath, approveResult.baseline_content, 'utf-8')
+        log(`Baseline written to ${baselinePath}`)
+        return 0
+    }
+
+    // 10. Exit code
     const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
     if (hasChanges) {
         log('Visual changes detected — review required')

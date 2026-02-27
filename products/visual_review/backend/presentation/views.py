@@ -33,6 +33,7 @@ from ..facade.contracts import (
 )
 from .serializers import (
     ApproveRunInputSerializer,
+    AutoApproveResultSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
@@ -138,7 +139,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve"]
+    scope_object_write_actions = ["create", "complete", "approve", "auto_approve"]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
 
     @extend_schema(
@@ -270,3 +271,26 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         return Response(RunSerializer(instance=run).data)
+
+    @extend_schema(responses={200: AutoApproveResultSerializer})
+    @action(detail=True, methods=["post"], url_path="auto-approve")
+    def auto_approve(self, request: Request, pk: str, **kwargs) -> Response:
+        """Auto-approve all changes and return signed baseline YAML."""
+        try:
+            result = api.auto_approve_run(
+                run_id=UUID(pk),
+                user_id=cast(int, request.user.id),
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.StaleRunError as e:
+            return Response(
+                {"detail": str(e), "code": "stale_run"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except api.ArtifactNotFoundError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(AutoApproveResultSerializer(instance=result).data)

@@ -158,6 +158,14 @@ class Run:
 
 
 @dataclass(frozen=True)
+class AutoApproveResult:
+    """Result of auto-approving a run, including the signed baseline YAML."""
+
+    run: Run
+    baseline_content: str
+
+
+@dataclass(frozen=True)
 class UpdateRepoRequestInput:
     """Request body for updating a repo. repo_id comes from URL."""
 

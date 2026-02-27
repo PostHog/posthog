@@ -730,6 +730,7 @@ def _build_snapshots_yaml(
         "config": {
             "api": settings.SITE_URL,
             "team": str(repo.team_id),
+            "repo": str(repo.id),
         },
         "snapshots": sorted_snapshots,
     }
@@ -851,6 +852,61 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
         raise GitHubCommitError(f"Failed to commit baseline: {result.get('error')}")
 
     return result
+
+
+def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
+    """Auto-approve a completed run and return signed baseline YAML.
+
+    Used by the CLI during the transition period to keep baselines in sync
+    with jest-image-snapshot. Approves all CHANGED + NEW snapshots via the
+    normal approve_run path, then builds a fresh signed YAML.
+
+    Idempotent: if the run is already approved, rebuilds the YAML from
+    the current state. If there are no changes to approve, returns the
+    run as-is with a signed YAML of all current hashes.
+    """
+    run = get_run_with_snapshots(run_id)
+    repo = run.repo
+
+    if run.status != RunStatus.COMPLETED:
+        raise ValueError(f"Run must be completed before auto-approve (current status: {run.status})")
+
+    if is_run_stale(run):
+        raise StaleRunError("This run has been superseded by a newer run.")
+
+    # Collect snapshots that need approval (changed + new)
+    needs_approval = [
+        {"identifier": s.identifier, "new_hash": s.current_hash}
+        for s in run.snapshots.all()
+        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
+    ]
+
+    if needs_approval and not run.approved:
+        approve_run(
+            run_id=run_id,
+            user_id=user_id,
+            approved_snapshots=needs_approval,
+            commit_to_github=False,
+        )
+        run = get_run_with_snapshots(run_id)
+
+    snapshots = list(run.snapshots.all().order_by("identifier"))
+
+    # Preserve existing baselines for unchanged snapshots
+    baseline_updates = [
+        {"identifier": s.identifier, "new_hash": s.baseline_hash}
+        for s in snapshots
+        if s.result == SnapshotResult.UNCHANGED and s.baseline_hash
+    ]
+    # Approve changed/new snapshots with their current hash
+    change_updates = [
+        {"identifier": s.identifier, "new_hash": s.current_hash}
+        for s in snapshots
+        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
+    ]
+
+    baseline_content = _build_snapshots_yaml(repo, current_baselines={}, updates=baseline_updates + change_updates)
+    return run, baseline_content
 
 
 @transaction.atomic

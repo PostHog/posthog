@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, Spinner } from '@p
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -194,7 +195,8 @@ function RepoEditForm(): JSX.Element {
 }
 
 function AddRepoDropdown(): JSX.Element {
-    const { availableRepos, existingRepoNames, saving } = useValues(visualReviewSettingsSceneLogic)
+    const { availableRepos, existingRepoNames, saving, githubManageAccessUrl } =
+        useValues(visualReviewSettingsSceneLogic)
     const { addRepo } = useActions(visualReviewSettingsSceneLogic)
     const { githubRepositoriesLoading } = useValues(integrationsLogic)
 
@@ -208,23 +210,36 @@ function AddRepoDropdown(): JSX.Element {
         )
     }
 
+    const manageAccessUrl = githubManageAccessUrl ?? urls.settings('environment-integrations')
+
     return (
-        <LemonSelect
-            placeholder="Add a repository..."
-            loading={saving}
-            options={unaddedRepos.map((repo: GitHubRepoApi) => ({
-                value: repo.full_name,
-                label: repo.full_name,
-            }))}
-            onChange={(fullName) => {
-                const repo = availableRepos.find((r: GitHubRepoApi) => r.full_name === fullName)
-                if (repo) {
-                    addRepo(repo)
-                }
-            }}
-            value={null}
-            size="small"
-        />
+        <div className="flex items-center gap-2">
+            <LemonSelect
+                placeholder="Add a repository..."
+                loading={saving}
+                options={unaddedRepos.map((repo: GitHubRepoApi) => ({
+                    value: repo.full_name,
+                    label: repo.full_name,
+                }))}
+                onChange={(fullName) => {
+                    const repo = availableRepos.find((r: GitHubRepoApi) => r.full_name === fullName)
+                    if (repo) {
+                        addRepo(repo)
+                    }
+                }}
+                value={null}
+                size="small"
+            />
+            <LemonButton
+                type="tertiary"
+                size="small"
+                to={manageAccessUrl}
+                targetBlank={!!githubManageAccessUrl}
+                className="text-muted"
+            >
+                Manage access
+            </LemonButton>
+        </div>
     )
 }
 

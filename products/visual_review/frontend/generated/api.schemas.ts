@@ -135,6 +135,11 @@ export interface ApproveRunRequestInputApi {
     commit_to_github?: boolean
 }
 
+export interface AutoApproveResultApi {
+    run: RunApi
+    baseline_content: string
+}
+
 export interface SnapshotHistoryEntryApi {
     run_id: string
     result: string

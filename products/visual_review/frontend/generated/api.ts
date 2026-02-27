@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ApproveRunRequestInputApi,
+    AutoApproveResultApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
@@ -202,6 +203,24 @@ export const visualReviewRunsApproveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(approveRunRequestInputApi),
+    })
+}
+
+/**
+ * Auto-approve all changes and return signed baseline YAML.
+ */
+export const getVisualReviewRunsAutoApproveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/auto-approve/`
+}
+
+export const visualReviewRunsAutoApproveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoApproveResultApi> => {
+    return apiMutator<AutoApproveResultApi>(getVisualReviewRunsAutoApproveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
