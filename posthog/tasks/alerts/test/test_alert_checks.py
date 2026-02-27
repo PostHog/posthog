@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
@@ -691,12 +691,12 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_errors.call_count == 0
         assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).count() == 0
 
-    def _check_alert_with_empty_results(self) -> None:
+    def _check_alert_with_mock_result(self, result: Any) -> None:
         with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
             from posthog.caching.fetch_from_cache import InsightResult
 
             mock_calculate.return_value = InsightResult(
-                result=[], last_refresh=None, cache_key=None, is_cached=False, timezone=None
+                result=result, last_refresh=None, cache_key=None, is_cached=False, timezone=None
             )
             check_alert(self.alert["id"])
 
@@ -704,7 +704,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         self.set_thresholds(lower=0, upper=100)
-        self._check_alert_with_empty_results()
+        self._check_alert_with_mock_result([])
 
         assert mock_send_notifications_for_breaches.call_count == 0
 
@@ -716,13 +716,26 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         self.set_thresholds(lower=1)
-        self._check_alert_with_empty_results()
+        self._check_alert_with_mock_result([])
 
         assert mock_send_notifications_for_breaches.call_count == 1
 
         alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
         assert alert_check.state == AlertState.FIRING
         assert alert_check.calculated_value == 0
+
+    def test_none_result_produces_errored_state(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=0, upper=100)
+        self._check_alert_with_mock_result(None)
+
+        assert mock_send_notifications_for_breaches.call_count == 0
+        assert mock_send_errors.call_count == 1
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert alert_check.state == AlertState.ERRORED
+        assert alert_check.error is not None
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
