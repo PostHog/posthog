@@ -59,6 +59,9 @@ PICKER_TOKEN_SALT = "twig_repo_picker"
 PICKER_TOKEN_MAX_AGE_SECONDS = 900
 SLACK_USER_INFO_CACHE_TTL_SECONDS = 600
 
+_GITHUB_REPOS_PER_PAGE = 100
+_MAX_GITHUB_REPOS = 500
+
 
 @dataclass
 class SlackUserContext:
@@ -769,79 +772,35 @@ def _collect_thread_messages(
 
 
 def _get_full_repo_names(integration: Integration) -> list[str]:
-    """Return canonical org/repo names for the team's GitHub integration, or [] if unavailable."""
-    github_integration_record = Integration.objects.filter(team=integration.team, kind="github").first()
-    if not github_integration_record:
+    """Return canonical org/repo names across all GitHub integrations for the team, or [] if unavailable."""
+    github_records = Integration.objects.filter(team=integration.team, kind="github")
+    if not github_records.exists():
         return []
 
-    github = GitHubIntegration(github_integration_record)
-    org = github.organization()
-    repo_names = github.list_repositories()
+    all_repos: set[str] = set()
 
-    if not repo_names:
-        return []
+    for record in github_records:
+        github = GitHubIntegration(record)
+        org = github.organization()
 
-    return [f"{org}/{name}" for name in repo_names]
+        page = 1
+        while True:
+            repo_names = github.list_repositories(page=page)
+            for name in repo_names:
+                all_repos.add(f"{org}/{name}")
+                if len(all_repos) >= _MAX_GITHUB_REPOS:
+                    logger.warning(
+                        "github_repo_list_capped",
+                        team_id=integration.team_id,
+                        cap=_MAX_GITHUB_REPOS,
+                    )
+                    return sorted(all_repos)
 
+            if len(repo_names) < _GITHUB_REPOS_PER_PAGE:
+                break
+            page += 1
 
-def guess_repository(
-    thread_messages: list[dict[str, str]],
-    integration: Integration,
-    user: "User | None" = None,
-    all_repos: list[str] | None = None,
-) -> list[str]:
-    """Use the LLM to guess which repository the user is referring to from the thread context."""
-    full_repo_names = all_repos if all_repos is not None else _get_full_repo_names(integration)
-    if not full_repo_names:
-        return []
-
-    from openai import OpenAI
-
-    from posthog.llm.gateway_client import get_llm_client
-    from posthog.temporal.oauth import create_oauth_access_token_for_user
-
-    if not user:
-        client = get_llm_client("twig")
-    else:
-        oauth_token = create_oauth_access_token_for_user(user, integration.team_id)
-        base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/twig/v1"
-        client = OpenAI(base_url=base_url, api_key=oauth_token)
-
-    conversation_text = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
-
-    response = client.chat.completions.create(
-        model="claude-haiku-4-5",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a helper that identifies which GitHub repository a conversation is about. "
-                    "Given a Slack conversation and a list of available repositories, return repository names "
-                    "in 'org/repo' format, one per line. "
-                    "Return exactly one repository if and only if you are highly confident it is the correct one. "
-                    "If there is any ambiguity, uncertainty, or multiple plausible repositories, return nothing. "
-                    "Never guess based on organization defaults."
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"Available repositories:\n{chr(10).join(full_repo_names)}\n\nConversation:\n{conversation_text}",
-            },
-        ],
-        temperature=0,
-    )
-
-    result_text = (response.choices[0].message.content or "").strip()
-    if not result_text:
-        return []
-
-    matched = []
-    for line in result_text.splitlines():
-        repo = line.strip()
-        if repo in full_repo_names:
-            matched.append(repo)
-
-    return matched
+    return sorted(all_repos)
 
 
 def select_repository(

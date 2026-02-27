@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -12,25 +14,18 @@ from posthog.models.user_repo_preference import UserRepoPreference
 from products.slack_app.backend.api import (
     DefaultRepoCommand,
     _extract_explicit_repo,
+    _get_full_repo_names,
     _parse_default_repo_command,
-    guess_repository,
     select_repository,
 )
 
 
-def _make_llm_response(content: str) -> MagicMock:
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = content
-    return mock_response
-
-
-class TestGuessRepository:
+@patch("products.slack_app.backend.api.GitHubIntegration")
+class TestGetFullRepoNames:
     @pytest.fixture(autouse=True)
     def setup(self, db):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create(email="test@example.com", distinct_id="user-1")
 
         self.slack_integration = Integration.objects.create(
             team=self.team,
@@ -39,43 +34,111 @@ class TestGuessRepository:
             sensitive_config={"access_token": "xoxb-test"},
         )
 
-        self.github_integration = Integration.objects.create(
+    def test_no_github_integration_returns_empty(self, mock_github_class):
+        result = _get_full_repo_names(self.slack_integration)
+        assert result == []
+        mock_github_class.assert_not_called()
+
+    def test_single_integration_single_page(self, mock_github_class):
+        Integration.objects.create(
             team=self.team,
             kind="github",
             config={"account": {"name": "posthog"}},
             sensitive_config={"access_token": "ghp-test"},
         )
 
-    @parameterized.expand(
-        [
-            ("single_match", "posthog/posthog-js", ["posthog/posthog-js"]),
-            ("multiple_matches", "posthog/posthog-js\nposthog/posthog", ["posthog/posthog-js", "posthog/posthog"]),
-            ("no_match", "", []),
-            ("invalid_repo_filtered", "posthog/nonexistent", []),
-        ]
-    )
-    @patch("posthog.llm.gateway_client.get_llm_client")
-    @patch("products.slack_app.backend.api.GitHubIntegration")
-    def test_guess_repository(self, _name, llm_output, expected, mock_github_class, mock_get_llm):
         mock_github = MagicMock()
         mock_github.organization.return_value = "posthog"
-        mock_github.list_repositories.return_value = ["posthog-js", "posthog", "plugin-server"]
+        mock_github.list_repositories.return_value = ["posthog", "posthog-js", "plugin-server"]
         mock_github_class.return_value = mock_github
 
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = _make_llm_response(llm_output)
-        mock_get_llm.return_value = mock_client
+        result = _get_full_repo_names(self.slack_integration)
+        assert result == ["posthog/plugin-server", "posthog/posthog", "posthog/posthog-js"]
 
-        messages = [{"user": "Dev", "text": "fix the bug in posthog-js"}]
-        result = guess_repository(messages, self.slack_integration)
+    def test_pagination_across_pages(self, mock_github_class):
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"account": {"name": "org"}},
+            sensitive_config={"access_token": "ghp-test"},
+        )
 
-        assert result == expected
+        page1 = [f"repo-{i}" for i in range(100)]
+        page2 = [f"repo-{i}" for i in range(100, 120)]
 
-    def test_no_github_integration(self):
-        self.github_integration.delete()
-        messages = [{"user": "Dev", "text": "fix the bug"}]
-        result = guess_repository(messages, self.slack_integration)
-        assert result == []
+        mock_github = MagicMock()
+        mock_github.organization.return_value = "org"
+        mock_github.list_repositories.side_effect = [page1, page2]
+        mock_github_class.return_value = mock_github
+
+        result = _get_full_repo_names(self.slack_integration)
+        assert len(result) == 120
+        assert result == sorted(f"org/repo-{i}" for i in range(120))
+
+    def test_multiple_integrations_aggregated(self, mock_github_class):
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-1",
+            config={"account": {"name": "orgA"}},
+            sensitive_config={"access_token": "ghp-a"},
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-2",
+            config={"account": {"name": "orgB"}},
+            sensitive_config={"access_token": "ghp-b"},
+        )
+
+        gh_a = MagicMock()
+        gh_a.organization.return_value = "orgA"
+        gh_a.list_repositories.return_value = ["repo-1"]
+
+        gh_b = MagicMock()
+        gh_b.organization.return_value = "orgB"
+        gh_b.list_repositories.return_value = ["repo-2"]
+
+        mock_github_class.side_effect = [gh_a, gh_b]
+
+        result = _get_full_repo_names(self.slack_integration)
+        assert result == ["orgA/repo-1", "orgB/repo-2"]
+
+    @patch("products.slack_app.backend.api._MAX_GITHUB_REPOS", 5)
+    def test_cap_reached_truncates_and_warns(self, mock_github_class, caplog):
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"account": {"name": "org"}},
+            sensitive_config={"access_token": "ghp-test"},
+        )
+
+        mock_github = MagicMock()
+        mock_github.organization.return_value = "org"
+        mock_github.list_repositories.return_value = [f"repo-{i}" for i in range(10)]
+        mock_github_class.return_value = mock_github
+
+        with caplog.at_level(logging.WARNING):
+            result = _get_full_repo_names(self.slack_integration)
+
+        assert len(result) == 5
+        assert any("github_repo_list_capped" in r.message for r in caplog.records)
+
+    def test_results_are_sorted(self, mock_github_class):
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"account": {"name": "posthog"}},
+            sensitive_config={"access_token": "ghp-test"},
+        )
+
+        mock_github = MagicMock()
+        mock_github.organization.return_value = "posthog"
+        mock_github.list_repositories.return_value = ["zebra", "alpha", "middle"]
+        mock_github_class.return_value = mock_github
+
+        result = _get_full_repo_names(self.slack_integration)
+        assert result == ["posthog/alpha", "posthog/middle", "posthog/zebra"]
 
 
 class TestExtractExplicitRepo:
