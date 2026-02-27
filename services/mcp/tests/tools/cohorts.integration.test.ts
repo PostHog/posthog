@@ -39,12 +39,25 @@ describe('Cohorts', { concurrent: false }, () => {
 
     describe('cohorts-list tool', () => {
         const listTool = GENERATED_TOOLS['cohorts-list']!()
+        const createTool = GENERATED_TOOLS['cohorts-create']!()
 
-        it('should list cohorts', async () => {
+        it('should list cohorts including a newly created one', async () => {
+            const name = `List Test ${generateUniqueKey('list')}`
+            const createResult = await createTool.handler(context, {
+                name,
+                is_static: true,
+            })
+            const created = parseToolResponse(createResult)
+            createdResources.cohorts.push(created.id)
+
             const result = await listTool.handler(context, {})
             const cohorts = parseToolResponse(result)
 
             expect(Array.isArray(cohorts)).toBe(true)
+            const found = cohorts.find((c: { id: number }) => c.id === created.id)
+            expect(found).toBeTruthy()
+            expect(found.name).toBe(name)
+            expect(found.url).toContain('/cohorts/')
         })
 
         it('should support pagination', async () => {
@@ -180,6 +193,28 @@ describe('Cohorts', { concurrent: false }, () => {
         const createTool = GENERATED_TOOLS['cohorts-create']!()
         const addPersonsTool = GENERATED_TOOLS['cohorts-add-persons-to-static-cohort-partial-update']!()
         const removePersonTool = GENERATED_TOOLS['cohorts-remove-person-from-static-cohort-partial-update']!()
+
+        it('should reject adding persons to a dynamic cohort', async () => {
+            const createResult = await createTool.handler(context, {
+                name: `Dynamic Reject Test ${generateUniqueKey('dyn-reject')}`,
+                filters: {
+                    properties: {
+                        type: 'OR',
+                        values: [{ type: 'person', key: '$browser', value: 'Chrome', operator: 'exact' }],
+                    },
+                },
+            })
+            const created = parseToolResponse(createResult)
+            createdResources.cohorts.push(created.id)
+
+            const fakeUuid = '00000000-0000-4000-8000-000000000003'
+            await expect(
+                addPersonsTool.handler(context, {
+                    id: created.id,
+                    person_ids: [fakeUuid],
+                })
+            ).rejects.toThrow()
+        })
 
         it('should reject non-existent person UUIDs', async () => {
             const createResult = await createTool.handler(context, {

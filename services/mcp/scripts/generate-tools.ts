@@ -326,17 +326,13 @@ function generateToolCode(
     let handlerBody = ''
     handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
 
-    const injectedFields = config.inject_body_fields ? Object.entries(config.inject_body_fields) : []
-    const hasBody = composition.bodyFieldNames.length > 0 || injectedFields.length > 0
+    const hasBody = composition.bodyFieldNames.length > 0
     const hasQuery = composition.queryParamNames.length > 0
 
     if (hasBody) {
         handlerBody += `        const body: Record<string, unknown> = {}\n`
         for (const bf of composition.bodyFieldNames) {
             handlerBody += `        if (params.${bf} !== undefined) body['${bf}'] = params.${bf}\n`
-        }
-        for (const [field, value] of injectedFields) {
-            handlerBody += `        body['${field}'] = ${JSON.stringify(value)}\n`
         }
     }
 

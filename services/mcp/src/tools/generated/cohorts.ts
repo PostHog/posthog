@@ -68,7 +68,6 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema> => ({
         if (params.cohort_type !== undefined) {
             body['cohort_type'] = params.cohort_type
         }
-        body['_create_static_person_ids'] = []
         const result = await context.api.request({
             method: 'POST',
             path: `/api/projects/${projectId}/cohorts/`,

@@ -48,6 +48,8 @@ export const cohortsListResponseResultsItemCreatedByOneLastNameMax = 150
 
 export const cohortsListResponseResultsItemCreatedByOneEmailMax = 254
 
+export const cohortsListResponseResultsItemCreateStaticPersonIdsDefault = []
+
 export const CohortsListResponse = zod.object({
     count: zod.number(),
     next: zod.string().url().nullish(),
@@ -200,7 +202,9 @@ export const CohortsListResponse = zod.object({
                 ),
             experiment_set: zod.array(zod.number()),
             _create_in_folder: zod.string().optional(),
-            _create_static_person_ids: zod.array(zod.string()).optional(),
+            _create_static_person_ids: zod
+                .array(zod.string())
+                .default(cohortsListResponseResultsItemCreateStaticPersonIdsDefault),
         })
     ),
 })
@@ -220,6 +224,7 @@ export const cohortsCreateBodyDescriptionMax = 1000
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
+export const cohortsCreateBodyCreateStaticPersonIdsDefault = []
 
 export const CohortsCreateBody = zod.object({
     name: zod.string().max(cohortsCreateBodyNameMax).nullish(),
@@ -322,7 +327,7 @@ export const CohortsCreateBody = zod.object({
             'Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).optional(),
+    _create_static_person_ids: zod.array(zod.string()).default(cohortsCreateBodyCreateStaticPersonIdsDefault),
 })
 
 export const CohortsRetrieveParams = zod.object({
@@ -348,6 +353,8 @@ export const cohortsRetrieveResponseCreatedByOneFirstNameMax = 150
 export const cohortsRetrieveResponseCreatedByOneLastNameMax = 150
 
 export const cohortsRetrieveResponseCreatedByOneEmailMax = 254
+
+export const cohortsRetrieveResponseCreateStaticPersonIdsDefault = []
 
 export const CohortsRetrieveResponse = zod.object({
     id: zod.number(),
@@ -481,7 +488,7 @@ export const CohortsRetrieveResponse = zod.object({
         ),
     experiment_set: zod.array(zod.number()),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).optional(),
+    _create_static_person_ids: zod.array(zod.string()).default(cohortsRetrieveResponseCreateStaticPersonIdsDefault),
 })
 
 export const CohortsUpdateParams = zod.object({
@@ -500,6 +507,7 @@ export const cohortsUpdateBodyDescriptionMax = 1000
 export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
 export const cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
 export const cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
+export const cohortsUpdateBodyCreateStaticPersonIdsDefault = []
 
 export const CohortsUpdateBody = zod.object({
     name: zod.string().max(cohortsUpdateBodyNameMax).nullish(),
@@ -602,7 +610,7 @@ export const CohortsUpdateBody = zod.object({
             'Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).optional(),
+    _create_static_person_ids: zod.array(zod.string()).default(cohortsUpdateBodyCreateStaticPersonIdsDefault),
 })
 
 export const cohortsUpdateResponseNameMax = 400
@@ -619,6 +627,8 @@ export const cohortsUpdateResponseCreatedByOneFirstNameMax = 150
 export const cohortsUpdateResponseCreatedByOneLastNameMax = 150
 
 export const cohortsUpdateResponseCreatedByOneEmailMax = 254
+
+export const cohortsUpdateResponseCreateStaticPersonIdsDefault = []
 
 export const CohortsUpdateResponse = zod.object({
     id: zod.number(),
@@ -752,7 +762,7 @@ export const CohortsUpdateResponse = zod.object({
         ),
     experiment_set: zod.array(zod.number()),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).optional(),
+    _create_static_person_ids: zod.array(zod.string()).default(cohortsUpdateResponseCreateStaticPersonIdsDefault),
 })
 
 export const CohortsPartialUpdateParams = zod.object({
@@ -771,6 +781,7 @@ export const cohortsPartialUpdateBodyDescriptionMax = 1000
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
+export const cohortsPartialUpdateBodyCreateStaticPersonIdsDefault = []
 
 export const CohortsPartialUpdateBody = zod.object({
     name: zod.string().max(cohortsPartialUpdateBodyNameMax).nullish(),
@@ -875,7 +886,7 @@ export const CohortsPartialUpdateBody = zod.object({
             'Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).optional(),
+    _create_static_person_ids: zod.array(zod.string()).default(cohortsPartialUpdateBodyCreateStaticPersonIdsDefault),
 })
 
 export const cohortsPartialUpdateResponseNameMax = 400
@@ -892,6 +903,8 @@ export const cohortsPartialUpdateResponseCreatedByOneFirstNameMax = 150
 export const cohortsPartialUpdateResponseCreatedByOneLastNameMax = 150
 
 export const cohortsPartialUpdateResponseCreatedByOneEmailMax = 254
+
+export const cohortsPartialUpdateResponseCreateStaticPersonIdsDefault = []
 
 export const CohortsPartialUpdateResponse = zod.object({
     id: zod.number(),
@@ -1031,7 +1044,9 @@ export const CohortsPartialUpdateResponse = zod.object({
         ),
     experiment_set: zod.array(zod.number()),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).optional(),
+    _create_static_person_ids: zod
+        .array(zod.string())
+        .default(cohortsPartialUpdateResponseCreateStaticPersonIdsDefault),
 })
 
 /**

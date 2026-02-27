@@ -385,7 +385,9 @@ class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
-    _create_static_person_ids = serializers.ListField(required=False, child=serializers.CharField(), write_only=True)
+    _create_static_person_ids = serializers.ListField(
+        required=False, child=serializers.CharField(), write_only=True, default=[]
+    )
 
     # Explicit filters field with proper OpenAPI schema
     filters = CohortFiltersField(required=False, allow_null=True)
