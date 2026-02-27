@@ -144,3 +144,32 @@ class TestClusteringJobViewSet(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_disables_default_job_at_same_level(self):
+        default_trace = self._create_job(name="Default (traces)", analysis_level="trace", enabled=True)
+        default_gen = self._create_job(name="Default (generations)", analysis_level="generation", enabled=True)
+
+        response = self.client.post(
+            self._url(),
+            {"name": "Prod Traffic", "analysis_level": "trace"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        default_trace.refresh_from_db()
+        default_gen.refresh_from_db()
+        self.assertFalse(default_trace.enabled)
+        self.assertTrue(default_gen.enabled)
+
+    def test_create_does_not_disable_non_default_jobs(self):
+        custom = self._create_job(name="Custom Trace Job", analysis_level="trace", enabled=True)
+
+        response = self.client.post(
+            self._url(),
+            {"name": "Another Trace Job", "analysis_level": "trace"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        custom.refresh_from_db()
+        self.assertTrue(custom.enabled)

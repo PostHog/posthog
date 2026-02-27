@@ -72,10 +72,29 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         instance = serializer.save(team_id=self.team_id)
+
+        # Disable the migration-created default job for the same level.
+        # Creating a custom job signals the default catch-all is too noisy.
+        disabled_count = (
+            ClusteringJob.objects.filter(
+                team_id=self.team_id,
+                analysis_level=instance.analysis_level,
+                name__startswith="Default (",
+                enabled=True,
+            )
+            .exclude(id=instance.id)
+            .update(enabled=False)
+        )
+
         report_user_action(
             cast(User, self.request.user),
             "llma clustering job created",
-            {"job_id": instance.id, "name": instance.name, "analysis_level": instance.analysis_level},
+            {
+                "job_id": instance.id,
+                "name": instance.name,
+                "analysis_level": instance.analysis_level,
+                "defaults_disabled": disabled_count,
+            },
             self.team,
         )
 
