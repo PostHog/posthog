@@ -34,7 +34,7 @@ function generateFunnelEvents(): PlaywrightSetupEvent[] {
     return [
         ...createEvent({ event: STEP_1, user: chromeUsers, timestamp: daysAgo(5), properties: chrome }).repeat(10),
         ...createEvent({ event: STEP_1, user: firefoxUsers, timestamp: daysAgo(5), properties: firefox }).repeat(10),
-        ...createEvent({ event: EXCLUSION_EVENT, user: 'chrome-user-0', timestamp: hoursAgo(121), properties: chrome })
+        ...createEvent({ event: EXCLUSION_EVENT, user: 'chrome-user-0', timestamp: hoursAgo(108), properties: chrome })
             .events,
         ...createEvent({ event: STEP_2, user: chromeUsers, timestamp: daysAgo(4), properties: chrome }).repeat(10),
         ...createEvent({ event: STEP_3, user: chromeUsers, timestamp: daysAgo(3), properties: chrome }).repeat(5),
@@ -189,8 +189,8 @@ test.describe('Funnel insights', () => {
             await insight.funnels.waitForChart()
             await expect(insight.funnels.stepOrderFilter).toContainText('Strict')
             await expect(insight.funnels.stepLegend(0)).toContainText('20')
-            await expect(insight.funnels.stepLegend(1)).toContainText('10')
-            await expect(insight.funnels.stepLegend(2)).toContainText('5')
+            await expect(insight.funnels.stepLegend(1)).toContainText('9')
+            await expect(insight.funnels.stepLegend(2)).toContainText('4')
         })
 
         await test.step('switch to Any order and verify counts', async () => {
