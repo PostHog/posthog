@@ -625,7 +625,7 @@ resource "posthog_insight" "dashboard_created_unique_users_by_event_s_source" {
     }
   })
   tags = ["managed-by:terraform"]
-  dashboard_ids = [636477]
+  dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id]
 }
 
 # Terraform configuration for PostHog insight
@@ -649,5 +649,5 @@ resource "posthog_insight" "alert_failures_by_exception_type_aggregated" {
     }
   })
   tags = ["managed-by:terraform"]
-  dashboard_ids = [1142938, 821321, 636477, 1294240]
+  dashboard_ids = [1142938, 821321, posthog_dashboard.team_analytics_platform_key_metrics.id, 1294240]
 }

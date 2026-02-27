@@ -108,7 +108,7 @@ resource "posthog_dashboard_layout" "team_analytics_platform_key_metrics" {
       })
     },
     {
-      insight_id = posthog_insight.export_successes_and_failures_us.id
+      insight_id = posthog_insight.export_successes_and_failures["us"].id
       layouts_json = jsonencode({
         "sm": {
           "h": 5,
@@ -124,7 +124,7 @@ resource "posthog_dashboard_layout" "team_analytics_platform_key_metrics" {
       })
     },
     {
-      insight_id = posthog_insight.export_successes_and_failures_eu.id
+      insight_id = posthog_insight.export_successes_and_failures["eu"].id
       layouts_json = jsonencode({
         "sm": {
           "h": 5,
