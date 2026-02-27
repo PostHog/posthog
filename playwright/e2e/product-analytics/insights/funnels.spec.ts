@@ -34,7 +34,7 @@ function generateFunnelEvents(): PlaywrightSetupEvent[] {
     return [
         ...createEvent({ event: STEP_1, user: chromeUsers, timestamp: daysAgo(5), properties: chrome }).repeat(10),
         ...createEvent({ event: STEP_1, user: firefoxUsers, timestamp: daysAgo(5), properties: firefox }).repeat(10),
-        ...createEvent({ event: EXCLUSION_EVENT, user: 'chrome-user-0', timestamp: hoursAgo(108), properties: chrome })
+        ...createEvent({ event: EXCLUSION_EVENT, user: 'chrome-user-0', timestamp: hoursAgo(121), properties: chrome })
             .events,
         ...createEvent({ event: STEP_2, user: chromeUsers, timestamp: daysAgo(4), properties: chrome }).repeat(10),
         ...createEvent({ event: STEP_3, user: chromeUsers, timestamp: daysAgo(3), properties: chrome }).repeat(5),
@@ -207,13 +207,42 @@ test.describe('Funnel insights', () => {
             await insight.funnels.waitForChart()
         })
 
+        await test.step('clicking dropped-off count opens persons modal with correct users', async () => {
+            // Person buttons only render in view mode, so save first
+            await insight.save()
+            await insight.funnels.waitForChart()
+
+            const step2 = insight.funnels.stepLegend(1)
+            // First funnel-inspect-button is converted count, second is dropped-off count
+            const droppedOffButton = step2.locator('.funnel-inspect-button').nth(1)
+            await droppedOffButton.click()
+
+            const modal = page.locator('[data-attr="persons-modal"]')
+            await expect(modal).toBeVisible({ timeout: 10000 })
+            await expect(modal).toContainText('firefox-user-1')
+
+            await modal.locator('[aria-label="close"]').click()
+            await expect(modal).not.toBeVisible()
+        })
+
         await test.step('session aggregation disables persons modal on step counts', async () => {
+            await insight.edit()
             await insight.funnels.selectAggregation('Unique sessions')
+            await insight.funnels.waitForChart()
+            await insight.save()
             await insight.funnels.waitForChart()
 
             const step2 = insight.funnels.stepLegend(1)
             await expect(step2).toBeVisible()
-            await expect(step2.locator('.ValueInspectorButton')).toHaveCount(0)
+            // Under session aggregation, counts render as spans, not clickable links
+            await expect(step2.locator('a.funnel-inspect-button')).toHaveCount(0)
+        })
+
+        await test.step('revert seeded insight to unique users', async () => {
+            await insight.edit()
+            await insight.funnels.selectAggregation('Unique users')
+            await insight.funnels.waitForChart()
+            await insight.save()
         })
     })
 
