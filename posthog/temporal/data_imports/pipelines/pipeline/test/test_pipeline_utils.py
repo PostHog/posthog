@@ -416,7 +416,7 @@ def test_evolve_pyarrow_schema_arrow_invalid_fallback_to_decimal256_then_string(
             "amount": pa.array([value], type=pa.decimal128(38, 32)),
         }
     )
-    delta_fields = [
+    delta_fields: list[pa.Field] = [
         pa.field("id", pa.int64(), nullable=False),
         pa.field("amount", pa.decimal128(38, 18), nullable=True),
     ]
@@ -433,7 +433,7 @@ def test_evolve_pyarrow_schema_decimal_integration_table_from_py_list():
     """table_from_py_list + _evolve_pyarrow_schema: 7 int digits → decimal128(38, 31)."""
     schema = pa.schema({"amount": pa.decimal128(38, 32)})
     table = table_from_py_list([{"amount": decimal.Decimal("1234567.5")}], schema)
-    delta_fields = [
+    delta_fields: list[pa.Field] = [
         pa.field("amount", pa.decimal128(38, 32), nullable=True),
     ]
     delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
