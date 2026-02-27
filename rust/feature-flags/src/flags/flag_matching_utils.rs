@@ -2743,6 +2743,16 @@ mod tests {
             let groups = state.get_group_properties();
             let org = groups.get(&0).unwrap();
             assert_eq!(org.get("name"), Some(&json!("PostHog")));
+
+            let cohort_calls = mock.get_cohort_calls();
+            assert_eq!(cohort_calls.len(), 1);
+            assert_eq!(cohort_calls[0].0, person_id);
+            assert_eq!(cohort_calls[0].1, vec![100, 200]);
+
+            let group_calls = mock.get_group_calls();
+            assert_eq!(group_calls.len(), 1);
+            assert_eq!(group_calls[0].0, team_id);
+            assert_eq!(group_calls[0].1, vec![(0, "org_key".to_string())]);
         }
 
         #[tokio::test]
@@ -2774,6 +2784,9 @@ mod tests {
                 Some(&json!("unknown_user"))
             );
             assert_eq!(person_props.len(), 1);
+
+            assert!(mock.get_cohort_calls().is_empty());
+            assert!(mock.get_group_calls().is_empty());
         }
 
         #[tokio::test]
@@ -2802,6 +2815,11 @@ mod tests {
 
             assert_eq!(result.get("flag_1"), Some(&"hash_a".to_string()));
             assert_eq!(result.get("flag_2"), Some(&"hash_b".to_string()));
+
+            let hash_calls = mock.get_hash_key_context_calls();
+            assert_eq!(hash_calls.len(), 1);
+            assert_eq!(hash_calls[0].0, team_id);
+            assert_eq!(hash_calls[0].1, vec!["user1".to_string()]);
         }
 
         #[tokio::test]
@@ -2919,6 +2937,14 @@ mod tests {
             .unwrap();
 
             assert!(result);
+
+            let hash_calls = mock.get_hash_key_context_calls();
+            assert_eq!(hash_calls.len(), 1);
+            assert_eq!(hash_calls[0].0, team_id);
+            assert_eq!(
+                hash_calls[0].1,
+                vec!["user_a".to_string(), "anon_hash".to_string()]
+            );
         }
 
         #[tokio::test]
@@ -2961,6 +2987,14 @@ mod tests {
             .unwrap();
 
             assert!(!result);
+
+            let hash_calls = mock.get_hash_key_context_calls();
+            assert_eq!(hash_calls.len(), 1);
+            assert_eq!(hash_calls[0].0, team_id);
+            assert_eq!(
+                hash_calls[0].1,
+                vec!["user_a".to_string(), "anon_hash".to_string()]
+            );
         }
 
         #[tokio::test]
