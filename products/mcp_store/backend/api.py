@@ -1,7 +1,7 @@
 import time
 import secrets
 from typing import Any, cast
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -143,9 +143,6 @@ class OAuthCallbackRequestSerializer(serializers.Serializer):
     code = serializers.CharField(required=True)
     server_id = serializers.UUIDField(required=True)
     state_token = serializers.CharField(required=True)
-    mcp_url = serializers.URLField(required=False, allow_blank=True, default="")
-    display_name = serializers.CharField(required=False, allow_blank=True, default="")
-    description = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class MCPServerInstallationUpdateSerializer(serializers.Serializer):
@@ -173,6 +170,16 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     serializer_class = MCPServerInstallationSerializer
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
+
+    # Installations are user-scoped (safely_get_queryset filters by user), so
+    # write actions like install/uninstall don't need project admin access.
+    # Return project:read so AccessControlPermission requires "member" not "admin".
+    _USER_SCOPED_ACTIONS = {"destroy", "install_custom", "oauth_callback"}
+
+    def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
+        if self.action in self._USER_SCOPED_ACTIONS:
+            return ["project:read"]
+        return None
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
@@ -320,16 +327,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
-        state = urlencode(
-            {
-                "token": token,
-                "server_id": str(server.id),
-                "mcp_url": mcp_url,
-                "display_name": name,
-                "description": description,
-            },
-            quote_via=quote,
-        )
+        state = urlencode({"token": token, "server_id": str(server.id)})
 
         query_params = {
             "client_id": server.oauth_client_id,
@@ -546,9 +544,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         code = request.validated_data["code"]
         server_id = request.validated_data["server_id"]
         state_token = request.validated_data["state_token"]
-        mcp_url = request.validated_data["mcp_url"]
-        display_name = request.validated_data["display_name"]
-        description = request.validated_data["description"]
 
         cookie_token = request.COOKIES.get("ph_oauth_state")
         if not cookie_token or not secrets.compare_digest(cookie_token, state_token):
@@ -583,7 +578,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if expires_in := token_data.get("expires_in"):
             sensitive_config["expires_in"] = expires_in
 
-        install_url = mcp_url or server.url
+        existing = MCPServerInstallation.objects.filter(
+            team_id=self.team_id, user=cast(User, request.user), server=server
+        ).first()
+
+        install_url = existing.url if existing else server.url
+        display_name = existing.display_name if existing else server.name
+        description = existing.description if existing else server.description
 
         installation, created = MCPServerInstallation.objects.update_or_create(
             team_id=self.team_id,

@@ -90,6 +90,11 @@ class TestOpenRouterDefaultKey:
             adapter._get_default_api_key()
 
 
+class TestOpenRouterRecommendedModels:
+    def test_recommended_models_returns_empty(self):
+        assert OpenRouterAdapter.recommended_models() == set()
+
+
 class TestOpenRouterHeaders:
     def test_openai_adapter_returns_empty_headers(self):
         adapter = OpenAIAdapter()

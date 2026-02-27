@@ -405,12 +405,26 @@
             ],
             "label": "AI time to first token (LLM)"
         },
+        "$ai_tool_call_count": {
+            "description": "The number of tool calls made by the LLM in this generation.",
+            "examples": [
+                "2"
+            ],
+            "label": "AI Tool Call Count (LLM)"
+        },
         "$ai_tools": {
             "description": "The tools available to the LLM.",
             "examples": [
                 "[{\"type\": \"function\", \"function\": {\"name\": \"tool1\", \"arguments\": {\"arg1\": \"value1\", \"arg2\": \"value2\"}}}]"
             ],
             "label": "AI tools (LLM)"
+        },
+        "$ai_tools_called": {
+            "description": "The names of tools called by the LLM in this generation.",
+            "examples": [
+                "get_weather,search_docs"
+            ],
+            "label": "AI Tools Called (LLM)"
         },
         "$ai_total_cost_usd": {
             "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
@@ -3005,12 +3019,26 @@
             ],
             "label": "AI time to first token (LLM)"
         },
+        "$ai_tool_call_count": {
+            "description": "The number of tool calls made by the LLM in this generation.",
+            "examples": [
+                "2"
+            ],
+            "label": "AI Tool Call Count (LLM)"
+        },
         "$ai_tools": {
             "description": "The tools available to the LLM.",
             "examples": [
                 "[{\"type\": \"function\", \"function\": {\"name\": \"tool1\", \"arguments\": {\"arg1\": \"value1\", \"arg2\": \"value2\"}}}]"
             ],
             "label": "AI tools (LLM)"
+        },
+        "$ai_tools_called": {
+            "description": "The names of tools called by the LLM in this generation.",
+            "examples": [
+                "get_weather,search_docs"
+            ],
+            "label": "AI Tools Called (LLM)"
         },
         "$ai_total_cost_usd": {
             "description": "The total cost in USD of the request made to the LLM API (input + output costs).",

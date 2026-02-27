@@ -168,3 +168,9 @@ class PostgresPrinter(HogQLPrinter):
     def visit_type_cast(self, node):
         expr_sql = self.visit(node.expr)
         return f"CAST({expr_sql} AS {escape_postgres_identifier(node.type_name)})"
+
+    def visit_cte(self, node):
+        if node.cte_type == "subquery" and node.columns is not None:
+            columns_sql = ", ".join(self._print_identifier(col) for col in node.columns)
+            return f"{self._print_identifier(node.name)}({columns_sql}) AS {self.visit(node.expr)}"
+        return super().visit_cte(node)

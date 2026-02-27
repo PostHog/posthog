@@ -103,6 +103,16 @@ services:
                         reverse_proxy plugins:6738
                     }
 
+                    @objectstorage {
+                        path /posthog
+                        path /posthog/
+                        path /posthog/*
+                    }
+
+                    handle @objectstorage {
+                        reverse_proxy objectstorage:19000
+                    }
+
                     handle {
                         reverse_proxy web:8000
                     }

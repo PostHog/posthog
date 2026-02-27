@@ -112,6 +112,7 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+                AND max(is_deleted) = 0
             """,
             {
                 "team_id": team.pk,
@@ -180,6 +181,7 @@ class SessionReplayEvents:
                     session_id
                 HAVING
                     expiry_time >= {now}
+                    AND max(is_deleted) = 0
             """,
             values={
                 "session_ids": session_ids,
@@ -268,6 +270,7 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+                AND max(is_deleted) = 0
             {optional_format_clause}
         """
         query = query.format(
@@ -306,6 +309,7 @@ class SessionReplayEvents:
                     session_id
                 HAVING
                     expiry_time >= %(python_now)s
+                    AND max(is_deleted) = 0
                 {optional_format_clause}
                 """
         query = query.format(
@@ -422,6 +426,7 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+                AND max(is_deleted) = 0
         """
         tag_queries(product=Product.REPLAY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
@@ -553,11 +558,15 @@ class SessionReplayEvents:
     @staticmethod
     def get_sessions_from_distinct_id_query(
         format: Optional[str] = None,
+        paginated: bool = False,
     ):
         """
-        Helper function to build a query for listing all session IDs for a given set of distinct IDs
+        Helper function to build a query for listing all session IDs for a given set of distinct IDs.
+        When paginated=True, adds keyset pagination (cursor, page_size parameters required).
         """
-        query = """
+        cursor_clause = "AND session_id > %(cursor)s" if paginated else ""
+        pagination_clause = "ORDER BY session_id ASC LIMIT %(page_size)s" if paginated else ""
+        query = f"""
                 SELECT
                     session_id,
                     min(min_first_timestamp) as start_time,
@@ -567,13 +576,16 @@ class SessionReplayEvents:
                     session_replay_events
                 PREWHERE
                     team_id = %(team_id)s
-                    AND distinct_id IN (%(distinct_ids)s)
                     AND min_first_timestamp <= %(python_now)s
+                    {cursor_clause}
                 GROUP BY
                     session_id
                 HAVING
                     expiry_time >= %(python_now)s
-                {optional_format_clause}
+                    AND max(is_deleted) = 0
+                    AND anyIf(distinct_id, notEmpty(distinct_id)) IN (%(distinct_ids)s)
+                {pagination_clause}
+                {{optional_format_clause}}
                 """
         query = query.format(
             optional_format_clause=(f"FORMAT {format}" if format else ""),
@@ -583,11 +595,15 @@ class SessionReplayEvents:
     @staticmethod
     def get_sessions_from_team_id_query(
         format: Optional[str] = None,
+        paginated: bool = False,
     ):
         """
-        Helper function to build a query for listing all session IDs for a given team ID
+        Helper function to build a query for listing all session IDs for a given team ID.
+        When paginated=True, adds keyset pagination (cursor, page_size parameters required).
         """
-        query = """
+        cursor_clause = "AND session_id > %(cursor)s" if paginated else ""
+        pagination_clause = "ORDER BY session_id ASC LIMIT %(page_size)s" if paginated else ""
+        query = f"""
                 SELECT
                     session_id,
                     min(min_first_timestamp) as start_time,
@@ -598,11 +614,14 @@ class SessionReplayEvents:
                 PREWHERE
                     team_id = %(team_id)s
                     AND min_first_timestamp <= %(python_now)s
+                    {cursor_clause}
                 GROUP BY
                     session_id
                 HAVING
                     expiry_time >= %(python_now)s
-                {optional_format_clause}
+                    AND max(is_deleted) = 0
+                {pagination_clause}
+                {{optional_format_clause}}
                 """
         query = query.format(
             optional_format_clause=(f"FORMAT {format}" if format else ""),
