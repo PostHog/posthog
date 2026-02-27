@@ -14,8 +14,7 @@ import { Breadcrumb } from '~/types'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse, SignalReportStatus, SignalSourceConfig } from './types'
-
+import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse, SignalReportStatus } from './types'
 
 const REPORTS_PAGE_SIZE = 200
 

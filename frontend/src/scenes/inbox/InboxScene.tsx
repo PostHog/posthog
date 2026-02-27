@@ -52,9 +52,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { inboxSceneLogic } from './inboxSceneLogic'
-import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalCard } from './SignalCard'
 import { SignalGraphTab } from './SignalGraphTab'
+import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesModal } from './SourcesModal'
 import { SignalReport, SignalReportArtefact, SignalReportStatus } from './types'
 
@@ -232,8 +232,16 @@ function StatusFilter(): JSX.Element {
 }
 
 function ReportListPane(): JSX.Element {
-    const { filteredReports, reportsLoading, searchQuery, reports, selectedReportId, shouldShowEnablingCtaOnMobile, statusFilters, reportsHasMore } =
-        useValues(inboxSceneLogic)
+    const {
+        filteredReports,
+        reportsLoading,
+        searchQuery,
+        reports,
+        selectedReportId,
+        shouldShowEnablingCtaOnMobile,
+        statusFilters,
+        reportsHasMore,
+    } = useValues(inboxSceneLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
     const { setSearchQuery, loadMoreReports } = useActions(inboxSceneLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
@@ -429,8 +437,15 @@ function JudgmentBadges({ artefacts }: { artefacts: SignalReportArtefact[] }): J
 }
 
 function ReportDetailPane(): JSX.Element {
-    const { selectedReport, shouldShowEnablingCtaOnMobile, artefacts, activeDetailTab, setActiveDetailTab, selectedReportSignals, reportSignalsLoading } = useValues(inboxSceneLogic)
-    const { deleteReport } = useActions(inboxSceneLogic)
+    const {
+        selectedReport,
+        shouldShowEnablingCtaOnMobile,
+        artefacts,
+        activeDetailTab,
+        selectedReportSignals,
+        reportSignalsLoading,
+    } = useValues(inboxSceneLogic)
+    const { deleteReport, setActiveDetailTab } = useActions(inboxSceneLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
 
