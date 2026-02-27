@@ -9,6 +9,24 @@ from ....personhog.types.v1 import (
     person_pb2 as personhog_dot_types_dot_v1_dot_person__pb2,
 )
 
+GRPC_GENERATED_VERSION = "1.71.2"
+GRPC_VERSION = grpc.__version__
+_version_not_supported = False
+try:
+    from grpc._utilities import first_version_is_lower
+
+    _version_not_supported = first_version_is_lower(GRPC_VERSION, GRPC_GENERATED_VERSION)
+except ImportError:
+    _version_not_supported = True
+if _version_not_supported:
+    raise RuntimeError(
+        f"The grpc package installed is at version {GRPC_VERSION},"
+        + f" but the generated code in personhog/service/v1/service_pb2_grpc.py depends on"
+        + f" grpcio>={GRPC_GENERATED_VERSION}."
+        + f" Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}"
+        + f" or downgrade your generated code using grpcio-tools<={GRPC_VERSION}."
+    )
+
 
 class PersonHogServiceStub:
     """PersonHogService is the public API exposed by the router.

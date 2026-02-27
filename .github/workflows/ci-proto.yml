@@ -86,8 +86,8 @@ jobs:
               with:
                   python-version: '3.12'
 
-            - name: Install grpcio-tools
-              run: pip install grpcio-tools
+            - name: Install codegen tools
+              run: pip install grpcio-tools protoletariat
 
             - name: Regenerate Python proto stubs
               run: bash bin/generate_personhog_proto.sh

@@ -9,7 +9,7 @@ from google.protobuf import (
 from google.protobuf.internal import builder as _builder
 
 _runtime_version.ValidateProtobufRuntimeVersion(
-    _runtime_version.Domain.PUBLIC, 5, 29, 3, "", "personhog/replica/v1/replica.proto"
+    _runtime_version.Domain.PUBLIC, 5, 29, 0, "", "personhog/replica/v1/replica.proto"
 )
 _sym_db = _symbol_database.Default()
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(

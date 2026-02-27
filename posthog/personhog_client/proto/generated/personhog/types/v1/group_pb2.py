@@ -9,11 +9,11 @@ from google.protobuf import (
 from google.protobuf.internal import builder as _builder
 
 _runtime_version.ValidateProtobufRuntimeVersion(
-    _runtime_version.Domain.PUBLIC, 5, 29, 3, "", "personhog/types/v1/group.proto"
+    _runtime_version.Domain.PUBLIC, 5, 29, 0, "", "personhog/types/v1/group.proto"
 )
 _sym_db = _symbol_database.Default()
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x1epersonhog/types/v1/group.proto\x12\x12personhog.types.v1\x1a\x1fpersonhog/types/v1/common.proto"\xd4\x02\n\x05Group\x12\x0e\n\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n\x07team_id\x18\x02 \x01(\x03R\x06teamId\x12(\n\x10group_type_index\x18\x03 \x01(\x05R\x0egroupTypeIndex\x12\x1b\n\tgroup_key\x18\x04 \x01(\tR\x08groupKey\x12)\n\x10group_properties\x18\x05 \x01(\x0cR\x0fgroupProperties\x12\x1d\n\ncreated_at\x18\x06 \x01(\x03R\tcreatedAt\x12;\n\x1aproperties_last_updated_at\x18\x07 \x01(\x0cR\x17propertiesLastUpdatedAt\x12:\n\x19properties_last_operation\x18\x08 \x01(\x0cR\x17propertiesLastOperation\x12\x18\n\x07version\x18\t \x01(\x03R\x07version"\xd7\x03\n\x10GroupTypeMapping\x12\x0e\n\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n\x07team_id\x18\x02 \x01(\x03R\x06teamId\x12\x1d\n\nproject_id\x18\x03 \x01(\x03R\tprojectId\x12\x1d\n\ngroup_type\x18\x04 \x01(\tR\tgroupType\x12(\n\x10group_type_index\x18\x05 \x01(\x05R\x0egroupTypeIndex\x12(\n\rname_singular\x18\x06 \x01(\tH\x00R\x0cnameSingular\x88\x01\x01\x12$\n\x0bname_plural\x18\x07 \x01(\tH\x01R\nnamePlural\x88\x01\x01\x12,\n\x0fdefault_columns\x18\x08 \x01(\x0cH\x02R\x0edefaultColumns\x88\x01\x01\x123\n\x13detail_dashboard_id\x18\t \x01(\x03H\x03R\x11detailDashboardId\x88\x01\x01\x12"\n\ncreated_at\x18\n \x01(\x03H\x04R\tcreatedAt\x88\x01\x01B\x10\n\x0e_name_singularB\x0e\n\x0c_name_pluralB\x12\n\x10_default_columnsB\x16\n\x14_detail_dashboard_idB\r\n\x0b_created_at"~\n\x0cGroupWithKey\x12.\n\x03key\x18\x01 \x01(\x0b2\x1c.personhog.types.v1.GroupKeyR\x03key\x124\n\x05group\x18\x02 \x01(\x0b2\x19.personhog.types.v1.GroupH\x00R\x05group\x88\x01\x01B\x08\n\x06_group"l\n\x16GroupTypeMappingsByKey\x12\x10\n\x03key\x18\x01 \x01(\x03R\x03key\x12@\n\x08mappings\x18\x02 \x03(\x0b2$.personhog.types.v1.GroupTypeMappingR\x08mappings"\xb5\x01\n\x0fGetGroupRequest\x12\x17\n\x07team_id\x18\x01 \x01(\x03R\x06teamId\x12(\n\x10group_type_index\x18\x02 \x01(\x05R\x0egroupTypeIndex\x12\x1b\n\tgroup_key\x18\x03 \x01(\tR\x08groupKey\x12B\n\x0cread_options\x18\x04 \x01(\x0b2\x1f.personhog.types.v1.ReadOptionsR\x0breadOptions"R\n\x10GetGroupResponse\x124\n\x05group\x18\x01 \x01(\x0b2\x19.personhog.types.v1.GroupH\x00R\x05group\x88\x01\x01B\x08\n\x06_group"\xc1\x01\n\x10GetGroupsRequest\x12\x17\n\x07team_id\x18\x01 \x01(\x03R\x06teamId\x12P\n\x11group_identifiers\x18\x02 \x03(\x0b2#.personhog.types.v1.GroupIdentifierR\x10groupIdentifiers\x12B\n\x0cread_options\x18\x03 \x01(\x0b2\x1f.personhog.types.v1.ReadOptionsR\x0breadOptions"\x8f\x01\n\x0eGroupsResponse\x121\n\x06groups\x18\x01 \x03(\x0b2\x19.personhog.types.v1.GroupR\x06groups\x12J\n\x0emissing_groups\x18\x02 \x03(\x0b2#.personhog.types.v1.GroupIdentifierR\rmissingGroups"\x8d\x01\n\x15GetGroupsBatchRequest\x120\n\x04keys\x18\x01 \x03(\x0b2\x1c.personhog.types.v1.GroupKeyR\x04keys\x12B\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptionsR\x0breadOptions"T\n\x16GetGroupsBatchResponse\x12:\n\x07results\x18\x01 \x03(\x0b2 .personhog.types.v1.GroupWithKeyR\x07results"\x82\x01\n#GetGroupTypeMappingsByTeamIdRequest\x12\x17\n\x07team_id\x18\x01 \x01(\x03R\x06teamId\x12B\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptionsR\x0breadOptions"\x85\x01\n$GetGroupTypeMappingsByTeamIdsRequest\x12\x19\n\x08team_ids\x18\x01 \x03(\x03R\x07teamIds\x12B\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptionsR\x0breadOptions"\x8b\x01\n&GetGroupTypeMappingsByProjectIdRequest\x12\x1d\n\nproject_id\x18\x01 \x01(\x03R\tprojectId\x12B\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptionsR\x0breadOptions"\x8e\x01\n\'GetGroupTypeMappingsByProjectIdsRequest\x12\x1f\n\x0bproject_ids\x18\x01 \x03(\x03R\nprojectIds\x12B\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptionsR\x0breadOptions"]\n\x19GroupTypeMappingsResponse\x12@\n\x08mappings\x18\x01 \x03(\x0b2$.personhog.types.v1.GroupTypeMappingR\x08mappings"f\n\x1eGroupTypeMappingsBatchResponse\x12D\n\x07results\x18\x01 \x03(\x0b2*.personhog.types.v1.GroupTypeMappingsByKeyR\x07resultsb\x06proto3'
+    b'\n\x1epersonhog/types/v1/group.proto\x12\x12personhog.types.v1\x1a\x1fpersonhog/types/v1/common.proto"\xd7\x01\n\x05Group\x12\n\n\x02id\x18\x01 \x01(\x03\x12\x0f\n\x07team_id\x18\x02 \x01(\x03\x12\x18\n\x10group_type_index\x18\x03 \x01(\x05\x12\x11\n\tgroup_key\x18\x04 \x01(\t\x12\x18\n\x10group_properties\x18\x05 \x01(\x0c\x12\x12\n\ncreated_at\x18\x06 \x01(\x03\x12"\n\x1aproperties_last_updated_at\x18\x07 \x01(\x0c\x12!\n\x19properties_last_operation\x18\x08 \x01(\x0c\x12\x0f\n\x07version\x18\t \x01(\x03"\xdd\x02\n\x10GroupTypeMapping\x12\n\n\x02id\x18\x01 \x01(\x03\x12\x0f\n\x07team_id\x18\x02 \x01(\x03\x12\x12\n\nproject_id\x18\x03 \x01(\x03\x12\x12\n\ngroup_type\x18\x04 \x01(\t\x12\x18\n\x10group_type_index\x18\x05 \x01(\x05\x12\x1a\n\rname_singular\x18\x06 \x01(\tH\x00\x88\x01\x01\x12\x18\n\x0bname_plural\x18\x07 \x01(\tH\x01\x88\x01\x01\x12\x1c\n\x0fdefault_columns\x18\x08 \x01(\x0cH\x02\x88\x01\x01\x12 \n\x13detail_dashboard_id\x18\t \x01(\x03H\x03\x88\x01\x01\x12\x17\n\ncreated_at\x18\n \x01(\x03H\x04\x88\x01\x01B\x10\n\x0e_name_singularB\x0e\n\x0c_name_pluralB\x12\n\x10_default_columnsB\x16\n\x14_detail_dashboard_idB\r\n\x0b_created_at"r\n\x0cGroupWithKey\x12)\n\x03key\x18\x01 \x01(\x0b2\x1c.personhog.types.v1.GroupKey\x12-\n\x05group\x18\x02 \x01(\x0b2\x19.personhog.types.v1.GroupH\x00\x88\x01\x01B\x08\n\x06_group"]\n\x16GroupTypeMappingsByKey\x12\x0b\n\x03key\x18\x01 \x01(\x03\x126\n\x08mappings\x18\x02 \x03(\x0b2$.personhog.types.v1.GroupTypeMapping"\x86\x01\n\x0fGetGroupRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12\x18\n\x10group_type_index\x18\x02 \x01(\x05\x12\x11\n\tgroup_key\x18\x03 \x01(\t\x125\n\x0cread_options\x18\x04 \x01(\x0b2\x1f.personhog.types.v1.ReadOptions"K\n\x10GetGroupResponse\x12-\n\x05group\x18\x01 \x01(\x0b2\x19.personhog.types.v1.GroupH\x00\x88\x01\x01B\x08\n\x06_group"\x9a\x01\n\x10GetGroupsRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12>\n\x11group_identifiers\x18\x02 \x03(\x0b2#.personhog.types.v1.GroupIdentifier\x125\n\x0cread_options\x18\x03 \x01(\x0b2\x1f.personhog.types.v1.ReadOptions"x\n\x0eGroupsResponse\x12)\n\x06groups\x18\x01 \x03(\x0b2\x19.personhog.types.v1.Group\x12;\n\x0emissing_groups\x18\x02 \x03(\x0b2#.personhog.types.v1.GroupIdentifier"z\n\x15GetGroupsBatchRequest\x12*\n\x04keys\x18\x01 \x03(\x0b2\x1c.personhog.types.v1.GroupKey\x125\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptions"K\n\x16GetGroupsBatchResponse\x121\n\x07results\x18\x01 \x03(\x0b2 .personhog.types.v1.GroupWithKey"m\n#GetGroupTypeMappingsByTeamIdRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x125\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptions"o\n$GetGroupTypeMappingsByTeamIdsRequest\x12\x10\n\x08team_ids\x18\x01 \x03(\x03\x125\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptions"s\n&GetGroupTypeMappingsByProjectIdRequest\x12\x12\n\nproject_id\x18\x01 \x01(\x03\x125\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptions"u\n\'GetGroupTypeMappingsByProjectIdsRequest\x12\x13\n\x0bproject_ids\x18\x01 \x03(\x03\x125\n\x0cread_options\x18\x02 \x01(\x0b2\x1f.personhog.types.v1.ReadOptions"S\n\x19GroupTypeMappingsResponse\x126\n\x08mappings\x18\x01 \x03(\x0b2$.personhog.types.v1.GroupTypeMapping"]\n\x1eGroupTypeMappingsBatchResponse\x12;\n\x07results\x18\x01 \x03(\x0b2*.personhog.types.v1.GroupTypeMappingsByKeyb\x06proto3'
 )
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -21,34 +21,34 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "personhog.types.v1.group_pb
 if not _descriptor._USE_C_DESCRIPTORS:
     DESCRIPTOR._loaded_options = None
     _globals["_GROUP"]._serialized_start = 88
-    _globals["_GROUP"]._serialized_end = 428
-    _globals["_GROUPTYPEMAPPING"]._serialized_start = 431
-    _globals["_GROUPTYPEMAPPING"]._serialized_end = 902
-    _globals["_GROUPWITHKEY"]._serialized_start = 904
-    _globals["_GROUPWITHKEY"]._serialized_end = 1030
-    _globals["_GROUPTYPEMAPPINGSBYKEY"]._serialized_start = 1032
-    _globals["_GROUPTYPEMAPPINGSBYKEY"]._serialized_end = 1140
-    _globals["_GETGROUPREQUEST"]._serialized_start = 1143
-    _globals["_GETGROUPREQUEST"]._serialized_end = 1324
-    _globals["_GETGROUPRESPONSE"]._serialized_start = 1326
-    _globals["_GETGROUPRESPONSE"]._serialized_end = 1408
-    _globals["_GETGROUPSREQUEST"]._serialized_start = 1411
-    _globals["_GETGROUPSREQUEST"]._serialized_end = 1604
-    _globals["_GROUPSRESPONSE"]._serialized_start = 1607
-    _globals["_GROUPSRESPONSE"]._serialized_end = 1750
-    _globals["_GETGROUPSBATCHREQUEST"]._serialized_start = 1753
-    _globals["_GETGROUPSBATCHREQUEST"]._serialized_end = 1894
-    _globals["_GETGROUPSBATCHRESPONSE"]._serialized_start = 1896
-    _globals["_GETGROUPSBATCHRESPONSE"]._serialized_end = 1980
-    _globals["_GETGROUPTYPEMAPPINGSBYTEAMIDREQUEST"]._serialized_start = 1983
-    _globals["_GETGROUPTYPEMAPPINGSBYTEAMIDREQUEST"]._serialized_end = 2113
-    _globals["_GETGROUPTYPEMAPPINGSBYTEAMIDSREQUEST"]._serialized_start = 2116
-    _globals["_GETGROUPTYPEMAPPINGSBYTEAMIDSREQUEST"]._serialized_end = 2249
-    _globals["_GETGROUPTYPEMAPPINGSBYPROJECTIDREQUEST"]._serialized_start = 2252
-    _globals["_GETGROUPTYPEMAPPINGSBYPROJECTIDREQUEST"]._serialized_end = 2391
-    _globals["_GETGROUPTYPEMAPPINGSBYPROJECTIDSREQUEST"]._serialized_start = 2394
-    _globals["_GETGROUPTYPEMAPPINGSBYPROJECTIDSREQUEST"]._serialized_end = 2536
-    _globals["_GROUPTYPEMAPPINGSRESPONSE"]._serialized_start = 2538
-    _globals["_GROUPTYPEMAPPINGSRESPONSE"]._serialized_end = 2631
-    _globals["_GROUPTYPEMAPPINGSBATCHRESPONSE"]._serialized_start = 2633
-    _globals["_GROUPTYPEMAPPINGSBATCHRESPONSE"]._serialized_end = 2735
+    _globals["_GROUP"]._serialized_end = 303
+    _globals["_GROUPTYPEMAPPING"]._serialized_start = 306
+    _globals["_GROUPTYPEMAPPING"]._serialized_end = 655
+    _globals["_GROUPWITHKEY"]._serialized_start = 657
+    _globals["_GROUPWITHKEY"]._serialized_end = 771
+    _globals["_GROUPTYPEMAPPINGSBYKEY"]._serialized_start = 773
+    _globals["_GROUPTYPEMAPPINGSBYKEY"]._serialized_end = 866
+    _globals["_GETGROUPREQUEST"]._serialized_start = 869
+    _globals["_GETGROUPREQUEST"]._serialized_end = 1003
+    _globals["_GETGROUPRESPONSE"]._serialized_start = 1005
+    _globals["_GETGROUPRESPONSE"]._serialized_end = 1080
+    _globals["_GETGROUPSREQUEST"]._serialized_start = 1083
+    _globals["_GETGROUPSREQUEST"]._serialized_end = 1237
+    _globals["_GROUPSRESPONSE"]._serialized_start = 1239
+    _globals["_GROUPSRESPONSE"]._serialized_end = 1359
+    _globals["_GETGROUPSBATCHREQUEST"]._serialized_start = 1361
+    _globals["_GETGROUPSBATCHREQUEST"]._serialized_end = 1483
+    _globals["_GETGROUPSBATCHRESPONSE"]._serialized_start = 1485
+    _globals["_GETGROUPSBATCHRESPONSE"]._serialized_end = 1560
+    _globals["_GETGROUPTYPEMAPPINGSBYTEAMIDREQUEST"]._serialized_start = 1562
+    _globals["_GETGROUPTYPEMAPPINGSBYTEAMIDREQUEST"]._serialized_end = 1671
+    _globals["_GETGROUPTYPEMAPPINGSBYTEAMIDSREQUEST"]._serialized_start = 1673
+    _globals["_GETGROUPTYPEMAPPINGSBYTEAMIDSREQUEST"]._serialized_end = 1784
+    _globals["_GETGROUPTYPEMAPPINGSBYPROJECTIDREQUEST"]._serialized_start = 1786
+    _globals["_GETGROUPTYPEMAPPINGSBYPROJECTIDREQUEST"]._serialized_end = 1901
+    _globals["_GETGROUPTYPEMAPPINGSBYPROJECTIDSREQUEST"]._serialized_start = 1903
+    _globals["_GETGROUPTYPEMAPPINGSBYPROJECTIDSREQUEST"]._serialized_end = 2020
+    _globals["_GROUPTYPEMAPPINGSRESPONSE"]._serialized_start = 2022
+    _globals["_GROUPTYPEMAPPINGSRESPONSE"]._serialized_end = 2105
+    _globals["_GROUPTYPEMAPPINGSBATCHRESPONSE"]._serialized_start = 2107
+    _globals["_GROUPTYPEMAPPINGSBATCHRESPONSE"]._serialized_end = 2200
