@@ -108,7 +108,7 @@ def CUSTOM_METRICS_MERGE_FAILURES_VIEW():
     AS
     SELECT
         'ClickHouseCustomMetric_MergeFailures15m' AS name,
-        map('instance', hostName()) AS labels,
+        map('instance', hostname()) AS labels,
         count() AS value,
         'Number of failed merge operations in the last 15 minutes' AS help,
         'gauge' AS type
@@ -119,7 +119,7 @@ def CUSTOM_METRICS_MERGE_FAILURES_VIEW():
     UNION ALL
     SELECT
         'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name,
-        map('instance', hostName()) AS labels,
+        map('instance', hostname()) AS labels,
         max(cnt) AS value,
         'Max failed merge retries for any single table in the last 15 minutes' AS help,
         'gauge' AS type
