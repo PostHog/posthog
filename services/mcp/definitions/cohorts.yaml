@@ -140,7 +140,8 @@ tools:
         title: Remove person from static cohort
         description: >
             Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true).
-            Idempotent: removing a person not in the cohort succeeds silently.
+            The person must exist in the project. Idempotent: removing a person who exists but is not
+            a member of the cohort succeeds silently.
         mcp_version: 1
     persons-cohorts-retrieve:
         operation: persons_cohorts_retrieve

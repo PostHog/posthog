@@ -233,7 +233,7 @@ describe('Cohorts', { concurrent: false }, () => {
             ).rejects.toThrow('Validation error')
         })
 
-        it('should reject removing a non-existent person', async () => {
+        it('should reject removing a person UUID that does not exist in the team', async () => {
             const createResult = await createTool.handler(context, {
                 name: `Remove Person Test ${generateUniqueKey('remove')}`,
                 is_static: true,
