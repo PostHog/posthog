@@ -38,7 +38,7 @@ class AuthCache:
         return True, user
 
     def set(self, key: str, user: AuthenticatedUser | None, ttl: int | None = None) -> None:
-        effective_ttl = ttl if ttl is not None else self._ttl
+        effective_ttl: float = ttl if ttl is not None else self._ttl
 
         if user and user.token_expires_at:
             remaining = (user.token_expires_at - datetime.now(UTC)).total_seconds()
