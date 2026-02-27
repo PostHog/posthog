@@ -67,7 +67,12 @@ function ChoosePathStep(): JSX.Element {
             <div className="flex justify-center mb-4">
                 <Logomark />
             </div>
-            <h1 className="text-4xl font-bold text-center mb-2">What do you want to do with PostHog?</h1>
+            <h1 className="text-4xl font-bold text-center mb-2">
+                <span role="img" aria-label="Hog" className="mr-2">
+                    🦔
+                </span>
+                What do you want to do with PostHog?
+            </h1>
             <p className="text-center text-muted mb-8">
                 {aiRecommendationsEnabled
                     ? "Describe your goals and we'll recommend the right products for you"
@@ -242,7 +247,12 @@ function ProductSelectionStep(): JSX.Element {
             <div className="flex justify-center mb-4">
                 <Logomark />
             </div>
-            <h1 className="text-4xl font-bold text-center mb-2">Which products would you like to use?</h1>
+            <h1 className="text-4xl font-bold text-center mb-2">
+                <span role="img" aria-label="Hog" className="mr-2">
+                    🦔
+                </span>
+                Which products would you like to use?
+            </h1>
             <p className="text-center text-muted mb-8">
                 {recommendationSourceLabel ? (
                     <>We've pre-selected some products {recommendationSourceLabel}. Feel free to change or add more.</>
