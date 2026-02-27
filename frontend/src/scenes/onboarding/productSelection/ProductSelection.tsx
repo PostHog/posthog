@@ -64,7 +64,12 @@ function ChoosePathStep(): JSX.Element {
     const aiRecommendationsEnabled = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'test')
     const headingFlag = useFeatureFlag('ONBOARDING_PRODUCT_SELECTION_HEADING')
     const headingPayload = headingFlag ? getFeatureFlagPayload('onboarding-product-selection-heading') : undefined
-    const heading = typeof headingPayload === 'string' ? headingPayload : 'What do you want to do with PostHog?'
+    const headingCopy = headingPayload as { heading?: string; subheading?: string } | undefined
+    const heading = headingCopy?.heading ?? 'What do you want to do with PostHog?'
+    const defaultSubheading = aiRecommendationsEnabled
+        ? "Describe your goals and we'll recommend the right products for you"
+        : 'Pick a goal to get started with the right products'
+    const subheading = headingCopy?.subheading ?? defaultSubheading
 
     return (
         <div className="max-w-6xl w-full">
@@ -72,11 +77,7 @@ function ChoosePathStep(): JSX.Element {
                 <Logomark />
             </div>
             <h1 className="text-4xl font-bold text-center mb-2">{heading}</h1>
-            <p className="text-center text-muted mb-8">
-                {aiRecommendationsEnabled
-                    ? "Describe your goals and we'll recommend the right products for you"
-                    : 'Pick a goal to get started with the right products'}
-            </p>
+            <p className="text-center text-muted mb-8">{subheading}</p>
 
             {/* AI Input - Full width and prominent (behind feature flag) */}
             {aiRecommendationsEnabled && (
