@@ -1845,26 +1845,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             },
             sharedListeners.handleDashboardLoadComplete,
-            async () => {
-                // 3. If an AI analysis was requested, run it now that the refresh is done
-                if (!values.isAnalyzing || !values.refreshAnalysisCacheKey) {
-                    return
-                }
-                const dashboardId = props.id
-                const cacheKey = values.refreshAnalysisCacheKey
-                try {
-                    const analysisResponse = await api.create(
-                        `api/environments/${values.currentTeamId}/dashboards/${dashboardId}/analyze_refresh_result`,
-                        { cache_key: cacheKey }
-                    )
-                    actions.setRefreshAnalysisResult(analysisResponse.result)
-                } catch (e: any) {
-                    lemonToast.error('Failed to analyze dashboard changes: ' + String(e))
-                } finally {
-                    actions.setAnalyzeStatus(false)
-                    actions.setRefreshAnalysisCacheKey(null)
-                }
-            },
         ],
         loadDashboardMetadataSuccess: ({ dashboard }) => {
             if (!dashboard) {
