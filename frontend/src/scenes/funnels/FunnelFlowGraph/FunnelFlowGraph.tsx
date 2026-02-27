@@ -19,7 +19,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { isInsightVizNode } from '~/queries/utils'
 
-import { journeyBuilderLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
+import { JOURNEY_BUILDER_INSIGHT_PROPS } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
 
 import { BuilderPathFlowNode } from './BuilderPathFlowNode'
 import { BuilderStepNode } from './BuilderStepNode'
@@ -55,8 +55,8 @@ function FunnelFlowGraphContent(): JSX.Element {
         isInsightVizNode(insightProps.query) &&
         Array.isArray(insightProps.query.source?.properties) &&
         insightProps.query.source.properties.length > 0
-    const { isBuilderOpen } = useValues(journeyBuilderLogic())
-    const mode = isProfileMode ? 'profile' : isBuilderOpen ? 'builder' : undefined
+    const isBuilderMode = insightProps.dashboardItemId === JOURNEY_BUILDER_INSIGHT_PROPS.dashboardItemId
+    const mode = isProfileMode ? 'profile' : isBuilderMode ? 'builder' : undefined
     const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, mode }))
     const layoutCountRef = useRef(0)
 
