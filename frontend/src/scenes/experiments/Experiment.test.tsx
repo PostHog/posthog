@@ -79,79 +79,95 @@ beforeAll(() => {
     document.body.appendChild(modalRoot)
 })
 
-describe('Experiment form type consistency', () => {
+describe('Experiment component routing', () => {
     it.each([
         {
             flagValue: 'test' as string | boolean,
-            expectedTestId: 'experiment-wizard',
+            expectedFormTestId: 'experiment-wizard',
             description: 'wizard',
         },
         {
             flagValue: false as string | boolean,
-            expectedTestId: 'experiment-classic-form',
+            expectedFormTestId: 'experiment-classic-form',
             description: 'classic form',
         },
-    ])(
-        'create mode and draft-without-metrics view mode both show $description',
-        async ({ flagValue, expectedTestId }) => {
-            localStorage.clear()
-            sessionStorage.clear()
-            useMocks(apiMocks)
-            initKeaTests()
+    ])('create mode shows $description', async ({ flagValue, expectedFormTestId }) => {
+        localStorage.clear()
+        sessionStorage.clear()
+        useMocks(apiMocks)
+        initKeaTests()
 
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]: flagValue,
-            })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]: flagValue,
+        })
 
-            featureFlagsLogic.mount()
-            experimentsLogic.mount()
+        featureFlagsLogic.mount()
+        experimentsLogic.mount()
 
-            // --- Test create mode ---
-            // Pre-mount the scene logic so Experiment component reads the right formMode
-            const createSceneLogic = experimentSceneLogic({
-                tabId: TAB_ID_CREATE,
-                experimentId: 'new',
-                formMode: FORM_MODES.create,
-            })
-            createSceneLogic.mount()
+        const createSceneLogic = experimentSceneLogic({
+            tabId: TAB_ID_CREATE,
+            experimentId: 'new',
+            formMode: FORM_MODES.create,
+        })
+        createSceneLogic.mount()
+        // Explicitly set create mode since urlToAction may override props default
+        createSceneLogic.actions.setSceneState('new', FORM_MODES.create)
 
-            render(<Experiment tabId={TAB_ID_CREATE} />)
+        render(<Experiment tabId={TAB_ID_CREATE} />)
 
-            expect(screen.getByTestId(expectedTestId)).toBeInTheDocument()
-            cleanup()
-            createSceneLogic.unmount()
+        expect(screen.getByTestId(expectedFormTestId)).toBeInTheDocument()
+        cleanup()
+        createSceneLogic.unmount()
 
-            // --- Test draft-without-metrics view mode ---
-            // Pre-mount the scene logic and experiment logic for the draft experiment
-            const draftSceneLogic = experimentSceneLogic({
-                tabId: TAB_ID_DRAFT,
-                experimentId: 123,
-                formMode: FORM_MODES.update,
-            })
-            draftSceneLogic.mount()
+        experimentsLogic.unmount()
+        featureFlagsLogic.unmount()
+        featureFlagLogic.unmount()
+    })
 
-            const expLogic = experimentLogic({
-                experimentId: 123,
-                formMode: FORM_MODES.update,
-                tabId: TAB_ID_DRAFT,
-            })
-            expLogic.mount()
-            expLogic.actions.loadExperimentSuccess(DRAFT_EXPERIMENT)
+    it('draft without metrics shows view page with launch button', async () => {
+        localStorage.clear()
+        sessionStorage.clear()
+        useMocks(apiMocks)
+        initKeaTests()
 
-            render(<Experiment tabId={TAB_ID_DRAFT} />)
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]: 'test',
+        })
 
-            await waitFor(() => {
-                expect(screen.getByTestId(expectedTestId)).toBeInTheDocument()
-            })
+        featureFlagsLogic.mount()
+        experimentsLogic.mount()
 
-            cleanup()
-            expLogic.unmount()
-            draftSceneLogic.unmount()
+        const draftSceneLogic = experimentSceneLogic({
+            tabId: TAB_ID_DRAFT,
+            experimentId: 123,
+            formMode: FORM_MODES.update,
+        })
+        draftSceneLogic.mount()
 
-            experimentsLogic.unmount()
-            featureFlagsLogic.unmount()
-            featureFlagLogic.unmount()
-        }
-    )
+        const expLogic = experimentLogic({
+            experimentId: 123,
+            formMode: FORM_MODES.update,
+            tabId: TAB_ID_DRAFT,
+        })
+        expLogic.mount()
+        expLogic.actions.loadExperimentSuccess(DRAFT_EXPERIMENT)
+
+        render(<Experiment tabId={TAB_ID_DRAFT} />)
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-attr="launch-experiment"]')).toBeInTheDocument()
+        })
+        expect(screen.queryByTestId('experiment-wizard')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('experiment-classic-form')).not.toBeInTheDocument()
+
+        cleanup()
+        expLogic.unmount()
+        draftSceneLogic.unmount()
+
+        experimentsLogic.unmount()
+        featureFlagsLogic.unmount()
+        featureFlagLogic.unmount()
+    })
 })
