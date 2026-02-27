@@ -12,7 +12,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import iconZendesk from 'public/services/zendesk.svg'
 
-import { inboxSceneLogic } from './inboxSceneLogic'
+import { signalSourcesLogic } from './signalSourcesLogic'
 
 type SourceProps =
     | {
@@ -97,8 +97,9 @@ function isNonEmptyFilters(obj: unknown): boolean {
 }
 
 export function SourcesList(): JSX.Element {
-    const { sessionAnalysisConfig } = useValues(inboxSceneLogic)
-    const { toggleSessionAnalysis, openSessionAnalysisSetup, clearSessionAnalysisFilters } = useActions(inboxSceneLogic)
+    const { sessionAnalysisConfig } = useValues(signalSourcesLogic)
+    const { toggleSessionAnalysis, openSessionAnalysisSetup, clearSessionAnalysisFilters } =
+        useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
     const hasNonEmptyFilters = isNonEmptyFilters(recordingFilters)

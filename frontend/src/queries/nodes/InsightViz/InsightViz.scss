@@ -181,7 +181,10 @@
     &--type-trends {
         min-height: var(--insight-viz-min-height);
 
-        .NotebookNode &,
+        .NotebookNode & {
+            min-height: 0;
+        }
+
         .InsightCard &,
         .ExportedInsight &,
         .WebAnalyticsDashboard & {

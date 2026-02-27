@@ -270,12 +270,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconBrackets,
         inMenu: true,
     },
-    [NodeKind.HogQLASTQuery]: {
-        name: 'SQL AST',
-        description: 'Direct SQL AST query.',
-        icon: IconBrackets,
-        inMenu: false,
-    },
     [NodeKind.HogQLMetadata]: {
         name: 'SQL Metadata',
         description: 'Metadata for a SQL query.',

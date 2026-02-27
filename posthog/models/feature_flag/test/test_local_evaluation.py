@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -1324,6 +1325,113 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert "diffs" in result
         mapping_diff = [d for d in result["diffs"] if d.get("type") == "GROUP_TYPE_MAPPING_MISMATCH"]
         assert len(mapping_diff) == 1
+
+
+@override_settings(
+    FLAGS_REDIS_URL="redis://test",
+    CACHES={
+        **settings.CACHES,
+        "flags_dedicated": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "flags-definitions-test",
+        },
+    },
+)
+class TestFlagDefinitionsManagementCommands(BaseTest):
+    """Tests for flag definitions cache management commands."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+
+    def test_verify_command_processes_both_variants_by_default(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        out = StringIO()
+        call_command("verify_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
+
+        output = out.getvalue()
+        assert "with cohorts" in output
+        assert "without cohorts" in output
+        assert output.count("Verification Results") == 2
+
+    def test_verify_command_with_variant_flag(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        out = StringIO()
+        call_command(
+            "verify_flag_definitions_cache",
+            f"--team-ids={self.team.id}",
+            "--variant=with-cohorts",
+            stdout=out,
+        )
+
+        output = out.getvalue()
+        assert "with cohorts" in output
+        assert "without cohorts" not in output
+        assert output.count("Verification Results") == 1
+
+    def test_warm_command_processes_both_variants_by_default(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        out = StringIO()
+        call_command("warm_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
+
+        output = out.getvalue()
+        assert "with cohorts" in output
+        assert "without cohorts" in output
+        assert "Successful: 1" in output
+
+    def test_warm_command_with_variant_flag(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        out = StringIO()
+        call_command(
+            "warm_flag_definitions_cache",
+            f"--team-ids={self.team.id}",
+            "--variant=with-cohorts",
+            stdout=out,
+        )
+
+        output = out.getvalue()
+        assert "with cohorts" in output
+        assert "without cohorts" not in output
 
 
 @override_settings(FLAGS_REDIS_URL=None)
