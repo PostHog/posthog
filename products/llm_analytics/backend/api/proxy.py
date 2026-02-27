@@ -45,7 +45,7 @@ from products.llm_analytics.backend.llm import (
     get_default_models,
 )
 from products.llm_analytics.backend.llm.errors import UnsupportedProviderError
-from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
+from products.llm_analytics.backend.models.provider_keys import LLMProvider, LLMProviderKey
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
@@ -56,7 +56,7 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
     messages = serializers.ListField(child=serializers.DictField())
     model = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["openai", "anthropic", "gemini"])
+    provider = serializers.ChoiceField(choices=LLMProvider.choices)
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
     max_tokens = serializers.IntegerField(required=False)
@@ -84,24 +84,23 @@ class LLMProxyViewSet(viewsets.ViewSet):
             return []
 
         # BYOK requests should not count against shared playground trial limits.
+        # Check the provider key directly from request data to avoid running the
+        # full serializer just for throttle selection.
         if self.action == "completion":
-            serializer = LLMProxyCompletionSerializer(data=getattr(self.request, "data", {}))
-            if serializer.is_valid():
-                self._completion_validated_data = serializer.validated_data
-                provider_key_id = serializer.validated_data.get("provider_key_id")
-                provider = serializer.validated_data.get("provider")
-                if provider_key_id and provider:
-                    try:
-                        key = self._get_provider_key(str(provider_key_id), self.request.user, touch_last_used=False)
-                        if key and key.provider == provider:
-                            LLMA_PROXY_BYOK_REQUESTS.labels(provider=provider).inc()
-                            return [
-                                LLMProxyBYOKBurstRateThrottle(),
-                                LLMProxyBYOKSustainedRateThrottle(),
-                                LLMProxyBYOKDailyRateThrottle(),
-                            ]
-                    except ValueError:
-                        pass
+            data = getattr(self.request, "data", {})
+            provider_key_id = data.get("provider_key_id")
+            if provider_key_id:
+                try:
+                    key = self._get_provider_key(str(provider_key_id), self.request.user, touch_last_used=False)
+                    if key:
+                        LLMA_PROXY_BYOK_REQUESTS.labels(provider=key.provider).inc()
+                        return [
+                            LLMProxyBYOKBurstRateThrottle(),
+                            LLMProxyBYOKSustainedRateThrottle(),
+                            LLMProxyBYOKDailyRateThrottle(),
+                        ]
+                except ValueError:
+                    pass
 
         return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle(), LLMProxyDailyRateThrottle()]
 

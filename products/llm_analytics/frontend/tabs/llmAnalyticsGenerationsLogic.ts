@@ -159,12 +159,48 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
             (override, defQuery) => override || defQuery,
         ],
 
+        // Ensure feature-flag-gated columns are present in persisted column sets.
+        // Without this, users who visited the page before a flag was enabled would
+        // never see the new column because their persisted selection takes priority.
+        effectiveGenerationsColumns: [
+            (s) => [s.generationsColumns, s.featureFlags],
+            (generationsColumns, featureFlags): string[] | null => {
+                if (!generationsColumns) {
+                    return null
+                }
+
+                let columns = generationsColumns
+
+                const sentimentCol = "'' -- Sentiment"
+                if (!!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && !columns.includes(sentimentCol)) {
+                    // Insert after person column, or before Model
+                    const modelIdx = columns.findIndex((c) => c.includes('ai_model'))
+                    columns =
+                        modelIdx >= 0
+                            ? [...columns.slice(0, modelIdx), sentimentCol, ...columns.slice(modelIdx)]
+                            : [...columns, sentimentCol]
+                }
+
+                const toolsCol = 'properties.$ai_tools_called'
+                if (!!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB] && !columns.includes(toolsCol)) {
+                    // Insert before the Error column, or at the end
+                    const errorIdx = columns.findIndex((c) => c.includes('ai_is_error'))
+                    columns =
+                        errorIdx >= 0
+                            ? [...columns.slice(0, errorIdx), toolsCol, ...columns.slice(errorIdx)]
+                            : [...columns, toolsCol]
+                }
+
+                return columns
+            },
+        ],
+
         defaultGenerationsQuery: [
             (s) => [
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
-                s.generationsColumns,
+                s.effectiveGenerationsColumns,
                 s.generationsSort,
                 s.groupsTaxonomicTypes,
                 s.featureFlags,
@@ -173,7 +209,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
-                generationsColumns,
+                effectiveGenerationsColumns,
                 generationsSort,
                 groupsTaxonomicTypes,
                 featureFlags
@@ -183,7 +219,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                     kind: NodeKind.EventsQuery,
                     limit: 100,
                     select:
-                        generationsColumns ||
+                        effectiveGenerationsColumns ||
                         getDefaultGenerationsColumns(
                             !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                             !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],

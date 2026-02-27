@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React, { useMemo } from 'react'
 
+import { IconPlay, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -38,6 +39,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Even
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
+import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
@@ -51,6 +53,7 @@ import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
+import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
 import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
@@ -411,7 +414,9 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
                                     <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
                                         <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
-                                            <LLMAnalyticsSceneContent />
+                                            <BindLogic logic={llmAnalyticsToolsLogic} props={{ tabId }}>
+                                                <LLMAnalyticsSceneContent />
+                                            </BindLogic>
                                         </BindLogic>
                                     </BindLogic>
                                 </BindLogic>
@@ -616,6 +621,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 }}
                 actions={
                     <>
+                        {activeTab === 'playground' ? <PlaygroundHeaderActions /> : null}
                         <LemonButton
                             to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
                             type="secondary"
@@ -646,7 +652,56 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 </>
             ) : null}
 
-            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
+            <LemonTabs
+                activeKey={activeTab}
+                data-attr="llm-analytics-tabs"
+                tabs={tabs}
+                sceneInset
+                className={
+                    activeTab === 'playground' ? '[&_.LemonTabs__content]:!p-0 [&_.LemonTabs__bar]:!mb-0' : undefined
+                }
+            />
         </SceneContent>
+    )
+}
+
+function PlaygroundHeaderActions(): JSX.Element {
+    const {
+        submitting: playgroundSubmitting,
+        hasRunnablePrompts,
+        activePromptId,
+    } = useValues(llmAnalyticsPlaygroundLogic)
+    const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
+
+    return (
+        <>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                data-attr="playground-add-prompt"
+            >
+                Add prompt
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlay />}
+                onClick={() => submitPrompt()}
+                loading={playgroundSubmitting}
+                disabledReason={
+                    playgroundSubmitting
+                        ? 'Generating...'
+                        : !hasRunnablePrompts
+                          ? 'Add messages to at least one prompt'
+                          : undefined
+                }
+                data-attr="playground-run"
+            >
+                Run
+            </LemonButton>
+        </>
     )
 }
