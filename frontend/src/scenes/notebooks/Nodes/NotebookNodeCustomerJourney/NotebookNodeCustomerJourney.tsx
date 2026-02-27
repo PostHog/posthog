@@ -94,6 +94,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
                 insightProps: {
                     dashboardItemId: `new-AdHoc.${logicKey}`,
                     query: filteredQuery,
+                    isProfileMode: true,
                 },
             }}
         />

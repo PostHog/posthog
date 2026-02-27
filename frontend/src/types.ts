@@ -3197,6 +3197,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     tileFiltersOverride?: TileFilters | null
     /** The tab of the scene if the insight is a full scene insight */
     tabId?: string | null
+    /** When true, renders insight in single-entity profile mode (e.g. green/gray funnel steps) */
+    isProfileMode?: boolean
 }
 
 export interface SetInsightOptions {
