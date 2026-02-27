@@ -223,17 +223,14 @@ export const SidePanelActivity = (): JSX.Element => {
                                                         Load more
                                                     </LemonButton>
                                                 ) : (
-                                                    'No more results'
+                                                    <Link
+                                                        to={urls.advancedActivityLogs()}
+                                                        onClick={() => closeSidePanel()}
+                                                        className="text-muted-alt text-xs"
+                                                    >
+                                                        Browse all activity logs
+                                                    </Link>
                                                 )}
-                                            </div>
-                                            <div className="flex items-center justify-center pt-1">
-                                                <Link
-                                                    to={urls.advancedActivityLogs()}
-                                                    onClick={() => closeSidePanel()}
-                                                    className="text-muted-alt text-xs"
-                                                >
-                                                    or browse all activity logs
-                                                </Link>
                                             </div>
                                         </>
                                     ) : (
