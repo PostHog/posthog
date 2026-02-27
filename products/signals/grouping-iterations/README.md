@@ -135,6 +135,8 @@ Compare runs by looking at the Metrics table in each file — they're sorted chr
 | `pr_specificity` v1 (PR-title gate, cold-start skip)              | 2/5     | 2.64–2.92          | 27–29 (9–11 / 16–20)  | 5–6        | 8–11      | 1              |
 | `pr_specificity` v2 (no cold-start, tighter prompt)               | 2–3/5   | 3.23–4.21          | 33–34 (5–6 / 27–29)   | 1–2        | 2–5       | 1–4            |
 | `pr_specificity_and_group_aware` (group context + title feedback) | 2–3/5   | 3.78–4.50          | 35–37 (4–6 / 29–33)   | 0–1        | 1–2       | 1–3            |
+| `pr_specificity_and_group_aware_v2` (softened specificity prompt) | 2–3/5   | 3.39–3.82          | 31–32 (7 / 24–25)     | 2          | 3–6       | 1–2            |
+| `pr_specificity_and_group_aware_v3` (surgical prompt adjustment)  | 2–3/5   | 3.13–4.08          | 33–35 (5–6 / 27–30)   | 1–2        | 3–5       | 1–2            |
 
 - **current**: Good at discovery, no filtering. Chains unrelated signals through shared keywords.
 - **group_aware**: Shows LLM full report context. Too conservative — over-splits into singletons.
@@ -143,6 +145,8 @@ Compare runs by looking at the Metrics table in each file — they're sorted chr
 - **pr_specificity v1**: Current discovery + one LLM call asking "write a PR title for all signals; is it specific enough for one engineer?" Forces synthesis over judgment. Cold-start skip (only checks groups with 2+ signals) leaves initial weak pairings unchecked.
 - **pr_specificity v2**: Same as v1 but runs the PR-specificity check on ALL matches (no cold-start skip) + tighter prompt with more red flags. Best results so far: 70–85% reduction in misplaced signals vs baseline. Trade-off: more singletons, but multi-signal groups are high quality.
 - **pr_specificity_and_group_aware**: Builds on pr_specificity v2 with three enhancements: (1) group-title context in matching prompt so LLM sees what group it's joining, (2) multi-query agreement summary so LLM knows which groups were found by multiple independent queries, (3) title feedback loop where confirmed PR titles become the group's updated title for future matching.
+- **pr_specificity_and_group_aware_v2**: Softened specificity prompt — replaced "err on side of rejecting" + "different engineers" heuristic with explicit ACCEPT/REJECT criteria. Overcorrected: more multi-signal groups but re-introduced weak chaining (misplaced 3–6 vs 1–2 in v1).
+- **pr_specificity_and_group_aware_v3**: Surgical adjustment — kept v1's default-reject but removed "different engineers" heuristic and added narrow "same underlying issue" exception (duplicate bug reports, root cause + mitigation). Still worse than v1: the matching step proposes bad matches (keyword overlap) that any loosening of the specificity gate re-exposes. **Conclusion: the bottleneck is the matching step, not the specificity prompt.**
 
 ## Adding a new strategy
 
