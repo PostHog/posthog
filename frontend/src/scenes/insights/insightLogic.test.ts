@@ -456,7 +456,7 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         const expectedPartialInsight = {
-            name: undefined,
+            name: null,
             description: '',
             tags: [],
             query: partial({
@@ -480,7 +480,7 @@ describe('insightLogic', () => {
             logic.actions.setInsightMetadataLocal({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
         }).toMatchValues({
             insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
-            savedInsight: partial({ name: undefined, description: '', tags: [] }),
+            savedInsight: partial({ name: null, description: '', tags: [] }),
             insightChanged: true,
         })
 
@@ -781,7 +781,7 @@ describe('insightLogic', () => {
             )
 
             await expectLogic(logic).toMatchValues({
-                insight: partial({ name: undefined }),
+                insight: partial({ name: null }),
             })
         })
     })
