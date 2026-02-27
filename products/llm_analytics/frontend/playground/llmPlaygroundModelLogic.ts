@@ -17,17 +17,30 @@ import {
     isTraceLikeSelection,
     matchClosestModel,
     matchClosestModelOption,
+    type MatchModelOption,
     resolveProviderKeyForPrompt,
     resolveTraceModelSelection,
 } from './playgroundModelMatching'
 
-export {
-    isTraceLikeSelection,
-    matchClosestModel,
-    matchClosestModelOption,
-    resolveProviderKeyForPrompt,
-    resolveTraceModelSelection,
-} from './playgroundModelMatching'
+function normalizePromptsToAvailableModels(
+    promptConfigs: PromptConfig[],
+    pendingTargetModel: string | null,
+    availableModels: MatchModelOption[],
+    providerKeys: LLMProviderKey[]
+): PromptConfig[] {
+    return promptConfigs.map((prompt: PromptConfig, index: number) => {
+        const targetModel = index === 0 && pendingTargetModel ? pendingTargetModel : prompt.model
+        const matchedModel = matchClosestModelOption(targetModel, availableModels, providerKeys)
+        return {
+            ...prompt,
+            model:
+                index === 0 && pendingTargetModel
+                    ? (matchedModel?.id ?? pendingTargetModel)
+                    : (matchedModel?.id ?? matchClosestModel(targetModel, availableModels)),
+            selectedProviderKeyId: matchedModel?.providerKeyId ?? prompt.selectedProviderKeyId,
+        }
+    })
+}
 
 export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'playground', 'llmPlaygroundModelLogic']),
@@ -235,22 +248,12 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                     return
                 }
 
-                const normalizedPrompts = values.promptConfigs.map((prompt: PromptConfig, index: number) => {
-                    const targetModel = index === 0 ? targetModelForFirstPrompt : prompt.model
-                    const matchedModel = matchClosestModelOption(
-                        targetModel,
-                        values.effectiveModelOptions,
-                        values.providerKeys
-                    )
-                    return {
-                        ...prompt,
-                        model:
-                            index === 0
-                                ? (matchedModel?.id ?? targetModelForFirstPrompt)
-                                : (matchedModel?.id ?? matchClosestModel(targetModel, values.effectiveModelOptions)),
-                        selectedProviderKeyId: matchedModel?.providerKeyId ?? prompt.selectedProviderKeyId,
-                    }
-                })
+                const normalizedPrompts = normalizePromptsToAvailableModels(
+                    values.promptConfigs,
+                    targetModelForFirstPrompt,
+                    values.effectiveModelOptions,
+                    values.providerKeys
+                )
 
                 actions.setPromptConfigs(normalizedPrompts)
                 actions.clearPendingTargetModel()
@@ -265,19 +268,12 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                     applyPendingTraceSelection(targetModelForFirstPrompt)
                     return
                 }
-                const normalizedPrompts = values.promptConfigs.map((prompt: PromptConfig, index: number) => {
-                    const targetModel =
-                        index === 0 && targetModelForFirstPrompt ? targetModelForFirstPrompt : prompt.model
-                    const matchedModel = matchClosestModelOption(targetModel, byokModels, values.providerKeys)
-                    return {
-                        ...prompt,
-                        model:
-                            index === 0 && targetModelForFirstPrompt
-                                ? (matchedModel?.id ?? targetModelForFirstPrompt)
-                                : (matchedModel?.id ?? matchClosestModel(targetModel, byokModels)),
-                        selectedProviderKeyId: matchedModel?.providerKeyId ?? prompt.selectedProviderKeyId,
-                    }
-                })
+                const normalizedPrompts = normalizePromptsToAvailableModels(
+                    values.promptConfigs,
+                    targetModelForFirstPrompt,
+                    byokModels,
+                    values.providerKeys
+                )
 
                 actions.setPromptConfigs(normalizedPrompts)
                 actions.clearPendingTargetModel()

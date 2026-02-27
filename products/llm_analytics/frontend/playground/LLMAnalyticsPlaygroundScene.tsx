@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import React, { useState } from 'react'
+import React from 'react'
 
 import {
     IconChevronRight,
@@ -289,7 +289,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
 
     return (
-        <div className="mb-4 border rounded p-4 bg-transparent h-[300px] min-w-0 flex flex-col">
+        <div className="mb-4 border rounded p-4 bg-transparent h-[30vh] min-w-0 flex flex-col">
             <div className="flex items-center justify-between gap-2 mb-3">
                 <LemonTag type="default" size="small">
                     Result
@@ -549,15 +549,15 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
 function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
     const { submitting } = useValues(llmPlaygroundRunLogic)
-    const { localToolsJsonByPromptId } = useValues(llmPlaygroundPromptsLogic)
-    const { setTools, setLocalToolsJson } = useActions(llmPlaygroundPromptsLogic)
-    const [showEditModal, setShowEditModal] = useState(false)
-    const [jsonError, setJsonError] = useState<string | null>(null)
+    const { editModal, localToolsJsonByPromptId, toolsJsonErrorByPromptId } = useValues(llmPlaygroundPromptsLogic)
+    const { setTools, setLocalToolsJson, setEditModal, setToolsJsonError } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-7 w-20" />
     }
 
+    const showEditModal = editModal?.type === 'tools' && editModal.promptId === promptId
+    const jsonError = toolsJsonErrorByPromptId[promptId] ?? null
     const localToolsJson = localToolsJsonByPromptId[promptId] ?? null
     const toolsJsonString = localToolsJson ?? JSON.stringify(prompt.tools ?? [], null, 2)
     const toolCount = Array.isArray(prompt.tools) ? prompt.tools.length : 0
@@ -571,9 +571,9 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
         try {
             const parsedTools = JSON.parse(value)
             setTools(parsedTools, promptId)
-            setJsonError(null)
+            setToolsJsonError(promptId, null)
         } catch (e) {
-            setJsonError(e instanceof SyntaxError ? e.message : 'Invalid JSON')
+            setToolsJsonError(promptId, e instanceof SyntaxError ? e.message : 'Invalid JSON')
         }
     }
 
@@ -584,7 +584,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                 size="small"
                 icon={<IconWrench />}
                 active={hasTools}
-                onClick={() => setShowEditModal(true)}
+                onClick={() => setEditModal({ type: 'tools', promptId })}
                 disabledReason={submitting ? 'Generating...' : undefined}
                 tooltip={hasTools ? `${toolCount} tool${toolCount === 1 ? '' : 's'} attached` : 'No tools attached'}
             >
@@ -593,7 +593,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 
             <LemonModal
                 isOpen={showEditModal}
-                onClose={() => setShowEditModal(false)}
+                onClose={() => setEditModal(null)}
                 title="Edit tools"
                 width="90vw"
                 maxWidth="1200px"
@@ -610,7 +610,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                         >
                             Clear tools
                         </LemonButton>
-                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
+                        <LemonButton type="secondary" onClick={() => setEditModal(null)}>
                             Close
                         </LemonButton>
                     </div>
@@ -657,16 +657,16 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { promptConfigs } = useValues(llmPlaygroundPromptsLogic)
-    const { setSystemPrompt } = useActions(llmPlaygroundPromptsLogic)
+    const { promptConfigs, editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
+    const { setSystemPrompt, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
-    const [showEditModal, setShowEditModal] = useState(false)
-    const [collapsed, setCollapsed] = useState(false)
 
     if (!prompt) {
         return <LemonSkeleton className="h-12" />
     }
 
+    const showEditModal = editModal?.type === 'system' && editModal.promptId === promptId
+    const collapsed = !!collapsedSections[`system:${promptId}`]
     const hasOtherPrompts = promptConfigs.length > 1
     const copySystemPromptToOtherPrompts = (): void => {
         if (!hasOtherPrompts) {
@@ -707,14 +707,14 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                         icon={<IconPencil />}
                         tooltip="Edit system prompt in modal"
                         noPadding
-                        onClick={() => setShowEditModal(true)}
+                        onClick={() => setEditModal({ type: 'system', promptId })}
                         data-attr="playground-edit-system-prompt"
                     />
                 </div>
 
                 <div
                     className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
-                    onClick={() => setCollapsed(!collapsed)}
+                    onClick={() => toggleCollapsed(`system:${promptId}`)}
                 >
                     <CollapsibleChevron collapsed={collapsed} />
                     <LemonTag type="completion" size="small">
@@ -744,13 +744,13 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
 
             <LemonModal
                 isOpen={showEditModal}
-                onClose={() => setShowEditModal(false)}
+                onClose={() => setEditModal(null)}
                 title="Edit system prompt"
                 width="90vw"
                 maxWidth="1200px"
                 footer={
                     <div className="flex justify-end gap-2">
-                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
+                        <LemonButton type="secondary" onClick={() => setEditModal(null)}>
                             Close
                         </LemonButton>
                     </div>
@@ -782,10 +782,14 @@ function MessageDisplay({
     message: Message
     index: number
 }): JSX.Element {
-    const { updateMessage, deleteMessage } = useActions(llmPlaygroundPromptsLogic)
+    const { editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
+    const { updateMessage, deleteMessage, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
-    const [collapsed, setCollapsed] = useState(false)
-    const [showEditModal, setShowEditModal] = useState(false)
+
+    const messageKey = `message:${promptId}:${index}`
+    const collapsed = !!collapsedSections[messageKey]
+    const showEditModal =
+        editModal?.type === 'message' && editModal.promptId === promptId && editModal.messageIndex === index
 
     const handleRoleChange = (newRole: MessageRole): void => {
         updateMessage(index, { role: newRole }, promptId)
@@ -845,7 +849,7 @@ function MessageDisplay({
                         icon={<IconPencil />}
                         tooltip="Edit message in modal"
                         noPadding
-                        onClick={() => setShowEditModal(true)}
+                        onClick={() => setEditModal({ type: 'message', promptId, messageIndex: index })}
                     />
                     <LemonButton
                         size="small"
@@ -859,7 +863,7 @@ function MessageDisplay({
 
                 <div
                     className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
-                    onClick={() => setCollapsed(!collapsed)}
+                    onClick={() => toggleCollapsed(messageKey)}
                 >
                     <CollapsibleChevron collapsed={collapsed} />
                     <span className={`w-2 h-2 rounded-full shrink-0 ${getRoleDotClass(message.role)}`} />
@@ -907,13 +911,13 @@ function MessageDisplay({
 
             <LemonModal
                 isOpen={showEditModal}
-                onClose={() => setShowEditModal(false)}
+                onClose={() => setEditModal(null)}
                 title="Edit message"
                 width="90vw"
                 maxWidth="1200px"
                 footer={
                     <div className="flex justify-end gap-2">
-                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
+                        <LemonButton type="secondary" onClick={() => setEditModal(null)}>
                             Close
                         </LemonButton>
                     </div>

@@ -32,8 +32,8 @@ export interface PromptConfig {
 export interface PlaygroundSetupPayload {
     model?: string
     provider?: string
-    input?: any
-    tools?: any
+    input?: unknown
+    tools?: Record<string, unknown>[]
 }
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
@@ -167,6 +167,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setupPlaygroundFromEvent: (payload: PlaygroundSetupPayload) => ({ payload }),
         setLocalToolsJson: (json: string | null, promptId?: string) => ({ json, promptId }),
         clearPendingTargetModel: true,
+        setEditModal: (
+            target: { type: 'tools' | 'system' | 'message'; promptId: string; messageIndex?: number } | null
+        ) => ({ target }),
+        toggleCollapsed: (key: string) => ({ key }),
+        setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
     }),
 
     reducers({
@@ -321,6 +326,41 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     { payload }: { payload: { model?: string; provider?: string } }
                 ) => isTraceLikeSelection(payload.model, payload.provider),
                 clearPendingTargetModel: () => false,
+            },
+        ],
+        editModal: [
+            null as { type: 'tools' | 'system' | 'message'; promptId: string; messageIndex?: number } | null,
+            {
+                setEditModal: (
+                    _: { type: string; promptId: string; messageIndex?: number } | null,
+                    {
+                        target,
+                    }: {
+                        target: { type: 'tools' | 'system' | 'message'; promptId: string; messageIndex?: number } | null
+                    }
+                ) => target,
+            },
+        ],
+        collapsedSections: [
+            {} as Record<string, boolean>,
+            {
+                toggleCollapsed: (state: Record<string, boolean>, { key }: { key: string }) => ({
+                    ...state,
+                    [key]: !state[key],
+                }),
+            },
+        ],
+        toolsJsonErrorByPromptId: [
+            {} as Record<string, string | null>,
+            {
+                setToolsJsonError: (
+                    state: Record<string, string | null>,
+                    { promptId, error }: { promptId: string; error: string | null }
+                ) => ({ ...state, [promptId]: error }),
+                removePromptConfig: (state: Record<string, string | null>, { promptId }: { promptId: string }) => {
+                    const { [promptId]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
     }),
