@@ -735,10 +735,12 @@ class BigQueryClient:
                     backoff=backoff,
                     error_code=err.code,
                 )
+
                 await asyncio.sleep(backoff)
                 attempt += 1
 
-        return result
+            else:
+                return result
 
     def _run_load_job(self, file, bq_table, job_config):
         """Run a BigQuery LoadJob and return its result.
