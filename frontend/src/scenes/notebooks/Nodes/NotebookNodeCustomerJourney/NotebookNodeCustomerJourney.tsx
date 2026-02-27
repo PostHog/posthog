@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
@@ -29,14 +30,20 @@ type NotebookNodeCustomerJourneyAttributes = {
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourneyAttributes>): JSX.Element | null => {
     const isJourneysEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_JOURNEYS')
     const { expanded, notebookLogic } = useValues(notebookNodeLogic)
-    const { setMenuItems } = useActions(notebookNodeLogic)
+    const { setMenuItems, setTitlePlaceholder } = useActions(notebookNodeLogic)
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const logicKey = getLogicKey({ personId, groupKey, tabId })
 
     const logic = customerJourneysLogic({ key: logicKey, personId, groupKey, groupTypeIndex })
     useAttachedLogic(logic, notebookLogic)
-    const { journeyOptions, journeysLoading, activeInsightLoading, filteredQuery } = useValues(logic)
+    const { journeyOptions, journeysLoading, activeInsightLoading, filteredQuery, activeJourney } = useValues(logic)
     const { removeNode } = useActions(customerProfileLogic)
+
+    useEffect(() => {
+        if (activeJourney) {
+            setTitlePlaceholder(`Customer journey - ${activeJourney.name}`)
+        }
+    }, [activeJourney?.name])
 
     useOnMountEffect(() => {
         setMenuItems([
@@ -75,6 +82,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
     return (
         <Query
             query={filteredQuery}
+            attachTo={notebookLogic}
             readOnly
             context={{
                 insightProps: {
