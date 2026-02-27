@@ -104,7 +104,9 @@ export class CdpApi {
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
-            this.hogFunctionMonitoringService
+            this.hogFunctionMonitoringService,
+            services.redis,
+            hub.teamManager
         )
     }
 
