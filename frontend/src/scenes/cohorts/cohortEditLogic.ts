@@ -218,14 +218,15 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
                 setCohort: (state, { cohort }) => {
+                    const source = state.source as ActorsQuery
                     const defaultSelect = cohort.is_static
                         ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
                         : ['person_display_name -- Person', 'id', 'created_at']
                     return {
                         ...state,
                         source: {
-                            ...state.source,
-                            select: state.source.select ?? defaultSelect,
+                            ...source,
+                            select: source.select ?? defaultSelect,
                         },
                     }
                 },
