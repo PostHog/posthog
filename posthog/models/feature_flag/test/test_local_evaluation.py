@@ -1344,7 +1344,16 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         super().setUp()
         clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
 
-    def test_verify_command_processes_both_variants_by_default(self):
+    @parameterized.expand(
+        [
+            # (variant_arg, expect_with_cohorts, expect_without_cohorts, result_count)
+            (None, True, False, 1),
+            ("with-cohorts", True, False, 1),
+            ("without-cohorts", False, True, 1),
+            ("both", True, True, 2),
+        ]
+    )
+    def test_verify_command_variant_selection(self, variant_arg, expect_with, expect_without, result_count):
         from io import StringIO
 
         from django.core.management import call_command
@@ -1357,37 +1366,15 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         )
 
         out = StringIO()
-        call_command("verify_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
+        args = ["verify_flag_definitions_cache", f"--team-ids={self.team.id}"]
+        if variant_arg:
+            args.append(f"--variant={variant_arg}")
+        call_command(*args, stdout=out)
 
         output = out.getvalue()
-        assert "with cohorts" in output
-        assert "without cohorts" in output
-        assert output.count("Verification Results") == 2
-
-    def test_verify_command_with_variant_flag(self):
-        from io import StringIO
-
-        from django.core.management import call_command
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        out = StringIO()
-        call_command(
-            "verify_flag_definitions_cache",
-            f"--team-ids={self.team.id}",
-            "--variant=with-cohorts",
-            stdout=out,
-        )
-
-        output = out.getvalue()
-        assert "with cohorts" in output
-        assert "without cohorts" not in output
-        assert output.count("Verification Results") == 1
+        assert ("with cohorts" in output) == expect_with
+        assert ("without cohorts" in output) == expect_without
+        assert output.count("Verification Results") == result_count
 
     def test_warm_command_processes_both_variants_by_default(self):
         from io import StringIO
