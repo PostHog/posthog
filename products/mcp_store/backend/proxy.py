@@ -157,9 +157,11 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     if "text/event-stream" in content_type:
         return _build_sse_response(upstream_response, client)
 
-    # Buffered JSON response — read body then close
-    upstream_response.read()
-    client.close()
+    # Read body then close to avoid memory leaks from buffered responses
+    try:
+        upstream_response.read()
+    finally:
+        client.close()
 
     response = HttpResponse(
         upstream_response.content,
