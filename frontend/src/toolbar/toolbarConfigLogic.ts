@@ -210,8 +210,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 console.error('PostHog Toolbar OAuth error:', event.data.error, event.data.error_description)
                 return
             }
-            if (event.data.access_token) {
+            if (event.data.access_token && event.data.refresh_token && event.data.client_id) {
                 actions.setOAuthTokens(event.data.access_token, event.data.refresh_token, event.data.client_id)
+            } else if (event.data.access_token) {
+                console.error('PostHog Toolbar OAuth: incomplete token payload')
             }
         }
         window.addEventListener('message', cache.oauthMessageHandler)
@@ -322,6 +324,7 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
     })
 
     if (response.status === 401) {
+        toolbarConfigLogic.findMounted()?.actions.tokenExpired()
         throw new Error('Authentication expired')
     }
 
