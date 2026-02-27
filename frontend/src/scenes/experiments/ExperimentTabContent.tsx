@@ -7,7 +7,6 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
-import { pluralize } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
@@ -43,29 +42,9 @@ export const ExperimentTabContent = ({
         featureFlagRelatedExperimentsLogic({ featureFlagId: featureFlag.id! })
     )
 
-    if (relatedExperiments.length === 0) {
-        return (
-            <div className="flex flex-col items-center pt-5">
-                <div className="w-full max-w-5xl">
-                    <LemonBanner type="info" className="mb-6">
-                        No experiments are using this feature flag yet. Create one to start testing variants.
-                    </LemonBanner>
-                </div>
-            </div>
-        )
-    }
-
-    const count = relatedExperiments.length
-
     return (
         <div className="space-y-6">
             <LemonBanner type="info">{multipleExperimentsBannerMessage}</LemonBanner>
-
-            {count ? (
-                <div>
-                    <span className="text-secondary">{`1-${count} of ${pluralize(count, 'experiment')}`}</span>
-                </div>
-            ) : null}
 
             <LemonTable
                 dataSource={relatedExperiments}
