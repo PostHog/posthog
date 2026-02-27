@@ -114,14 +114,21 @@ export function InsightMeta({
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const compact =
+    const showCompactTile =
         !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN] &&
         (placement === DashboardPlacement.Dashboard ||
             placement === DashboardPlacement.ProjectHomepage ||
             placement === DashboardPlacement.Public)
 
     const isSqlInsight = isDataVisualizationNode(insight.query)
-    const hideCompactHeading = compact && (!!filtersOverride?.date_from || isSqlInsight)
+    const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
+
+    const topHeadingProps = {
+        query: insight.query,
+        lastRefresh: insight.last_refresh,
+        hasTileOverrides: Object.keys(tile?.filters_overrides ?? {}).length > 0,
+        resolvedDateRange: insightData?.resolved_date_range,
+    }
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
@@ -185,7 +192,7 @@ export function InsightMeta({
     if (!canViewInsight) {
         return (
             <CardMeta
-                compact={compact}
+                compact={showCompactTile}
                 ribbonColor={ribbonColor}
                 showEditingControls={false}
                 showDetailsControls={false}
@@ -219,7 +226,7 @@ export function InsightMeta({
 
     return (
         <CardMeta
-            compact={compact}
+            compact={showCompactTile}
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
@@ -227,26 +234,9 @@ export function InsightMeta({
             areDetailsShown={areDetailsShown}
             detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
             topHeading={
-                hideCompactHeading ? null : (
-                    <TopHeading
-                        query={insight.query}
-                        lastRefresh={insight.last_refresh}
-                        hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
-                        resolvedDateRange={insightData?.resolved_date_range}
-                        showInsightType={!compact}
-                    />
-                )
+                showCompactHeading ? <TopHeading {...topHeadingProps} showInsightType={!showCompactTile} /> : null
             }
-            popoverTopHeading={
-                compact ? (
-                    <TopHeading
-                        query={insight.query}
-                        lastRefresh={insight.last_refresh}
-                        hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
-                        resolvedDateRange={insightData?.resolved_date_range}
-                    />
-                ) : undefined
-            }
+            popoverTopHeading={showCompactTile ? <TopHeading {...topHeadingProps} /> : undefined}
             content={
                 <InsightMetaContent
                     link={urls.insightView(
@@ -262,7 +252,7 @@ export function InsightMeta({
                     loading={loading}
                     loadingQueued={loadingQueued}
                     tags={insight.tags}
-                    compact={compact}
+                    compact={showCompactTile}
                     showDescription={tile?.show_description !== false}
                 />
             }
@@ -512,7 +502,7 @@ export function InsightMetaContent({
     showDescription?: boolean
 }): JSX.Element {
     let titleEl: JSX.Element = (
-        <h4 data-attr="insight-card-title">
+        <h4 title={!compact ? title : undefined} data-attr="insight-card-title">
             {title || <i>{fallbackTitle || 'Untitled'}</i>}
             {(loading || loadingQueued) && (
                 <Tooltip
