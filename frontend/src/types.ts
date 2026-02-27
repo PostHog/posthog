@@ -4073,6 +4073,7 @@ export enum ItemMode {
     Subscriptions = 'subscriptions',
     Sharing = 'sharing',
     Alerts = 'alerts',
+    History = 'history',
 }
 
 export enum DashboardPlacement {

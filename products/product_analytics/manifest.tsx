@@ -86,6 +86,7 @@ export const manifest: ProductManifest = {
         insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
             `/insights/${id}/subscriptions/${subscriptionId}`,
         insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
+        insightHistory: (id: InsightShortId): string => `/insights/${id}/history`,
         savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
         insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
         insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>

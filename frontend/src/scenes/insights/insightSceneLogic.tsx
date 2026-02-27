@@ -477,9 +477,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                       ? ItemMode.Alerts
                       : mode === 'sharing'
                         ? ItemMode.Sharing
-                        : mode === 'edit' || shortId === 'new'
-                          ? ItemMode.Edit
-                          : ItemMode.View
+                        : mode === 'history'
+                          ? ItemMode.History
+                          : mode === 'edit' || shortId === 'new'
+                            ? ItemMode.Edit
+                            : ItemMode.View
             let insightId = String(shortId) as InsightShortId
             if (insightId === 'new') {
                 insightId = `new-${values.tabId}` as InsightShortId

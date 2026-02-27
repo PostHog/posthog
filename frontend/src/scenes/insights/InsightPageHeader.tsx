@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
+import { IconClockRewind, IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -368,6 +368,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 }}
                                 dataAttrKey={RESOURCE_TYPE}
                             />
+                        )}
+
+                        {hasDashboardItemId && insight.short_id && (
+                            <ButtonPrimitive
+                                onClick={() => push(urls.insightHistory(insight.short_id as InsightShortId))}
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-history`}
+                            >
+                                <IconClockRewind />
+                                History
+                            </ButtonPrimitive>
                         )}
 
                         {!insight.short_id && (

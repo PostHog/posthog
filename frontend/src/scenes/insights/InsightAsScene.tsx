@@ -3,6 +3,7 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -15,7 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
-import { InsightShortId, ItemMode } from '~/types'
+import { ActivityScope, InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic } from './insightDataLogic'
@@ -83,46 +84,52 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
             <SceneContent className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
-                {hasOverrides && (
-                    <LemonBanner type="warning" className="mb-4">
-                        <div className="flex flex-row items-center justify-between gap-2">
-                            <span>
-                                You are viewing this insight with filter/variable overrides. Discard them to edit the
-                                insight.
-                            </span>
+                {insightMode === ItemMode.History ? (
+                    <ActivityLog scope={ActivityScope.INSIGHT} id={insight.id} />
+                ) : (
+                    <>
+                        {hasOverrides && (
+                            <LemonBanner type="warning" className="mb-4">
+                                <div className="flex flex-row items-center justify-between gap-2">
+                                    <span>
+                                        You are viewing this insight with filter/variable overrides. Discard them to
+                                        edit the insight.
+                                    </span>
 
-                            <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
-                                Discard overrides
-                            </LemonButton>
-                        </div>
-                    </LemonBanner>
+                                    <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
+                                        Discard overrides
+                                    </LemonButton>
+                                </div>
+                            </LemonBanner>
+                        )}
+
+                        {insightMode === ItemMode.Edit && <InsightsNav />}
+
+                        {showDebugPanel && (
+                            <div className="mb-4">
+                                <DebugCHQueries insightId={insightProps.cachedInsight?.id} />
+                            </div>
+                        )}
+
+                        {freshQuery ? <ReloadInsight /> : null}
+
+                        <Query
+                            attachTo={attachTo}
+                            query={isInsightVizNode(query) ? { ...query, full: true } : query}
+                            setQuery={setQuery}
+                            readOnly={insightMode !== ItemMode.Edit}
+                            editMode={insightMode === ItemMode.Edit}
+                            context={{
+                                showOpenEditorButton: false,
+                                showQueryEditor: actuallyShowQueryEditor,
+                                showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                                insightProps,
+                            }}
+                            filtersOverride={filtersOverride}
+                            variablesOverride={variablesOverride}
+                        />
+                    </>
                 )}
-
-                {insightMode === ItemMode.Edit && <InsightsNav />}
-
-                {showDebugPanel && (
-                    <div className="mb-4">
-                        <DebugCHQueries insightId={insightProps.cachedInsight?.id} />
-                    </div>
-                )}
-
-                {freshQuery ? <ReloadInsight /> : null}
-
-                <Query
-                    attachTo={attachTo}
-                    query={isInsightVizNode(query) ? { ...query, full: true } : query}
-                    setQuery={setQuery}
-                    readOnly={insightMode !== ItemMode.Edit}
-                    editMode={insightMode === ItemMode.Edit}
-                    context={{
-                        showOpenEditorButton: false,
-                        showQueryEditor: actuallyShowQueryEditor,
-                        showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
-                        insightProps,
-                    }}
-                    filtersOverride={filtersOverride}
-                    variablesOverride={variablesOverride}
-                />
             </SceneContent>
         </BindLogic>
     )
