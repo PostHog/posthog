@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconBell, IconList, IconNotification } from '@posthog/icons'
+import { IconActivity, IconBell, IconList, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
@@ -30,11 +30,12 @@ import {
 } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
 export const SidePanelActivityIcon = ({ className }: { className?: string }): JSX.Element => {
-    return <IconList className={className} />
+    return <IconActivity className={className} />
 }
 
 export const SidePanelActivity = (): JSX.Element => {
@@ -69,231 +70,230 @@ export const SidePanelActivity = (): JSX.Element => {
 
     if (!hasAccess) {
         return (
-            <>
-                <SidePanelPaneHeader title="Activity logs" />
-                <div className="flex flex-col items-center justify-center gap-3 p-6 text-center h-full">
-                    <IconNotification className="text-5xl text-muted" />
-                    <div>
-                        <div className="font-semibold mb-1">Access denied</div>
-                        <div className="text-xs text-muted-alt">
-                            You don't have sufficient permissions to view activity logs. Please contact your project
-                            administrator.
+            <div className="flex flex-col overflow-hidden flex-1">
+                <SidePanelContentContainer>
+                    <SidePanelPaneHeader title="Activity logs" />
+                    <div className="flex flex-col items-center justify-center gap-3 p-6 text-center h-full">
+                        <IconNotification className="text-5xl text-muted" />
+                        <div>
+                            <div className="font-semibold mb-1">Access denied</div>
+                            <div className="text-xs text-muted-alt">
+                                You don't have sufficient permissions to view activity logs. Please contact your project
+                                administrator.
+                            </div>
                         </div>
                     </div>
-                </div>
-            </>
+                </SidePanelContentContainer>
+            </div>
         )
     }
 
     return (
-        <>
-            <SidePanelPaneHeader title="Activity logs" />
+        <div className="flex flex-col overflow-hidden flex-1">
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
                 className="flex flex-col flex-1 overflow-hidden"
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
-                <div className="flex flex-col flex-1 overflow-hidden">
-                    {hasAnyContext ? (
-                        <div className="flex items-center justify-between gap-2 px-2 pb-2">
-                            <div className="flex items-center gap-2">
-                                <span>
-                                    Activity on{' '}
-                                    <strong>
-                                        {hasItemContext
-                                            ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
-                                            : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}
-                                    </strong>
-                                </span>
-                                {featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
-                                    <LemonMenu
-                                        placement="bottom-start"
-                                        items={
-                                            [
-                                                {
-                                                    items: HOG_FUNCTION_SUB_TEMPLATES['activity-log'].map(
-                                                        (subTemplate) => {
-                                                            const properties: CyclotronJobFilterPropertyFilter[] = [
-                                                                {
-                                                                    key: 'scope',
-                                                                    type: PropertyFilterType.Event,
-                                                                    value: contextFromPage!.scope!,
-                                                                    operator: PropertyOperator.Exact,
-                                                                },
-                                                            ]
+                <div className="flex flex-col flex-1 overflow-hidden" ref={contentRef} onScroll={handleScroll}>
+                    <ScrollableShadows direction="vertical" innerClassName="p-2 deprecated-space-y-px">
+                        <SidePanelPaneHeader title="Activity logs" />
+                        {hasAnyContext ? (
+                            <div className="flex items-center justify-between gap-2 pb-2">
+                                <div className="flex items-center gap-2">
+                                    <span>
+                                        Activity on{' '}
+                                        <strong>
+                                            {hasItemContext
+                                                ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
+                                                : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}
+                                        </strong>
+                                    </span>
+                                    {featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
+                                        <LemonMenu
+                                            placement="bottom-start"
+                                            items={
+                                                [
+                                                    {
+                                                        items: HOG_FUNCTION_SUB_TEMPLATES['activity-log'].map(
+                                                            (subTemplate) => {
+                                                                const properties: CyclotronJobFilterPropertyFilter[] = [
+                                                                    {
+                                                                        key: 'scope',
+                                                                        type: PropertyFilterType.Event,
+                                                                        value: contextFromPage!.scope!,
+                                                                        operator: PropertyOperator.Exact,
+                                                                    },
+                                                                ]
 
-                                                            if (hasItemContext) {
-                                                                properties.push({
-                                                                    key: 'item_id',
-                                                                    type: PropertyFilterType.Event,
-                                                                    value: contextFromPage!.item_id,
-                                                                    operator: PropertyOperator.Exact,
-                                                                })
+                                                                if (hasItemContext) {
+                                                                    properties.push({
+                                                                        key: 'item_id',
+                                                                        type: PropertyFilterType.Event,
+                                                                        value: contextFromPage!.item_id,
+                                                                        operator: PropertyOperator.Exact,
+                                                                    })
+                                                                }
+
+                                                                const filters = {
+                                                                    events: subTemplate.filters?.events || [],
+                                                                    properties,
+                                                                }
+
+                                                                const configurationOverrides = { filters }
+
+                                                                const configuration: Record<string, any> = {
+                                                                    ...subTemplate,
+                                                                    ...configurationOverrides,
+                                                                }
+
+                                                                const url = combineUrl(
+                                                                    urls.hogFunctionNew(subTemplate.template_id),
+                                                                    {},
+                                                                    { configuration }
+                                                                ).url
+
+                                                                return {
+                                                                    label: subTemplate.name || 'Subscribe',
+                                                                    onClick: () => {
+                                                                        closeSidePanel()
+                                                                        router.actions.push(url)
+                                                                    },
+                                                                }
                                                             }
-
-                                                            const filters = {
-                                                                events: subTemplate.filters?.events || [],
-                                                                properties,
-                                                            }
-
-                                                            const configurationOverrides = { filters }
-
-                                                            const configuration: Record<string, any> = {
-                                                                ...subTemplate,
-                                                                ...configurationOverrides,
-                                                            }
-
-                                                            const url = combineUrl(
-                                                                urls.hogFunctionNew(subTemplate.template_id),
-                                                                {},
-                                                                { configuration }
-                                                            ).url
-
-                                                            return {
-                                                                label: subTemplate.name || 'Subscribe',
+                                                        ),
+                                                    },
+                                                    {
+                                                        items: [
+                                                            {
+                                                                label: 'View all notifications',
                                                                 onClick: () => {
                                                                     closeSidePanel()
-                                                                    router.actions.push(url)
-                                                                },
-                                                            }
-                                                        }
-                                                    ),
-                                                },
-                                                {
-                                                    items: [
-                                                        {
-                                                            label: 'View all notifications',
-                                                            onClick: () => {
-                                                                closeSidePanel()
-                                                                router.actions.push(
-                                                                    urls.settings(
-                                                                        'environment-activity-logs',
-                                                                        'activity-log-notifications'
+                                                                    router.actions.push(
+                                                                        urls.settings(
+                                                                            'environment-activity-logs',
+                                                                            'activity-log-notifications'
+                                                                        )
                                                                     )
-                                                                )
+                                                                },
                                                             },
-                                                        },
-                                                    ],
-                                                },
-                                            ] as LemonMenuItems
-                                        }
-                                    >
-                                        <LemonButton size="small" type="secondary" tooltip="Subscribe">
-                                            <IconBell />
-                                        </LemonButton>
-                                    </LemonMenu>
-                                )}
+                                                        ],
+                                                    },
+                                                ] as LemonMenuItems
+                                            }
+                                        >
+                                            <LemonButton size="small" type="secondary" tooltip="Subscribe">
+                                                <IconBell />
+                                            </LemonButton>
+                                        </LemonMenu>
+                                    )}
+                                </div>
+                                <MemberSelect
+                                    value={activeFilters?.user ?? null}
+                                    onChange={(user) =>
+                                        setActiveFilters({
+                                            ...activeFilters,
+                                            user: user?.id ?? undefined,
+                                        })
+                                    }
+                                />
                             </div>
-                            <MemberSelect
-                                value={activeFilters?.user ?? null}
-                                onChange={(user) =>
-                                    setActiveFilters({
-                                        ...activeFilters,
-                                        user: user?.id ?? undefined,
-                                    })
-                                }
-                            />
-                        </div>
-                    ) : null}
+                        ) : null}
+                        {hasAnyContext ? (
+                            <>
+                                {allActivityResponseLoading ? (
+                                    <LemonSkeleton className="h-12 my-2" repeat={10} fade />
+                                ) : allActivity.length ? (
+                                    <>
+                                        {allActivity.map((logItem, index) => (
+                                            <ActivityLogRow logItem={logItem} key={index} />
+                                        ))}
 
-                    <div className="flex flex-col flex-1 overflow-hidden" ref={contentRef} onScroll={handleScroll}>
-                        <ScrollableShadows direction="vertical" innerClassName="p-2 deprecated-space-y-px">
-                            {hasAnyContext ? (
-                                <>
-                                    {allActivityResponseLoading ? (
-                                        <LemonSkeleton className="h-12 my-2" repeat={10} fade />
-                                    ) : allActivity.length ? (
-                                        <>
-                                            {allActivity.map((logItem, index) => (
-                                                <ActivityLogRow logItem={logItem} key={index} />
-                                            ))}
-
-                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary">
-                                                {allActivityResponseLoading ? (
-                                                    <>
-                                                        <Spinner textColored /> Loading older activity
-                                                    </>
-                                                ) : allActivityHasNext ? (
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        fullWidth
-                                                        center
-                                                        onClick={() => maybeLoadOlderActivity()}
-                                                    >
-                                                        Load more
-                                                    </LemonButton>
-                                                ) : (
-                                                    <Link
-                                                        to={urls.advancedActivityLogs()}
-                                                        onClick={() => closeSidePanel()}
-                                                        className="text-muted-alt text-xs"
-                                                    >
-                                                        Browse all activity logs
-                                                    </Link>
-                                                )}
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="flex flex-col items-center gap-2 p-6 text-center border border-dashed rounded">
-                                            <span>No activity yet</span>
-                                            {activeFilters?.user ? (
+                                        <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary">
+                                            {allActivityResponseLoading ? (
+                                                <>
+                                                    <Spinner textColored /> Loading older activity
+                                                </>
+                                            ) : allActivityHasNext ? (
                                                 <LemonButton
-                                                    size="small"
                                                     type="secondary"
-                                                    onClick={() =>
-                                                        setActiveFilters({
-                                                            ...activeFilters,
-                                                            user: undefined,
-                                                        })
-                                                    }
+                                                    fullWidth
+                                                    center
+                                                    onClick={() => maybeLoadOlderActivity()}
                                                 >
-                                                    Clear user filter
+                                                    Load more
                                                 </LemonButton>
-                                            ) : null}
-                                            <div className="flex flex-col items-center justify-center text-xs text-muted-alt">
-                                                <LemonButton
-                                                    size="small"
-                                                    type="secondary"
+                                            ) : (
+                                                <Link
                                                     to={urls.advancedActivityLogs()}
-                                                    data-attr="browse-all-activity-logs"
                                                     onClick={() => closeSidePanel()}
+                                                    className="text-muted-alt text-xs"
                                                 >
                                                     Browse all activity logs
-                                                </LemonButton>
-                                            </div>
+                                                </Link>
+                                            )}
                                         </div>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="flex flex-col items-center justify-center gap-3 p-6 text-center h-full">
-                                    <IconList className="text-5xl text-muted" />
-                                    <div>
-                                        <div className="font-semibold mb-1">Activity is context-aware</div>
-                                        <div className="text-xs text-muted-alt">
-                                            Navigate to a page like dashboards or a specific dashboard to see activity
-                                            in this panel
+                                    </>
+                                ) : (
+                                    <div className="flex flex-col items-center gap-2 p-6 text-center border border-dashed rounded">
+                                        <span>No activity yet</span>
+                                        {activeFilters?.user ? (
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                onClick={() =>
+                                                    setActiveFilters({
+                                                        ...activeFilters,
+                                                        user: undefined,
+                                                    })
+                                                }
+                                            >
+                                                Clear user filter
+                                            </LemonButton>
+                                        ) : null}
+                                        <div className="flex flex-col items-center justify-center text-xs text-muted-alt">
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                to={urls.advancedActivityLogs()}
+                                                data-attr="browse-all-activity-logs"
+                                                onClick={() => closeSidePanel()}
+                                            >
+                                                Browse all activity logs
+                                            </LemonButton>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 text-xs text-muted-alt">
-                                        <div className="border-t flex-1" />
-                                        <span>or</span>
-                                        <div className="border-t flex-1" />
+                                )}
+                            </>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center gap-3 p-6 text-center h-full">
+                                <IconList className="text-5xl text-muted" />
+                                <div>
+                                    <div className="font-semibold mb-1">Activity is context-aware</div>
+                                    <div className="text-xs text-muted-alt">
+                                        Navigate to a page like dashboards or a specific dashboard to see activity in
+                                        this panel
                                     </div>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        to={urls.advancedActivityLogs()}
-                                        data-attr="browse-all-activity-logs"
-                                        onClick={() => closeSidePanel()}
-                                    >
-                                        Browse all activity logs
-                                    </LemonButton>
                                 </div>
-                            )}
-                        </ScrollableShadows>
-                    </div>
+                                <div className="flex items-center gap-2 text-xs text-muted-alt">
+                                    <div className="border-t flex-1" />
+                                    <span>or</span>
+                                    <div className="border-t flex-1" />
+                                </div>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    to={urls.advancedActivityLogs()}
+                                    data-attr="browse-all-activity-logs"
+                                    onClick={() => closeSidePanel()}
+                                >
+                                    Browse all activity logs
+                                </LemonButton>
+                            </div>
+                        )}
+                    </ScrollableShadows>
                 </div>
             </PayGateMini>
-        </>
+        </div>
     )
 }
