@@ -32,7 +32,14 @@ Processing 3 signals typically takes 1-3 minutes depending on LLM response times
 4. Signal embeddings land in ClickHouse `document_embeddings`
 5. When a report's total weight reaches the threshold (default 1.0), a summary workflow runs:
    summarizes the group, runs safety + actionability judges
-6. Report reaches a terminal state: `ready`, `pending_input`, `failed`, or reset to `potential`
+6. Report reaches a terminal state:
+   - `ready` — passed both judges, actionable by a coding agent
+   - `pending_input` — needs human judgment before acting
+   - `failed` — failed safety review (possible prompt injection)
+   - `potential` (reset, weight zeroed) — deemed not actionable
+
+Reports that aren't `ready` still appear in the output with their `error` field
+explaining why they were filtered, plus `artefacts` containing the full judge reasoning.
 
 ## Tips
 
