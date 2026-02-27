@@ -126,6 +126,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
 
             for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
                 await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+                // Abort if the logic was unmounted or a newer backfillCreated action fired
                 breakpoint()
 
                 try {
@@ -170,8 +171,8 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                         actions.loadBackfills()
                         return
                     }
-                } catch {
-                    // ignore polling errors
+                } catch (e) {
+                    console.warn('Failed to poll for backfill estimate', e)
                 }
             }
         },
