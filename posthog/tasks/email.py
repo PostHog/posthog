@@ -1454,6 +1454,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         return
 
     all_org_teams = {t.id: t for t in Team.objects.filter(organization_id=org.id)}
+    excluded_project_count = len(all_org_teams) - len(team_exception_counts)
 
     # Pre-compute per-team digest data only for teams that have exceptions
     team_digest_data: dict[int, dict] = {}
@@ -1528,6 +1529,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
                 "organization": org,
                 "project_sections": user_team_sections,
                 "disabled_project_names": disabled_team_names,
+                "excluded_project_count": excluded_project_count,
                 "settings_url": f"{settings.SITE_URL}/settings/user-notifications",
                 "contact_support_url": "https://posthog.com/support",
                 "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={user.distinct_id}",
