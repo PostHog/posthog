@@ -1,5 +1,7 @@
 import { Locator, Page, expect } from '@playwright/test'
 
+import { TaxonomicFilter } from '../taxonomicFilter'
+
 export class RetentionInsight {
     readonly chart: Locator
     readonly table: Locator
@@ -14,6 +16,7 @@ export class RetentionInsight {
     readonly personsModal: Locator
     readonly customBracketsCheckbox: Locator
     readonly sectionHeaders: Locator
+    readonly taxonomicFilter: TaxonomicFilter
 
     constructor(private readonly page: Page) {
         this.chart = page.getByTestId('trend-line-graph')
@@ -31,6 +34,7 @@ export class RetentionInsight {
             .filter({ has: page.locator('.RetentionTable--non-interactive') })
         this.customBracketsCheckbox = page.locator('.LemonCheckbox', { hasText: 'Use custom return ranges' })
         this.sectionHeaders = this.table.locator('tr.cursor-pointer')
+        this.taxonomicFilter = new TaxonomicFilter(page)
     }
 
     async selectTargetEvent(eventName: string): Promise<void> {
@@ -52,11 +56,7 @@ export class RetentionInsight {
             await this.page.keyboard.press('Escape')
             await button.scrollIntoViewIfNeeded()
             await button.click()
-            const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-            await searchField.waitFor({ state: 'visible', timeout: 3000 })
-            await searchField.fill(eventName)
-            const row = this.page.locator('.taxonomic-list-row', { hasText: eventName })
-            await row.first().click()
+            await this.taxonomicFilter.selectItem(eventName)
         }).toPass({ timeout: 30000 })
     }
 
@@ -89,12 +89,7 @@ export class RetentionInsight {
         await expect(async () => {
             await this.page.keyboard.press('Escape')
             await this.breakdownButton.click()
-            const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-            await searchField.waitFor({ state: 'visible', timeout: 3000 })
-            await searchField.fill(property)
-            const row = this.page.locator('.taxonomic-list-row').first()
-            await row.waitFor({ state: 'visible', timeout: 5000 })
-            await row.click()
+            await this.taxonomicFilter.selectItem(property)
         }).toPass({ timeout: 30000 })
         await this.waitForChart()
     }

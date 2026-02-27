@@ -50,7 +50,6 @@ const FUNNEL_QUERY = {
         ],
         dateRange: { date_from: '-7d' },
         funnelsFilter: { funnelVizType: 'steps' },
-        modifiers: { personsOnEventsMode: 'person_id_no_override_properties_on_events' },
     },
 }
 
@@ -73,11 +72,13 @@ test.describe('Funnel insights', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    let shortId: InsightShortId | null = workspace!.created_insights![0].short_id as InsightShortId
+    function seededInsightId(): InsightShortId {
+        return workspace!.created_insights![0].short_id as InsightShortId
+    }
 
     async function goToSeededFunnel(page: InsightPage['page']): Promise<InsightPage> {
         const insight = new InsightPage(page)
-        await insight.goToInsight(shortId!, { edit: true })
+        await insight.goToInsight(seededInsightId(), { edit: true })
         await insight.funnels.waitForChart()
         return insight
     }
@@ -330,7 +331,7 @@ test.describe('Funnel insights', () => {
         const dashboardId = workspace!.created_dashboards![0].id
 
         await test.step('navigate to insight with filter overrides and verify banner', async () => {
-            await insight.goToInsight(shortId!, {
+            await insight.goToInsight(seededInsightId(), {
                 queryParams: { filters_override: { date_from: '-14d' }, dashboard: dashboardId },
             })
             await expect(page.getByText('filter/variable overrides')).toBeVisible({ timeout: 20000 })

@@ -1,5 +1,7 @@
 import { Locator, Page, expect } from '@playwright/test'
 
+import { TaxonomicFilter } from '../taxonomicFilter'
+
 export class FunnelsInsight {
     readonly verticalChart: Locator
     readonly horizontalChart: Locator
@@ -10,9 +12,7 @@ export class FunnelsInsight {
     readonly layoutSelector: Locator
     readonly stepOrderFilter: Locator
     readonly tooltip: Locator
-    readonly taxonomicSearchField: Locator
-    readonly taxonomicRows: Locator
-    readonly taxonomicExpandRow: Locator
+    readonly taxonomicFilter: TaxonomicFilter
     private readonly conversionWindowSection: Locator
 
     constructor(private readonly page: Page) {
@@ -25,9 +25,7 @@ export class FunnelsInsight {
         this.layoutSelector = page.getByTestId('funnel-bar-layout-selector')
         this.stepOrderFilter = page.getByTestId('funnel-step-order-filter')
         this.tooltip = page.locator('.FunnelTooltip').or(page.locator('.InsightTooltip'))
-        this.taxonomicSearchField = page.getByTestId('taxonomic-filter-searchfield')
-        this.taxonomicRows = page.locator('.taxonomic-list-row')
-        this.taxonomicExpandRow = page.locator('.taxonomic-list-row.expand-row').first()
+        this.taxonomicFilter = new TaxonomicFilter(page)
         this.conversionWindowSection = page
             .locator('div')
             .filter({ hasText: /^Conversion window limit/ })
@@ -35,7 +33,8 @@ export class FunnelsInsight {
     }
 
     async waitForChart(): Promise<void> {
-        await expect(this.chart.first()).toBeVisible()
+        await this.page.getByTestId('insight-loading-waiting-message').waitFor({ state: 'detached', timeout: 30000 })
+        await expect(this.chart.first()).toBeVisible({ timeout: 30000 })
     }
 
     async waitForHistogram(): Promise<void> {
@@ -48,7 +47,7 @@ export class FunnelsInsight {
 
     async addStep(eventName: string): Promise<void> {
         await this.page.getByRole('button', { name: 'Add step' }).click()
-        await this.selectFromTaxonomicFilter(eventName)
+        await this.taxonomicFilter.selectItem(eventName)
     }
 
     async selectVizType(name: string): Promise<void> {
@@ -62,25 +61,12 @@ export class FunnelsInsight {
 
     async selectStepEvent(stepIndex: number, eventName: string): Promise<void> {
         await this.page.getByTestId(`trend-element-subject-${stepIndex}`).click()
-        await this.selectFromTaxonomicFilter(eventName)
+        await this.taxonomicFilter.selectItem(eventName)
     }
 
     async addBreakdown(property: string): Promise<void> {
         await this.page.getByTestId('add-breakdown-button').click()
-        await this.taxonomicSearchField.waitFor({ state: 'visible' })
-        await this.taxonomicSearchField.fill(property)
-
-        // Taxonomic filter shows display names ("Browser" not "$browser")
-        const displayName = property.startsWith('$') ? property.slice(1).replace(/_/g, ' ') : property
-        const row = this.taxonomicRows.filter({ hasText: new RegExp(displayName, 'i') }).first()
-
-        // The row may be hidden behind a "load more" expand row
-        await expect(row.or(this.taxonomicExpandRow)).toBeVisible()
-        if ((await this.taxonomicExpandRow.isVisible()) && !(await row.isVisible())) {
-            await this.taxonomicExpandRow.click()
-            await row.waitFor({ state: 'visible' })
-        }
-        await row.click()
+        await this.taxonomicFilter.selectItem(property)
     }
 
     async addExclusion(eventName: string): Promise<void> {
@@ -89,7 +75,7 @@ export class FunnelsInsight {
         await addButton.click()
 
         await this.page.getByTestId('trend-element-subject-0').last().click()
-        await this.selectFromTaxonomicFilter(eventName)
+        await this.taxonomicFilter.selectItem(eventName)
     }
 
     async selectLayout(label: string): Promise<void> {
@@ -124,13 +110,5 @@ export class FunnelsInsight {
 
     stepLegend(index: number): Locator {
         return this.stepLegends.nth(index)
-    }
-
-    private async selectFromTaxonomicFilter(name: string): Promise<void> {
-        await this.taxonomicSearchField.waitFor({ state: 'visible' })
-        await this.taxonomicSearchField.fill(name)
-        const row = this.taxonomicRows.filter({ hasText: new RegExp(`^.*${name}.*$`) }).first()
-        await row.waitFor({ state: 'visible' })
-        await row.click()
     }
 }

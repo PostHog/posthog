@@ -1,5 +1,7 @@
 import { Locator, Page, expect } from '@playwright/test'
 
+import { TaxonomicFilter } from '../taxonomicFilter'
+
 export class TrendsInsight {
     readonly chart: Locator
     readonly detailsTable: Locator
@@ -12,6 +14,7 @@ export class TrendsInsight {
     readonly dateRangeButton: Locator
     readonly chartTypeButton: Locator
     readonly comparisonButton: Locator
+    readonly taxonomicFilter: TaxonomicFilter
 
     private readonly detailsLoader: Locator
     private readonly addSeriesButton: Locator
@@ -33,6 +36,7 @@ export class TrendsInsight {
         this.dateRangeButton = page.getByTestId('date-filter')
         this.chartTypeButton = page.getByTestId('chart-filter')
         this.comparisonButton = page.getByTestId('compare-filter')
+        this.taxonomicFilter = new TaxonomicFilter(page)
     }
 
     seriesEventButton(index: number): Locator {
@@ -55,20 +59,12 @@ export class TrendsInsight {
 
     async selectEvent(seriesIndex: number, eventName: string): Promise<void> {
         await this.seriesEventButton(seriesIndex).click()
-        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-        await searchField.waitFor({ state: 'visible' })
-        await searchField.fill(eventName)
-        await this.page.locator('.taxonomic-list-row').first().click()
+        await this.taxonomicFilter.selectItem(eventName)
     }
 
     async addBreakdown(property: string): Promise<void> {
         await this.breakdownButton.click()
-        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-        await searchField.waitFor({ state: 'visible' })
-        await searchField.fill(property)
-        const row = this.page.locator('.taxonomic-list-row').first()
-        await row.waitFor({ state: 'visible', timeout: 15000 })
-        await row.click()
+        await this.taxonomicFilter.selectItem(property)
     }
 
     async setFormula(formula: string): Promise<void> {
@@ -144,10 +140,10 @@ export class TrendsInsight {
     }
 
     async selectTaxonomicTab(groupType: string): Promise<void> {
-        await this.page.getByTestId(`taxonomic-tab-${groupType}`).last().click()
+        await this.taxonomicFilter.selectTab(groupType)
     }
 
     taxonomicResults(): Locator {
-        return this.page.locator('.taxonomic-list-row')
+        return this.taxonomicFilter.rows
     }
 }
