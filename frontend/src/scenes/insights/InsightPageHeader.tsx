@@ -197,7 +197,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     useMaxTool({
         identifier: 'upsert_alert',
         active: canCreateAlertForInsight && hasDashboardItemId && !!insight.id,
-        context: useMemo(() => ({ insight_id: insight.id }), [insight.id]),
+        context: useMemo(
+            () => ({
+                insight_id: insight.id,
+                insight_short_id: insight.short_id,
+                insight_name: insight.name || insight.derived_name,
+            }),
+            [insight.id, insight.short_id, insight.name, insight.derived_name]
+        ),
     })
 
     async function handleDuplicateInsight(): Promise<void> {

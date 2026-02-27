@@ -25,6 +25,18 @@ from posthog.models.user import User
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
 
+UPSERT_ALERT_CONTEXT_PROMPT_TEMPLATE = """
+The user is currently viewing an insight that supports alerts. Here are the insight's details for use with the `upsert_alert` tool:
+
+- Insight ID: {insight_id}
+- Insight short ID: {insight_short_id}
+- Insight name: {insight_name}
+
+<system_reminder>
+When the user asks to create an alert for this insight, use the insight ID above as the `insight_id` parameter. Do not ask the user for the insight ID. Use the insight name to generate a descriptive alert name if the user does not specify one.
+</system_reminder>
+""".strip()
+
 UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     Use this tool to create or edit alerts that monitor insight metrics and notify users when conditions are met.
 
@@ -153,6 +165,7 @@ class UpsertAlertTool(MaxTool):
     name: str = "upsert_alert"
     description: str = UPSERT_ALERT_TOOL_DESCRIPTION
     args_schema: type[BaseModel] = UpsertAlertToolArgs
+    context_prompt_template: str = UPSERT_ALERT_CONTEXT_PROMPT_TEMPLATE
 
     def get_required_resource_access(self):
         return [("alert", "editor")]
