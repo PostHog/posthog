@@ -7,6 +7,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+ * @nullable
+ */
+export type EndpointRequestApiBucketOverrides = { [key: string]: string } | null | null
+
 export interface DateRangeApi {
     /** @nullable */
     date_from?: string | null
@@ -3396,6 +3402,11 @@ export const DataWarehouseSyncIntervalApi = {
 } as const
 
 export interface EndpointRequestApi {
+    /**
+     * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+     * @nullable
+     */
+    bucket_overrides?: EndpointRequestApiBucketOverrides
     /** @nullable */
     cache_age_seconds?: number | null
     /** @nullable */

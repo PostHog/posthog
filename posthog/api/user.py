@@ -287,21 +287,19 @@ class UserSerializer(serializers.ModelSerializer):
 
             expected_type = Notifications.__annotations__[key]
 
-            if key == "project_weekly_digest_disabled":
+            if key in ("project_weekly_digest_disabled", "error_tracking_weekly_digest_project_enabled"):
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
-                        f"project_weekly_digest_disabled must be a dictionary mapping project IDs to boolean values",
+                        f"{key} must be a dictionary mapping project IDs to boolean values",
                         code="invalid_input",
                     )
-                # Validate each project setting is a boolean
                 for _, disabled in value.items():
                     if not isinstance(disabled, bool):
                         raise serializers.ValidationError(
                             f"Project notification setting values must be boolean, got {type(disabled)} instead",
                             code="invalid_input",
                         )
-                # Merge with existing settings
-                current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+                current_settings[key] = {**current_settings.get(key, {}), **value}
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
